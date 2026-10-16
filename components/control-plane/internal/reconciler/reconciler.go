@@ -325,26 +325,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
-			// Purge the gateway's provider-credential KV path from the per-cluster
-			// Vault before its ServiceAccount is removed by the Helm uninstall inside
-			// DeleteGatewayResources. The control plane authenticates as the gateway's
-			// own identity (the templated policy scopes it to its own namespace), never
-			// as a Vault administrator. Best-effort: on failure record a durable
-			// VaultCredentialPath orphan for operator recovery, since once the
-			// ServiceAccount is gone the purge is not inline-recoverable. See
-			// openshell-gateway-credentials.spec.md (Provider Credential Revocation).
-			credDriverJSON := ""
-			if gw.CredentialDriver != nil {
-				credDriverJSON = *gw.CredentialDriver
-			}
-			if gateway.IsVaultBacked(credDriverJSON) {
-				if err := gateway.PurgeVaultCredentials(ctx, r.clientset, namespace, credDriverJSON); err != nil {
-					log.Printf("WARN gateway %s: vault KV purge failed for %s (orphaned): %v", event.ResourceID, namespace, err)
-					opts.RecordOrphan(ctx, "VaultCredentialPath", namespace,
-						fmt.Sprintf("provider-credential Vault KV path could not be purged during gateway deletion; secrets may remain under secret/data/openshell/%s and require manual removal: %v", namespace, err))
-				}
-			}
-
+			// Vault-backed provider credentials are NOT enumerate-and-purged on gateway
+			// delete: the OpenShell runtime stores them at the flat, hash-addressed
+			// secret/data/openshell/provider-credentials/ prefix (the gateway identity is
+			// granted no list, the paths are unguessable, and the naming handles live only
+			// in the gateway database, which is dropped below). Any entries the runtime did
+			// not delete during normal operation remain inert, unreachable dead storage,
+			// not exposed secret material. See openshell-gateway-credentials.spec.md
+			// (Provider Credential Lifecycle on Deletion).
 			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {

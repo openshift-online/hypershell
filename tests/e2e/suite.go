@@ -252,7 +252,7 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
+	if s.gcTimingLease != nil && (!s.T().Failed() || s.driver.Name() != "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
 			s.T().Errorf("restore namespace GC timing: %v", err)
 		}

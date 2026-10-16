@@ -22,27 +22,28 @@ import (
 )
 
 // Vault credential-driver end-to-end coverage (HYPERSHELL-369). These scenarios run
-// against the stand-in HashiCorp Vault that scripts/kind/vault.sh stands up in the Kind
-// environment, configured to the GitOps Contract (KV v2 at secret, kubernetes auth, the
-// openshell-gateway role + namespace-templated policy, serving CA). They prove the
-// cloud-agnostic driver path that is identical on every cloud; the cloud-specific seal,
-// storage, and identity are validated per cluster in the gitops repo, not here.
+// against the stand-in HashiCorp Vault that scripts/cluster/vault.sh stands up in both the
+// Kind and OpenShift environments, configured to the GitOps Contract (KV v2 at secret,
+// kubernetes auth, the openshell-gateway role + capability-scoped policy, serving CA). They
+// prove the cloud-agnostic driver path that is identical on every cloud; the cloud-specific
+// seal, storage, and identity are validated per cluster in the gitops repo, not here.
 //
-// The flat-vault-default happy path (a gateway provisions vault-backed, the serving CA
-// is mirrored, no KEK) is asserted in the short suite by p1_2InfraVerification. This
-// deeper, tagLong phase adds the three spec scenarios: round-trip, namespace isolation,
-// and fail-closed. See specs/platform/openshell-gateway-credentials.spec.md
-// (Requirement: End-to-End Vault Coverage in CI).
+// The flat-vault-default happy path (a gateway provisions vault-backed, the serving CA is
+// mirrored, no KEK) is asserted in the short suite by p1_2InfraVerification, and the real
+// gateway-process resolve at provider-credentials/* is exercised by the sandbox lifecycle
+// phases. This deeper, tagLong phase adds the Vault-specific spec scenarios: round-trip at
+// the real path, the capability boundary (no list, no reach outside the prefix), and
+// fail-closed. See specs/platform/openshell-gateway-credentials.spec.md (Requirement:
+// End-to-End Vault Coverage in CI).
 const (
 	vaultNamespace     = "openshell-vault"
 	vaultPodLabel      = "app=openshell-gateway-vault"
 	vaultK8sRole       = "openshell-gateway"
 	vaultGatewaySAName = "openshell-gateway"
 	vaultTokenAudience = "vault"
-	// Read-only verifier identity (scripts/cluster/vault.sh) the suite uses to assert Vault
-	// state without root (e.g. that a deleted gateway's KV path was purged).
-	vaultVerifierRole   = "e2e-verifier"
-	vaultVerifierSAName = "e2e-verifier"
+	// providerCredsPrefix is the flat, hash-addressed KV prefix the OpenShell gateway runtime
+	// uses for every provider credential; the gateway policy is capability-scoped to it.
+	providerCredsPrefix = "secret/openshell/provider-credentials"
 )
 
 // vaultPod resolves the stand-in Vault pod name by label (scripts/cluster/vault.sh runs it
@@ -82,56 +83,45 @@ func (s *E2ESuite) p2_7VaultCredentialCoverage(t *testing.T) {
 	nsA := s.primary.Namespace
 	s.Require().NotEmpty(nsA, "primary gateway namespace")
 
-	// Scenario 1: a Vault-backed gateway stores and reads a provider secret.
-	// Driven as the gateway's own identity (the openshell-gateway SA minted with the
-	// vault audience) because the product's provider-credential API is not exercised by
-	// the suite; this proves the exact mechanism the gateway uses: kubernetes-auth login
-	// under the openshell-gateway role, then write/read/list under its namespace path.
+	// Scenario 1: a Vault-backed gateway stores and reads a provider secret at the exact
+	// flat, hash-addressed prefix the OpenShell runtime uses. Driven as the gateway's own
+	// identity (the openshell-gateway SA minted with the vault audience) because the
+	// product's provider-credential API is not exercised by the suite; this proves the
+	// exact mechanism the gateway uses: kubernetes-auth login under the openshell-gateway
+	// role, then create/read under provider-credentials/*. A unique key is used (and then
+	// deleted best-effort) so it never collides with a real runtime entry in the shared
+	// folder; there is no list, so leftovers would be inert anyway.
 	s.ensureGatewaySA(ctx, t, nsA)
 	tokA := s.mintVaultToken(ctx, t, nsA, vaultGatewaySAName)
+	rtKey := providerCredsPrefix + "/e2e-roundtrip-" + s.runID
 	out, err := s.vaultAsGateway(ctx, tokA, fmt.Sprintf(`
-vault kv put secret/openshell/%[1]s/e2e-roundtrip value=hs369-roundtrip >/dev/null || { echo WRITE_FAILED; exit 1; }
-GOT=$(vault kv get -field=value secret/openshell/%[1]s/e2e-roundtrip) || { echo READ_FAILED; exit 1; }
-vault kv list secret/openshell/%[1]s >/dev/null || { echo LIST_FAILED; exit 1; }
+vault kv put %[1]s value=hs369-roundtrip >/dev/null || { echo WRITE_FAILED; exit 1; }
+GOT=$(vault kv get -field=value %[1]s) || { echo READ_FAILED; exit 1; }
+vault kv metadata delete %[1]s >/dev/null 2>&1 || true
 echo "ROUNDTRIP=$GOT"
-`, nsA))
+`, rtKey))
 	s.Require().NoErrorf(err, "scenario 1 round-trip exec: %s", out)
-	s.Assert().Containsf(out, "ROUNDTRIP=hs369-roundtrip", "provider secret round-trips under secret/data/openshell/%s/* (out: %s)", nsA, out)
+	s.Assert().Containsf(out, "ROUNDTRIP=hs369-roundtrip", "provider secret round-trips under %s/* (out: %s)", providerCredsPrefix, out)
 
-	// Scenario 2: namespace isolation holds between two gateway identities. A second
-	// tenant namespace with its own openshell-gateway SA (the role binds that SA name in
-	// any namespace) must reach only its own path and be denied the first's, and vice
-	// versa.
-	nsB := "vault-e2e-tenant-b-" + s.runID
-	s.ensureGatewaySA(ctx, t, nsB)
-	defer func() {
-		_ = s.clients.Kube.CoreV1().Namespaces().Delete(context.Background(), nsB, metav1.DeleteOptions{})
-	}()
-	tokB := s.mintVaultToken(ctx, t, nsB, vaultGatewaySAName)
-	outB, err := s.vaultAsGateway(ctx, tokB, fmt.Sprintf(`
-vault kv put secret/openshell/%[1]s/own value=b-ok >/dev/null || { echo B_OWN_WRITE_FAILED; exit 1; }
-if vault kv get secret/openshell/%[2]s/e2e-roundtrip 2>&1 | grep -qiE "permission denied|403"; then echo B_DENIED_A; else echo B_REACHED_A; fi
-`, nsB, nsA))
-	s.Require().NoErrorf(err, "scenario 2 isolation exec (B): %s", outB)
-	s.Assert().Containsf(outB, "B_DENIED_A", "gateway B must be denied gateway A's path (out: %s)", outB)
-	s.Assert().NotContains(outB, "B_OWN_WRITE_FAILED", "gateway B must reach its own path")
-
-	outA, err := s.vaultAsGateway(ctx, tokA, fmt.Sprintf(`
-if vault kv get secret/openshell/%[1]s/own 2>&1 | grep -qiE "permission denied|403"; then echo A_DENIED_B; else echo A_REACHED_B; fi
-`, nsB))
-	s.Require().NoErrorf(err, "scenario 2 isolation exec (A): %s", outA)
-	s.Assert().Containsf(outA, "A_DENIED_B", "gateway A must be denied gateway B's path (out: %s)", outA)
+	// Scenario 2: the capability boundary holds. As the gateway's own identity: (a) a LIST
+	// on the provider-credentials folder is denied (no list capability, so one gateway can
+	// neither enumerate nor discover another's entries), and (b) any read/write outside the
+	// provider-credentials/ prefix is denied (the policy grants nothing there).
+	outCap, err := s.vaultAsGateway(ctx, tokA, fmt.Sprintf(`
+if vault kv list %[1]s 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
+if vault kv put secret/openshell/not-allowed/x value=nope 2>&1 | grep -qiE "permission denied|403"; then echo OUTSIDE_WRITE_DENIED; else echo OUTSIDE_WRITE_ALLOWED; fi
+if vault kv get secret/openshell/not-allowed/x 2>&1 | grep -qiE "permission denied|403"; then echo OUTSIDE_READ_DENIED; else echo OUTSIDE_READ_ALLOWED; fi
+`, providerCredsPrefix))
+	s.Require().NoErrorf(err, "scenario 2 capability exec: %s", outCap)
+	s.Assert().Containsf(outCap, "LIST_DENIED", "gateway must be denied LIST on the provider-credentials folder (out: %s)", outCap)
+	s.Assert().Containsf(outCap, "OUTSIDE_WRITE_DENIED", "gateway must be denied writes outside provider-credentials/ (out: %s)", outCap)
+	s.Assert().Containsf(outCap, "OUTSIDE_READ_DENIED", "gateway must be denied reads outside provider-credentials/ (out: %s)", outCap)
 
 	// Scenario 3: fail-closed is observable when Vault is unavailable. Provision a
 	// gateway whose credential driver points at an unreachable Vault address and assert
 	// the pre-deploy reachability probe fails EnvironmentReady with a Vault-named reason,
 	// and the gateway never reports Running.
 	s.vaultFailClosedScenario(ctx, t)
-
-	// Scenario 4: provider-secret purge on gateway delete. Prod runs this on every delete,
-	// so cover it end to end: a dedicated gateway (the primary is left untouched), a secret
-	// written under its namespace path, then delete and verify the path is purged.
-	s.vaultPurgeScenario(ctx, t)
 }
 
 // ensureGatewaySA makes sure an openshell-gateway ServiceAccount exists in namespace
@@ -172,7 +162,12 @@ func (s *E2ESuite) vaultAsGateway(ctx context.Context, token, script string) (st
 // vaultAsRole runs a shell script inside the Vault pod authenticated under the given
 // kubernetes-auth role. The token (a vault-audience SA token) is passed on stdin.
 func (s *E2ESuite) vaultAsRole(ctx context.Context, token, role, script string) (string, error) {
-	wrapper := `read -r JWT
+	// The stand-in Vault serves TLS with a DNS-only SAN; the in-pod CLI reaches it over
+	// the loopback listener, so point VAULT_ADDR at 127.0.0.1 and skip verification for the
+	// exec (matches scripts/cluster/vault.sh; prod TLS trust is covered by the control-plane
+	// reachability/authn probes, not this test harness).
+	wrapper := `export VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true
+read -r JWT
 CT=$(vault write -field=token auth/kubernetes/login role=` + role + ` jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
 export VAULT_TOKEN="$CT"
 ` + script
@@ -261,60 +256,4 @@ func conditionText(cond map[string]any) string {
 func mentionsVault(text string) bool {
 	l := strings.ToLower(text)
 	return strings.Contains(l, "vault") || strings.Contains(l, "reach") || strings.Contains(l, "unreachable")
-}
-
-// vaultVerifierToken ensures the read-only e2e-verifier ServiceAccount exists and returns a
-// vault-audience token for it (used to assert Vault state without root).
-func (s *E2ESuite) vaultVerifierToken(ctx context.Context, t *testing.T) string {
-	_, err := s.clients.Kube.CoreV1().ServiceAccounts(vaultNamespace).Create(ctx,
-		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: vaultVerifierSAName, Namespace: vaultNamespace}}, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		s.Require().NoErrorf(err, "create verifier ServiceAccount %s/%s", vaultNamespace, vaultVerifierSAName)
-	}
-	return s.mintVaultToken(ctx, t, vaultNamespace, vaultVerifierSAName)
-}
-
-// vaultPurgeScenario provisions a dedicated vault-backed gateway, writes a provider secret
-// under its namespace path, deletes the gateway, and verifies the control plane purged the
-// KV path (W3). The primary gateway is left untouched.
-func (s *E2ESuite) vaultPurgeScenario(ctx context.Context, t *testing.T) {
-	created := s.createGateway(t, "e2e-vault-purge-"+s.runID)
-	s.trackGateway(created.ID)
-	running := s.waitGatewayRunning(t, created.ID)
-	gwNS := running.Namespace
-	s.Require().NotEmpty(gwNS, "purge gateway namespace")
-
-	// Write a provider secret under the gateway's own namespace path, as its identity.
-	s.ensureGatewaySA(ctx, t, gwNS)
-	gwTok := s.mintVaultToken(ctx, t, gwNS, vaultGatewaySAName)
-	out, err := s.vaultAsGateway(ctx, gwTok, fmt.Sprintf(
-		"vault kv put secret/openshell/%s/purge-probe value=to-be-purged >/dev/null && echo WROTE", gwNS))
-	s.Require().NoErrorf(err, "purge: write probe secret: %s", out)
-	s.Require().Containsf(out, "WROTE", "purge: wrote probe secret (out: %s)", out)
-
-	// As the read-only verifier, confirm the secret is present before delete.
-	verTok := s.vaultVerifierToken(ctx, t)
-	vout, err := s.vaultAsRole(ctx, verTok, vaultVerifierRole, fmt.Sprintf(
-		"vault kv get secret/openshell/%s/purge-probe >/dev/null 2>&1 && echo PRESENT || echo ABSENT", gwNS))
-	s.Require().NoErrorf(err, "purge: pre-delete verify: %s", vout)
-	s.Require().Containsf(vout, "PRESENT", "purge: probe secret present before delete (out: %s)", vout)
-
-	// Delete the gateway; the control plane purges its KV path before removing the SA/ns.
-	err = s.admin.Gateways().Delete(ctx, created.ID)
-	s.Require().NoError(err, "purge: delete gateway")
-
-	// Poll until the namespace path is purged (the probe key is gone).
-	timeout := durationSecondsEnv("E2E_VAULT_PURGE_TIMEOUT", 180*time.Second)
-	var last string
-	perr := harness.Poll(ctx, 5*time.Second, timeout, func(pctx context.Context) (bool, error) {
-		o, e := s.vaultAsRole(pctx, verTok, vaultVerifierRole, fmt.Sprintf(
-			"vault kv list secret/openshell/%s 2>&1 || true", gwNS))
-		if e != nil {
-			return false, nil
-		}
-		last = o
-		return !strings.Contains(o, "purge-probe"), nil
-	})
-	s.Require().NoErrorf(perr, "purge: KV path secret/openshell/%s not purged after delete (last list: %s)", gwNS, last)
-	t.Logf("purge: gateway %s deleted and its Vault KV path purged", created.ID)
 }

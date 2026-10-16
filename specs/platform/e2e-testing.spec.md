@@ -215,7 +215,7 @@ convention address, configured to the GitOps Contract - so the suite exercises t
 production credential path. The setup SHALL be idempotent (safe to re-run against an
 already-initialized Vault, so it holds on a shared cluster across pull-request
 environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
-pod UID/fsGroup). The detailed coverage (round-trip, namespace isolation, fail-closed)
+pod UID/fsGroup). The detailed coverage (round-trip, the capability boundary, fail-closed)
 lives in `openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage
 in CI).
 

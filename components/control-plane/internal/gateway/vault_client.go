@@ -88,47 +88,9 @@ func (c *vaultClient) health(ctx context.Context) error {
 	return nil
 }
 
-// listKeys lists the immediate keys under a KV v2 metadata path (mount/metadata/path).
-// A 404 (empty path) returns an empty slice, not an error.
-func (c *vaultClient) listKeys(ctx context.Context, token, mount, path string) ([]string, error) {
-	url := fmt.Sprintf("%s/v1/%s/metadata/%s?list=true", c.address, strings.Trim(mount, "/"), strings.Trim(path, "/"))
-	code, body, err := c.do(ctx, http.MethodGet, url, token, nil)
-	if err != nil {
-		return nil, fmt.Errorf("vault list request: %w", err)
-	}
-	if code == http.StatusNotFound {
-		return nil, nil
-	}
-	if code != http.StatusOK {
-		return nil, fmt.Errorf("vault list failed (HTTP %d)", code)
-	}
-	var out struct {
-		Data struct {
-			Keys []string `json:"keys"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("vault list decode: %w", err)
-	}
-	return out.Data.Keys, nil
-}
-
-// deleteMetadata removes a KV v2 secret and ALL its versions+metadata.
-func (c *vaultClient) deleteMetadata(ctx context.Context, token, mount, path string) error {
-	url := fmt.Sprintf("%s/v1/%s/metadata/%s", c.address, strings.Trim(mount, "/"), strings.Trim(path, "/"))
-	code, _, err := c.do(ctx, http.MethodDelete, url, token, nil)
-	if err != nil {
-		return fmt.Errorf("vault delete request: %w", err)
-	}
-	if code != http.StatusNoContent && code != http.StatusOK && code != http.StatusNotFound {
-		return fmt.Errorf("vault delete failed (HTTP %d)", code)
-	}
-	return nil
-}
-
 // do issues an HTTP request and returns the status code and a size-capped body. The
 // Vault token header is set only when token is non-empty. Response bodies never carry
-// a provider secret value for these operations (login auth, metadata list/delete).
+// a provider secret value for these operations (login auth, health).
 func (c *vaultClient) do(ctx context.Context, method, url, token string, payload []byte) (int, []byte, error) {
 	var rdr io.Reader
 	if payload != nil {

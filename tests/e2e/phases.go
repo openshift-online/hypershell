@@ -779,7 +779,6 @@ func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.Deployme
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	ctx := t.Context()
 
-	privilegedAPI := s.admin
 	privilegedLabel := "platform-admin"
 	// The primary gateway's creator owns it. Its owner binding authorizes PATCH,
 	// while platform:admin is intentionally inventory-only for gateway mutation.
@@ -787,7 +786,7 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	unprivilegedLabel := "developer"
 	unprivilegedAPI := s.apiClientForCreds(t, s.devCreds())
 	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
-	privilegedAPI = s.apiClientForCreds(t, s.platformAdminCreds())
+	privilegedAPI := s.apiClientForCreds(t, s.platformAdminCreds())
 
 	s.runner.Show("GET /users  # as %s, expect 403", unprivilegedLabel)
 	st, body, err := unprivilegedAPI.RawJSON(ctx, http.MethodGet, "/users", nil)

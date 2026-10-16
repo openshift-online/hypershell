@@ -5,7 +5,7 @@
 # work end-to-end in CI/dev.
 #
 # It mirrors what hypershell-gitops deploys per cluster (same HashiCorp Vault image, KV v2
-# at `secret`, kubernetes auth, the `openshell-gateway` role and the namespace-templated
+# at `secret`, kubernetes auth, the `openshell-gateway` role and the capability-scoped
 # policy, a serving CA in Secret openshell-gateway-vault-tls), MINUS the production
 # unseal/storage plumbing (Secrets Manager / ESO / KMS / managed Postgres): a throwaway
 # Vault uses file storage + a scripted init+unseal. Not for production.
@@ -220,7 +220,7 @@ vkube create secret generic "${VAULT_UNSEAL_SECRET}" -n "${VAULT_NS}" \
   --from-literal=unseal-key="${UNSEAL_KEY}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
 vx vault operator unseal "${UNSEAL_KEY}" >/dev/null
 
-info "Configuring KV v2, kubernetes auth, role and templated policy..."
+info "Configuring KV v2, kubernetes auth, role and capability-scoped policy..."
 vxt "${ROOT_TOKEN}" vault secrets enable -path=secret -version=2 kv >/dev/null 2>&1 || true
 vxt "${ROOT_TOKEN}" vault auth enable kubernetes >/dev/null 2>&1 || true
 vxt "${ROOT_TOKEN}" sh -c 'vault write auth/kubernetes/config \
@@ -228,41 +228,26 @@ vxt "${ROOT_TOKEN}" sh -c 'vault write auth/kubernetes/config \
   kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
   token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token'
 
-# Namespace-templated policy: each gateway reaches only its own namespace path. Grant
-# list on the namespace parent too, so the control plane can enumerate it for
-# purge-on-delete (openshell-gateway-credentials.spec.md GitOps Contract).
-ACCESSOR="$(vxt "${ROOT_TOKEN}" vault auth list | awk '$1=="kubernetes/"{print $3}')"
-[ -n "${ACCESSOR}" ] || { error "could not resolve kubernetes auth accessor"; exit 1; }
+# Capability-model policy: the OpenShell gateway runtime stores every provider credential
+# at the flat, hash-addressed path secret/data/openshell/provider-credentials/<sha> (the
+# <sha> is a SHA-256 seeded by a random provider UUID, so it is unguessable). The gateway
+# reaches a secret only by the opaque handle it already holds in its own DB; NO list is
+# granted, so one gateway can neither enumerate nor guess another's path. That capability
+# boundary, on top of the per-cluster Vault, is the isolation unit. See
+# openshell-gateway-credentials.spec.md (Provider Credential Isolation).
 printf '%s\n' \
-  "path \"secret/data/openshell/{{identity.entity.aliases.${ACCESSOR}.metadata.service_account_namespace}}/*\" {" \
-  "  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]" \
-  "}" \
-  "path \"secret/metadata/openshell/{{identity.entity.aliases.${ACCESSOR}.metadata.service_account_namespace}}/*\" {" \
-  "  capabilities = [\"read\", \"list\", \"delete\"]" \
-  "}" \
-  "path \"secret/metadata/openshell/{{identity.entity.aliases.${ACCESSOR}.metadata.service_account_namespace}}\" {" \
-  "  capabilities = [\"list\"]" \
-  "}" | vxti "${ROOT_TOKEN}" vault policy write openshell-gateway-provider -
+  'path "secret/data/openshell/provider-credentials/*" {' \
+  '  capabilities = ["create", "read", "update", "delete"]' \
+  '}' \
+  'path "secret/metadata/openshell/provider-credentials/*" {' \
+  '  capabilities = ["read", "delete"]' \
+  '}' | vxti "${ROOT_TOKEN}" vault policy write openshell-gateway-provider -
 
 vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
   bound_service_account_names="openshell-gateway" \
   bound_service_account_namespaces='*' \
   audience=vault \
   token_policies="openshell-gateway-provider" \
-  token_ttl=3600 >/dev/null
-
-# e2e-only read-only verifier identity, so the suite can assert Vault state (e.g. that a
-# deleted gateway's KV path was purged) WITHOUT root - root is still revoked below, as in
-# production. Scoped to read/list the openshell tree across namespaces (an operator view).
-printf '%s\n' \
-  'path "secret/data/openshell/*" { capabilities = ["read", "list"] }' \
-  'path "secret/metadata/openshell/*" { capabilities = ["read", "list"] }' \
-  | vxti "${ROOT_TOKEN}" vault policy write e2e-verifier -
-vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/e2e-verifier" \
-  bound_service_account_names="e2e-verifier" \
-  bound_service_account_namespaces='*' \
-  audience=vault \
-  token_policies="e2e-verifier" \
   token_ttl=3600 >/dev/null
 
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.

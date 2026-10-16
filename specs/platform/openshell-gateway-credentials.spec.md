@@ -30,10 +30,24 @@ the Kubernetes Secrets driver (`kubernetes-secrets`).
 The control plane never holds a provider secret value and never administers Vault. Only
 the gateway's own process reads and writes KV secrets, authenticating to Vault with its
 ServiceAccount; the control plane only ever acts **as the gateway's own identity** (for
-the fail-closed reachability probe and for KV cleanup on deletion), never as a Vault
-administrator. Per-gateway isolation is enforced by a single namespace-**templated**
-Vault policy that resolves each caller's own cryptographically-verified namespace at
-login, so one gateway can never read another's secrets.
+the fail-closed reachability probe), never as a Vault administrator.
+
+**Isolation is layered, and each layer is enforced where it can be.** The OpenShell
+gateway runtime stores every provider credential at a single, flat, hash-addressed KV
+path, `secret/data/openshell/provider-credentials/<hash>`, where `<hash>` is a SHA-256
+seeded by a random per-provider UUID (so it is unguessable), and it reaches a secret only
+by the opaque handle it already holds in its own database. A gateway is therefore granted
+`create/read/update/delete` on that one path prefix with **no `list`** capability: it can
+reach a secret only by a handle it possesses, and can neither enumerate nor guess another
+gateway's path. That unguessable-handle capability model, on top of the per-cluster Vault
+boundary (each cluster runs its own Vault), is what isolates one gateway from another and
+one cluster from another. **Sandbox-to-sandbox** isolation within a single gateway is a
+different layer and is **not** a Vault-ACL concern: sandboxes never authenticate to Vault
+(only the gateway process does, as the single Vault client), so that boundary is enforced
+by the OpenShell gateway's own workspace authorization, which binds each credential's path
+to its owning workspace (the workspace is an input to the path hash) and rejects any
+resolve whose requesting workspace does not match the handle's path. See the Provider
+Credential Isolation requirement.
 
 Credential rotation (KEK re-encryption, DB password rotation) is out of scope and is
 addressed in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
@@ -463,49 +477,77 @@ resolved driver is `kek-db`.
 
 ---
 
-### Requirement: Provider Credential Revocation on Deletion
+### Requirement: Provider Credential Isolation
 
-When a Vault-backed Gateway is deleted, the control plane SHALL remove every provider
-secret stored under that gateway's Vault KV path
-(`secret/data/openshell/<tenant-namespace>/*` and the corresponding metadata), as part of
-the teardown reconcile. The control plane SHALL act as the gateway's own identity (the
-templated policy scopes that identity to its own namespace path), never as a Vault
-administrator, and SHALL perform the purge before the gateway ServiceAccount and
-namespace are removed, so the identity it authenticates with still exists.
+The OpenShell gateway runtime stores every provider credential at the flat, hash-addressed
+KV path `secret/data/openshell/provider-credentials/<hash>` (with its KV v2 metadata under
+`secret/metadata/openshell/provider-credentials/<hash>`), where `<hash>` is a SHA-256 over
+the owning workspace, a random per-provider UUID, and the credential coordinates. The path
+prefix is fixed by the runtime; it is not per-namespace and is not configurable through
+`gateway.toml`.
 
-The purge enumerates the namespace path (a Vault `LIST` on
-`secret/metadata/openshell/<tenant-namespace>`) and deletes each secret's metadata, so
-the templated policy MUST grant the gateway identity `list` on its own namespace path
-(see the GitOps Contract), not only on the child entries.
+The shared Vault policy `openshell-gateway-provider` SHALL therefore grant the gateway
+identity exactly `create`, `read`, `update`, and `delete` on
+`secret/data/openshell/provider-credentials/*`, and `read` and `delete` on
+`secret/metadata/openshell/provider-credentials/*`. It SHALL NOT grant `list` on either
+path. This is a capability model: a gateway can reach a secret only by the exact
+(unguessable) path it already holds a handle for, and because no `list` is granted it can
+neither enumerate the shared folder nor discover another gateway's entries; the random
+per-provider UUID in the hash makes the path computationally unguessable. That capability
+boundary, combined with the per-cluster Vault (each cluster runs its own), is the unit of
+gateway-to-gateway and cluster-to-cluster isolation.
 
-This is an out-of-namespace owned-resource class: the namespace cascade does not reach
-Vault. The purge is **best-effort**: it runs once, before the gateway ServiceAccount is
-removed by teardown, and if it cannot complete (Vault unreachable, or the identity
-already gone) the control plane SHALL record a durable, operator-visible
-`VaultCredentialPath` orphan signal naming the tenant namespace and reason (never a
-secret value) and SHALL NOT block the rest of teardown - because once the ServiceAccount
-is gone the purge is not inline-recoverable, so the orphan signal is the operator
-recovery path, consistent with the no-silent-orphan contract in
-[`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md).
+**Sandbox-to-sandbox isolation within one gateway is a separate layer and is not enforced
+by Vault.** Sandboxes never authenticate to Vault; the gateway process is the single Vault
+client and brokers every credential on a sandbox's behalf. The OpenShell gateway binds each
+credential's path to its owning workspace (the workspace is an input to the path hash) and,
+on every resolve, recomputes the expected path from the **requesting** workspace and rejects
+any handle whose path does not match. A sandbox in one workspace therefore cannot cause the
+gateway to resolve another workspace's credential. This authorization is OpenShell's and is
+covered by upstream unit tests; HyperShell's contribution is the capability-scoped Vault
+policy that backs it (a gateway cannot reach a path it was never handed, even if the
+application layer were bypassed).
 
-There is no audit-retention exception: if an audit trail is required, it comes from
-Vault's own audit log (which records that an access happened, never the value), not from
-leaving live secret material for a deleted tenant.
+#### Scenario: Gateway policy is capability-scoped with no list
 
-#### Scenario: KV path purged on deletion
+- GIVEN the shared `openshell-gateway-provider` Vault policy
+- THEN it SHALL grant `create`, `read`, `update`, `delete` on `secret/data/openshell/provider-credentials/*`
+- AND `read`, `delete` on `secret/metadata/openshell/provider-credentials/*`
+- AND it SHALL NOT grant `list` on either path, nor any capability outside the `provider-credentials/` prefix
 
-- GIVEN a Vault-backed Gateway with provider secrets under `secret/data/openshell/<ns>/*`
+---
+
+### Requirement: Provider Credential Lifecycle on Deletion
+
+A provider credential's live-value lifecycle is owned by the OpenShell gateway runtime:
+the gateway deletes a credential's KV entry (by the handle it holds) when the provider or
+credential is removed during normal operation. The gateway's own policy grants the `delete`
+needed for this.
+
+When a whole Vault-backed Gateway is deleted, the control plane removes the gateway's
+namespace, ServiceAccount and database. It does **not** attempt to enumerate-and-purge the
+gateway's provider-credential entries from Vault, because it cannot: the entries live under
+the flat, hash-addressed `provider-credentials/` prefix (not a per-namespace path), the
+gateway identity is granted no `list`, and the opaque handles that name the entries exist
+only in the gateway's own database, which is dropped as part of teardown. Any entries the
+gateway did not delete before teardown therefore remain in the per-cluster Vault, but they
+are **inert**: no handle references them any longer, they cannot be listed, and their paths
+are computationally unguessable, so they are unreachable dead storage rather than exposed
+secret material. Reclaiming that storage is a hygiene concern (a future OpenShell
+workspace-level purge), not a secret-exposure or isolation concern, and the control plane
+SHALL NOT record an orphan signal for it, since it is the expected steady-state outcome of
+deleting a gateway rather than an exceptional unreclaimed resource.
+
+There is no audit-retention exception: if an audit trail is required, it comes from Vault's
+own audit log (which records that an access happened, never the value).
+
+#### Scenario: Gateway delete leaves no reachable provider secret
+
+- GIVEN a Vault-backed Gateway whose runtime stored provider credentials under `secret/data/openshell/provider-credentials/*`
 - WHEN the Gateway is deleted
-- THEN the control plane SHALL delete all secrets and metadata under that path before removing the namespace
-- AND it SHALL authenticate as the gateway's own identity, not as a Vault administrator
-
-#### Scenario: Purge cannot complete inline
-
-- GIVEN a Vault-backed Gateway delete whose Vault is unreachable
-- WHEN the control plane attempts the KV purge
-- THEN it SHALL return a retryable error so the delete is retried
-- AND it SHALL record a durable `VaultCredentialPath` orphan signal naming the tenant namespace and reason
-- AND the signal SHALL contain no secret value
+- THEN the control plane SHALL remove the gateway namespace, ServiceAccount and database
+- AND it SHALL NOT attempt an enumerate-and-purge of the `provider-credentials/` prefix, nor record a `VaultCredentialPath` orphan for it
+- AND any remaining entries SHALL be inert (un-referenced, un-listable, and at computationally-unguessable paths)
 
 ---
 
@@ -567,32 +609,38 @@ Vault per cluster in namespace `openshell-vault` at the convention address
 `openshell-gateway-vault.openshell-vault.svc:8200` - the per-cluster production shape, so
 the control plane uses the convention with no address override - configured to the GitOps
 Contract below (KV v2 at `secret`, Kubernetes auth, the `openshell-gateway` role and the
-namespace-templated policy, a serving CA). The stand-in differs from production only in the
+capability-scoped policy, a serving CA). The stand-in differs from production only in the
 seal/storage plumbing (file storage + a scripted, idempotent init+unseal, not KMS/Shamir +
 managed Postgres), and its setup is idempotent so it is safe as a shared fixture. A
 Vault-backed gateway can therefore authenticate and store secrets exactly as on a real
 cluster. See [`e2e-testing.spec.md`](./e2e-testing.spec.md).
 
+The strongest end-to-end proof is **the suite's own sandbox lifecycle**: creating a sandbox
+drives the real OpenShell gateway process to resolve a provider credential from Vault at
+`secret/data/openshell/provider-credentials/*`, so if the capability-scoped policy did not
+grant that path the sandbox would never reach Running. The Vault-specific scenarios below
+additionally assert the capability boundary directly.
+
 #### Scenario: Vault-backed gateway stores and reads a provider secret
 
-- GIVEN the Kind e2e environment with a Vault stood up to the GitOps Contract
+- GIVEN the e2e environment with a Vault stood up to the GitOps Contract
 - AND a gateway provisioned with `credential_driver.type` = `vault`
-- WHEN the suite stores a provider credential through the gateway and reads it back
-- THEN the value SHALL round-trip, and it SHALL be stored under
-  `secret/data/openshell/<tenant-namespace>/*` in Vault
+- WHEN the suite, acting as the gateway's own Vault identity, writes and reads a secret under
+  `secret/data/openshell/provider-credentials/*`
+- THEN the value SHALL round-trip
 
-  The suite MAY drive this as the gateway's own Vault identity (a `vault`-audience
-  ServiceAccount token under the `openshell-gateway` role and templated policy) rather than
-  through the product's provider-credential API, since that is the exact mechanism the
-  gateway uses to reach its namespace path; the assertion is the round-trip under the
-  tenant path, and that listing the tenant path (the purge enumeration) succeeds.
+  The suite drives this as the gateway's own Vault identity (a `vault`-audience ServiceAccount
+  token under the `openshell-gateway` role and the shared policy) at the exact path prefix the
+  gateway runtime uses, since the product's provider-credential storage API is not driven by
+  the suite.
 
-#### Scenario: Namespace isolation holds between two gateways
+#### Scenario: Capability boundary holds (no list, no reach outside the prefix)
 
-- GIVEN two Vault-backed gateways in different tenant namespaces
-- WHEN each authenticates to Vault as its own identity
-- THEN each SHALL reach only its own `secret/data/openshell/<its-namespace>/*` path
-- AND SHALL be denied any other gateway's path
+- GIVEN a gateway authenticated to Vault as its own identity
+- WHEN it attempts to `list` `secret/metadata/openshell/provider-credentials`
+- THEN it SHALL be denied, so it cannot enumerate another gateway's entries
+- AND WHEN it attempts to read or write a path outside `secret/data/openshell/provider-credentials/*`
+- THEN it SHALL be denied
 
 #### Scenario: Fail-closed is observable when Vault is unavailable
 
@@ -602,23 +650,14 @@ cluster. See [`e2e-testing.spec.md`](./e2e-testing.spec.md).
   Vault-named reason / the gateway reports `Degraded`), never a gateway that reports
   healthy while unable to reach Vault
 
-#### Scenario: Provider secret is purged on gateway delete
-
-- GIVEN a Vault-backed gateway that has stored a provider secret under
-  `secret/data/openshell/<its-namespace>/*`
-- WHEN the gateway is deleted
-- THEN the control plane SHALL purge that namespace path from Vault before removing the
-  gateway's ServiceAccount
-- AND a read-only check SHALL observe the path empty afterwards
-
-**Coverage boundaries.** These e2e scenarios drive the round-trip, isolation, and purge as
-the gateway's own Vault identity (a `vault`-audience ServiceAccount token under the
-`openshell-gateway` role), and fail-closed at provisioning time via an unreachable address.
-The following are proven by unit tests and live per-cluster validation rather than this
-suite, and SHOULD NOT be assumed covered here: the gateway *process* storing a credential
-through the OpenShell driver (upstream), the authenticated-probe *rejection* path (Vault
-reachable but the identity denied), and the runtime `Degraded` transition when a healthy
-gateway's Vault later becomes unreachable.
+**Coverage boundaries.** The sandbox lifecycle scenarios exercise the real gateway-process
+resolve at `provider-credentials/*`; the Vault-specific scenarios drive the round-trip and
+the capability boundary as the gateway's own Vault identity, and fail-closed at provisioning
+via an unreachable address. The following are proven elsewhere and SHOULD NOT be assumed
+covered by this suite: sandbox-to-sandbox / cross-workspace resolve denial (OpenShell gateway
+workspace authorization, upstream unit tests), the authenticated-probe *rejection* path
+(Vault reachable but the identity denied), and the runtime `Degraded` transition when a
+healthy gateway's Vault later becomes unreachable.
 
 ---
 
@@ -633,20 +672,20 @@ GitOps repo implements against.
 |---|---|
 | In-cluster address | `https://openshell-gateway-vault.openshell-vault.svc:8200` |
 | KV engine / mount | KV v2, mount `secret` |
-| KV path layout | `secret/data/openshell/<tenant-namespace>/<provider-handle>` |
+| KV path layout | `secret/data/openshell/provider-credentials/<hash>` (flat; `<hash>` is a SHA-256 seeded by a random per-provider UUID, so it is unguessable; fixed by the OpenShell runtime, not per-namespace) |
 | Kubernetes auth mount | `kubernetes` |
 | Shared Vault role | `openshell-gateway` |
-| Isolation | one namespace-templated ACL policy resolves each caller's verified `service_account_namespace` at login |
-| Policy capabilities | the templated policy grants the gateway identity CRUD+list on `secret/data/openshell/<ns>/*`, read/list/delete on `secret/metadata/openshell/<ns>/*`, **and `list` on the namespace path `secret/metadata/openshell/<ns>`** so the control plane can enumerate the path for purge-on-delete |
+| Isolation | one static ACL policy grants capability-scoped access to the flat `provider-credentials/` prefix with **no `list`**; isolation is by unguessable handle (a gateway reaches only paths it holds) plus the per-cluster Vault boundary. Sandbox-to-sandbox isolation is enforced by the OpenShell gateway's workspace authorization, not by Vault. |
+| Policy capabilities | the `openshell-gateway-provider` policy grants the gateway identity `create`, `read`, `update`, `delete` on `secret/data/openshell/provider-credentials/*` and `read`, `delete` on `secret/metadata/openshell/provider-credentials/*`; it grants **no `list`** and nothing outside the `provider-credentials/` prefix |
 | Gateway SA token | projected, `audience: vault`, `expirationSeconds: 3600`, mounted at `/var/run/secrets/vault/token` |
 | Serving-CA source | Secret `openshell-gateway-vault-tls` (key `ca.crt`) in namespace `openshell-vault` |
 | Serving-CA in tenant ns | ConfigMap `openshell-gateway-vault-ca` (key `ca.crt`), wired to the chart's `credentialDrivers.vault.caConfigMapName` |
 
 Who owns what: `hypershell-gitops` pre-provisions the Vault, the KV engine, the
-Kubernetes auth mount, the shared role and the templated policy, once, up front. The
+Kubernetes auth mount, the shared role and the static policy, once, up front. The
 control plane creates no Vault object at runtime and holds no Vault admin credentials; it
-only authenticates as a gateway identity for the authenticated probe and the deletion
-purge. To do so it mints a `vault`-audience token for the gateway's ServiceAccount via the
+only authenticates as a gateway identity for the pre-deploy and authenticated reachability
+probes. To do so it mints a `vault`-audience token for the gateway's ServiceAccount via the
 TokenRequest API, so the controller's RBAC MUST allow `create` on the
 `serviceaccounts/token` subresource in gateway namespaces (a distinct subresource from
 `serviceaccounts`).
