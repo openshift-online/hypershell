@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +144,27 @@ func TestE2ERunDetailNotFound(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/missing", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunDetailDegradedDoesNotLeakError confirms a Loki failure degrades the
+// detail pane (stale 200) without echoing the raw error, which could carry the
+// internal Loki identity, to the browser (E2E-LOG-08).
+func TestE2ERunDetailDegradedDoesNotLeakError(t *testing.T) {
+	leaky := errors.New(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range?query={log_type=\"application\"}&X-Scope-OrgID=hub-00": refused`)
+	h := &Handlers{E2E: &fakeE2E{err: leaky}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded, not blanked)", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, leak := range []string{"e2e-loki", "svc:3100", "query_range", "log_type", "X-Scope-OrgID", "hub-00"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("response leaked internal Loki identity %q: %s", leak, body)
+		}
 	}
 }
 

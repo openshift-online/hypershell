@@ -387,16 +387,24 @@ function fold(
         if (logSeen.has(ev.sequence)) {
           break;
         }
-        if (logs.length < MAX_DETAIL_LOG_LINES) {
-          logSeen.add(ev.sequence);
-          logs.push({
-            sequence: ev.sequence,
-            timestamp: ev.timestamp,
-            stepId: ev.stepId,
-            message: ev.message ?? "",
-            truncated: ev.truncated,
-          });
-        } else {
+        logSeen.add(ev.sequence);
+        logs.push({
+          sequence: ev.sequence,
+          timestamp: ev.timestamp,
+          stepId: ev.stepId,
+          message: ev.message ?? "",
+          truncated: ev.truncated,
+        });
+        // Keep a sliding window of the most recent lines rather than the first N:
+        // a live tail must keep showing the newest lines, so once the bound is hit
+        // the oldest line is dropped (and flagged truncated) instead of freezing the
+        // pane on the first N lines of a long run (E2E-LOG-12). Dropped sequences
+        // leave logSeen so the retained set and the dedup window stay aligned.
+        if (logs.length > MAX_DETAIL_LOG_LINES) {
+          const dropped = logs.shift();
+          if (dropped !== undefined) {
+            logSeen.delete(dropped.sequence);
+          }
           logsTruncated = true;
         }
         break;

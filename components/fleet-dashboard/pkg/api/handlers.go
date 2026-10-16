@@ -113,8 +113,10 @@ func (h *Handlers) serveE2ERunDetail() http.HandlerFunc {
 			}
 			slog.Default().ErrorContext(r.Context(), "e2e run detail failed", "err", err)
 			// Serve a stale-style snapshot so the detail pane degrades rather than
-			// blanking (E2E-LOG-10).
-			writeJSON(w, r, http.StatusOK, cache.Snapshot{Stale: true, Error: err.Error(), GeneratedAt: time.Now()})
+			// blanking (E2E-LOG-10). The raw error can carry the internal Loki
+			// identity (service DNS, LogQL, tenant), so only a generic message crosses
+			// to the browser; the detail is logged above (E2E-LOG-08).
+			writeJSON(w, r, http.StatusOK, cache.Snapshot{Stale: true, Error: "e2e log backend unavailable", GeneratedAt: time.Now()})
 			return
 		}
 		writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: detail, GeneratedAt: time.Now()})

@@ -46,6 +46,7 @@ import {
   reduceRun,
   runDurationMs,
   runsNewestFirst,
+  MAX_DETAIL_LOG_LINES,
   type E2eRunDetail,
   type E2eRunEvent,
   type E2eRunsData,
@@ -66,6 +67,55 @@ import styles from "./e2e-run-view.module.css";
 
 /** How many log lines the pane renders, so an unbounded log cannot blow up the DOM. */
 const MAX_RENDERED_LOG_LINES = 500;
+
+/**
+ * How many `log` events the live buffer retains. Older log events fall outside the
+ * domain's per-run log window (MAX_DETAIL_LOG_LINES) and the rendered window, so the
+ * buffer need not keep them; structural (run/step) events are always kept so the
+ * reduction stays correct. This bounds the buffer and keeps the per-event fold cost
+ * constant instead of re-folding an ever-growing array (the old O(n squared) path).
+ */
+const MAX_BUFFERED_LOG_EVENTS = MAX_DETAIL_LOG_LINES;
+
+/**
+ * Append one streamed event to the live buffer, deduplicated by sequence (a
+ * reconnect backfill re-delivers overlap), keeping every structural event but
+ * capping retained `log` events to the most recent window. Returns the previous
+ * reference unchanged when the event is a duplicate, so React skips a re-render.
+ */
+function appendBoundedEvents(
+  prev: readonly E2eRunEvent[],
+  event: E2eRunEvent,
+): readonly E2eRunEvent[] {
+  for (const e of prev) {
+    if (e.sequence === event.sequence) {
+      return prev;
+    }
+  }
+  const next = [...prev, event];
+  let logCount = 0;
+  for (const e of next) {
+    if (e.event === "log") {
+      logCount++;
+    }
+  }
+  if (logCount <= MAX_BUFFERED_LOG_EVENTS) {
+    return next;
+  }
+  // Drop the oldest log events (earliest in arrival order) until within the window;
+  // structural events are never dropped. The domain fold re-sorts by sequence, so
+  // the retained newest log events still render in order.
+  let toDrop = logCount - MAX_BUFFERED_LOG_EVENTS;
+  const trimmed: E2eRunEvent[] = [];
+  for (const e of next) {
+    if (toDrop > 0 && e.event === "log") {
+      toDrop--;
+      continue;
+    }
+    trimmed.push(e);
+  }
+  return trimmed;
+}
 
 /**
  * Resolve the reference instant. Kept in a plain helper (not the component body) so
@@ -216,7 +266,7 @@ function useLiveRunDetail(
     observability.publishE2eStream(e2eStreamFact("connect"));
     const unsubscribe = api.streamE2eRun(id, {
       onEvent: (event) => {
-        setEvents((prev) => [...prev, event]);
+        setEvents((prev) => appendBoundedEvents(prev, event));
       },
       onStatus: (next) => {
         if (next.state === "disconnected" && prevState !== "disconnected") {

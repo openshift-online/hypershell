@@ -206,6 +206,46 @@ func TestReporterConcurrentWritesAreNotTorn(t *testing.T) {
 	}
 }
 
+func TestMarshalBoundedKeepsRecordWithinPipeBuf(t *testing.T) {
+	// A control byte expands to a six-byte \uXXXX under JSON escaping, so a message
+	// at the raw maxLogBody bound can marshal far past it. The record (plus its
+	// newline) must still fit maxRecord so the direct stdout write stays atomic and
+	// cannot tear or interleave with the suite's own stdout.
+	ev := event{
+		Schema:  SchemaE2EV1,
+		Event:   eventLog,
+		RunID:   "pod-uid-1",
+		Message: strings.Repeat("\x00", maxLogBody),
+	}
+	b, err := marshalBounded(ev)
+	if err != nil {
+		t.Fatalf("marshalBounded: %v", err)
+	}
+	if len(b)+1 > maxRecord {
+		t.Fatalf("marshaled record %d bytes exceeds maxRecord %d", len(b)+1, maxRecord)
+	}
+	var got event
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("bounded record is not valid JSON: %v", err)
+	}
+	if !got.Truncated {
+		t.Error("a shortened record should be flagged truncated")
+	}
+}
+
+func TestReporterWrittenLineNeverExceedsPipeBuf(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewReporter(&buf, testIdentity())
+	// Escape-heavy content: quotes, backslashes, and control bytes all expand.
+	r.Log("P1.1", strings.Repeat("\"\\\n\t\x00", 2000))
+
+	for _, line := range bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n")) {
+		if len(line)+1 > maxRecord {
+			t.Fatalf("written line %d bytes exceeds maxRecord %d", len(line)+1, maxRecord)
+		}
+	}
+}
+
 // failingWriter errors on every Write to prove a reporting failure is isolated.
 type failingWriter struct{}
 

@@ -3,6 +3,9 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +24,7 @@ type fakeLoki struct {
 
 	mu        sync.Mutex
 	tails     map[string]chan TailMessage
+	tailCtx   map[string]context.Context
 	tailCalls int
 }
 
@@ -31,7 +35,7 @@ func (f *fakeLoki) QueryRange(_ context.Context, tenant, _ string, _, _ time.Tim
 	return f.history[tenant], f.hitLimit, nil
 }
 
-func (f *fakeLoki) Tail(_ context.Context, tenant, _ string) (<-chan TailMessage, error) {
+func (f *fakeLoki) Tail(ctx context.Context, tenant, _ string) (<-chan TailMessage, error) {
 	if f.tailErr != nil {
 		return nil, f.tailErr
 	}
@@ -41,12 +45,24 @@ func (f *fakeLoki) Tail(_ context.Context, tenant, _ string) (<-chan TailMessage
 	if f.tails == nil {
 		f.tails = map[string]chan TailMessage{}
 	}
+	if f.tailCtx == nil {
+		f.tailCtx = map[string]context.Context{}
+	}
+	f.tailCtx[tenant] = ctx
 	ch, ok := f.tails[tenant]
 	if !ok {
 		ch = make(chan TailMessage, 8)
 		f.tails[tenant] = ch
 	}
 	return ch, nil
+}
+
+// tailContext returns the context the broker dialed the tenant's tail with, so a
+// test can assert the broker cancels it (no goroutine/context leak).
+func (f *fakeLoki) tailContext(tenant string) context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tailCtx[tenant]
 }
 
 // tailChan returns (creating if needed) the scripted tail channel for a tenant.
@@ -305,6 +321,44 @@ func TestRunDetailAddressingNoCrossTenantCollision(t *testing.T) {
 	}
 	if d1.Cluster != "hub-01" || d1.Steps[0].State != stepStateFailed {
 		t.Fatalf("hub-01 resolved wrong run: %+v", d1)
+	}
+}
+
+func TestRunsErrorDoesNotLeakLokiIdentity(t *testing.T) {
+	// A raw Loki error carries the internal service DNS, the LogQL query, and the
+	// tenant. A fully-failed sweep must surface only the generic sentinel so none of
+	// that crosses the BFF boundary into the client-facing snapshot (E2E-LOG-08).
+	raw := fmt.Errorf(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range?query=%s&X-Scope-OrgID=hub-00": dial tcp refused`, `{log_type="application"}`)
+	loki := &fakeLoki{queryErr: raw}
+	_, err := testE2E(loki).Runs(context.Background())
+	if err == nil {
+		t.Fatal("a fully-failed sweep must surface an error")
+	}
+	if !errors.Is(err, ErrLogBackendUnavailable) {
+		t.Errorf("err = %v, want ErrLogBackendUnavailable", err)
+	}
+	assertNoLokiIdentity(t, err.Error())
+}
+
+func TestRunDetailErrorDoesNotLeakLokiIdentity(t *testing.T) {
+	raw := fmt.Errorf(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range?query=%s&X-Scope-OrgID=hub-00": dial tcp refused`, `{log_type="application"}`)
+	loki := &fakeLoki{queryErr: raw}
+	_, err := testE2E(loki).RunDetail(context.Background(), makeRunID("hub-00", "hypershell", "run-1"))
+	if err == nil {
+		t.Fatal("a failed run-detail query must surface an error")
+	}
+	if !errors.Is(err, ErrLogBackendUnavailable) {
+		t.Errorf("err = %v, want ErrLogBackendUnavailable", err)
+	}
+	assertNoLokiIdentity(t, err.Error())
+}
+
+func assertNoLokiIdentity(t *testing.T, s string) {
+	t.Helper()
+	for _, leak := range []string{"e2e-loki", "svc:3100", "query_range", "log_type", "X-Scope-OrgID", "hub-00"} {
+		if strings.Contains(s, leak) {
+			t.Errorf("client-facing error leaked internal Loki identity %q: %s", leak, s)
+		}
 	}
 }
 

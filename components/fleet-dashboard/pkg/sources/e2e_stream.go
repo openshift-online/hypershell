@@ -351,7 +351,13 @@ func (b *tailBroker) pump(tenant string, tt *tenantTail, up <-chan TailMessage) 
 		}
 		b.mu.Unlock()
 	}
-	// Upstream ended: tear down and signal every subscriber.
+	// Upstream ended on its own (a flaky or closed endpoint): cancel the tail's
+	// context so its goroutine and the context subtree are released. Without this
+	// the unsubscribe path cannot reach the cancel (pump deletes the tenant entry
+	// below), so every self-terminating tail would leak one goroutine and one
+	// context per reconnect for the life of the process.
+	tt.cancel()
+	// Tear down and signal every subscriber.
 	b.mu.Lock()
 	for _, s := range tt.subs {
 		s.close()

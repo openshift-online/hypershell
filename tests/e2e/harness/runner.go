@@ -125,8 +125,15 @@ func (r *CommandRunner) run(ctx context.Context, env []string, stdin, name strin
 		// Tee combined output to a line scanner so records stream as the command
 		// produces them, before the combined buffer finishes. os/exec guarantees a
 		// single writer goroutine when Stdout and Stderr are the same comparable
-		// writer, so the shared streamer needs no internal locking.
-		streamer = newLineStreamer(func(line string) { r.reporter.Log(r.stepID, line) })
+		// writer, so the shared streamer and the PEM filter need no internal locking.
+		// The filter collapses a multi-line PEM private key block, which the per-line
+		// redactor inside Log cannot match, before any body line reaches the stream.
+		pem := &pemLineFilter{}
+		streamer = newLineStreamer(func(line string) {
+			if out, ok := pem.line(line); ok {
+				r.reporter.Log(r.stepID, out)
+			}
+		})
 		w := io.MultiWriter(&buf, streamer)
 		cmd.Stdout = w
 		cmd.Stderr = w

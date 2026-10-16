@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -164,6 +165,45 @@ func TestStreamSharesUpstreamWithinReplica(t *testing.T) {
 
 	if got := loki.calls(); got != 1 {
 		t.Errorf("upstream tail opened %d times, want 1 shared tail for the tenant", got)
+	}
+}
+
+func TestTailBrokerCancelsContextWhenUpstreamClosesItself(t *testing.T) {
+	// When the upstream tail ends on its own (a flaky or closed endpoint), the pump
+	// cleanup must cancel the tail's context; otherwise the unsubscribe path can no
+	// longer reach the cancel (the tenant entry is already gone) and each
+	// self-terminating tail leaks one goroutine and one context per reconnect.
+	loki := &fakeLoki{}
+	ch := loki.tailChan("hub-00")
+	broker := newTailBroker(loki, `{}`, slog.Default())
+
+	sub, unsub, err := broker.Subscribe("hub-00")
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer unsub()
+
+	tailCtx := loki.tailContext("hub-00")
+	if tailCtx == nil {
+		t.Fatal("tail context not captured")
+	}
+
+	close(ch) // upstream ends on its own
+
+	// The subscriber channel is closed by the pump as it tears down.
+	select {
+	case _, ok := <-sub:
+		for ok {
+			_, ok = <-sub
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscriber channel not closed after upstream close")
+	}
+
+	select {
+	case <-tailCtx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("tail context not cancelled after upstream close (goroutine/context leak)")
 	}
 }
 

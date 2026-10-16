@@ -241,10 +241,12 @@ func (e *E2E) Runs(ctx context.Context) (any, error) {
 		}
 	}
 	if len(all) == 0 && firstErr != nil {
-		// Every tenant failed and there is nothing to serve: surface the error so
-		// the cache flags the snapshot stale rather than publishing an empty list
-		// as if it were complete.
-		return nil, firstErr
+		// Every tenant failed and there is nothing to serve: surface an error so the
+		// cache flags the snapshot stale rather than publishing an empty list as if it
+		// were complete. The detailed firstErr (already logged per tenant above)
+		// carries the internal Loki identity, so the client sees only the generic
+		// sentinel (E2E-LOG-08).
+		return nil, ErrLogBackendUnavailable
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -284,7 +286,11 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 	start := end.Add(-e.window)
 	entries, _, err := e.loki.QueryRange(ctx, tenant, e.selector, start, end, lokiQueryLimit)
 	if err != nil {
-		return nil, fmt.Errorf("query run detail: %w", err)
+		// Log the detailed error (it carries the internal Loki identity) server-side
+		// and return the generic sentinel so the browser never sees the service DNS,
+		// LogQL, or tenant (E2E-LOG-08).
+		e.logger.WarnContext(ctx, "e2e run detail query failed", "tenant", tenant, "err", err)
+		return nil, ErrLogBackendUnavailable
 	}
 	for _, run := range reduceRunsForTenant(tenant, entries) {
 		if run.RunID == runID && run.Namespace == namespace {
@@ -307,6 +313,13 @@ func (e *E2E) tenantAllowed(tenant string) bool {
 // ErrRunNotFound is returned when an addressed run is absent from the window, so
 // the handler can map it to HTTP 404.
 var ErrRunNotFound = fmt.Errorf("run not found")
+
+// ErrLogBackendUnavailable is the client-safe error returned when a Loki query
+// fails. The raw Loki error carries the internal service DNS name, the LogQL
+// query, and the tenant; surfacing it to the browser would breach the
+// fleet-identity firewall (E2E-LOG-08), so the detailed error is logged
+// server-side and only this generic sentinel crosses the BFF boundary.
+var ErrLogBackendUnavailable = fmt.Errorf("e2e log backend unavailable")
 
 // runID builds and parses the collision-free run address.
 func makeRunID(tenant, namespace, runID string) string {

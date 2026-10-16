@@ -36,12 +36,18 @@ const (
 
 // maxLogBody bounds a single structured log record's message so a runaway
 // command line cannot emit an unbounded record. Longer messages are truncated
-// with an explicit marker and flagged. It is kept well under the envelope budget
-// so a marshaled record (message plus the identity/sequence/timestamp envelope)
-// stays under the POSIX PIPE_BUF (4096 bytes) guarantee: writes at or below that
-// size are atomic on the pod stdout pipe, so a record never tears or interleaves
-// with the suite's own stdout even though both share the stream.
+// with an explicit marker and flagged.
 const maxLogBody = 3072
+
+// maxRecord bounds the marshaled NDJSON line (including its trailing newline) so
+// a single Write stays at or below the POSIX PIPE_BUF (4096 bytes) guarantee:
+// writes at or below that size are atomic on the pod stdout pipe, so a record
+// never tears or interleaves with the suite's own stdout even though both share
+// the stream. maxLogBody bounds the message pre-marshal, but JSON string escaping
+// (a control byte expands to a six-byte \uXXXX) can inflate the marshaled record
+// past the raw budget, so emit re-checks the marshaled size and shrinks the
+// message until the whole line fits rather than trusting the pre-marshal bound.
+const maxRecord = 4096
 
 // PlannedStep names one step in the planned set carried by the run_started
 // event, so a consumer can distinguish a step that never ran (fail-fast) from
@@ -183,7 +189,7 @@ func (r *Reporter) emit(ev event) {
 	ev.Cluster = r.identity.Cluster
 	ev.Namespace = r.identity.Namespace
 
-	b, err := json.Marshal(ev)
+	b, err := marshalBounded(ev)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "e2e reporter: marshal %s event: %v\n", ev.Event, err)
 		return
@@ -192,6 +198,39 @@ func (r *Reporter) emit(ev event) {
 	if _, err := r.w.Write(b); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e reporter: write %s event: %v\n", ev.Event, err)
 	}
+}
+
+// marshalBounded marshals ev to a single NDJSON line guaranteed to fit, with its
+// trailing newline, within maxRecord so the direct stdout write stays atomic. The
+// Message field is the only variable-length, unbounded-by-escaping field; when the
+// marshaled line overruns the budget it is shortened and the record re-marshaled
+// until it fits, flagging the truncation. The envelope fields are bounded by
+// construction, so a record with no message that still overruns (it cannot in
+// practice) is returned as-is rather than looping forever.
+func marshalBounded(ev event) ([]byte, error) {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return nil, err
+	}
+	for len(b)+1 > maxRecord && len(ev.Message) > 0 {
+		// Drop at least the overflow, and never fewer than a chunk, so escape-heavy
+		// expansion converges in a bounded number of iterations.
+		over := len(b) + 1 - maxRecord
+		if over < 128 {
+			over = 128
+		}
+		if over >= len(ev.Message) {
+			ev.Message = ""
+		} else {
+			ev.Message = ev.Message[:len(ev.Message)-over]
+		}
+		ev.Truncated = true
+		b, err = json.Marshal(ev)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return b, nil
 }
 
 // boundAndRedact scrubs secrets from s and then bounds its length, returning the
@@ -226,6 +265,42 @@ var redactPatterns = []struct {
 	{regexp.MustCompile(`(?i)(client[_-]?secret["']?\s*[=:]\s*["']?)[^"'\s,}]+`), "${1}[REDACTED]"},
 	{regexp.MustCompile(`(?i)(password["']?\s*[=:]\s*["']?)[^"'\s,}]+`), "${1}[REDACTED]"},
 	{regexp.MustCompile(`(?i)((?:access|refresh|id|api|secret)[_-]?token["']?\s*[=:]\s*["']?)[^"'\s,}]+`), "${1}[REDACTED]"},
+}
+
+var (
+	pemPrivateBegin = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
+	pemPrivateEnd   = regexp.MustCompile(`-----END [A-Z0-9 ]*PRIVATE KEY-----`)
+)
+
+// pemLineFilter collapses a multi-line PEM private key block, which the per-line
+// redact() cannot match (its regex needs the BEGIN and END markers in one call),
+// into a single placeholder across a line-at-a-time stream. The streaming command
+// path reports output one line as it is produced, so a key body arrives as
+// separate lines after the BEGIN marker; without this filter those base64 body
+// lines would pass through unredacted. It is stateful and not safe for concurrent
+// use; each streaming command run owns one, fed by the single os/exec copy
+// goroutine.
+type pemLineFilter struct {
+	inKey bool
+}
+
+// line feeds one raw output line through the filter and returns the line to emit
+// (if any) and whether to emit it. A complete BEGIN...END block on one line is
+// left for the per-line redactor; a BEGIN with no END opens suppression: the
+// BEGIN line becomes a single placeholder and every following line is swallowed
+// until the END marker (or end of stream).
+func (f *pemLineFilter) line(s string) (string, bool) {
+	if f.inKey {
+		if pemPrivateEnd.MatchString(s) {
+			f.inKey = false
+		}
+		return "", false
+	}
+	if pemPrivateBegin.MatchString(s) && !pemPrivateEnd.MatchString(s) {
+		f.inKey = true
+		return "[REDACTED PRIVATE KEY]", true
+	}
+	return s, true
 }
 
 // redact removes bearer tokens, Authorization headers (Bearer and Basic), client

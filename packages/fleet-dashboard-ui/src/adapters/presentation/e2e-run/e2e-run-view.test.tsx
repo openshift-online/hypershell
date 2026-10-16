@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  E2eRunDetail,
-  E2eRunsData,
-  E2eRunSummary,
+import {
+  MAX_DETAIL_LOG_LINES,
+  type E2eRunDetail,
+  type E2eRunsData,
+  type E2eRunSummary,
 } from "../../../domain/e2e-run";
 import type { E2eStreamHandlers, FleetApi } from "../../../application/ports";
 import type { Plane } from "../../../domain/plane";
@@ -290,6 +291,61 @@ describe("E2eRunView", () => {
     expect(logLine.querySelector("img")).toBeNull();
     // The running step transitioned to passed from the live event.
     expect(screen.getByText("Live")).toBeDefined();
+  });
+
+  it("keeps the newest live log lines after exceeding the buffer window", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      steps: [
+        {
+          stepId: "a",
+          name: "Build",
+          state: "running",
+          startedAt: "2026-01-01T00:30:00Z",
+          endedAt: null,
+          durationMs: null,
+        },
+      ],
+      logs: [],
+      reportingComplete: false,
+      verdict: "unknown",
+    });
+    const { api, handlers } = makeApi(d);
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await screen.findByText("Steps");
+
+    // Stream far more log lines than the buffer window in a single batched update:
+    // the buffer must stay bounded (no unbounded accumulation / O(n^2) refold) and
+    // the pane must still show the newest line.
+    const overflow = MAX_DETAIL_LOG_LINES + 10;
+    act(() => {
+      handlers.current?.onStatus({ state: "live", droppedEntries: 0 });
+      for (let i = 0; i < overflow; i++) {
+        handlers.current?.onEvent({
+          event: "log",
+          runId: "run-1",
+          sequence: 100 + i,
+          timestamp: "t",
+          stepId: "a",
+          name: null,
+          outcome: null,
+          durationMs: null,
+          message: `live-line-${String(i)}`,
+          truncated: false,
+          plannedSteps: [],
+        });
+      }
+    });
+
+    expect(
+      await screen.findByText(`live-line-${String(overflow - 1)}`),
+    ).toBeDefined();
+    // The earliest line slid out of the bounded window and is no longer rendered.
+    expect(screen.queryByText("live-line-0")).toBeNull();
   });
 
   it("surfaces the live-disconnected degraded state distinctly", async () => {

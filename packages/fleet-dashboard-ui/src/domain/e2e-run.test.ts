@@ -6,6 +6,7 @@ import {
   isRunning,
   logsForStep,
   makeRunId,
+  MAX_DETAIL_LOG_LINES,
   reduceRun,
   runDurationMs,
   runsNewestFirst,
@@ -208,6 +209,34 @@ describe("applyEvents", () => {
     expect(merged.steps[0]?.state).toBe("passed");
     expect(merged.verdict).toBe("passed");
     expect(merged.reportingComplete).toBe(true);
+  });
+
+  it("keeps a sliding window of the NEWEST log lines so a live tail never freezes", () => {
+    // Stream more log lines than the window. The pane must keep showing the newest
+    // lines (dropping the oldest and flagging truncation), not freeze on the first N.
+    const overflow = MAX_DETAIL_LOG_LINES + 50;
+    const events: E2eRunEvent[] = [];
+    for (let i = 0; i < overflow; i++) {
+      events.push(
+        ev({
+          event: "log",
+          sequence: 100 + i,
+          message: `line-${String(i)}`,
+          timestamp: "t",
+        }),
+      );
+    }
+    const merged = applyEvents(reduceRun([]), events);
+    expect(merged.logs).toHaveLength(MAX_DETAIL_LOG_LINES);
+    expect(merged.logsTruncated).toBe(true);
+    // The newest line is retained; the oldest has slid out of the window.
+    expect(merged.logs[merged.logs.length - 1]?.message).toBe(
+      `line-${String(overflow - 1)}`,
+    );
+    expect(merged.logs[0]?.message).toBe(
+      `line-${String(overflow - MAX_DETAIL_LOG_LINES)}`,
+    );
+    expect(merged.logs.some((l) => l.message === "line-0")).toBe(false);
   });
 });
 
