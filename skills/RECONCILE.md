@@ -429,7 +429,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | DM-3d | Gateway field: `route` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3e | Gateway field: `route_address` (read-only) | Present | Added to model, OpenAPI (readOnly), proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3f | Gateway `database_config` column removal | Partial | Field removed from Go/API (W8); DROP COLUMN migration not yet added | `plugins/gateways/migration.go` | W8 |
-| DM-3g | Gateway field: `sandbox_image` | Missing | Spec added by `630a5ed1` (#148); field not yet in OpenAPI/proto/model/migration | - | Future |
+| DM-3g | Per-Gateway sandbox workload image | Removed | Select workload images per sandbox with OpenShell `--from`; e2e/preload share `OPENSHELL_SANDBOX_IMAGE` | `OPENSHELL_VERSION` | - |
 | DM-3h | Gateway field: `dev_build` | Missing | Spec added by `630a5ed1` (#148); identity flag for branch-built gateways, copied to K8s labels | - | Future |
 | DM-3i | Gateway field: `dev_build_metadata` | Missing | Spec added by `630a5ed1` (#148); JSON metadata (sha, branch, repo) for branch-built gateways | - | Future |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
@@ -772,12 +772,12 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 ### openshell-branch-build.spec.md (#148)
 
-> Added 2026-09-21 (`630a5ed1`). Spec-only commit; no implementation exists. Defines the `make kind-openshell-up` workflow for building and deploying a gateway from an arbitrary OpenShell branch or PR, plus three new Gateway schema fields (`sandbox_image`, `dev_build`, `dev_build_metadata`) tracked as DM-3g/h/i above.
+> Added 2026-09-21 (`630a5ed1`). Defines the `make kind-openshell-up` workflow for building and deploying a gateway from an arbitrary OpenShell branch or PR, plus two Gateway identity fields (`dev_build`, `dev_build_metadata`) tracked as DM-3h/i above. The proposed workload-image field (DM-3g) was retired in favor of per-sandbox image selection.
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | BB-1 | Branch Build Entry Point (`make kind-openshell-up`, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO`) | Missing | No Makefile target or build script | - | Future |
-| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create, no release_id) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
+| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create, no release_id) | Missing | Branch-build entry point and seeding are not implemented | - | Future |
 | BB-3 | Coexistence with `dev-gateway` | Missing | Depends on BB-1 | - | Future |
 | BB-4..BB-N | Image build, load, identity labels/annotations, E2E targeting, Kind cluster reuse | Missing | Spec authored; implementation not started | - | Future |
 

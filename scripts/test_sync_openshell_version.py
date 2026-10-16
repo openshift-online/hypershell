@@ -1,7 +1,10 @@
+import contextlib
 import importlib.util
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_PATH = Path(__file__).with_name("sync_openshell_version.py")
 SPEC = importlib.util.spec_from_file_location("sync_openshell_version", SCRIPT_PATH)
@@ -260,6 +263,74 @@ class SyncOpenshellVersionTest(unittest.TestCase):
         )
         path.unlink()
         self.assertEqual(mismatches, [])
+
+
+class SandboxImageSyncTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.values = Path(directory.name) / "values.yaml"
+        self.version = Path(directory.name) / "OPENSHELL_VERSION"
+
+    def test_chart_image_resolution(self):
+        for fields, expected in (
+            ('repository: nvcr.io/example/workload\n    tag: "24.04"\n    digest: ""',
+             "nvcr.io/example/workload:24.04"),
+            ('repository: "registry.example:5000/workload"\n    tag: ""',
+             "registry.example:5000/workload:latest"),
+            ('repository: example/workload\n    tag: null\n    digest: ~',
+             "example/workload:latest"),
+            ("repository: 'example/workload'\n    tag: ignored\n    digest: 'sha256:abc' # pinned",
+             "example/workload@sha256:abc"),
+        ):
+            with self.subTest(expected=expected):
+                self.values.write_text(f"sandbox:\n  image:\n    {fields}\nother: true\n")
+                self.assertEqual(MOD.chart_sandbox_image(self.values), expected)
+
+    def test_schema_drift_fails_instead_of_retaining_old_image(self):
+        for values in (
+            "sandbox:\n  workloadImage: example/renamed:tag\n",
+            'sandbox:\n  image:\n    repository: ""\n',
+            "sandbox:\n  image:\n    repository: *sharedImage\n",
+            "sandbox:\n  image:\n    registry: new.example\n    repository: workload\n",
+        ):
+            with self.subTest(values=values):
+                self.values.write_text(values)
+                with self.assertRaises(ValueError):
+                    MOD.chart_sandbox_image(self.values)
+
+    def test_check_reports_drift_and_stamp_repairs_only_workload_pin(self):
+        self.values.write_text('sandbox:\n  image:\n    repository: example/new\n    tag: "2"\n')
+        for original in (
+            "OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/old:1\n",
+            "OPENSHELL_TAG=v1.2.3\n",
+        ):
+            with self.subTest(original=original):
+                self.version.write_text(original)
+                mismatches = MOD.sync_sandbox_image(self.version, self.values, check_only=True)
+                self.assertEqual(len(mismatches), 1)
+                self.assertEqual(self.version.read_text(), original)
+                MOD.sync_sandbox_image(self.version, self.values, check_only=False)
+                self.assertEqual(
+                    self.version.read_text(),
+                    "OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/new:2\n",
+                )
+                self.assertEqual(
+                    MOD.sync_sandbox_image(self.version, self.values, check_only=True), []
+                )
+
+    def test_main_check_fails_on_workload_drift(self):
+        self.values.write_text('sandbox:\n  image:\n    repository: example/new\n    tag: "2"\n')
+        original = "OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/old:1\n"
+        self.version.write_text(original)
+        output = io.StringIO()
+        with patch.multiple(
+            MOD, VERSION_FILE=self.version, CHART_VALUES_FILE=self.values,
+            MANAGED_FILES=[], CAPABILITY_FILES=[],
+        ), patch.object(MOD.sys, "argv", ["sync_openshell_version.py"]), contextlib.redirect_stdout(output):
+            self.assertEqual(MOD.main(), 1)
+        self.assertIn("OPENSHELL_SANDBOX_IMAGE=example/new:2", output.getvalue())
+        self.assertEqual(self.version.read_text(), original)
 
 
 if __name__ == "__main__":
