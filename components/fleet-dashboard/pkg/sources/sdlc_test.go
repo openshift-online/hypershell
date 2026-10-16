@@ -266,6 +266,46 @@ func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 	}
 }
 
+// TestSDLCMatrixTrackedIssueAcrossBundles confirms the PR-driven model: a tracked
+// issue delivered by one PR in each of two bundles appears in BOTH bundle rows,
+// grouped under the PR that landed in each (not attributed to a single bundle). This
+// is the behavior that replaced the old "newest bundle only" attribution (SDLC-VIS-03).
+func TestSDLCMatrixTrackedIssueAcrossBundles(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	rel1 := &Release{Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "part one"}}}
+	rel2 := &Release{Version: "v2", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102, Title: "part two"}}}
+	promo := PromotionPayload{
+		Order:        []string{"env-a"},
+		Environments: map[string]Environment{"env-a": {Active: rel2, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		{Number: 700, Title: "split across two bundles", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-16T00:00:00Z"},
+	}
+	// #700 links PR 101 (in bundle d1) and PR 102 (in bundle d2).
+	issues := fakeIssues{m: map[int][]int{700: {101, 102}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	byVersion := map[string]SDLCBundleRow{}
+	for _, row := range p.Matrix.Rows {
+		if row.Unreleased {
+			if len(row.Issues) != 0 {
+				t.Errorf("Unreleased should be empty, got %+v", row.Issues)
+			}
+			continue
+		}
+		byVersion[row.Version] = row
+	}
+	v1, v2 := byVersion["v1"], byVersion["v2"]
+	if len(v1.Issues) != 1 || v1.Issues[0].Number != 700 || len(v1.Issues[0].PRs) != 1 || v1.Issues[0].PRs[0].Number != 101 {
+		t.Errorf("#700 should appear in v1 grouped under PR 101, got %+v", v1.Issues)
+	}
+	if len(v2.Issues) != 1 || v2.Issues[0].Number != 700 || len(v2.Issues[0].PRs) != 1 || v2.Issues[0].PRs[0].Number != 102 {
+		t.Errorf("#700 should appear in v2 grouped under PR 102, got %+v", v2.Issues)
+	}
+}
+
 // TestSDLCMatrixOneOffPRNotUnreleased confirms a pull request that shipped in a bundle
 // but resolves to no execution-record issue appears under that bundle's one-off PRs,
 // never in the Unreleased row (SDLC-VIS-11).

@@ -1031,16 +1031,21 @@ function NotificationsPanel({
 }
 
 /** The tracked-issue list of a bundle (or the Unreleased row): each execution record
- *  links to its shipped-issue side panel (SDLC-VIS-10/11). */
+ *  links to its shipped-issue side panel (SDLC-VIS-10/11). In a bundle, the pull
+ *  requests that delivered the issue are grouped (indented) beneath it, so the row
+ *  summary's PR count reconciles with what is on screen (SDLC-VIS-03). In the
+ *  Unreleased row an issue carries no bundle PRs, so nothing is nested. */
 function MatrixIssueList({
   issues,
   version,
   mergedLine,
+  nowMs,
 }: {
   issues: readonly AgentSdlcShippedIssue[];
   /** The bundle version context for the shipped selection the link addresses. */
   version: string | null;
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
+  nowMs?: number;
 }): React.ReactElement {
   return (
     <Stack>
@@ -1058,6 +1063,15 @@ function MatrixIssueList({
               {issueLabel}
             </NavLinkButton>
             {ago ? <Content component="small"> {ago}</Content> : null}
+            {issue.prs.length > 0 ? (
+              <div
+                style={{
+                  paddingInlineStart: "var(--pf-t--global--spacer--md, 16px)",
+                }}
+              >
+                <MatrixPRList prs={issue.prs} nowMs={nowMs} />
+              </div>
+            ) : null}
           </StackItem>
         );
       })}
@@ -1153,6 +1167,7 @@ function MatrixBundleContents({
             issues={row.issues}
             version={row.version}
             mergedLine={mergedLine}
+            nowMs={nowMs}
           />
         </StackItem>
       ) : null}

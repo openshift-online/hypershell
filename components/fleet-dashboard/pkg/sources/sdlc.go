@@ -394,6 +394,10 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		if s.issues == nil {
 			continue
 		}
+		// A PR authoritatively resolves to a single work item, so last-write-wins here
+		// is benign; if two in-scope records ever claimed the same PR, the later record
+		// would win that PR's grouping and the earlier record would rely on its other
+		// bundle PRs (or fall to Unreleased).
 		for _, pr := range s.issues.AssociatedPRs(ctx, rec) {
 			issueByPR[pr] = rec.Number
 		}
@@ -428,7 +432,9 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 
 	// Build each bundle row from its own pull requests, grouping tracked issues and
 	// collecting one-off PRs. placed records which tracked issues landed in at least
-	// one bundle so the Unreleased row can exclude them.
+	// one bundle, so the Unreleased row can exclude them. A tracked issue whose PRs
+	// span several bundles appears in each of those bundles, grouped under the PRs that
+	// landed there (bundle contents are PR-driven, SDLC-VIS-03).
 	placed := map[int]bool{}
 	relRows := make([]SDLCBundleRow, 0, len(ordered))
 	for _, rr := range ordered {

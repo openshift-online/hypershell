@@ -214,7 +214,7 @@ describe("AgentSdlcView matrix", () => {
                     number: 701,
                     title: "deliver it",
                     url: "pr-u",
-                    author: "octo-dev",
+                    author: "pr-bot",
                     mergedAt,
                   },
                 ],
@@ -295,5 +295,11 @@ describe("AgentSdlcView matrix", () => {
     expect(screen.getByText("#525 declarative import")).toBeDefined();
     const typoLink = screen.getByRole("link", { name: /#533 fix typo/ });
     expect(typoLink.getAttribute("href")).toBe("pr-533");
+    // The PR grouped under the tracked issue is rendered too, so the "3 PRs" count
+    // reconciles with what is on screen (grouped PR #526 + one-off #540, #533).
+    const groupedLink = screen.getByRole("link", {
+      name: /#526 import part one/,
+    });
+    expect(groupedLink.getAttribute("href")).toBe("pr-526");
   });
 });
