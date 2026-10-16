@@ -72,8 +72,7 @@ function renderGate(syncRetries: number | null): void {
 describe("MapDetails - gate sync attempts", () => {
   it("shows the Sync attempts row with the count when known", () => {
     renderGate(9);
-    expect(screen.getByText("Sync attempts")).toBeTruthy();
-    expect(screen.getByText("9")).toBeTruthy();
+    expect(screen.getByText("Sync attempts: 9")).toBeTruthy();
   });
 
   it("omits the Sync attempts row when the count is unknown", () => {
@@ -83,7 +82,6 @@ describe("MapDetails - gate sync attempts", () => {
 
   it("shows a genuine 0 rather than omitting it", () => {
     renderGate(0);
-    expect(screen.getByText("Sync attempts")).toBeTruthy();
-    expect(screen.getByText("0")).toBeTruthy();
+    expect(screen.getByText("Sync attempts: 0")).toBeTruthy();
   });
 });

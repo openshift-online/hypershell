@@ -16,7 +16,7 @@ import (
 
 func (s *E2ESuite) assertManagedClusterGRPCIdentity(t *testing.T) {
 	if s.driver.Name() != "kind" {
-		t.Log("gRPC identity checks use the Kind API-server pod boundary; OpenShift external gRPC discovery is not configured")
+		s.Log("gRPC identity checks use the Kind API-server pod boundary; OpenShift external gRPC discovery is not configured")
 		return
 	}
 	pods, err := s.clients.Kube.CoreV1().Pods(s.driver.PlatformNamespace()).List(t.Context(), metav1.ListOptions{LabelSelector: "app=hypershell-api-server"})

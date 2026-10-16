@@ -373,6 +373,37 @@ history after the Pod is deleted. New runs, steps, and log lines SHALL arrive li
 A run's explicit failed/unknown state SHALL be preserved even when the Argo
 Application health is Healthy (E2E-LOG-09).
 
+Selecting a promotion gate SHALL open an execution drawer with Progress and Logs
+tabs sharing one live subscription. Selecting a step SHALL open its scoped logs;
+switching tabs SHALL preserve scope and search. Operators SHALL be able to search
+logs, toggle timestamps, and expand the log viewer. Gate checks SHALL remain
+visible independently of the suite verdict. Correlation SHALL require the full
+hydrated revision, trusted cluster, and workload namespace; source revision and
+short revision prefixes SHALL NOT select a run. The selected attempt SHALL stay
+pinned when a retry arrives, with an explicit newer-attempt notice. The E2E Runs
+tab SHALL remain available for searchable history, including navigation from the
+gate's selected attempt. History SHALL use a closable, resizable PatternFly drawer
+with independent pane scrolling and an overlay on narrow screens. Closing it SHALL
+preserve the history filter, sorting, and selected row, and restore trigger focus.
+All run and progress table columns SHALL support ascending and descending sorting
+using source values; history defaults to newest-first, steps to execution order,
+and unknown durations remain last in either sort direction.
+
+The history table SHALL show sortable Bundle and Target columns. Bundle identity
+SHALL use the same release digest, identicon, and name as Fleet Map. Historical
+resolution SHALL follow the run's full hydrated commit through `hydrator.metadata`
+to the dry commit's release lock; it SHALL never substitute a currently deployed
+bundle for an older run. Missing metadata SHALL show bundle unavailable. Live
+updates SHALL preserve resolved bundle identity. The target SHALL show an instance
+name only for a unique trusted cluster/namespace match, with cluster and namespace
+as supporting context; an unknown or ambiguous instance SHALL fall back to cluster
+and namespace. Search SHALL include instance names and bundle versions.
+
+History queries SHALL isolate lifecycle events from the bounded log window so
+chatty output cannot evict the run verdict or steps. The stream SHALL subscribe
+before fetching backfill to avoid a snapshot-to-tail race, deduplicate sequence
+overlap, and surface truncated history or dropped events.
+
 #### Scenario: Recent runs newest-first
 
 - GIVEN several runs in the history window

@@ -218,3 +218,37 @@ func TestGitHubLockResolverFallback(t *testing.T) {
 		t.Error("Resolve(\"\") should be nil")
 	}
 }
+
+func TestHydratedBundleResolution(t *testing.T) {
+	const hydrated = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const dry = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch {
+		case r.URL.Path == "/repos/acme/gitops/contents/hydrator.metadata" && r.URL.Query().Get("ref") == hydrated:
+			_, _ = w.Write([]byte(contentsBody(t, `{"drySha":"`+dry+`"}`)))
+		case r.URL.Path == "/repos/acme/gitops/contents/versions/hypershell-release-lock.json" && r.URL.Query().Get("ref") == dry:
+			_, _ = w.Write([]byte(contentsBody(t, `{"reference":{"tag":"release-bundle-20260930T165529000000Z-2d94439429ed22de","digest":"sha256:historical"}}`)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	lr := NewGitHubLockResolver(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+	first := lr.ResolveHydrated(context.Background(), hydrated)
+	if first == nil || first.Digest != "sha256:historical" {
+		t.Fatalf("wrong hydrated bundle: %#v", first)
+	}
+	first.Digest = "mutated"
+	second := lr.ResolveHydrated(context.Background(), hydrated)
+	if second.Digest != "sha256:historical" || calls != 2 {
+		t.Fatalf("cache mutated or not reused: %#v, calls=%d", second, calls)
+	}
+	if lr.ResolveHydrated(context.Background(), "main&ref=other") != nil || calls != 2 {
+		t.Fatal("non-commit revision reached GitHub")
+	}
+	if lr.ResolveHydrated(context.Background(), "cccccccccccccccccccccccccccccccccccccccc") != nil {
+		t.Fatal("missing metadata invented bundle")
+	}
+}

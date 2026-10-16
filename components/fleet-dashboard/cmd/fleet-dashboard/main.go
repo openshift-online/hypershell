@@ -74,9 +74,11 @@ func run(logger *slog.Logger) error {
 	// per-commit bundle resolutions, so walking the lock's commit history for the
 	// previously-deployed freight cards reuses that cache.
 	var versioner sources.VersionResolver
+	var hydratedVersioner sources.HydratedVersionResolver
 	var history sources.ReleaseHistory
 	if lr := sources.NewGitHubLockResolver(cfg); lr != nil {
 		versioner = lr
+		hydratedVersioner = lr
 		history = lr
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
@@ -114,7 +116,7 @@ func run(logger *slog.Logger) error {
 	// report the feature off (E2E-LOG-01/02).
 	var e2eSrc *cache.Source
 	var e2ePlane api.E2ERunPlane
-	if e2e := sources.NewE2E(cfg); e2e != nil {
+	if e2e := sources.NewE2E(cfg, hydratedVersioner); e2e != nil {
 		e2eSrc = cache.NewSource("e2e", cfg.RefreshE2E, e2e.Runs, metrics.Observe)
 		e2ePlane = e2e
 		logger.Info("e2e run visibility enabled", "tenants", cfg.E2ELokiTenants, "window", cfg.E2EHistoryWindow, "limit", cfg.E2ERecentRunLimit)

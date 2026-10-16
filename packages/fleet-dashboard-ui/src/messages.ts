@@ -198,16 +198,46 @@ export const messages = defineMessages({
     description:
       "Relative time since an end-to-end run started (minutes, hours, days, or just now).",
   },
+  e2eAttemptOption: {
+    id: "fleet.e2eAttemptOption",
+    defaultMessage: "{id} · {started}",
+    description: "Execution context e2eAttemptOption",
+  },
+  e2eAttempts: {
+    id: "fleet.e2eAttempts",
+    defaultMessage: "Test attempt",
+    description: "E2E execution panel e2eAttempts",
+  },
+  e2eAttemptShort: {
+    id: "fleet.e2eAttemptShort",
+    defaultMessage: "Attempt {id}",
+    description: "E2E execution panel e2eAttemptShort",
+  },
   e2eBackendUnavailable: {
     id: "fleet.e2e.backendUnavailable",
     defaultMessage: "Run details are unavailable right now.",
     description:
       "Degraded state shown when the e2e backend (Loki source) cannot be reached.",
   },
+  e2eBundleUnknown: {
+    id: "fleet.e2eBundleUnknown",
+    defaultMessage: "Bundle unavailable",
+    description: "E2E run bundle and target context.",
+  },
+  e2eCollapseLogs: {
+    id: "fleet.e2eCollapseLogs",
+    defaultMessage: "Collapse",
+    description: "E2E execution panel e2eCollapseLogs",
+  },
   e2eColumnAttempt: {
     id: "fleet.e2e.column.attempt",
     defaultMessage: "Attempt",
     description: "Recent-runs table column header for the run attempt id.",
+  },
+  e2eColumnBundle: {
+    id: "fleet.e2eColumnBundle",
+    defaultMessage: "Bundle",
+    description: "E2E run bundle and target context.",
   },
   e2eColumnDuration: {
     id: "fleet.e2e.column.duration",
@@ -235,6 +265,11 @@ export const messages = defineMessages({
     defaultMessage: "Step",
     description: "Steps table column header for the step name.",
   },
+  e2eColumnTarget: {
+    id: "fleet.e2eColumnTarget",
+    defaultMessage: "Target",
+    description: "E2E run bundle and target context.",
+  },
   e2eColumnVerdict: {
     id: "fleet.e2e.column.verdict",
     defaultMessage: "Verdict",
@@ -251,10 +286,51 @@ export const messages = defineMessages({
     defaultMessage: "{minutes}m {seconds}s",
     description: "Compact duration of a run or step, in minutes and seconds.",
   },
+  e2eExecutionTabs: {
+    id: "fleet.e2eExecutionTabs",
+    defaultMessage: "Test execution",
+    description: "E2E execution panel e2eExecutionTabs",
+  },
+  e2eExpandLogs: {
+    id: "fleet.e2eExpandLogs",
+    defaultMessage: "Expand",
+    description: "E2E execution panel e2eExpandLogs",
+  },
+  e2eFlow: {
+    id: "fleet.e2eFlow",
+    defaultMessage: "{from} → {to}",
+    description: "Execution context e2eFlow",
+  },
   e2eFollow: {
     id: "fleet.e2e.follow",
     defaultMessage: "Follow",
     description: "Button that resumes following (auto-scrolling) the log pane.",
+  },
+  e2eGateHistory: {
+    id: "fleet.e2eGateHistory",
+    defaultMessage: "View run history",
+    description: "E2E execution panel e2eGateHistory",
+  },
+  e2eGateNewAttempt: {
+    id: "fleet.e2eGateNewAttempt",
+    defaultMessage:
+      "A newer attempt is available. Select it above to follow it.",
+    description: "E2E execution panel e2eGateNewAttempt",
+  },
+  e2eGateNoRun: {
+    id: "fleet.e2eGateNoRun",
+    defaultMessage: "Waiting for a test run for this revision.",
+    description: "E2E execution panel e2eGateNoRun",
+  },
+  e2eGateNoTarget: {
+    id: "fleet.e2eGateNoTarget",
+    defaultMessage: "The exact verification revision is not available yet.",
+    description: "E2E execution panel e2eGateNoTarget",
+  },
+  e2eGateSummary: {
+    id: "fleet.e2eGateSummary",
+    defaultMessage: "Promotion gate",
+    description: "E2E execution panel e2eGateSummary",
   },
   e2eHistoryTruncated: {
     id: "fleet.e2e.historyTruncated",
@@ -337,11 +413,26 @@ export const messages = defineMessages({
     defaultMessage: "Pause",
     description: "Button that pauses following (auto-scrolling) the log pane.",
   },
+  e2eProgressTab: {
+    id: "fleet.e2eProgressTab",
+    defaultMessage: "Progress",
+    description: "E2E execution panel e2eProgressTab",
+  },
   e2eReportingIncomplete: {
     id: "fleet.e2e.reportingIncomplete",
     defaultMessage: "Reporting incomplete - no final result was recorded.",
     description:
       "Degraded state shown when a run has no terminal record (unknown verdict).",
+  },
+  e2eResizeDetails: {
+    id: "fleet.e2eResizeDetails",
+    defaultMessage: "Resize run details",
+    description: "Accessible label for the run history drawer splitter.",
+  },
+  e2eRetries: {
+    id: "fleet.e2eRetries",
+    defaultMessage: "Sync attempts: {count}",
+    description: "Execution context e2eRetries",
   },
   e2eRunDuration: {
     id: "fleet.e2e.runDuration",
@@ -357,6 +448,16 @@ export const messages = defineMessages({
     id: "fleet.e2e.runSelect",
     defaultMessage: "Open run {revision}, attempt {attempt}",
     description: "Accessible name for a recent-run selection link.",
+  },
+  e2eSearchLogs: {
+    id: "fleet.e2eSearchLogs",
+    defaultMessage: "Search logs",
+    description: "E2E execution panel e2eSearchLogs",
+  },
+  e2eSearchRuns: {
+    id: "fleet.e2eSearchRuns",
+    defaultMessage: "Search instances, revisions, or attempts",
+    description: "E2E execution panel e2eSearchRuns",
   },
   e2eSection: {
     id: "fleet.e2e.section",
@@ -415,10 +516,20 @@ export const messages = defineMessages({
     defaultMessage: "E2E Runs",
     description: "Tab label for the E2E run view.",
   },
+  e2eTargetLocation: {
+    id: "fleet.e2eTargetLocation",
+    defaultMessage: "{cluster} / {namespace}",
+    description: "Cluster and namespace of a test target.",
+  },
   e2eTestFailed: {
     id: "fleet.e2e.testFailed",
     defaultMessage: "This run failed.",
     description: "Degraded state shown when a run's verdict is failed.",
+  },
+  e2eTimestamps: {
+    id: "fleet.e2eTimestamps",
+    defaultMessage: "Timestamps",
+    description: "E2E execution panel e2eTimestamps",
   },
   e2eVerdictFailed: {
     id: "fleet.e2e.verdict.failed",

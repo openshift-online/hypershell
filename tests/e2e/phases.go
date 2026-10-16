@@ -137,6 +137,7 @@ func (s *E2ESuite) assertNoUnauthenticatedControllerLogs(t *testing.T) {
 // p0_2EnvironmentReadiness asserts the seed ids resolved (done in SetupSuite).
 // Long mode also asserts the platform dependencies are healthy.
 func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
+	s.logger.Additionalf("verify seeded managed cluster and platform API dependencies")
 	s.Assert().NotEmpty(s.clusterID, "seeded cluster id")
 	s.longOnly("platform-dependencies", s.assertPlatformDependencies)
 }
@@ -198,13 +199,14 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 		return conditionsErr == nil, nil
 	})
 	s.Require().NoError(conditionsWaitErr, "gateway provisioning conditions did not settle: %v", conditionsErr)
-	t.Logf("primary gateway %s (%s) Running in namespace %s", running.Name, running.ID, running.Namespace)
+	s.Logf("primary gateway %s (%s) Running in namespace %s", running.Name, running.ID, running.Namespace)
 	if !s.skipKubeChecks {
 		s.startOrphanReaper(t)
 	}
 }
 
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
+	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping gateway infrastructure checks")
 	}
@@ -367,7 +369,7 @@ func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
 	s.Require().NoError(s.driver.WaitForGatewayRoute(t.Context(), s.primary), "wait for gateway route")
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), s.primary)
 	s.Require().NoError(err, "discover gateway endpoint")
-	t.Logf("gateway endpoint: %s", endpoint)
+	s.Logf("gateway endpoint: %s", endpoint)
 
 	s.primaryLocalName = s.registerGateway(t, s.primary, endpoint, s.primaryGatewayToken.AccessToken)
 }
@@ -446,7 +448,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.longOnly("workspace-listing", func(t *testing.T) {
 		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
 		if err != nil && strings.Contains(out, "No such file or directory") {
-			t.Log("sandbox image has no /workspace directory; using its default working directory")
+			s.Log("sandbox image has no /workspace directory; using its default working directory")
 		} else {
 			s.Require().NoError(err, "sandbox workspace listing")
 			s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "workspace listing")
@@ -486,7 +488,7 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 				// stop before a delete) is best-effort, so its error is only logged.
 				if j < len(steps)-1 {
 					if err != nil {
-						t.Logf("sandbox %s %s: %q returned an error (continuing): %v", action, sandboxName, args, err)
+						s.Logf("sandbox %s %s: %q returned an error (continuing): %v", action, sandboxName, args, err)
 					}
 					continue
 				}
@@ -499,7 +501,7 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 	s.Require().NoError(g.Wait(), "run concurrent sandbox %s commands", action)
 	for i, sandboxName := range names {
 		if results[i].err != nil {
-			t.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
+			s.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
 		}
 	}
 }
@@ -614,7 +616,7 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 		case http.StatusNoContent, http.StatusOK, http.StatusAccepted:
 			return true, nil
 		case http.StatusServiceUnavailable:
-			t.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gw.ID, body)
+			s.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gw.ID, body)
 			return false, nil
 		default:
 			return false, fmt.Errorf("delete gateway status %d: %s", status, body)
@@ -743,12 +745,12 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 	s.Require().Positive(originalReplicas, "controller has at least one replica before reconnect test")
 
 	if gate := os.Getenv("E2E_DISRUPTIVE_GATE_FILE"); gate != "" {
-		t.Log("waiting for the concurrent suites to finish before scaling the controller to zero")
+		s.Log("waiting for the concurrent suites to finish before scaling the controller to zero")
 		timeout := durationSecondsEnv("E2E_DISRUPTIVE_GATE_TIMEOUT", 900*time.Second)
 		opened, err := waitDisruptiveGate(ctx, gate, timeout, 2*time.Second)
 		s.Require().NoError(err, "wait for the disruptive-step gate")
 		if !opened {
-			t.Logf("concurrent suites still running after %s; continuing anyway", timeout)
+			s.Logf("concurrent suites still running after %s; continuing anyway", timeout)
 		}
 	}
 
@@ -762,7 +764,7 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if restoreErr := setDeploymentReplicas(restoreCtx, deployments, originalReplicas); restoreErr != nil {
-			t.Errorf("emergency controller replica restore: %v", restoreErr)
+			reportingTest{t, s.logger}.Errorf("emergency controller replica restore: %v", restoreErr)
 		}
 	}()
 	s.Require().NoError(harness.Poll(ctx, time.Second, 120*time.Second, func(ctx context.Context) (bool, error) {
@@ -1028,10 +1030,10 @@ func (s *E2ESuite) waitGatewayNamespace(t *testing.T, id string) string {
 // recent controller logs, so a provisioning timeout is debuggable from the run.
 func (s *E2ESuite) dumpGatewayDiagnostics(t *testing.T, id string, gw *sdktypes.Gateway) {
 	if gw != nil {
-		t.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%v", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
+		s.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%v", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
 	}
 	if logs, err := s.podLogs(context.Background(), s.driver.PlatformNamespace(), "app=hypershell-controller", 40); err == nil {
-		t.Logf("DIAG controller logs (tail):\n%s", logs)
+		s.Logf("DIAG controller logs (tail):\n%s", logs)
 	}
 }
 
@@ -1108,7 +1110,7 @@ func (s *E2ESuite) podLogs(ctx context.Context, ns, selector string, tail int64)
 func (s *E2ESuite) rbacDefaultIncludesCreator(t *testing.T) bool {
 	dep, err := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace()).Get(t.Context(), "hypershell-api-server", metav1.GetOptions{})
 	if err != nil {
-		t.Logf("WARN read api-server RBAC default (assuming creator-default): %v", err)
+		s.Logf("WARN read api-server RBAC default (assuming creator-default): %v", err)
 		return true
 	}
 	for _, c := range dep.Spec.Template.Spec.Containers {
