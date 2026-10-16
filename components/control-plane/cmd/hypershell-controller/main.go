@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -444,6 +445,43 @@ func main() {
 	})
 
 	log.Printf("INFO all %d watch streams launched", watchCount)
+
+	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the
+	// single git-to-API sync component: for each registered Repository it reads only
+	// the import_path subtree over the GitHub API, renders it in memory through the
+	// shared pkg/kustomize library, and reconciles (create/update/prune) the
+	// Repository-owned ext resources into the API over the gRPC write path. It does
+	// NOT provision cluster-side; each imported Kind is reconciled into the cluster
+	// by its own per-Kind reconciler. It is OFF unless explicitly enabled and a
+	// platform GitHub App credential is provisioned, so an unconfigured control
+	// plane stays inert. See specs/platform/control-plane.spec.md.
+	if cfg.RepositoryImportEnabled {
+		platformToken := ""
+		if cfg.GitHubTokenFile != "" {
+			tokenBytes, tokenErr := os.ReadFile(cfg.GitHubTokenFile)
+			if tokenErr != nil {
+				log.Printf("WARN repository import: reading GitHub token file %s failed; default platform credential unavailable (private repositories with a secret_source_id still work): %v", cfg.GitHubTokenFile, tokenErr)
+			} else {
+				platformToken = strings.TrimSpace(string(tokenBytes))
+			}
+		} else {
+			log.Printf("INFO repository import: no HYPERSHELL_GITHUB_TOKEN_FILE set; only repositories with a per-Repository secret_source_id credential (or public repositories) can be read")
+		}
+		importResolver := reconciler.NewSecretStoreCredentialResolver(secretReader, pb.NewSecretSourceServiceClient(conn), platformToken)
+		importFetcher := reconciler.NewGitHubSubtreeFetcher(nil, cfg.GitHubAPIBase)
+		importWriter := reconciler.NewGRPCImportWriter(conn)
+		repositoryReconciler := reconciler.NewRepositoryReconciler(
+			pb.NewRepositoryServiceClient(conn),
+			importResolver,
+			importFetcher,
+			importWriter,
+			cfg.RepositoryImportInterval,
+		)
+		supervise("repository import reconciler", repositoryReconciler.Run)
+		log.Printf("INFO repository import reconciler launched (interval=%s)", cfg.RepositoryImportInterval)
+	} else {
+		log.Printf("INFO repository import reconciler disabled (HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false)")
+	}
 
 	// The continuous gateway health reconciler keeps each Gateway's phase and
 	// status synchronized with observed workload health (Running <-> Degraded).

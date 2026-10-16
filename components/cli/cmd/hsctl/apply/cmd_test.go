@@ -2,7 +2,6 @@ package apply
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -151,11 +150,6 @@ func TestLoadFromKustomize_MissingKustomization(t *testing.T) {
 }
 
 func TestLoadFromKustomize_ValidOverlay(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	// Create test directory structure
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
@@ -203,11 +197,6 @@ spec:
 }
 
 func TestLoadFromKustomize_MixedKinds(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)
@@ -268,11 +257,6 @@ spec:
 }
 
 func TestLoadFromKustomize_InvalidContent(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)
@@ -299,11 +283,6 @@ resources:
 }
 
 func TestLoadFromKustomize_SecurityNoPlugins(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)
