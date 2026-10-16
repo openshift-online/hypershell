@@ -531,9 +531,19 @@ in [`openshell-gateway.spec.md`](./openshell-gateway.spec.md); there is no separ
 "PlatformReconciler" or second GitOps sync engine. It does not exist in the code
 yet; it is desired state to be built. The `.hypershell` directory SHALL be a
 Kustomize root: the `RepositoryReconciler` SHALL build the kustomization and
-reconcile the rendered resources - the same kinds `hsctl apply` supports
-(`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
-`InferenceRoute`, `SecretSource`) - into the API.
+reconcile the rendered resources into the API.
+
+The Kinds the `RepositoryReconciler` imports are defined here canonically as the
+**importable Kinds**: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`, and `Gateway`.
+These are the declarable HyperShell Kinds a `.hypershell` root MAY contain. They are
+a SUBSET of the Kinds `hsctl apply` accepts: `hsctl apply` also accepts
+platform-admin Kinds (for example `ManagedCluster`, `Role`, and `RoleBinding`) that
+are NOT importable through a `Repository`. This canonical list is referenced - not
+re-enumerated - by [`control-plane.spec.md`](./control-plane.spec.md) ("Declarative
+`.hypershell` Import Reconciliation") and
+[`openshell-gateway.spec.md`](./openshell-gateway.spec.md) ("Relationship to the
+RepositoryReconciler") so the importable set never drifts across specs.
 
 The `RepositoryReconciler` upserts these resources into the API only; it does NOT
 provision them cluster-side. Each imported Kind is subsequently reconciled into the
@@ -548,16 +558,21 @@ the read and render entirely in-process and in-memory: no git clone, no working
 directory, no persistent disk or PVC, no external `git` / `kustomize` / `hsctl`
 binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
 
-1. When a credential is needed to read a private `Repository` subtree, read the
-   `Repository`'s `secret_source_id` value from the configured secret store through
-   its read-only secret-store client (`pkg/secretstore`). This is the same read-only
+1. Resolve the credential used to read the `Repository` subtree. The platform
+   GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
+   repository subtree. When the `Repository` declares a `secret_source_id`, that
+   per-`Repository` credential takes precedence and supplies a repository-specific
+   git credential - for example a private or non-GitHub-App-covered source; the
+   control plane reads its value from the configured secret store through its
+   read-only secret-store client (`pkg/secretstore`). This is the same read-only
    store access the control plane uses to place `AgentRuntime` secrets; it does NOT
    create an `ExternalSecret` and does NOT depend on External Secrets Operator.
 2. Read ONLY the `import_path` subtree through the GitHub API at the `Repository`'s
    `default_branch` (or the branch otherwise specified), authenticating with the
-   platform GitHub App credential. The import SHALL fetch only that subtree, NOT the
-   whole repository, and SHALL NOT perform a git clone or checkout and SHALL NOT
-   create any on-disk working copy.
+   credential resolved in step 1 - the per-`Repository` `secret_source_id` credential
+   when one is configured, otherwise the default platform GitHub App credential. The
+   import SHALL fetch only that subtree, NOT the whole repository, and SHALL NOT
+   perform a git clone or checkout and SHALL NOT create any on-disk working copy.
 3. Render the Kustomize root at `import_path` IN MEMORY through the shared kustomize
    library: the exported `Build` of the `pkg/kustomize` package that lives in
    `components/cli` and is consumed by exactly two callers, `hsctl` and the control

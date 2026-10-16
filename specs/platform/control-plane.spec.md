@@ -302,10 +302,10 @@ control plane holds read-only access to the secret store (through its
 `import_path` subtree over the GitHub API.
 
 The `RepositoryReconciler`'s job is bounded to the import: it reads the declared
-subtree, renders it, and upserts the ext resources it finds (`AgentRuntime`,
-`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
-`SecretSource`, and `Gateway`) into the API. It does NOT provision any of those
-resources cluster-side. Each imported Kind is subsequently reconciled into the
+subtree, renders it, and upserts the ext resources it finds - the canonical set of
+importable Kinds defined in [`data-model.spec.md`](./data-model.spec.md)
+("Declarative `.hypershell` Import"), which includes `Gateway` - into the API. It
+does NOT provision any of those resources cluster-side. Each imported Kind is subsequently reconciled into the
 cluster by ITS OWN per-Kind reconciler - for example the `GatewayReconciler`
 reconciles `Gateway` resources into Kubernetes and the `AgentRuntimeReconciler`
 reconciles `AgentRuntime` resources into cluster scheduling and gateway-side
@@ -323,14 +323,20 @@ render SHALL happen in-process and in-memory.
 
 For each registered `Repository` the control plane SHALL:
 
-1. When a credential is needed to read a private `Repository` subtree, read the
-   `Repository`'s `secret_source_id` value from the secret store through its
-   read-only `pkg/secretstore` client. This is the same read-only store access the
-   control plane uses to place `AgentRuntime` secrets; it does not create an
-   `ExternalSecret` and does not depend on External Secrets Operator.
+1. Resolve the credential used to read the `Repository` subtree. The platform
+   GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
+   repository subtree. When the `Repository` declares a `secret_source_id`, that
+   per-`Repository` credential takes precedence and supplies a repository-specific
+   git credential - for example a private or non-GitHub-App-covered source; the
+   control plane reads its value from the secret store through its read-only
+   `pkg/secretstore` client. This is the same read-only store access the control
+   plane uses to place `AgentRuntime` secrets; it does not create an `ExternalSecret`
+   and does not depend on External Secrets Operator.
 2. Read ONLY the `import_path` subtree (default `.hypershell`, the Kustomize root)
    through the GitHub API at the `Repository`'s `default_branch` (or the branch
-   otherwise specified), authenticating with the platform GitHub App credential.
+   otherwise specified), authenticating with the credential resolved in step 1 - the
+   per-`Repository` `secret_source_id` credential when one is configured, otherwise
+   the default platform GitHub App credential.
    The reconciler SHALL fetch only that subtree, NOT the whole repository, and
    SHALL NOT perform a git clone or checkout, SHALL NOT create a working directory,
    and SHALL NOT use any persistent disk or PVC.
@@ -365,12 +371,18 @@ resolves the apparent conflict with the "control plane is a reader of desired
 state" principle: the principle holds everywhere except this one named,
 ownership-scoped reconciler.
 
-**gRPC write authorization for the import.** The gRPC Create / Update / Delete
-methods for the import ext kinds (`Repository`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`) were held at default-deny when
-their gRPC surface was introduced. They SHALL now be authorized for the
-control-plane identity, bounded to the `RepositoryReconciler`'s `Repository` scope, and
-remain denied for every other caller (users, spokes acting outside the import).
+**gRPC write authorization for the import.** The fleet-wide importable Kinds
+(`Repository`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
+`InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
+held at default-deny when their gRPC surface was introduced. They SHALL now be
+authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
+`Repository` scope, and remain denied for every other caller (users, spokes acting
+outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
+(see the canonical importable-Kinds list in
+[`data-model.spec.md`](./data-model.spec.md)), are NOT in this default-deny set:
+the control-plane identity already writes them through its per-Kind reconciler
+authorization, and the `RepositoryReconciler` upserts them under the same
+`Repository`-scoped ownership mark.
 The authorization contract is specified in
 [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md),
 "Requirement: gRPC Authorization". In particular:
