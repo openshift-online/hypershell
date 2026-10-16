@@ -231,7 +231,7 @@ The `hypershell-frontend` client SHALL be used by the web console BFF for the au
 | `directAccessGrantsEnabled` | `true` | Retained for CLI password-grant testing |
 | `redirectUris` | Deployment-specific console origins | Restrict redirect targets; wildcard is an open redirect vulnerability |
 | `webOrigins` | Deployment-specific console origins | Restrict CORS |
-| `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
+| `defaultClientScopes` | `openid`, `email`, `profile`; the in-repo realm (Kind, local OpenShift, PR environments) adds `broker-roles` | Standard OIDC scopes; `broker-roles` lets a GitHub-brokered session present the broker `read-token` role |
 
 Protocol mappers (retained as-is):
 - **Audience mapper**  -- includes the custom audience `hypershell-api` in the `aud` claim of the access token (`included.custom.audience`)
@@ -239,6 +239,15 @@ Protocol mappers (retained as-is):
 - **Realm roles mapper**  -- maps realm roles to the `groups` claim in all token types
 
 The BFF validates that the ID token `aud` matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`). The access token it forwards to the API server carries `azp=hypershell-frontend` and `aud` including `hypershell-api`.
+
+The `hypershell-frontend` client SHALL NOT use Keycloak's built-in `roles` client scope. That scope's client-roles and audience-resolve mappers copy every client role the user holds, and every such client's ID, into the access token. Each gateway adds its own client roles to its creator and to users granted access, so the token grows with every gateway. The BFF stores the access token in its session cookie, and once that cookie passes the browser's 4096-byte limit the browser drops it and login loops between `/auth/callback` and `/auth/login`. Where the GitHub broker needs `resource_access.broker.roles`, the realm SHALL provide it through a dedicated `broker-roles` client scope whose client-role mapper is restricted to the `broker` client (`usermodel.clientRoleMapping.clientId = broker`) and which has no audience-resolve mapper.
+
+#### Scenario: Console access token does not grow with gateway count
+- GIVEN a user who holds `openshell-user` and `openshell-admin` client roles on several gateway clients
+- WHEN the user signs in to the console through `hypershell-frontend`
+- THEN the access token's `aud` SHALL NOT include any gateway client ID
+- AND the access token SHALL NOT include `resource_access` entries for gateway clients
+- AND a GitHub-brokered user who holds broker `read-token` SHALL still have `resource_access.broker.roles` containing `read-token`
 
 ### `hypershell-cli` Client
 

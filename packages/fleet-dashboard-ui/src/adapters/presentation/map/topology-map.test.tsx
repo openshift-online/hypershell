@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
+import type { AgentSdlcData } from "../../../domain/agent-sdlc";
 import type { FleetData } from "../../../domain/fleet";
 import type { Plane } from "../../../domain/plane";
 import type { PromotionData } from "../../../domain/promotion";
@@ -34,6 +35,7 @@ const envExtras = {
   cluster: null,
   argoHealth: null,
   argoSync: null,
+  syncRetries: null,
   consoleUrl: null,
   grafanaUrl: null,
   argoUrl: null,
@@ -65,6 +67,15 @@ function renderApp(): void {
     getTopology: () => Promise.resolve(plane<TopologyData>({})),
     getInstances: () =>
       Promise.resolve(plane<InstancesData>({ instances: [] })),
+    getSdlc: () =>
+      Promise.resolve(
+        plane<AgentSdlcData>({
+          phases: [],
+          cards: [],
+          lane: [],
+          matrix: { hubClusters: [], rows: [] },
+        }),
+      ),
   } satisfies FleetApi;
 
   const queryClient = new QueryClient({

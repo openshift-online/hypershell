@@ -174,6 +174,12 @@ export const messages = defineMessages({
     defaultMessage: "Sync status",
     description: "Detail label for an instance's Argo CD sync status.",
   },
+  detailSyncAttempts: {
+    id: "fleet.map.detail.syncAttempts",
+    defaultMessage: "Sync attempts",
+    description:
+      "Detail label for the Argo CD sync-operation retry count of a gate's source environment.",
+  },
   drawerClose: {
     id: "fleet.map.drawer.close",
     defaultMessage: "Close details",
@@ -297,6 +303,13 @@ export const messages = defineMessages({
     defaultMessage:
       "Argo CD sync state of this instance's Application. Synced = the live cluster matches the desired Git manifests; OutOfSync = it has drifted or a change is pending.",
     description: "Help tooltip for the Sync field in the detail panel.",
+  },
+  infoSyncAttempts: {
+    id: "fleet.map.info.syncAttempts",
+    defaultMessage:
+      "How many times Argo CD has retried syncing this environment for the current promotion. A number that keeps climbing usually means the release-analysis gate is stuck - a newer commit superseded the one being checked - not that the tests are still running.",
+    description:
+      "Tooltip explaining the Sync attempts count and that a climbing value signals a wedged release-analysis gate rather than tests still running.",
   },
   infoUsers: {
     id: "fleet.map.info.users",
@@ -458,6 +471,186 @@ export const messages = defineMessages({
     defaultMessage: "Up to date",
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
+  },
+  sdlcAge: {
+    id: "fleet.sdlc.age",
+    defaultMessage: "{days}d {hours}h",
+    description: "Compact time-in-phase duration on an Agent SDLC card.",
+  },
+  sdlcBoardEmpty: {
+    id: "fleet.sdlc.board.empty",
+    defaultMessage: "No work in progress.",
+    description: "Shown when the Agent SDLC aging board has no cards.",
+  },
+  sdlcCardOpen: {
+    id: "fleet.sdlc.card.open",
+    defaultMessage: "Open issue #{number}: {title}",
+    description: "Accessible name for an Agent SDLC card link to its issue.",
+  },
+  sdlcColumnAria: {
+    id: "fleet.sdlc.column.aria",
+    defaultMessage:
+      "{phase} column, {count, plural, one {# item} other {# items}}",
+    description: "Accessible name for a phase column on the aging board.",
+  },
+  sdlcCurrentMarker: {
+    id: "fleet.sdlc.matrix.currentMarker",
+    defaultMessage: "current",
+    description:
+      "Non-color text marker in the matrix for the bundle a hub cluster currently runs.",
+  },
+  sdlcEscalationBlocked: {
+    id: "fleet.sdlc.escalation.blocked",
+    defaultMessage: "Blocked",
+    description: "Escalation-lane bucket label for blocked work.",
+  },
+  sdlcEscalationDuplicate: {
+    id: "fleet.sdlc.escalation.duplicate",
+    defaultMessage: "Duplicate",
+    description: "Escalation-lane bucket label for duplicate work.",
+  },
+  sdlcEscalationNeedsInput: {
+    id: "fleet.sdlc.escalation.needsInput",
+    defaultMessage: "Needs input",
+    description: "Escalation-lane bucket label for work awaiting human input.",
+  },
+  sdlcEscalationPastSle: {
+    id: "fleet.sdlc.escalation.pastSle",
+    defaultMessage: "Past SLE",
+    description:
+      "Escalation-lane bucket label for work past its service-level expectation.",
+  },
+  sdlcHistoryEmpty: {
+    id: "fleet.sdlc.history.empty",
+    defaultMessage: "No label history.",
+    description: "Shown when a card's label-event history is empty.",
+  },
+  sdlcHistoryTitle: {
+    id: "fleet.sdlc.history.title",
+    defaultMessage: "Label history",
+    description: "Heading for a card's reconstructed label-event history.",
+  },
+  sdlcLaneCleared: {
+    id: "fleet.sdlc.lane.cleared",
+    defaultMessage: "Escalation lane clear - nothing blocked or stalled.",
+    description: "Cleared state of the escalation lane (non-color cue).",
+  },
+  sdlcLaneTitle: {
+    id: "fleet.sdlc.lane.title",
+    defaultMessage: "Escalation lane",
+    description: "Heading for the escalation lane.",
+  },
+  sdlcMatrixCurrent: {
+    id: "fleet.sdlc.matrix.current",
+    defaultMessage: "Current bundle on {cluster}",
+    description: "Accessible label for a hub cluster's current-bundle marker.",
+  },
+  sdlcMatrixEmpty: {
+    id: "fleet.sdlc.matrix.empty",
+    defaultMessage: "No release history yet.",
+    description: "Shown when the release-by-hub-cluster matrix has no rows.",
+  },
+  sdlcMatrixTitle: {
+    id: "fleet.sdlc.matrix.title",
+    defaultMessage: "Shipped",
+    description:
+      "Heading for the release-by-hub-cluster matrix (Shipped column).",
+  },
+  sdlcMergedAgo: {
+    id: "fleet.sdlc.merged.ago",
+    defaultMessage: "merged {days, plural, one {# day} other {# days}} ago",
+    description: "Relative merge timestamp for a shipped issue.",
+  },
+  sdlcMergedToday: {
+    id: "fleet.sdlc.merged.today",
+    defaultMessage: "merged today",
+    description: "Relative merge timestamp for an issue merged today.",
+  },
+  sdlcPhaseCode: {
+    id: "fleet.sdlc.phase.code",
+    defaultMessage: "Code",
+    description: "Agent SDLC phase column: code implementation under review.",
+  },
+  sdlcPhaseCodeApproved: {
+    id: "fleet.sdlc.phase.codeApproved",
+    defaultMessage: "Code approved",
+    description: "Agent SDLC phase column: code review approved.",
+  },
+  sdlcPhaseIntake: {
+    id: "fleet.sdlc.phase.intake",
+    defaultMessage: "Intake",
+    description: "Agent SDLC phase column: newly admitted execution records.",
+  },
+  sdlcPhaseShipped: {
+    id: "fleet.sdlc.phase.shipped",
+    defaultMessage: "Shipped",
+    description: "Agent SDLC terminal phase: merged and released.",
+  },
+  sdlcPhaseSpec: {
+    id: "fleet.sdlc.phase.spec",
+    defaultMessage: "Spec",
+    description: "Agent SDLC phase column: specification under review.",
+  },
+  sdlcPhaseSpecApproved: {
+    id: "fleet.sdlc.phase.specApproved",
+    defaultMessage: "Spec approved",
+    description: "Agent SDLC phase column: spec review approved.",
+  },
+  sdlcPhaseWorkable: {
+    id: "fleet.sdlc.phase.workable",
+    defaultMessage: "Workable",
+    description: "Agent SDLC phase column: ready to start.",
+  },
+  sdlcReworkCritical: {
+    id: "fleet.sdlc.rework.critical",
+    defaultMessage: "One more rejection blocks this item.",
+    description:
+      "Non-color cue when a rework meter is one strike from blocking.",
+  },
+  sdlcReworkLabel: {
+    id: "fleet.sdlc.rework.label",
+    defaultMessage: "{count} of {threshold} rejections",
+    description: "Accessible label for the rework meter.",
+  },
+  sdlcReworkWarning: {
+    id: "fleet.sdlc.rework.warning",
+    defaultMessage: "Approaching the block threshold.",
+    description: "Non-color cue when a rework meter nears its threshold.",
+  },
+  sdlcSection: {
+    id: "fleet.sdlc.section",
+    defaultMessage: "Agent SDLC",
+    description: "Card title for the Agent SDLC tab content.",
+  },
+  sdlcSleLine: {
+    id: "fleet.sdlc.sle.line",
+    defaultMessage: "Service-level expectation",
+    description: "Accessible label for a column's dashed SLE line.",
+  },
+  sdlcTabAgent: {
+    id: "fleet.sdlc.tab.agent",
+    defaultMessage: "Agent SDLC",
+    description: "Tab label for the Agent SDLC view.",
+  },
+  sdlcTabFleetMap: {
+    id: "fleet.sdlc.tab.fleetMap",
+    defaultMessage: "Fleet Map",
+    description: "Tab label for the existing Fleet Map view.",
+  },
+  sdlcTabs: {
+    id: "fleet.sdlc.tabs.aria",
+    defaultMessage: "Dashboard views",
+    description: "Accessible name for the Fleet Map / Agent SDLC tab control.",
+  },
+  sdlcTimeInPhase: {
+    id: "fleet.sdlc.timeInPhase",
+    defaultMessage: "In phase {duration}",
+    description: "Accessible label for a card's time-in-phase.",
+  },
+  sdlcUnreleased: {
+    id: "fleet.sdlc.matrix.unreleased",
+    defaultMessage: "Unreleased",
+    description: "Matrix row for merged work not yet in a released bundle.",
   },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",

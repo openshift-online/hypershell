@@ -78,6 +78,12 @@ export interface PromotionEnvironment {
   readonly cluster: string | null;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
+  /**
+   * Argo CD sync-operation retry count for this environment. Null when no sync
+   * operation data is available (unknown), distinct from a genuine 0 (synced on
+   * the first attempt); a climbing value signals a wedged release-analysis gate.
+   */
+  readonly syncRetries: number | null;
   /** Deep link to the instance's console, when the server supplies one. */
   readonly consoleUrl: string | null;
   /** Deep link to the cluster's own Grafana, when the server supplies one. */

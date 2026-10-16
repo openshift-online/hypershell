@@ -38,6 +38,34 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+// TestLoadSDLCDefaultsAndOverrides confirms the SDLC refresh and per-phase SLE
+// values default sensibly and are overridable via FD_* (SDLC-VIS-13).
+func TestLoadSDLCDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("FD_PROM_URL", "https://prom.example")
+	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")
+	t.Setenv("FD_AUTH_ENABLED", "false")
+	t.Setenv("FD_SLE_SPEC", "10h")
+
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.RefreshSDLC != 120*time.Second {
+		t.Errorf("default RefreshSDLC = %v, want 120s", c.RefreshSDLC)
+	}
+	if got := c.SDLCPhaseSLE["spec"]; got != 10*time.Hour {
+		t.Errorf("FD_SLE_SPEC override = %v, want 10h", got)
+	}
+	if got := c.SDLCPhaseSLE["code"]; got != sdlcSLEDefaults["code"] {
+		t.Errorf("unset SLE should fall back to default: code = %v, want %v", got, sdlcSLEDefaults["code"])
+	}
+	for _, phase := range SDLCPhaseKeys {
+		if _, ok := c.SDLCPhaseSLE[phase]; !ok {
+			t.Errorf("phase %q missing an SLE value", phase)
+		}
+	}
+}
+
 func TestLoadAuthRequiresSAR(t *testing.T) {
 	t.Setenv("FD_PROM_URL", "https://prom.example")
 	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")

@@ -4,7 +4,13 @@
 
 import type { Plane } from "../../domain/plane";
 import type { FleetApi } from "../../application/ports";
-import { mapFleet, mapInstances, mapPromotion, mapTopology } from "./wire";
+import {
+  mapFleet,
+  mapInstances,
+  mapPromotion,
+  mapSdlc,
+  mapTopology,
+} from "./wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -52,5 +58,6 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getPromotion: (signal) => getPlane("/promotion", mapPromotion, signal),
     getTopology: (signal) => getPlane("/topology", mapTopology, signal),
     getInstances: (signal) => getPlane("/instances", mapInstances, signal),
+    getSdlc: (signal) => getPlane("/sdlc", mapSdlc, signal),
   };
 }

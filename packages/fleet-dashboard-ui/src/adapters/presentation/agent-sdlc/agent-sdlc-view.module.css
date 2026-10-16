@@ -1,0 +1,109 @@
+/* Layout only. All colour comes from PatternFly tokens (via inline var()) or
+   PatternFly components, and every colour signal is paired with text/icon so colour
+   is never the sole channel (accessibility.spec / SDLC-VIS-16). */
+
+.board {
+  display: flex;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  overflow-x: auto;
+  padding-bottom: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.column {
+  flex: 1 0 200px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.columnHeader {
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+}
+
+/* The aging track: a card's vertical position encodes its time-in-phase
+   (SDLC-VIS-08). Fresh at the top, stale toward the bottom. */
+.track {
+  position: relative;
+  min-height: 320px;
+  border: 1px solid var(--pf-t--global--border--color--default, #d2d2d2);
+  border-radius: var(--pf-t--global--border--radius--small, 6px);
+  padding: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.card {
+  position: absolute;
+  left: var(--pf-t--global--spacer--xs, 4px);
+  right: var(--pf-t--global--spacer--xs, 4px);
+}
+
+/* Dashed service-level-expectation line across the column (SDLC-VIS-08). */
+.sleLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px dashed
+    var(--pf-t--global--color--status--warning--default, #dca614);
+  pointer-events: none;
+}
+
+.sleTag {
+  position: absolute;
+  right: var(--pf-t--global--spacer--xs, 4px);
+  transform: translateY(-50%);
+  font-size: 10px;
+}
+
+/* Single proportional rework bar (SDLC-VIS-09): one encoding for every threshold. */
+.reworkTrack {
+  height: 6px;
+  width: 100%;
+  border-radius: 3px;
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #f2f2f2
+  );
+  overflow: hidden;
+}
+
+.reworkFill {
+  height: 100%;
+}
+
+.lane {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.laneCard {
+  flex: 1 1 260px;
+  min-width: 260px;
+}
+
+/* Ship-in animation (SDLC-VIS-12): a newly shipped issue slides/fades into the
+   matrix as it mounts. Suppressed entirely under prefers-reduced-motion. */
+@keyframes shipEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.shipEnter {
+  animation: shipEnter 320ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shipEnter {
+    animation: none;
+  }
+}

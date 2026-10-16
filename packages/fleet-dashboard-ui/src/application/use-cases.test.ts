@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentSdlcData } from "../domain/agent-sdlc";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
 import type { FleetApi, InstancesData, TopologyData } from "./ports";
-import { getFleet, getInstances, getPromotion, getTopology } from "./use-cases";
+import type { ObservabilityPort, SdlcWorkflowOutcome } from "./observability";
+import {
+  getFleet,
+  getInstances,
+  getPromotion,
+  getSdlc,
+  getTopology,
+} from "./use-cases";
 
 function plane<T>(data: T): Plane<T> {
   return {
@@ -26,11 +34,18 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
   };
   const topology: TopologyData = {};
   const instances: InstancesData = { instances: [] };
+  const sdlc: AgentSdlcData = {
+    phases: [],
+    cards: [],
+    lane: [],
+    matrix: { hubClusters: [], rows: [] },
+  };
   return {
     getFleet: vi.fn().mockResolvedValue(plane(fleet)),
     getPromotion: vi.fn().mockResolvedValue(plane(promotion)),
     getTopology: vi.fn().mockResolvedValue(plane(topology)),
     getInstances: vi.fn().mockResolvedValue(plane(instances)),
+    getSdlc: vi.fn().mockResolvedValue(plane(sdlc)),
     ...overrides,
   };
 }
@@ -83,5 +98,48 @@ describe("use cases", () => {
     });
     const api = fakeApi({ getFleet: vi.fn().mockResolvedValue(wanted) });
     await expect(getFleet(api)).resolves.toBe(wanted);
+  });
+});
+
+function recordingObservability(): {
+  port: ObservabilityPort;
+  outcomes: SdlcWorkflowOutcome[];
+} {
+  const outcomes: SdlcWorkflowOutcome[] = [];
+  return {
+    outcomes,
+    port: {
+      publishSdlcWorkflow: (probe) => {
+        outcomes.push(probe.outcome);
+      },
+    },
+  };
+}
+
+describe("getSdlc observability", () => {
+  it("publishes started then succeeded on a successful load", async () => {
+    const { port, outcomes } = recordingObservability();
+    await getSdlc(fakeApi(), undefined, port);
+    expect(outcomes).toEqual(["started", "succeeded"]);
+  });
+
+  it("publishes started then failed when the port rejects", async () => {
+    const { port, outcomes } = recordingObservability();
+    const api = fakeApi({
+      getSdlc: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+    await expect(getSdlc(api, undefined, port)).rejects.toThrow("boom");
+    expect(outcomes).toEqual(["started", "failed"]);
+  });
+
+  it("reports cancelled when the request was aborted", async () => {
+    const { port, outcomes } = recordingObservability();
+    const controller = new AbortController();
+    controller.abort();
+    const api = fakeApi({
+      getSdlc: vi.fn().mockRejectedValue(new Error("aborted")),
+    });
+    await expect(getSdlc(api, controller.signal, port)).rejects.toThrow();
+    expect(outcomes).toEqual(["started", "cancelled"]);
   });
 });

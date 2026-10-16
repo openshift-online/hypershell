@@ -6,4 +6,5 @@ export const queryKeys = {
   promotion: ["promotion"] as const,
   topology: ["topology"] as const,
   instances: ["instances"] as const,
+  sdlc: ["sdlc"] as const,
 };

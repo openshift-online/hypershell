@@ -13,9 +13,9 @@ Keeps a work item's Jira item and its GitHub execution record converged. It is
 invoked by `execute-sdlc` after each phase transition and after merge, so a
 manager sees progress in Jira without ever editing it by hand.
 
-Realizes the `Status Projection`, `Closed Execution Record Projects Done`,
-`Terminal Execution Record Closure`, `Artifact Remote Links`,
-`Narrative Comments`, `Bidirectional Reconciliation`,
+Realizes the `Authorization Gate Is Load-Bearing`, `Status Projection`,
+`Closed Execution Record Projects Done`, `Terminal Execution Record Closure`,
+`Artifact Remote Links`, `Narrative Comments`, `Bidirectional Reconciliation`,
 `Canonical-Link-Only Resolution`, `Scope Reconciliation Covers Both Origins`,
 `Safety and Approval Gates`, and `Credit Preservation` requirements of
 `specs/standards/sdlc/jira-github-sync.spec.md`.
@@ -57,8 +57,24 @@ authority TO the other system and NEVER writes back toward the authority.
 | Execution record open/closed | GitHub | closed on terminal merge (Step 3) |
 | Jira status | Derived from GitHub phase | GitHub phase -> Jira status |
 | Branch, pull requests, commits, specs | GitHub | GitHub -> Jira remote links |
+| Authorization to act (`agent/allowed`) | Human | granted by hand; no agent SHALL set it |
 
 ## Workflow
+
+### Step 0: Enforce the authorization gate
+
+`agent/allowed` is the human authorization gate for the entire funnel, and
+`reconcile` enforces it itself so the gate is load-bearing even when `reconcile`
+is invoked directly on a single record, not only through a scope run (see
+`Authorization Gate Is Load-Bearing` in
+`specs/standards/sdlc/jira-github-sync.spec.md`).
+
+Read the labels on `$EXECUTION_RECORD`. IF it does NOT carry `agent/allowed`,
+perform NO Jira or GitHub write: STOP and report the record as **skipped** (NOT
+failed) because it is un-authorized. This is not an error - a scoped but
+un-authorized record is a valid, inert state that stays inert until a human grants
+`agent/allowed`. Only when `$EXECUTION_RECORD` carries `agent/allowed` proceed to
+Step 1.
 
 ### Step 1: Resolve the canonical link
 

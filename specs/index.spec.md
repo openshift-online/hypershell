@@ -82,6 +82,8 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/control-plane-reconciliation-metrics.spec.md` | platform | Reconciliation outcome taxonomy, duration/retry/terminal-failure metrics, bounded reason codes, BFF reconciliation query contract | CP, WEB | control-plane-observability, control-plane, security |
 | `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
 | `platform/agent-runtime-images.spec.md` | platform | Full and slim agent runtime images, pinned inputs, security and release bundle delivery | agents, CLI | hsctl-release |
+| `platform/fleet-dashboard-sync-retry-visibility.spec.md` | platform | Argo Application sync-retry count (status.operationState.retryCount) threaded to the gate details pane as nullable syncRetries with plain-English tooltip | WEB | gateway-managed-cluster-attribution |
+| `platform/agent-sdlc-visibility-dashboard.spec.md` | platform | Agent SDLC tab for the glass dashboard: aging WIP board, rework meter, escalation lane, release x hub-cluster matrix; new /api/sdlc plane behind SdlcStateProvider port (GitHub adapter, Jira drop-in seam), shared cached bundle truth, label-event history from the GitHub timeline | WEB | fleet-dashboard-sync-retry-visibility, jira-github-sync, gateway-managed-cluster-attribution, UI standards |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
 | `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |

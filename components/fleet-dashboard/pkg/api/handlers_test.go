@@ -48,6 +48,41 @@ func TestServeEncodeErrorIsVisible(t *testing.T) {
 	}
 }
 
+// TestServeSDLCColdIs503 confirms the SDLC route returns 503 before its first
+// successful refresh (never-refreshed), distinguishing cold-start from stale
+// (SDLC-VIS-01).
+func TestServeSDLCColdIs503(t *testing.T) {
+	cold := cache.NewSource("sdlc", time.Hour, func(context.Context) (any, error) {
+		return nil, context.DeadlineExceeded
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cold.Run(ctx) // one failed refresh: GeneratedAt stays zero
+	h := &Handlers{SDLC: cold}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cold SDLC status = %d, want 503", rr.Code)
+	}
+}
+
+// TestSDLCRouteNotMountedWhenNil confirms the optional SDLC plane leaves no route
+// behind when it is disabled (no source repo), so a request 404s rather than
+// panicking on a nil source.
+func TestSDLCRouteNotMountedWhenNil(t *testing.T) {
+	h := &Handlers{} // SDLC nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disabled SDLC route status = %d, want 404", rr.Code)
+	}
+}
+
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.
 func TestServeHealthy(t *testing.T) {
 	src := oneShotSource(t, map[string]any{"instances": []string{"alpha", "beta"}})

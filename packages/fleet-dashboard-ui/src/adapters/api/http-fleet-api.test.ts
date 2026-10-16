@@ -68,6 +68,31 @@ describe("createHttpFleetApi", () => {
     );
   });
 
+  it("requests the SDLC plane at /sdlc and maps the envelope", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: {
+          phases: [{ key: "spec", sleSeconds: 10 }],
+          cards: [],
+          lane: [],
+          matrix: { hubClusters: [], rows: [] },
+        },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: true,
+        error: "upstream hiccup",
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    const plane = await api.getSdlc();
+
+    expect(fetchImpl).toHaveBeenCalledWith("/api/sdlc", expect.anything());
+    // Envelope fields pass through unchanged; only data is projected to the domain.
+    expect(plane.stale).toBe(true);
+    expect(plane.error).toBe("upstream hiccup");
+    expect(plane.data.phases[0]?.key).toBe("spec");
+  });
+
   it("throws HttpError on a non-2xx response", async () => {
     const fetchImpl = vi
       .fn()

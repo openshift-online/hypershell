@@ -41,6 +41,7 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     driftsFromColumn: false,
     argoHealth: null,
     argoSync: null,
+    syncRetries: null,
     prState: null,
     gateBadge: { tone: "unknown", labelKey: "unknown" },
     gateways: {},
