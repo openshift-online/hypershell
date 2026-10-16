@@ -219,16 +219,17 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 ### Requirement: Shared Kustomize Library
 
-The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a shared library package. This library SHALL be consumed by both the CLI (`hsctl apply`) and the PlatformReconciler.
+The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This library SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by the CLI (`hsctl apply`), the PlatformReconciler, and the declarative `.hypershell` import reconciler. It SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
 
 #### Scenario: Library extraction
 
 - GIVEN the kustomize engine currently lives in `components/cli/cmd/hsctl/apply/cmd.go`
 - WHEN the shared library is created
-- THEN it SHALL be placed in a package accessible to both the CLI and the control plane (e.g., `components/hypershell-sdk/go-sdk/kustomize/`)
-- AND it SHALL expose functions for: loading a kustomization directory, resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
-- AND the existing `hsctl apply` command SHALL be refactored to use the shared library
+- THEN it SHALL be placed in `components/cli` as the `pkg/kustomize` package, accessible to both the CLI and the control plane (the control-plane module imports the cli module)
+- AND it SHALL expose an exported `Build` with functions for: loading a kustomization root (including from an in-memory filesystem), resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
+- AND the existing `hsctl apply -k` command SHALL be refactored to use the shared library, removing its current external-`kustomize`-binary shell-out
 - AND the PlatformReconciler SHALL be updated to use the shared library for rendering
+- AND the declarative `.hypershell` import reconciler SHALL use the same shared library, so no second kustomize implementation exists
 
 #### Scenario: Supported kinds
 
