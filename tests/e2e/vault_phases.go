@@ -208,8 +208,10 @@ func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 	name := "e2e-vault-failclosed-" + s.runID
 	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
 	// https (TLS) + non-loopback is a valid driver config; the host does not resolve, so
-	// the pre-deploy reachability probe fails closed.
-	body.CredentialDriver = `{"type":"vault","config":{"address":"https://openshell-gateway-vault.unreachable.svc:8200"}}`
+	// the pre-deploy reachability probe fails closed. The override lives under the `vault`
+	// key (CredentialDriverConfig.Vault), which the control plane unmarshals; any other key
+	// is ignored and would silently fall back to the reachable convention address.
+	body.CredentialDriver = `{"type":"vault","vault":{"address":"https://openshell-gateway-vault.unreachable.svc:8200"}}`
 	status, resp, err := s.admin.RawJSON(ctx, http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create fail-closed gateway")
 	s.Require().Equalf(http.StatusCreated, status, "create fail-closed gateway status (body: %s)", string(resp))

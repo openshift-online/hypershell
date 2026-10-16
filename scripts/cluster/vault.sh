@@ -202,11 +202,79 @@ vxt() { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.
 # Stdin variant (exec -i), for commands that read from stdin like `vault policy write - `.
 vxti() { vkube -n "${VAULT_NS}" exec -i "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
 
+# vxi: stdin variant WITHOUT a token, for unauthenticated stdin commands (generate-root).
+vxi() { vkube -n "${VAULT_NS}" exec -i "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
+
+# gen_root_token re-derives a root token from the unseal key via the generate-root flow, so
+# a re-run can reconcile config even though the previous run revoked root (mirrors the
+# hypershell-gitops init Job's recover path). $1 = unseal key -> prints a new root token.
+gen_root_token() {
+  vx vault operator generate-root -cancel >/dev/null 2>&1 || true
+  local otp nonce encoded
+  otp="$(vx vault operator generate-root -generate-otp | tr -d '\r')"
+  nonce="$(vx vault operator generate-root -init -otp="$otp" -format=json \
+           | sed -n 's/.*"nonce":[[:space:]]*"\([^"]*\)".*/\1/p')"
+  encoded="$(printf '%s' "$1" | vxi vault operator generate-root -nonce="$nonce" -format=json - \
+           | sed -n 's/.*"encoded_token":[[:space:]]*"\([^"]*\)".*/\1/p')"
+  vx vault operator generate-root -decode="$encoded" -otp="$otp" -format=json \
+     | sed -n 's/.*"token":[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# apply_config writes the full gateway-provider config as root (every step idempotent): the
+# KV v2 engine, kubernetes auth + local-cluster config, the capability-scoped policy, and the
+# shared role. Re-applying is how a policy change in this repo takes effect on an
+# already-initialized (e.g. shared-cluster) Vault. $1 = root token.
+apply_config() {
+  local rt="$1"
+  vxt "$rt" vault secrets enable -path=secret -version=2 kv >/dev/null 2>&1 || true
+  vxt "$rt" vault auth enable kubernetes >/dev/null 2>&1 || true
+  vxt "$rt" sh -c 'vault write auth/kubernetes/config \
+    kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}" \
+    kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+    token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token'
+
+  # Capability-model policy: the OpenShell gateway runtime stores every provider credential
+  # at the flat, hash-addressed path secret/data/openshell/provider-credentials/<sha> (the
+  # <sha> is a SHA-256 seeded by a random provider UUID, so it is unguessable). The gateway
+  # reaches a secret only by the opaque handle it already holds in its own DB; NO list is
+  # granted, so one gateway can neither enumerate nor guess another's path. That capability
+  # boundary, on top of the per-cluster Vault, is the isolation unit. See
+  # openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+  printf '%s\n' \
+    'path "secret/data/openshell/provider-credentials/*" {' \
+    '  capabilities = ["create", "read", "update", "delete"]' \
+    '}' \
+    'path "secret/metadata/openshell/provider-credentials/*" {' \
+    '  capabilities = ["read", "delete"]' \
+    '}' | vxti "$rt" vault policy write openshell-gateway-provider -
+
+  vxt "$rt" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
+    bound_service_account_names="openshell-gateway" \
+    bound_service_account_namespaces='*' \
+    audience=vault \
+    token_policies="openshell-gateway-provider" \
+    token_ttl=3600 >/dev/null
+}
+
 info "Waiting for the Vault API..."
 until vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; do sleep 3; done
 
 if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
-  success "Vault already initialized - skipping init/config (idempotent)"
+  # Already initialized (e.g. a shared cluster across PR environments). Reconcile the config
+  # non-destructively so a policy change in this repo always takes effect: the previous run
+  # revoked root, so re-derive one from the stashed unseal key via generate-root, re-apply
+  # the config (idempotent), then revoke root again. No data is touched.
+  info "Vault already initialized - reconciling config (idempotent)..."
+  UNSEAL_KEY="$(vkube get secret "${VAULT_UNSEAL_SECRET}" -n "${VAULT_NS}" -o jsonpath='{.data.unseal-key}' 2>/dev/null | base64 -d 2>/dev/null)"
+  [ -n "${UNSEAL_KEY}" ] || { error "no stashed unseal key in Secret ${VAULT_UNSEAL_SECRET}; cannot reconcile"; exit 1; }
+  if vx vault status 2>/dev/null | grep -q "Sealed.*true"; then
+    vx vault operator unseal "${UNSEAL_KEY}" >/dev/null
+  fi
+  RT="$(gen_root_token "${UNSEAL_KEY}")"
+  [ -n "${RT}" ] || { error "generate-root reconcile failed"; exit 1; }
+  apply_config "${RT}"
+  vxt "${RT}" vault token revoke -self >/dev/null 2>&1 || true
+  success "Vault reconciled at https://${VAULT_HOST}:8200 (capability-scoped policy re-applied)"
   exit 0
 fi
 
@@ -214,41 +282,14 @@ info "Initializing + unsealing Vault (Shamir 1/1)..."
 INIT_JSON="$(vx vault operator init -key-shares=1 -key-threshold=1 -format=json)"
 UNSEAL_KEY="$(printf '%s' "${INIT_JSON}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["unseal_keys_b64"][0])')"
 ROOT_TOKEN="$(printf '%s' "${INIT_JSON}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["root_token"])')"
-# Stash the unseal key so an unattended pod restart during a run can be re-unsealed
-# by hand if needed (dev/e2e convenience; not a production unseal mechanism).
+# Stash the unseal key so a re-run can re-derive root (generate-root) and reconcile config,
+# and so an unattended pod restart during a run can be re-unsealed (dev/e2e convenience).
 vkube create secret generic "${VAULT_UNSEAL_SECRET}" -n "${VAULT_NS}" \
   --from-literal=unseal-key="${UNSEAL_KEY}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
 vx vault operator unseal "${UNSEAL_KEY}" >/dev/null
 
 info "Configuring KV v2, kubernetes auth, role and capability-scoped policy..."
-vxt "${ROOT_TOKEN}" vault secrets enable -path=secret -version=2 kv >/dev/null 2>&1 || true
-vxt "${ROOT_TOKEN}" vault auth enable kubernetes >/dev/null 2>&1 || true
-vxt "${ROOT_TOKEN}" sh -c 'vault write auth/kubernetes/config \
-  kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}" \
-  kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
-  token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token'
-
-# Capability-model policy: the OpenShell gateway runtime stores every provider credential
-# at the flat, hash-addressed path secret/data/openshell/provider-credentials/<sha> (the
-# <sha> is a SHA-256 seeded by a random provider UUID, so it is unguessable). The gateway
-# reaches a secret only by the opaque handle it already holds in its own DB; NO list is
-# granted, so one gateway can neither enumerate nor guess another's path. That capability
-# boundary, on top of the per-cluster Vault, is the isolation unit. See
-# openshell-gateway-credentials.spec.md (Provider Credential Isolation).
-printf '%s\n' \
-  'path "secret/data/openshell/provider-credentials/*" {' \
-  '  capabilities = ["create", "read", "update", "delete"]' \
-  '}' \
-  'path "secret/metadata/openshell/provider-credentials/*" {' \
-  '  capabilities = ["read", "delete"]' \
-  '}' | vxti "${ROOT_TOKEN}" vault policy write openshell-gateway-provider -
-
-vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
-  bound_service_account_names="openshell-gateway" \
-  bound_service_account_namespaces='*' \
-  audience=vault \
-  token_policies="openshell-gateway-provider" \
-  token_ttl=3600 >/dev/null
+apply_config "${ROOT_TOKEN}"
 
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.
 vxt "${ROOT_TOKEN}" vault token revoke -self >/dev/null 2>&1 || true
