@@ -251,6 +251,20 @@ vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
   token_policies="openshell-gateway-provider" \
   token_ttl=3600 >/dev/null
 
+# e2e-only read-only verifier identity, so the suite can assert Vault state (e.g. that a
+# deleted gateway's KV path was purged) WITHOUT root - root is still revoked below, as in
+# production. Scoped to read/list the openshell tree across namespaces (an operator view).
+printf '%s\n' \
+  'path "secret/data/openshell/*" { capabilities = ["read", "list"] }' \
+  'path "secret/metadata/openshell/*" { capabilities = ["read", "list"] }' \
+  | vxti "${ROOT_TOKEN}" vault policy write e2e-verifier -
+vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/e2e-verifier" \
+  bound_service_account_names="e2e-verifier" \
+  bound_service_account_namespaces='*' \
+  audience=vault \
+  token_policies="e2e-verifier" \
+  token_ttl=3600 >/dev/null
+
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.
 vxt "${ROOT_TOKEN}" vault token revoke -self >/dev/null 2>&1 || true
 

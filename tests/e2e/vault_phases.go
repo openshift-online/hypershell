@@ -39,6 +39,10 @@ const (
 	vaultK8sRole       = "openshell-gateway"
 	vaultGatewaySAName = "openshell-gateway"
 	vaultTokenAudience = "vault"
+	// Read-only verifier identity (scripts/cluster/vault.sh) the suite uses to assert Vault
+	// state without root (e.g. that a deleted gateway's KV path was purged).
+	vaultVerifierRole   = "e2e-verifier"
+	vaultVerifierSAName = "e2e-verifier"
 )
 
 // vaultPod resolves the stand-in Vault pod name by label (scripts/cluster/vault.sh runs it
@@ -123,6 +127,11 @@ if vault kv get secret/openshell/%[1]s/own 2>&1 | grep -qiE "permission denied|4
 	// the pre-deploy reachability probe fails EnvironmentReady with a Vault-named reason,
 	// and the gateway never reports Running.
 	s.vaultFailClosedScenario(ctx, t)
+
+	// Scenario 4: provider-secret purge on gateway delete. Prod runs this on every delete,
+	// so cover it end to end: a dedicated gateway (the primary is left untouched), a secret
+	// written under its namespace path, then delete and verify the path is purged.
+	s.vaultPurgeScenario(ctx, t)
 }
 
 // ensureGatewaySA makes sure an openshell-gateway ServiceAccount exists in namespace
@@ -157,8 +166,14 @@ func (s *E2ESuite) mintVaultToken(ctx context.Context, t *testing.T, namespace, 
 // identity. The token is passed on stdin (never argv); the script runs with VAULT_TOKEN
 // exported from a kubernetes-auth login under the openshell-gateway role.
 func (s *E2ESuite) vaultAsGateway(ctx context.Context, token, script string) (string, error) {
+	return s.vaultAsRole(ctx, token, vaultK8sRole, script)
+}
+
+// vaultAsRole runs a shell script inside the Vault pod authenticated under the given
+// kubernetes-auth role. The token (a vault-audience SA token) is passed on stdin.
+func (s *E2ESuite) vaultAsRole(ctx context.Context, token, role, script string) (string, error) {
 	wrapper := `read -r JWT
-CT=$(vault write -field=token auth/kubernetes/login role=` + vaultK8sRole + ` jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
+CT=$(vault write -field=token auth/kubernetes/login role=` + role + ` jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
 export VAULT_TOKEN="$CT"
 ` + script
 	return s.vaultExec(ctx, token+"\n", "sh", "-c", wrapper)
@@ -246,4 +261,60 @@ func conditionText(cond map[string]any) string {
 func mentionsVault(text string) bool {
 	l := strings.ToLower(text)
 	return strings.Contains(l, "vault") || strings.Contains(l, "reach") || strings.Contains(l, "unreachable")
+}
+
+// vaultVerifierToken ensures the read-only e2e-verifier ServiceAccount exists and returns a
+// vault-audience token for it (used to assert Vault state without root).
+func (s *E2ESuite) vaultVerifierToken(ctx context.Context, t *testing.T) string {
+	_, err := s.clients.Kube.CoreV1().ServiceAccounts(vaultNamespace).Create(ctx,
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: vaultVerifierSAName, Namespace: vaultNamespace}}, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		s.Require().NoErrorf(err, "create verifier ServiceAccount %s/%s", vaultNamespace, vaultVerifierSAName)
+	}
+	return s.mintVaultToken(ctx, t, vaultNamespace, vaultVerifierSAName)
+}
+
+// vaultPurgeScenario provisions a dedicated vault-backed gateway, writes a provider secret
+// under its namespace path, deletes the gateway, and verifies the control plane purged the
+// KV path (W3). The primary gateway is left untouched.
+func (s *E2ESuite) vaultPurgeScenario(ctx context.Context, t *testing.T) {
+	created := s.createGateway(t, "e2e-vault-purge-"+s.runID)
+	s.trackGateway(created.ID)
+	running := s.waitGatewayRunning(t, created.ID)
+	gwNS := running.Namespace
+	s.Require().NotEmpty(gwNS, "purge gateway namespace")
+
+	// Write a provider secret under the gateway's own namespace path, as its identity.
+	s.ensureGatewaySA(ctx, t, gwNS)
+	gwTok := s.mintVaultToken(ctx, t, gwNS, vaultGatewaySAName)
+	out, err := s.vaultAsGateway(ctx, gwTok, fmt.Sprintf(
+		"vault kv put secret/openshell/%s/purge-probe value=to-be-purged >/dev/null && echo WROTE", gwNS))
+	s.Require().NoErrorf(err, "purge: write probe secret: %s", out)
+	s.Require().Containsf(out, "WROTE", "purge: wrote probe secret (out: %s)", out)
+
+	// As the read-only verifier, confirm the secret is present before delete.
+	verTok := s.vaultVerifierToken(ctx, t)
+	vout, err := s.vaultAsRole(ctx, verTok, vaultVerifierRole, fmt.Sprintf(
+		"vault kv get secret/openshell/%s/purge-probe >/dev/null 2>&1 && echo PRESENT || echo ABSENT", gwNS))
+	s.Require().NoErrorf(err, "purge: pre-delete verify: %s", vout)
+	s.Require().Containsf(vout, "PRESENT", "purge: probe secret present before delete (out: %s)", vout)
+
+	// Delete the gateway; the control plane purges its KV path before removing the SA/ns.
+	err = s.admin.Gateways().Delete(ctx, created.ID)
+	s.Require().NoError(err, "purge: delete gateway")
+
+	// Poll until the namespace path is purged (the probe key is gone).
+	timeout := durationSecondsEnv("E2E_VAULT_PURGE_TIMEOUT", 180*time.Second)
+	var last string
+	perr := harness.Poll(ctx, 5*time.Second, timeout, func(pctx context.Context) (bool, error) {
+		o, e := s.vaultAsRole(pctx, verTok, vaultVerifierRole, fmt.Sprintf(
+			"vault kv list secret/openshell/%s 2>&1 || true", gwNS))
+		if e != nil {
+			return false, nil
+		}
+		last = o
+		return !strings.Contains(o, "purge-probe"), nil
+	})
+	s.Require().NoErrorf(perr, "purge: KV path secret/openshell/%s not purged after delete (last list: %s)", gwNS, last)
+	t.Logf("purge: gateway %s deleted and its Vault KV path purged", created.ID)
 }

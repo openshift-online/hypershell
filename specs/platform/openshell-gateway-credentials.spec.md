@@ -602,6 +602,24 @@ cluster. See [`e2e-testing.spec.md`](./e2e-testing.spec.md).
   Vault-named reason / the gateway reports `Degraded`), never a gateway that reports
   healthy while unable to reach Vault
 
+#### Scenario: Provider secret is purged on gateway delete
+
+- GIVEN a Vault-backed gateway that has stored a provider secret under
+  `secret/data/openshell/<its-namespace>/*`
+- WHEN the gateway is deleted
+- THEN the control plane SHALL purge that namespace path from Vault before removing the
+  gateway's ServiceAccount
+- AND a read-only check SHALL observe the path empty afterwards
+
+**Coverage boundaries.** These e2e scenarios drive the round-trip, isolation, and purge as
+the gateway's own Vault identity (a `vault`-audience ServiceAccount token under the
+`openshell-gateway` role), and fail-closed at provisioning time via an unreachable address.
+The following are proven by unit tests and live per-cluster validation rather than this
+suite, and SHOULD NOT be assumed covered here: the gateway *process* storing a credential
+through the OpenShell driver (upstream), the authenticated-probe *rejection* path (Vault
+reachable but the identity denied), and the runtime `Degraded` transition when a healthy
+gateway's Vault later becomes unreachable.
+
 ---
 
 ## GitOps Contract
