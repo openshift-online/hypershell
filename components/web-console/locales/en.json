@@ -799,10 +799,6 @@
     "defaultMessage": "{date}: {value} {metric}",
     "description": "Tooltip for a dashboard metric trend sparkline point."
   },
-  "app.dashboard.trend.tooltip.noValue": {
-    "defaultMessage": "{date}: no sample for {metric}",
-    "description": "Tooltip for a calendar day without a dashboard metric trend sample."
-  },
   "app.dashboard.updatedMinuteAgo": {
     "defaultMessage": "Updated 1 minute ago",
     "description": "Relative timestamp shown when the dashboard was updated one minute ago."

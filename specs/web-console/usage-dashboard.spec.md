@@ -312,7 +312,7 @@ Deleted gateways SHALL NOT inflate active or unused counts.
 The control plane SHALL export:
 
 - OTel instrument `gateway.sandbox.total`, exported to Prometheus as `gateway_sandbox_total`
-- OTel instrument `gateway.sandbox.lifetime`, exported to Prometheus as `gateway_sandbox_lifetime`
+- OTel instrument `gateway.sandbox.lifetime`, exported to Prometheus as `gateway_sandbox_lifetime_seconds`
 
 Both metrics SHALL use the OTel scope attributes `namespace` and `hypershell.cluster_id`. Prometheus SHALL export those attributes as the labels `namespace` and `hypershell_cluster_id`.
 
@@ -326,7 +326,7 @@ Sandbox utilization SHALL be:
 
 `active sandboxes / total provisioned sandboxes`
 
-`gateway.sandbox.lifetime` SHALL be a histogram recorded when a sandbox leaves the active set. The lifetime start SHALL use the Sandbox CR creation timestamp, with pod creation timestamp only as a fallback. The implementation SHALL NOT use `spec.lifecycle.shutdownTime` because it is optional and may represent a future expiry rather than an observed termination.
+`gateway.sandbox.lifetime` SHALL be a histogram recorded when a sandbox leaves the active set. The Prometheus exporter SHALL append the instrument unit suffix `_seconds` to the histogram series. The lifetime start SHALL use the Sandbox CR creation timestamp, with pod creation timestamp only as a fallback. The implementation SHALL NOT use `spec.lifecycle.shutdownTime` because it is optional and may represent a future expiry rather than an observed termination.
 
 Lifetime bucket upper bounds, in seconds:
 

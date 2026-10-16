@@ -102,6 +102,14 @@ describe("UsageDashboardPage", () => {
         widget.getAttribute("aria-label")?.endsWith("System"),
       ),
     ).toBe(true);
+    expect(
+      systemWidgets.every(
+        (widget) =>
+          (widget as HTMLElement).style.getPropertyValue(
+            "--hypershell-system-label",
+          ) === '"System"',
+      ),
+    ).toBe(true);
     expect(screen.getByText(/Metrics cover the entire fleet\./u)).toBeTruthy();
   });
 

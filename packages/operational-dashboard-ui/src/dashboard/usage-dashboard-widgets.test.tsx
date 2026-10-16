@@ -27,6 +27,15 @@ function renderWithIntl(ui: ReactElement) {
   );
 }
 
+function expectSummaryRows(container: HTMLElement, count: number) {
+  expect(
+    container.querySelector(".hypershell-dashboard-summary-list"),
+  ).toBeTruthy();
+  expect(
+    container.querySelectorAll(".hypershell-dashboard-summary-list strong"),
+  ).toHaveLength(count);
+}
+
 const requestVolumeMetric: UsageMetric = {
   id: "gateway-request-volume",
   trend: {
@@ -85,16 +94,19 @@ describe("usage dashboard widgets", () => {
   });
 
   it("renders active gateway inventory details", () => {
-    renderWithIntl(<UsageGatewayActivityCard metric={activeGatewaysMetric} />);
+    const { container } = renderWithIntl(
+      <UsageGatewayActivityCard metric={activeGatewaysMetric} />,
+    );
 
     expect(screen.getByText("72 gateways")).toBeTruthy();
     expect(screen.getByText("Provisioned gateways")).toBeTruthy();
     expect(screen.getByText("97")).toBeTruthy();
     expect(screen.getByText("74.23%")).toBeTruthy();
+    expectSummaryRows(container, 2);
   });
 
   it("renders sandbox utilization counts", () => {
-    renderWithIntl(
+    const { container } = renderWithIntl(
       <UsageSandboxUtilizationCard metric={sandboxUtilizationMetric} />,
     );
 
@@ -102,16 +114,25 @@ describe("usage dashboard widgets", () => {
     expect(screen.getAllByText("214").length).toBeGreaterThan(0);
     expect(screen.getByText("Provisioned sandboxes")).toBeTruthy();
     expect(screen.getByText("340")).toBeTruthy();
+    expectSummaryRows(container, 2);
+    expect(
+      container.querySelector(
+        ".hypershell-dashboard-utilization-chart__donut svg",
+      ),
+    ).toBeTruthy();
   });
 
   it("renders sandbox lifetime percentiles", () => {
-    renderWithIntl(<UsageSandboxLifetimeCard metric={sandboxLifetimeMetric} />);
+    const { container } = renderWithIntl(
+      <UsageSandboxLifetimeCard metric={sandboxLifetimeMetric} />,
+    );
 
     expect(screen.getAllByText("18h 42m").length).toBeGreaterThan(0);
     expect(screen.getByText("P50 lifetime")).toBeTruthy();
     expect(screen.getByText("8h 12m")).toBeTruthy();
     expect(screen.getByText("P95 lifetime")).toBeTruthy();
     expect(screen.getByText("4d 6h")).toBeTruthy();
+    expectSummaryRows(container, 2);
   });
 
   it("renders partial lifetime percentiles without inventing a mean", () => {

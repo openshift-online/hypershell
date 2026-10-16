@@ -1151,12 +1151,6 @@ export const messages = defineMessages({
     defaultMessage: "{date}: {value} {metric}",
     description: "Tooltip for a dashboard metric trend sparkline point.",
   },
-  trendTooltipNoValue: {
-    id: "app.dashboard.trend.tooltip.noValue",
-    defaultMessage: "{date}: no sample for {metric}",
-    description:
-      "Tooltip for a calendar day without a dashboard metric trend sample.",
-  },
   updatedMinuteAgo: {
     id: "app.dashboard.updatedMinuteAgo",
     defaultMessage: "Updated 1 minute ago",

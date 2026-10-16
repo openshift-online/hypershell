@@ -1,4 +1,11 @@
-import { Content, Label, PageSection, Title } from "@patternfly/react-core";
+import {
+  Content,
+  Flex,
+  FlexItem,
+  Label,
+  PageSection,
+  Title,
+} from "@patternfly/react-core";
 import {
   ChartLineIcon,
   ContainerNodeIcon,
@@ -30,24 +37,57 @@ const Row = ({ label, value }: { label: string; value: string }) => (
     <strong>{value}</strong>
   </div>
 );
+function UsageMetricValue({
+  subtitle,
+  value,
+}: {
+  subtitle?: string;
+  value: string;
+}) {
+  return (
+    <Flex justifyContent={{ default: "justifyContentCenter" }}>
+      <FlexItem>
+        <Title headingLevel="h3" size="lg">
+          <>
+            {value}
+            {subtitle ? (
+              <>
+                <br />
+                <small>{subtitle}</small>
+              </>
+            ) : null}
+          </>
+        </Title>
+      </FlexItem>
+    </Flex>
+  );
+}
+
 function UsageCard({
   adminOnly,
   icon,
+  showHeader = true,
+  subtitle,
   title,
   value,
   children,
 }: {
   adminOnly: boolean;
   icon?: React.ReactNode;
+  showHeader?: boolean;
+  subtitle?: string;
   title: string;
   value: string;
   children?: React.ReactNode;
 }) {
   return (
-    <DashboardWidget adminOnly={adminOnly} icon={icon} title={title}>
-      <Title headingLevel="h3" size="lg">
-        {value}
-      </Title>
+    <DashboardWidget
+      adminOnly={adminOnly}
+      icon={icon}
+      showHeader={showHeader}
+      title={title}
+    >
+      <UsageMetricValue subtitle={subtitle} value={value} />
       {children ?? <DashboardSparkline caption="Last 30 days" />}
     </DashboardWidget>
   );
@@ -164,6 +204,7 @@ export function UsageDashboardPageSurface({
           <UsageCard
             adminOnly={isAdmin}
             icon={<ChartLineIcon />}
+            subtitle="Requests in the selected range"
             title="Gateway request volume"
             value="1.24M requests"
           >
@@ -175,6 +216,7 @@ export function UsageDashboardPageSurface({
           <UsageCard
             adminOnly={isAdmin}
             icon={<ExclamationCircleIcon />}
+            subtitle="Errors as a percentage of requests"
             title="Gateway error rate"
             value="1.25%"
           >
@@ -228,10 +270,10 @@ export function UsageDashboardPageSurface({
             icon={<OutlinedClockIcon />}
             title="Sandbox lifetime"
           >
-            <Content style={{ fontSize: 12 }}>Average sandbox lifetime</Content>
-            <Title headingLevel="h3" size="lg">
-              18h 42m
-            </Title>
+            <UsageMetricValue
+              subtitle="Average sandbox lifetime"
+              value="18h 42m"
+            />
             <DashboardSparkline
               data={[20, 24, 23, 27, 25, 30, 28, 32, 34, 33, 36, 39]}
               caption="Last 30 days"

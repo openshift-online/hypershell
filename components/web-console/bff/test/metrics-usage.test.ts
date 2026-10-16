@@ -134,6 +134,12 @@ describe("usage metrics queries", () => {
           );
         }
       }
+      expect(queries).toContain(
+        'sum(increase(openshell_server_grpc_requests_total{method!~"Peer.*",namespace=~"openshell-gateway-1|openshell-gateway-2"}[7d]))',
+      );
+      expect(queries).toContain(
+        'sum(increase(openshell_server_grpc_requests_total{method!~"Peer.*",code!="OK",namespace=~"openshell-gateway-1|openshell-gateway-2"}[7d]))',
+      );
       expect(queries.some((query) => query.includes('method!~"Peer.*"'))).toBe(
         true,
       );
@@ -398,6 +404,9 @@ describe("usage metrics queries", () => {
         p50_seconds: 100,
         p95_seconds: 300,
       });
+      expect(queries[0]).toContain("gateway_sandbox_lifetime_seconds_sum");
+      expect(queries[1]).toContain("gateway_sandbox_lifetime_seconds_bucket");
+      expect(queries[2]).toContain("gateway_sandbox_lifetime_seconds_bucket");
       expect(response.daily_mean_seconds).toHaveLength(7);
       expect(
         response.daily_mean_seconds?.filter((point) => point.value === null),

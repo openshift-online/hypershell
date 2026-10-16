@@ -136,6 +136,7 @@ describe("createDashboardControlPlaneAdapter usage metrics", () => {
             { label: "2026-10-15", value: null },
           ],
         },
+        unit: "sandboxes",
         value: "50",
       },
       {

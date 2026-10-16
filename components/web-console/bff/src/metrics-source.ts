@@ -224,3 +224,11 @@ export function namespaceSetSelector(
 
   return `{${label}=~${JSON.stringify(namespaces.join("|"))}}`;
 }
+
+export function namespaceSetMatcher(
+  namespaces?: readonly string[],
+  label = "namespace",
+): string {
+  const selector = namespaceSetSelector(namespaces, label);
+  return selector ? selector.slice(1, -1) : "";
+}

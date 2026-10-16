@@ -159,8 +159,8 @@ function createWidgetMapping(
             )}`,
             className: widgetClassName,
             style: {
-              "--hypershell-system-label": intl.formatMessage(
-                messages.summarySystem,
+              "--hypershell-system-label": JSON.stringify(
+                intl.formatMessage(messages.summarySystem),
               ),
             } as React.CSSProperties,
           }

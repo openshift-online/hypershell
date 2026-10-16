@@ -84,4 +84,49 @@ describe("useGetUsageMetricsData", () => {
     ]);
     expect(usageDashboardRefreshMilliseconds).toBe(15 * 60 * 1000);
   });
+
+  it("returns successfully loaded metrics even when every widget value is unavailable", async () => {
+    const emptyMetrics: UsageDashboardMetrics = {
+      lastSuccessfulRefresh: new Date("2026-10-15T14:00:00.000Z"),
+      metrics: [],
+      timeRange: 7,
+    };
+    const dashboard = createDashboardOperations({
+      controlPlane: {
+        getOperationalMetrics: () => Promise.resolve(metrics),
+        getReliabilityMetrics: () => Promise.resolve(metrics),
+        getUsageMetrics: () => Promise.resolve(emptyMetrics),
+      },
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <IntlProvider locale="en">
+        <QueryClientProvider client={queryClient}>
+          <DashboardUiProvider
+            dashboard={dashboard}
+            isAdmin={false}
+            navigation={{
+              collectionHref: "/",
+              navigate: () => {
+                return undefined;
+              },
+            }}
+          >
+            {children}
+          </DashboardUiProvider>
+        </QueryClientProvider>
+      </IntlProvider>
+    );
+
+    const { result } = renderHook(() => useGetUsageMetricsData(), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(emptyMetrics);
+    });
+    expect(result.current.isError).toBe(false);
+  });
 });

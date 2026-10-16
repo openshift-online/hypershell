@@ -97,9 +97,21 @@ function UsageRow({
     <DescriptionListGroup>
       <DescriptionListTerm>{label}</DescriptionListTerm>
       <DescriptionListDescription>
-        {value ?? <FormattedMessage {...messages.metricUnavailableTitle} />}
+        <strong>
+          {value ?? <FormattedMessage {...messages.metricUnavailableTitle} />}
+        </strong>
       </DescriptionListDescription>
     </DescriptionListGroup>
+  );
+}
+
+function UsageSummaryList({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <DescriptionList className="hypershell-dashboard-summary-list" isHorizontal>
+      {children}
+    </DescriptionList>
   );
 }
 
@@ -225,7 +237,7 @@ export function UsageGatewayActivityCard({
         </StackItem>
         {metric.id === "active-gateways" ? (
           <StackItem>
-            <DescriptionList isCompact isHorizontal>
+            <UsageSummaryList>
               <UsageRow
                 label={intl.formatMessage(messages.usageProvisionedGateways)}
                 value={metric.total}
@@ -238,7 +250,7 @@ export function UsageGatewayActivityCard({
                     : `${metric.activeSharePercent}%`
                 }
               />
-            </DescriptionList>
+            </UsageSummaryList>
           </StackItem>
         ) : (
           <StackItem>
@@ -278,7 +290,7 @@ export function UsageSandboxUtilizationCard({
           <UtilizationChart metric={metric} />
         </StackItem>
         <StackItem>
-          <DescriptionList isCompact isHorizontal>
+          <UsageSummaryList>
             <UsageRow
               label={intl.formatMessage(messages.usageActiveSandboxes)}
               value={metric.value}
@@ -287,7 +299,7 @@ export function UsageSandboxUtilizationCard({
               label={intl.formatMessage(messages.usageProvisionedSandboxes)}
               value={metric.total}
             />
-          </DescriptionList>
+          </UsageSummaryList>
         </StackItem>
         {hasPartialTrendData(metric) ? (
           <StackItem>
@@ -325,7 +337,7 @@ export function UsageSandboxLifetimeCard({
           />
         </StackItem>
         <StackItem>
-          <DescriptionList isCompact isHorizontal>
+          <UsageSummaryList>
             <UsageRow
               label={intl.formatMessage(messages.usageSandboxLifetimeP50)}
               value={formatUsageLifetime(intl, lifetime?.p50)}
@@ -334,7 +346,7 @@ export function UsageSandboxLifetimeCard({
               label={intl.formatMessage(messages.usageSandboxLifetimeP95)}
               value={formatUsageLifetime(intl, lifetime?.p95)}
             />
-          </DescriptionList>
+          </UsageSummaryList>
         </StackItem>
         {metric.trend && metric.trend.points.length >= 2 ? (
           <StackItem>

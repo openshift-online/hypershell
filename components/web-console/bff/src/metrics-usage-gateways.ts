@@ -8,7 +8,7 @@ import {
   queryPrometheusRangeScalarSamples,
   utcCalendarRange,
 } from "./prometheus-range-query.js";
-import { namespaceSetSelector, type MetricsSource } from "./metrics-source.js";
+import { namespaceSetMatcher, type MetricsSource } from "./metrics-source.js";
 
 export type UsageDashboardRange = 7 | 30;
 
@@ -47,7 +47,7 @@ function requestSelector(
   namespaces: readonly string[] | undefined,
   extraFilters: readonly string[] = [],
 ): string {
-  const namespaceFilter = namespaceSetSelector(namespaces);
+  const namespaceFilter = namespaceSetMatcher(namespaces);
   const filters = [...extraFilters, namespaceFilter].filter(Boolean).join(",");
   return `${metric}${filters ? `{${filters}}` : ""}`;
 }

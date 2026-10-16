@@ -307,14 +307,16 @@ receive only aggregates calculated from their authorized Gateway inventory.
 
 When OIDC is enabled, every usage route requires an authenticated session.
 Both administrators and non-administrators resolve the current Gateway inventory
-from the authorized Gateway list. Administrators receive the fleet inventory and
-omit the usage namespace selector. Non-administrator requests build the set of
-authorized `openshell-<id>` namespaces and add that selector to every usage
-PromQL query before aggregation. The active sandbox instant value is also taken
-from the authorized Gateway list, so the browser never receives a fleet aggregate
-for local filtering. Intentional no-auth development, where OIDC is unconfigured,
-treats the caller as an administrator; partial OIDC configuration fails
-validation rather than falling back to no-auth.
+from the authorized Gateway list. Before resolving that inventory, each route
+refreshes the caller's access token when needed; if refresh fails, the route
+returns the standard reauthentication response. Administrators receive the fleet
+inventory and omit the usage namespace selector. Non-administrator requests
+build the set of authorized `openshell-<id>` namespaces and add that selector to
+every usage PromQL query before aggregation. The active sandbox instant value is
+also taken from the authorized Gateway list, so the browser never receives a
+fleet aggregate for local filtering. Intentional no-auth development, where OIDC
+is unconfigured, treats the caller as an administrator; partial OIDC
+configuration fails validation rather than falling back to no-auth.
 
 ### Gateway usage metrics
 
@@ -347,19 +349,21 @@ Gateways, and unused Gateways are omitted.
 
 ### Sandbox usage metrics
 
-| Metric ID             | Prometheus type | Calculation                                                                                    |
-| --------------------- | --------------- | ---------------------------------------------------------------------------------------------- |
-| `sandbox-utilization` | Gauges          | 100 * active sandboxes / provisioned sandboxes                                                 |
-| `sandbox-lifetime`    | Histogram       | Mean from `_sum / _count`; P50 and P95 from `histogram_quantile` over selected-range increases |
+| Metric ID             | Prometheus type | Calculation                                                                                                                                                              |
+| --------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sandbox-utilization` | Gauges          | 100 * active sandboxes / provisioned sandboxes                                                                                                                           |
+| `sandbox-lifetime`    | Histogram       | Mean from `gateway_sandbox_lifetime_seconds_sum / _count`; P50 and P95 from `histogram_quantile` over `gateway_sandbox_lifetime_seconds_bucket` selected-range increases |
 
 Active sandboxes use
 `hypershell_gateways_active_sandboxes_total`, deduplicated by
 `managed_cluster` and `gateway_namespace`. Provisioned sandboxes use the control-plane
 gauge `gateway_sandbox_total`, deduplicated by `hypershell_cluster_id` and
-`namespace`. The control-plane OTel instruments are `gateway.sandbox.total`
-and `gateway.sandbox.lifetime`; OTel scope attributes are exported as PromQL
-labels `namespace` and `hypershell_cluster_id`, and the OTel collector scrape
-honors exported labels. The lifetime gauge records an
+`namespace`. The control-plane OTel instrument `gateway.sandbox.total` exports
+that gauge. The control-plane OTel instrument `gateway.sandbox.lifetime` exports
+the `gateway_sandbox_lifetime_seconds` histogram because the exporter appends
+the instrument unit suffix. OTel scope attributes are exported as PromQL labels
+`namespace` and `hypershell_cluster_id`, and the OTel collector scrape honors
+exported labels. The lifetime histogram records an
 observation when a sandbox leaves the active set, using the Sandbox CR creation
 timestamp with pod creation as the fallback. It never uses the optional
 `spec.lifecycle.shutdownTime` as an observed end time.

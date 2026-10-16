@@ -21,7 +21,7 @@ export interface UsageSandboxLifetimeResponse {
   p95_seconds?: number;
 }
 
-const lifetimeMetric = "gateway_sandbox_lifetime";
+const lifetimeMetric = "gateway_sandbox_lifetime_seconds";
 
 function rangeSelector(rangeDays: UsageDashboardRange): string {
   return `[${String(rangeDays)}d]`;

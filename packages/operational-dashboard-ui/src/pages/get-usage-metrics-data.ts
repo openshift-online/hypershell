@@ -38,10 +38,6 @@ export function useGetUsageMetricsData({
         next,
       );
 
-      if (merged.metrics.length === 0) {
-        throw new Error("Usage dashboard metrics unavailable");
-      }
-
       successfulMetricsByTimeRangeRef.current[timeRange] = merged;
       return merged;
     },

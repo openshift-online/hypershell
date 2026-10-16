@@ -195,6 +195,24 @@ describe("usage metrics routes", () => {
     return `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
   }
 
+  function expiredSessionCookie(roles: string[]): string {
+    const session = app.createSecureSession({
+      accessToken: "expired-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) - 1,
+      roles,
+      sub: "user-123",
+    });
+    const tokenSession = app.createSecureSession({
+      refreshToken: "test-refresh-token",
+    });
+    return [
+      `session=${encodeURIComponent(app.encodeSecureSession(session))}`,
+      `session_tok=${encodeURIComponent(
+        app.encodeSecureSession(tokenSession),
+      )}`,
+    ].join("; ");
+  }
+
   it("requires an authenticated session for every usage route", async () => {
     app = await buildOidcApp();
 
@@ -210,6 +228,48 @@ describe("usage metrics routes", () => {
         statusCode: 401,
       });
     }
+  });
+
+  it("refreshes an expired access token before resolving usage scope", async () => {
+    app = await buildOidcApp();
+    app.refreshAccessToken = (refreshToken) => {
+      expect(refreshToken).toBe("test-refresh-token");
+      return Promise.resolve({
+        accessToken: "refreshed-access-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        refreshToken: "rotated-refresh-token",
+      });
+    };
+
+    const response = await app.inject({
+      headers: { cookie: expiredSessionCookie(["hypershell-users"]) },
+      method: "GET",
+      url: "/api/metrics/usage/gateways",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(apiRequests[0]).toMatchObject({
+      authorization: "Bearer refreshed-access-token",
+    });
+  });
+
+  it("signals re-authentication when a usage token cannot be refreshed", async () => {
+    app = await buildOidcApp();
+    app.refreshAccessToken = () =>
+      Promise.reject(new Error("refresh rejected"));
+
+    const response = await app.inject({
+      headers: { cookie: expiredSessionCookie(["hypershell-users"]) },
+      method: "GET",
+      url: "/api/metrics/usage/sandboxes",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({
+      error: "reauth_required",
+      statusCode: 401,
+    });
+    expect(apiRequests).toHaveLength(0);
   });
 
   it("allows non-admins and scopes queries to authorized namespaces", async () => {

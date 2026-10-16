@@ -627,6 +627,7 @@ export async function buildApp(
 
   const usageScope = async (
     request: FastifyRequest,
+    accessToken: string | undefined,
   ): Promise<{
     activeSandboxes: number;
     namespaces: readonly string[];
@@ -634,7 +635,7 @@ export async function buildApp(
   }> => {
     const inventory = await queryAuthorizedGatewayInventory(
       config.apiOrigin,
-      config.oidcIssuer ? request.session.get("accessToken") : undefined,
+      accessToken,
       config.apiTimeoutMs,
     );
     return {
@@ -644,16 +645,51 @@ export async function buildApp(
     };
   };
 
+  const freshAccessToken = async (
+    request: FastifyRequest,
+  ): Promise<string | undefined> => {
+    if (!config.oidcIssuer) {
+      return undefined;
+    }
+
+    const accessToken = request.session.get("accessToken");
+    if (accessToken === undefined) {
+      return undefined;
+    }
+    if (!tokenExpired(request.session.get("expiresAt"))) {
+      return accessToken;
+    }
+
+    const refreshToken = request.tokenSession.get("refreshToken");
+    if (refreshToken === undefined || app.refreshAccessToken === undefined) {
+      clearSession(request);
+      return undefined;
+    }
+
+    try {
+      const tokens = await app.refreshAccessToken(refreshToken);
+      persistTokenSet(request, tokens);
+      return tokens.accessToken;
+    } catch {
+      clearSession(request);
+      return undefined;
+    }
+  };
+
   app.get(
     "/api/metrics/usage/gateways",
     { preHandler: requireOperationalMetricsAccess },
     async (request, reply) => {
       try {
         const range = dashboardRange(request);
+        const accessToken = await freshAccessToken(request);
+        if (config.oidcIssuer && accessToken === undefined) {
+          return respondReauth(reply);
+        }
         const isAdmin =
           !config.oidcIssuer ||
           hasDashboardAdminRole(request.session.get("roles") ?? []);
-        const scope = await usageScope(request);
+        const scope = await usageScope(request, accessToken);
         return await queryUsageGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
@@ -678,10 +714,14 @@ export async function buildApp(
     async (request, reply) => {
       try {
         const range = dashboardRange(request);
+        const accessToken = await freshAccessToken(request);
+        if (config.oidcIssuer && accessToken === undefined) {
+          return respondReauth(reply);
+        }
         const isAdmin =
           !config.oidcIssuer ||
           hasDashboardAdminRole(request.session.get("roles") ?? []);
-        const scope = await usageScope(request);
+        const scope = await usageScope(request, accessToken);
         return await queryUsageSandboxMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
@@ -705,11 +745,15 @@ export async function buildApp(
     async (request, reply) => {
       try {
         const range = dashboardRange(request);
+        const accessToken = await freshAccessToken(request);
+        if (config.oidcIssuer && accessToken === undefined) {
+          return respondReauth(reply);
+        }
         if (
           config.oidcIssuer &&
           !hasDashboardAdminRole(request.session.get("roles") ?? [])
         ) {
-          const scope = await usageScope(request);
+          const scope = await usageScope(request, accessToken);
           return await queryUsageSandboxLifetime(
             config.prometheusUrl,
             config.prometheusQueryTimeoutMs,

@@ -898,6 +898,7 @@ function mapUsageSandboxMetricsResponse(body: unknown): UsageMetric[] {
   const metric: UsageMetric = {
     id: "sandbox-utilization",
     trend: usageTrend(response.daily_utilization_percent),
+    unit: "sandboxes",
     value: String(utilization),
   };
   const total = usageNumber(
