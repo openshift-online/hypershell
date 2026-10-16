@@ -108,12 +108,27 @@ func run(logger *slog.Logger) error {
 		sdlcSrc = cache.NewSource("sdlc", cfg.RefreshSDLC, sdlc.SDLC, metrics.Observe)
 	}
 
+	// E2E run/log visibility (e2e-run-log-visibility.spec). Opt-in on
+	// FD_E2E_LOKI_URL: NewE2E returns nil when unconfigured, in which case the
+	// recent-runs source is not started and the always-mounted e2e endpoints
+	// report the feature off (E2E-LOG-01/02).
+	var e2eSrc *cache.Source
+	var e2ePlane api.E2ERunPlane
+	if e2e := sources.NewE2E(cfg); e2e != nil {
+		e2eSrc = cache.NewSource("e2e", cfg.RefreshE2E, e2e.Runs, metrics.Observe)
+		e2ePlane = e2e
+		logger.Info("e2e run visibility enabled", "tenants", cfg.E2ELokiTenants, "window", cfg.E2EHistoryWindow, "limit", cfg.E2ERecentRunLimit)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc}
 	if sdlcSrc != nil {
 		srcs = append(srcs, sdlcSrc)
+	}
+	if e2eSrc != nil {
+		srcs = append(srcs, e2eSrc)
 	}
 	for _, s := range srcs {
 		go s.Run(ctx)
@@ -125,6 +140,8 @@ func run(logger *slog.Logger) error {
 		Topology:  topologySrc,
 		Instances: instancesSrc,
 		SDLC:      sdlcSrc,
+		E2ERuns:   e2eSrc,
+		E2E:       e2ePlane,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 

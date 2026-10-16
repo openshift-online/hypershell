@@ -66,6 +66,59 @@ func TestLoadSDLCDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+// TestLoadE2EDisabledByDefault confirms the e2e-run feature is off unless a Loki
+// URL is configured (e2e-run-log-visibility.spec E2E-LOG-02): an empty
+// FD_E2E_LOKI_URL leaves the feature disabled without failing Load.
+func TestLoadE2EDisabledByDefault(t *testing.T) {
+	t.Setenv("FD_PROM_URL", "https://prom.example")
+	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")
+	t.Setenv("FD_AUTH_ENABLED", "false")
+
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.E2ELokiURL != "" {
+		t.Errorf("E2ELokiURL = %q, want empty (feature disabled by default)", c.E2ELokiURL)
+	}
+	// Tuning values still carry their product-safe defaults.
+	if c.E2EHistoryWindow != 168*time.Hour {
+		t.Errorf("default E2EHistoryWindow = %v, want 168h", c.E2EHistoryWindow)
+	}
+	if c.E2ERecentRunLimit != 20 {
+		t.Errorf("default E2ERecentRunLimit = %d, want 20", c.E2ERecentRunLimit)
+	}
+}
+
+// TestLoadE2EFromEnv confirms every e2e value comes from configuration, never
+// compiled in (E2E-LOG-02).
+func TestLoadE2EFromEnv(t *testing.T) {
+	t.Setenv("FD_PROM_URL", "https://prom.example")
+	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")
+	t.Setenv("FD_AUTH_ENABLED", "false")
+	t.Setenv("FD_E2E_LOKI_URL", "http://e2e-loki.svc:3100/")
+	t.Setenv("FD_E2E_LOKI_TENANTS", "hub-00, hub-01 ,")
+	t.Setenv("FD_E2E_HISTORY_WINDOW", "48h")
+	t.Setenv("FD_E2E_RECENT_RUN_LIMIT", "5")
+
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.E2ELokiURL != "http://e2e-loki.svc:3100" { // trailing slash trimmed
+		t.Errorf("E2ELokiURL = %q", c.E2ELokiURL)
+	}
+	if got, want := c.E2ELokiTenants, []string{"hub-00", "hub-01"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("E2ELokiTenants = %v, want %v", got, want)
+	}
+	if c.E2EHistoryWindow != 48*time.Hour {
+		t.Errorf("E2EHistoryWindow = %v, want 48h", c.E2EHistoryWindow)
+	}
+	if c.E2ERecentRunLimit != 5 {
+		t.Errorf("E2ERecentRunLimit = %d, want 5", c.E2ERecentRunLimit)
+	}
+}
+
 func TestLoadAuthRequiresSAR(t *testing.T) {
 	t.Setenv("FD_PROM_URL", "https://prom.example")
 	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")

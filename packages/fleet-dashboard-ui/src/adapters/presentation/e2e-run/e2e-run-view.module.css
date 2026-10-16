@@ -1,0 +1,72 @@
+/* E2E run view layout. A two-pane split: the recent-runs list on the left, the
+ * selected run's steps + log pane on the right. Colours come from PatternFly
+ * design tokens; every status colour is paired with an icon/text elsewhere so
+ * colour is never the sole channel (E2E-LOG-14). */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--md, 16px);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr);
+  gap: var(--pf-t--global--spacer--md, 16px);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.selectedRow {
+  font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.logPane {
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #1b1d21
+  );
+  border: 1px solid var(--pf-t--global--border--color--default, #444548);
+  border-radius: var(--pf-t--global--border--radius--small, 4px);
+  max-height: 22rem;
+  overflow: auto;
+  padding: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.logLine {
+  display: block;
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.logTime {
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  margin-right: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.logControls {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  flex-wrap: wrap;
+}
