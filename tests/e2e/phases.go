@@ -727,9 +727,8 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 // waitDisruptiveGate blocks until gate exists, which is how
 // tests/e2e/run-parallel.sh signals that every concurrently running suite other
 // than this one has exited and the shared controller may be stopped or
-// restarted. It
-// mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it reports false so
-// the caller can warn and proceed rather than hang the run.
+// restarted. It mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it
+// reports false so the caller can warn and proceed rather than hang the run.
 func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time.Duration) (bool, error) {
 	deadline := time.Now().Add(timeout)
 	for {
