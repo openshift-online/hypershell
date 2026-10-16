@@ -110,14 +110,23 @@ type SdlcStateProvider interface {
 	Records(ctx context.Context) ([]SdlcRecord, error)
 }
 
-// IssueBundleResolver supplies the single membership hop SDLC-VIS-03 adds on top of
-// the shared bundle->PR enrichment: a merged pull request to the execution record
-// it closed (a "Closes #N" reference). nil disables matrix issue mapping; the board
-// and lane still render, and shipped records collect in the Unreleased row.
-type IssueBundleResolver interface {
-	// ClosingIssue returns the issue number a merged PR closed, or 0 when none is
-	// found (or the lookup is unavailable this cycle).
-	ClosingIssue(ctx context.Context, prNumber int) int
+// WorkItemPRResolver supplies the membership hop SDLC-VIS-03 adds on top of the
+// shared bundle->PR enrichment: a unit of work (today a GitHub issue; tomorrow a
+// Jira item, per jira-github-sync.spec) to the pull requests associated with it.
+// It is deliberately shaped work-item -> PRs, not PR -> issue: a single work item
+// can be delivered by several PRs, and the authoritative association lives on the
+// work item (GitHub's linked pull requests / closing references), not scattered
+// across PR bodies. The matrix then maps those PRs onto bundles. nil disables matrix
+// issue mapping; the board and lane still render, and shipped records collect in the
+// Unreleased row.
+//
+// This is the Jira seam: a Jira-backed adapter satisfies the same interface by
+// returning the PRs linked to a Jira item, with no domain or matrix change.
+type WorkItemPRResolver interface {
+	// AssociatedPRs returns the numbers of the pull requests associated with a work
+	// item (its linked / closing PRs), or nil when none are found or the lookup is
+	// unavailable this cycle. Order is not significant.
+	AssociatedPRs(ctx context.Context, record SdlcRecord) []int
 }
 
 // promotionReader returns the latest cached promotion snapshot so the SDLC matrix
@@ -207,11 +216,11 @@ type SDLCMatrix struct {
 
 // SDLC is the fetch source for /api/sdlc. It reads funnel state through the
 // provider port, reuses the cached promotion bundle truth for the matrix, and adds
-// the one PR->closing-issue hop for issue-to-bundle membership.
+// the work-item -> PRs hop for issue-to-bundle membership.
 type SDLC struct {
 	provider SdlcStateProvider
 	promo    promotionReader
-	issues   IssueBundleResolver
+	issues   WorkItemPRResolver
 	sle      map[string]time.Duration
 	now      func() time.Time
 	logger   *slog.Logger
@@ -219,8 +228,8 @@ type SDLC struct {
 
 // NewSDLC builds the SDLC source. provider supplies funnel state; promo is the
 // promotion cache.Source whose snapshot the matrix reuses (SDLC-VIS-03); issues is
-// the optional PR->closing-issue resolver (nil disables matrix issue mapping).
-func NewSDLC(c *config.Config, provider SdlcStateProvider, promo promotionReader, issues IssueBundleResolver) *SDLC {
+// the optional work-item -> PRs resolver (nil disables matrix issue mapping).
+func NewSDLC(c *config.Config, provider SdlcStateProvider, promo promotionReader, issues WorkItemPRResolver) *SDLC {
 	return &SDLC{
 		provider: provider,
 		promo:    promo,
@@ -318,9 +327,9 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 }
 
 // matrix builds the release-by-hub-cluster matrix from the cached promotion
-// snapshot (SDLC-VIS-03) joined with shipped records via the one PR->closing-issue
-// hop. Merged records not attributed to any released bundle collect in the single
-// top Unreleased row (SDLC-VIS-11).
+// snapshot (SDLC-VIS-03) joined with shipped records via the work-item -> PRs hop.
+// Merged records not attributed to any released bundle collect in the single top
+// Unreleased row (SDLC-VIS-11).
 func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	m := SDLCMatrix{HubClusters: []SDLCHubCluster{}, Rows: []SDLCBundleRow{}}
 
@@ -344,29 +353,47 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		m.HubClusters = append(m.HubClusters, hc)
 	}
 
-	// Issue -> bundle, via the one PR->closing-issue hop over the shared bundle->PR
-	// truth. This EXTENDS the existing enrichment; it does not re-resolve bundles.
-	bundleByIssue := map[int]string{}
-	if s.issues != nil {
-		for key, rel := range promo.Releases {
-			if rel == nil {
-				continue
-			}
-			for _, pr := range rel.PRs {
-				if issue := s.issues.ClosingIssue(ctx, pr.Number); issue != 0 {
-					bundleByIssue[issue] = key
-				}
-			}
+	// PR -> bundle key, from the shared bundle->PR truth. This REUSES the existing
+	// enrichment; it does not re-resolve bundles.
+	bundleByPR := map[int]string{}
+	for key, rel := range promo.Releases {
+		if rel == nil {
+			continue
+		}
+		for _, pr := range rel.PRs {
+			bundleByPR[pr.Number] = key
 		}
 	}
+	releaseDate := func(key string) string {
+		if r := promo.Releases[key]; r != nil {
+			return r.Date
+		}
+		return ""
+	}
 
-	// Place each shipped record into its bundle row, or Unreleased.
+	// Place each shipped record into a bundle row, or Unreleased. The work item is
+	// attributed to a bundle via its associated PRs (SDLC-VIS-03): a record ships in
+	// the NEWEST bundle any of its PRs landed in, so a work item split across several
+	// PRs attributes to the release by which it was fully delivered. A record with no
+	// PR in any bundle (link missing, or still in flight) collects in Unreleased.
 	issuesByKey := map[string][]SDLCShippedIssue{}
 	var unreleased []SDLCShippedIssue
 	for _, rec := range shipped {
 		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy}
-		if key, ok := bundleByIssue[rec.Number]; ok {
-			issuesByKey[key] = append(issuesByKey[key], si)
+		bundleKey, bundleDate := "", ""
+		if s.issues != nil {
+			for _, pr := range s.issues.AssociatedPRs(ctx, rec) {
+				key, ok := bundleByPR[pr]
+				if !ok {
+					continue
+				}
+				if d := releaseDate(key); bundleKey == "" || d > bundleDate {
+					bundleKey, bundleDate = key, d
+				}
+			}
+		}
+		if bundleKey != "" {
+			issuesByKey[bundleKey] = append(issuesByKey[bundleKey], si)
 		} else {
 			unreleased = append(unreleased, si)
 		}

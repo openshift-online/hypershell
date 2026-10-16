@@ -100,8 +100,8 @@ func run(logger *slog.Logger) error {
 		sdlcProvider = gs
 		logger.Info("agent sdlc visibility enabled", "repo", cfg.UpstreamRepo, "refresh", cfg.RefreshSDLC)
 	}
-	var issueBundles sources.IssueBundleResolver
-	if ib := sources.NewGitHubIssueBundles(cfg); ib != nil {
+	var issueBundles sources.WorkItemPRResolver
+	if ib := sources.NewGitHubWorkItemPRs(cfg); ib != nil {
 		issueBundles = ib
 	}
 	var sdlcSrc *cache.Source

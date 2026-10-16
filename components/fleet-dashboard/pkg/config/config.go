@@ -81,6 +81,12 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// GitHubGraphQL is the GitHub GraphQL endpoint used for the authoritative
+	// work-item -> linked-PR lookup (SDLC-VIS-03). It is only called when an upstream
+	// token is configured (GraphQL rejects unauthenticated requests); unauthenticated
+	// deployments fall back to the REST issue-timeline. Separate from GitHubAPIBase so
+	// GitHub Enterprise bases can point it at their own `/api/graphql`.
+	GitHubGraphQL string
 	// UpstreamRepo is the PUBLIC product source repo (owner/repo) whose merged
 	// pull requests compose a release bundle -- the "In this bundle" list. Unlike
 	// GitHubRepo (the gitops repo, a fleet-identifying value that must arrive from
@@ -221,6 +227,7 @@ func Load() (*Config, error) {
 		GitHubRepo:      env("FD_GITHUB_REPO", ""),
 		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
 		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+		GitHubGraphQL:   env("FD_GITHUB_GRAPHQL", "https://api.github.com/graphql"),
 		// openshift-online/hypershell is the public product source and is NOT
 		// fleet-identifying, so it is safe to compile in as the default (firewall).
 		UpstreamRepo:      env("FD_UPSTREAM_REPO", "openshift-online/hypershell"),

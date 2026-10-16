@@ -40,13 +40,18 @@ Commit the specification changes.
 
 IF `$EXISTING_PR` IS NOT NULL:
 - Push to existing PR's branch
-- Update PR body to match actual diff, if necessary.
+- Update PR body to match actual diff, if necessary. When updating the body, keep its
+  closing reference to the issue (`Closes #$ISSUE_NUMBER`); add it if missing.
 
 ELSE:
 - Create a new branch of the form `implementer/spec-($JIRA_ISSUE ?? $ISSUE_NUMBER)-<slug>`
   where `<slug>` is a short (3-5 word) kebab-case description of the issue
 - Push to branch
-- Open Pull Request, link it to the issue
+- Open a Pull Request. Its body MUST contain a GitHub closing reference to the issue
+  (`Closes #$ISSUE_NUMBER`) so the pull request is machine-linked to the work item.
+  This linkage is load-bearing: `review-response` reads it to find the issue, and the
+  fleet dashboard uses it to attribute shipped work to a release bundle. A work item
+  may be delivered by several PRs; each such PR MUST carry the closing reference.
 - PR Body must conform to [SIMPLIFIED TECHNICAL ENGLISH STANDARD](https://en.wikipedia.org/wiki/Simplified_Technical_English).
 
 ### Step 4: Update Issue State
