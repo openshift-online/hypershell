@@ -130,9 +130,25 @@ attribution). It SHALL NOT re-derive bundles, re-read the release lock, or re-ca
 the GitHub compare API in a parallel pipeline.
 
 The issue-to-bundle mapping SHALL **extend** the existing bundle-to-PR enrichment
-with exactly one additional hop: PR to its closing issue (for example a `Closes #N`
-reference), so a bundle's PR set resolves to the execution records it shipped. The
-bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift between
+with one additional hop: a work item to the pull requests ASSOCIATED WITH it, so a
+bundle's PR set resolves to the execution records it shipped. The hop SHALL be shaped
+work item -> PRs, not PR -> issue: a single work item MAY be delivered by several pull
+requests, and the authoritative association is the work item's own linked pull
+requests, not a closing keyword parsed out of an individual PR body. A work item SHALL
+be attributed to the NEWEST bundle any of its associated PRs landed in, so a work item
+split across releases attributes to the release by which it was fully delivered. A
+work item whose associated PRs are not found in any bundle SHALL collect in the
+Unreleased row.
+
+This hop SHALL live behind a `WorkItemPRResolver` port so the unit of work can change
+without a domain or matrix change: the GitHub adapter resolves an issue's linked pull
+requests (authoritatively via GraphQL `closedByPullRequestsReferences` when an upstream
+token is configured, and via the REST issue timeline's `cross-referenced` events when
+unauthenticated), and a future **Jira adapter** SHALL satisfy the same port by
+returning the PRs linked to a Jira item. The matrix SHALL depend only on the port, not
+on any issue-tracker specifics.
+
+The bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift between
 them) SHALL be the promotion plane's existing release-plus-deployment facts, not a
 re-resolution.
 
@@ -145,12 +161,27 @@ re-resolution.
 - AND the SDLC plane SHALL NOT independently resolve the release lock or call the
   compare API
 
-#### Scenario: Issue-to-bundle extends existing enrichment by one hop
+#### Scenario: Work-item-to-bundle extends existing enrichment by one hop
 
-- GIVEN the bundle-to-PR enrichment has resolved a bundle's merged PRs
-- WHEN the SDLC plane maps a bundle to its shipped issues
-- THEN it SHALL resolve each PR to its closing issue
+- GIVEN the bundle-to-PR enrichment has resolved each bundle's merged PRs
+- WHEN the SDLC plane maps a shipped work item to a bundle
+- THEN it SHALL resolve the work item to its associated pull requests through the
+  `WorkItemPRResolver` port and match those PRs against the bundle PR sets
 - AND it SHALL NOT stand up a duplicate bundle-resolution pipeline
+
+#### Scenario: Work item delivered by multiple PRs
+
+- GIVEN a work item whose associated pull requests landed in more than one bundle
+- WHEN the SDLC plane attributes it to a bundle
+- THEN it SHALL attribute the work item to the newest of those bundles
+- AND it SHALL NOT duplicate the work item across the older bundles
+
+#### Scenario: Unauthenticated deployment resolves associations
+
+- GIVEN no upstream token is configured
+- WHEN the resolver looks up a work item's associated pull requests
+- THEN it SHALL read them from the REST issue timeline's cross-referenced pull requests
+- AND it SHALL NOT require GitHub GraphQL, which is unavailable unauthenticated
 
 ### Requirement: SDLC-VIS-04 -- Shared Refresh Across All Consumers
 

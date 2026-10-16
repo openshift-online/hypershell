@@ -207,7 +207,11 @@ export function App(): React.ReactElement {
                   </TabTitleText>
                 }
               >
-                <PlaneSection titleMessage={messages.e2eSection} query={e2e}>
+                <PlaneSection
+                  titleMessage={messages.e2eSection}
+                  query={e2e}
+                  hideTitle
+                >
                   {(data) => (
                     <E2eRunView
                       key={historyRunId ?? "history"}

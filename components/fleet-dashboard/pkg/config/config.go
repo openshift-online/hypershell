@@ -81,6 +81,12 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// GitHubGraphQL is the GitHub GraphQL endpoint used for the authoritative
+	// work-item -> linked-PR lookup (SDLC-VIS-03). It is only called when an upstream
+	// token is configured (GraphQL rejects unauthenticated requests); unauthenticated
+	// deployments fall back to the REST issue-timeline. Separate from GitHubAPIBase so
+	// GitHub Enterprise bases can point it at their own `/api/graphql`.
+	GitHubGraphQL string
 	// UpstreamRepo is the PUBLIC product source repo (owner/repo) whose merged
 	// pull requests compose a release bundle -- the "In this bundle" list. Unlike
 	// GitHubRepo (the gitops repo, a fleet-identifying value that must arrive from
@@ -121,10 +127,14 @@ type Config struct {
 	RefreshTopology  time.Duration
 	RefreshInstances time.Duration
 	// RefreshSDLC is the Agent SDLC plane's own refresh cadence. The SDLC source
-	// reconstructs label-event history from the GitHub timeline, so its default is
-	// conservative: the whole fleet is served from one cached snapshot and the
-	// GitHub request rate is bounded by this loop alone, never by viewer count
-	// (agent-sdlc-visibility-dashboard.spec SDLC-VIS-04/14).
+	// reconstructs label-event history from the GitHub timeline, so the whole fleet is
+	// served from one cached snapshot and the GitHub request rate is bounded by this
+	// loop alone, never by viewer count (agent-sdlc-visibility-dashboard.spec
+	// SDLC-VIS-04/14). The default is 60s: per cycle the loop makes one issue listing
+	// plus one timeline read per in-scope record and the (cached) work-item -> PRs
+	// lookups, all bounded by the active funnel size, which stays well within an
+	// authenticated token budget. Raise FD_REFRESH_SDLC for an unauthenticated
+	// deployment with a large funnel to stay under GitHub's unauthenticated limit.
 	RefreshSDLC time.Duration
 	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
 	// query_range sweep of recent runs). Live updates do not use this interval;
@@ -221,6 +231,7 @@ func Load() (*Config, error) {
 		GitHubRepo:      env("FD_GITHUB_REPO", ""),
 		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
 		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+		GitHubGraphQL:   env("FD_GITHUB_GRAPHQL", "https://api.github.com/graphql"),
 		// openshift-online/hypershell is the public product source and is NOT
 		// fleet-identifying, so it is safe to compile in as the default (firewall).
 		UpstreamRepo:      env("FD_UPSTREAM_REPO", "openshift-online/hypershell"),
@@ -231,7 +242,7 @@ func Load() (*Config, error) {
 		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
-		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 120*time.Second),
+		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 60*time.Second),
 		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
 
 		E2ELokiURL:        strings.TrimRight(env("FD_E2E_LOKI_URL", ""), "/"),

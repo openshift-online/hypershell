@@ -179,8 +179,10 @@
   box-shadow: var(--pf-t--global--box-shadow--sm, 0 1px 2px rgba(0, 0, 0, 0.3));
   z-index: 1;
   overflow: visible;
-  /* Positioned by the React packer via inline top; animate moves on data refresh. */
-  transition: top 0.35s ease;
+  /* Positioned by the React packer via inline top. The live clock nudges top every
+     second; a 1s linear transition interpolates each nudge so the card slides
+     continuously as it ages rather than stepping. */
+  transition: top 1s linear;
   will-change: top;
 }
 
@@ -205,7 +207,7 @@
   color: var(--pf-t--global--text--color--subtle, #9a9da0);
   font-size: 11px;
   cursor: pointer;
-  transition: top 0.35s ease;
+  transition: top 1s linear;
 }
 .clusterChip:hover {
   color: var(--pf-t--global--text--color--regular, #e0e0e0);

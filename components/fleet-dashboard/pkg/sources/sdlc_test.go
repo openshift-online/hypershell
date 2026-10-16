@@ -28,9 +28,9 @@ func (f fakePromo) Get() cache.Snapshot {
 	return cache.Snapshot{Data: f.payload}
 }
 
-type fakeIssues struct{ m map[int]int }
+type fakeIssues struct{ m map[int][]int } // work-item number -> associated PR numbers
 
-func (f fakeIssues) ClosingIssue(_ context.Context, pr int) int { return f.m[pr] }
+func (f fakeIssues) AssociatedPRs(_ context.Context, rec SdlcRecord) []int { return f.m[rec.Number] }
 
 func testConfig() *config.Config {
 	return &config.Config{SDLCPhaseSLE: map[string]time.Duration{
@@ -43,7 +43,7 @@ func testConfig() *config.Config {
 	}}
 }
 
-func newSDLCAt(provider SdlcStateProvider, promo promotionReader, issues IssueBundleResolver, now time.Time) *SDLC {
+func newSDLCAt(provider SdlcStateProvider, promo promotionReader, issues WorkItemPRResolver, now time.Time) *SDLC {
 	s := NewSDLC(testConfig(), provider, promo, issues)
 	s.now = func() time.Time { return now }
 	return s
@@ -131,7 +131,7 @@ func TestSDLCEscalationLane(t *testing.T) {
 }
 
 // TestSDLCMatrix confirms the Shipped matrix reuses the promotion bundle/cluster
-// truth, maps shipped issues to bundles via the PR->closing-issue hop, places
+// truth, maps shipped work items to bundles via the work-item -> PRs hop, places
 // bundle-less merged work in the single Unreleased row, and marks the current
 // bundle per hub cluster (SDLC-VIS-03/11).
 func TestSDLCMatrix(t *testing.T) {
@@ -151,7 +151,9 @@ func TestSDLCMatrix(t *testing.T) {
 		{Number: 502, Title: "in v2", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-10T00:00:00Z"},
 		{Number: 503, Title: "merged, no bundle", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-10-01T00:00:00Z"},
 	}
-	issues := fakeIssues{m: map[int]int{101: 501, 102: 502}}
+	// Work item -> associated PRs: #501 shipped in PR 101 (bundle d1), #502 in PR 102
+	// (bundle d2), #503 has no bundle PR (-> Unreleased).
+	issues := fakeIssues{m: map[int][]int{501: {101}, 502: {102}}}
 	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
 	p := fetch(t, s)
 
@@ -190,6 +192,44 @@ func TestSDLCMatrix(t *testing.T) {
 	}
 	if rows[1].Issues[0].MergedAt != "2026-09-10T00:00:00Z" {
 		t.Errorf("shipped issue should carry its merged timestamp, got %q", rows[1].Issues[0].MergedAt)
+	}
+}
+
+// TestSDLCMatrixWorkItemMultiplePRs confirms a work item delivered by several PRs
+// across bundles is attributed to the NEWEST bundle any of its PRs landed in (the
+// release by which it was fully delivered), not the oldest (SDLC-VIS-03).
+func TestSDLCMatrixWorkItemMultiplePRs(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	rel1 := &Release{Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101}}}
+	rel2 := &Release{Version: "v2", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102}}}
+	promo := PromotionPayload{
+		Order:        []string{"env-a"},
+		Environments: map[string]Environment{"env-a": {Active: rel2, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		{Number: 700, Title: "split across two bundles", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-16T00:00:00Z"},
+	}
+	// #700 links PRs in both d1 (older) and d2 (newer); it should land in d2.
+	issues := fakeIssues{m: map[int][]int{700: {101, 102}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	byVersion := map[string][]SDLCShippedIssue{}
+	for _, row := range p.Matrix.Rows {
+		if row.Unreleased {
+			if len(row.Issues) != 0 {
+				t.Errorf("Unreleased should be empty, got %+v", row.Issues)
+			}
+			continue
+		}
+		byVersion[row.Version] = row.Issues
+	}
+	if len(byVersion["v2"]) != 1 || byVersion["v2"][0].Number != 700 {
+		t.Errorf("#700 should attribute to newest bundle v2, got v2=%+v", byVersion["v2"])
+	}
+	if len(byVersion["v1"]) != 0 {
+		t.Errorf("#700 must not also appear in older bundle v1, got v1=%+v", byVersion["v1"])
 	}
 }
 

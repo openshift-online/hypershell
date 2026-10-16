@@ -830,7 +830,20 @@ export const messages = defineMessages({
   sdlcAge: {
     id: "fleet.sdlc.age",
     defaultMessage: "{days}d {hours}h",
-    description: "Compact time-in-phase duration on an Agent SDLC card.",
+    description:
+      "Compact time-in-phase duration (days and hours) on an Agent SDLC card.",
+  },
+  sdlcAgeHm: {
+    id: "fleet.sdlc.age.hm",
+    defaultMessage: "{hours}h {minutes}m",
+    description:
+      "Compact time-in-phase duration (hours and minutes) for a card under a day old.",
+  },
+  sdlcAgeM: {
+    id: "fleet.sdlc.age.m",
+    defaultMessage: "{minutes}m",
+    description:
+      "Compact time-in-phase duration (minutes) for a card under an hour old.",
   },
   sdlcAxisNow: {
     id: "fleet.sdlc.axis.now",

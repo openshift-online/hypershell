@@ -2,11 +2,10 @@ package sources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,13 +75,21 @@ type ghIssue struct {
 }
 
 // ghTimelineEvent is the subset of an Issue Timeline event we read: labeled and
-// unlabeled transitions with their timestamps (SDLC-VIS-14).
+// unlabeled transitions with their timestamps (SDLC-VIS-14), plus cross-referenced
+// events whose source is a pull request (the unauthenticated work-item -> PRs hop,
+// SDLC-VIS-03).
 type ghTimelineEvent struct {
 	Event     string `json:"event"`
 	CreatedAt string `json:"created_at"`
 	Label     *struct {
 		Name string `json:"name"`
 	} `json:"label"`
+	Source *struct {
+		Issue *struct {
+			Number      int              `json:"number"`
+			PullRequest *json.RawMessage `json:"pull_request"`
+		} `json:"issue"`
+	} `json:"source"`
 }
 
 // Records implements SdlcStateProvider. It lists the in-scope execution records
@@ -330,70 +337,145 @@ func labelSet(names ...string) map[string]bool {
 	return out
 }
 
-// closesRef matches a pull-request body's closing reference ("Closes #123",
-// "Fixes #45", "Resolves #9", case-insensitive) so a merged PR resolves to the
-// execution record it closed (SDLC-VIS-03).
-var closesRef = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd]?)?|resolve[sd]?)\b[:\s]+#(\d+)`)
+// workItemPRMaxPages bounds timeline pagination for the work-item -> PRs lookup so a
+// pathological issue cannot stall the refresh loop. Cross-references on a real work
+// item fit well within this.
+const workItemPRMaxPages = 10
 
-// GitHubIssueBundles implements IssueBundleResolver: the one PR->closing-issue hop
-// SDLC-VIS-03 adds on top of the shared bundle->PR enrichment. It reads the merged
-// PR's body from the PUBLIC product repo and parses its closing reference. A merged
-// PR's body is effectively immutable, so successful lookups are cached forever and
-// the refresh loop re-hits GitHub only for PRs it has not yet resolved.
-type GitHubIssueBundles struct {
-	base      string
-	repo      string
-	tokenFile string
-	client    *http.Client
-	logger    *slog.Logger
+// GitHubWorkItemPRs implements WorkItemPRResolver: the work-item -> PRs hop
+// SDLC-VIS-03 adds on top of the shared bundle->PR enrichment. It resolves the pull
+// requests ASSOCIATED WITH a work item (not a PR's self-declared closing reference),
+// so an issue delivered by several PRs maps correctly and the attribution survives a
+// PR body that omits the "Closes #N" keyword.
+//
+// Source of truth, by configuration:
+//   - With an upstream token: GitHub GraphQL `closedByPullRequestsReferences`, the
+//     authoritative set of linked/closing PRs.
+//   - Unauthenticated (the default public-repo deployment): the REST issue timeline,
+//     collecting `cross-referenced` events whose source is a pull request. GraphQL is
+//     not usable unauthenticated, so this is the fallback (and the backstop when a
+//     token is present but the GraphQL call yields nothing).
+//
+// Results are cached per work item only when non-empty, so an as-yet-unlinked record
+// is retried on the next refresh rather than pinned to Unreleased forever.
+type GitHubWorkItemPRs struct {
+	base       string // REST base, e.g. https://api.github.com
+	graphqlURL string // GraphQL endpoint, used only when tokenFile is set
+	repo       string // owner/name
+	tokenFile  string
+	client     *http.Client
+	logger     *slog.Logger
 
-	mu      sync.Mutex
-	closing map[int]int // pr number -> closing issue number (cached on success)
+	mu    sync.Mutex
+	cache map[int][]int // work-item number -> associated PR numbers (cached when non-empty)
 }
 
-// NewGitHubIssueBundles builds the PR->closing-issue resolver, or returns nil when
-// no source repository is configured (FD_UPSTREAM_REPO empty).
-func NewGitHubIssueBundles(c *config.Config) *GitHubIssueBundles {
+// NewGitHubWorkItemPRs builds the work-item -> PRs resolver, or returns nil when no
+// source repository is configured (FD_UPSTREAM_REPO empty).
+func NewGitHubWorkItemPRs(c *config.Config) *GitHubWorkItemPRs {
 	repo := strings.Trim(c.UpstreamRepo, "/")
 	if repo == "" {
 		return nil
 	}
-	return &GitHubIssueBundles{
-		base:      strings.TrimRight(c.GitHubAPIBase, "/"),
-		repo:      repo,
-		tokenFile: c.UpstreamTokenFile,
-		client:    &http.Client{Timeout: 15 * time.Second},
-		logger:    slog.Default(),
-		closing:   map[int]int{},
+	return &GitHubWorkItemPRs{
+		base:       strings.TrimRight(c.GitHubAPIBase, "/"),
+		graphqlURL: strings.TrimRight(c.GitHubGraphQL, "/"),
+		repo:       repo,
+		tokenFile:  c.UpstreamTokenFile,
+		client:     &http.Client{Timeout: 15 * time.Second},
+		logger:     slog.Default(),
+		cache:      map[int][]int{},
 	}
 }
 
-// ClosingIssue implements IssueBundleResolver. It returns the issue a merged PR
-// closed, or 0. Only successful lookups are cached, so a transient GitHub failure
-// is retried on the next refresh rather than pinned to 0 forever.
-func (g *GitHubIssueBundles) ClosingIssue(ctx context.Context, prNumber int) int {
+// AssociatedPRs implements WorkItemPRResolver. It returns the PR numbers associated
+// with the record's work item, preferring the authoritative GraphQL set when a token
+// is configured and falling back to the unauthenticated REST timeline otherwise.
+func (g *GitHubWorkItemPRs) AssociatedPRs(ctx context.Context, record SdlcRecord) []int {
+	number := record.Number
 	g.mu.Lock()
-	if v, ok := g.closing[prNumber]; ok {
+	if v, ok := g.cache[number]; ok {
 		g.mu.Unlock()
 		return v
 	}
 	g.mu.Unlock()
 
-	var pr struct {
-		Body string `json:"body"`
+	prs := g.graphQLLinkedPRs(ctx, number)
+	if len(prs) == 0 {
+		prs = g.timelineLinkedPRs(ctx, number)
 	}
-	u := fmt.Sprintf("%s/repos/%s/pulls/%d", g.base, g.repo, prNumber)
-	if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &pr) {
-		return 0
+	if len(prs) > 0 {
+		g.mu.Lock()
+		g.cache[number] = prs
+		g.mu.Unlock()
 	}
-	issue := 0
-	if m := closesRef.FindStringSubmatch(pr.Body); m != nil {
-		if n, err := strconv.Atoi(m[1]); err == nil {
-			issue = n
+	return prs
+}
+
+// graphQLLinkedPRs returns the issue's closing/linked PRs via GraphQL, or nil when no
+// token is configured or the call fails (caller then falls back to the timeline).
+func (g *GitHubWorkItemPRs) graphQLLinkedPRs(ctx context.Context, number int) []int {
+	if g.tokenFile == "" || g.graphqlURL == "" {
+		return nil
+	}
+	owner, name, ok := strings.Cut(g.repo, "/")
+	if !ok {
+		return nil
+	}
+	const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){closedByPullRequestsReferences(first:50,includeClosedPrs:true){nodes{number}}}}}`
+	var out struct {
+		Data struct {
+			Repository struct {
+				Issue struct {
+					ClosedByPullRequestsReferences struct {
+						Nodes []struct {
+							Number int `json:"number"`
+						} `json:"nodes"`
+					} `json:"closedByPullRequestsReferences"`
+				} `json:"issue"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	vars := map[string]any{"owner": owner, "name": name, "number": number}
+	if !postGitHubGraphQL(ctx, g.client, g.tokenFile, g.graphqlURL, query, vars, &out) {
+		return nil
+	}
+	var prs []int
+	for _, n := range out.Data.Repository.Issue.ClosedByPullRequestsReferences.Nodes {
+		if n.Number != 0 {
+			prs = append(prs, n.Number)
 		}
 	}
-	g.mu.Lock()
-	g.closing[prNumber] = issue
-	g.mu.Unlock()
-	return issue
+	return prs
+}
+
+// timelineLinkedPRs returns the PRs that reference the issue, read from the REST
+// issue timeline (cross-referenced events whose source is a pull request). This works
+// unauthenticated against the public product repo. Best-effort and deduped.
+func (g *GitHubWorkItemPRs) timelineLinkedPRs(ctx context.Context, number int) []int {
+	seen := map[int]bool{}
+	var prs []int
+	for page := 1; page <= workItemPRMaxPages; page++ {
+		u := fmt.Sprintf("%s/repos/%s/issues/%d/timeline?per_page=100&page=%d", g.base, g.repo, number, page)
+		var batch []ghTimelineEvent
+		if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &batch) {
+			break
+		}
+		for _, e := range batch {
+			if e.Event != "cross-referenced" || e.Source == nil || e.Source.Issue == nil {
+				continue
+			}
+			if e.Source.Issue.PullRequest == nil || e.Source.Issue.Number == 0 {
+				continue
+			}
+			if n := e.Source.Issue.Number; !seen[n] {
+				seen[n] = true
+				prs = append(prs, n)
+			}
+		}
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return prs
 }

@@ -4,7 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/config"
@@ -15,8 +16,8 @@ func TestNewGitHubSDLCDisabled(t *testing.T) {
 	if g := NewGitHubSDLC(&config.Config{}); g != nil {
 		t.Errorf("NewGitHubSDLC should return nil when FD_UPSTREAM_REPO is unset")
 	}
-	if g := NewGitHubIssueBundles(&config.Config{}); g != nil {
-		t.Errorf("NewGitHubIssueBundles should return nil when FD_UPSTREAM_REPO is unset")
+	if g := NewGitHubWorkItemPRs(&config.Config{}); g != nil {
+		t.Errorf("NewGitHubWorkItemPRs should return nil when FD_UPSTREAM_REPO is unset")
 	}
 }
 
@@ -124,66 +125,97 @@ func TestGitHubSDLCRecordsListFailure(t *testing.T) {
 	}
 }
 
-// TestGitHubIssueBundlesClosingIssue confirms the PR->closing-issue hop parses the
-// closing reference and caches successful lookups (no second HTTP call).
-func TestGitHubIssueBundlesClosingIssue(t *testing.T) {
-	calls := 0
+// TestGitHubWorkItemPRsTimeline confirms the unauthenticated work-item -> PRs hop
+// reads the REST issue timeline, collects only cross-referenced events whose source
+// is a pull request, dedupes, caches a non-empty result (no second call), and does
+// NOT cache an empty result (so an as-yet-unlinked record is retried).
+func TestGitHubWorkItemPRsTimeline(t *testing.T) {
+	calls := map[int]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
 		switch r.URL.Path {
-		case "/repos/acme/hypershell/pulls/568":
-			_, _ = w.Write([]byte(`{"body":"This adds the tab.\n\nCloses #565\n"}`))
-		case "/repos/acme/hypershell/pulls/600":
-			_, _ = w.Write([]byte(`{"body":"No closing reference here."}`))
+		case "/repos/acme/hypershell/issues/565/timeline":
+			calls[565]++
+			// Two PR cross-refs (one duplicated), a plain-issue cross-ref (not a PR),
+			// and an unrelated labeled event -- only the PRs 101 and 102 should survive.
+			_, _ = w.Write([]byte(`[
+				{"event":"cross-referenced","source":{"issue":{"number":101,"pull_request":{"url":"u"}}}},
+				{"event":"cross-referenced","source":{"issue":{"number":55}}},
+				{"event":"cross-referenced","source":{"issue":{"number":102,"pull_request":{"url":"u"}}}},
+				{"event":"cross-referenced","source":{"issue":{"number":101,"pull_request":{"url":"u"}}}},
+				{"event":"labeled","label":{"name":"agent/workable"}}
+			]`))
+		case "/repos/acme/hypershell/issues/600/timeline":
+			calls[600]++
+			_, _ = w.Write([]byte(`[{"event":"labeled","label":{"name":"agent/workable"}}]`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer srv.Close()
 
-	g := NewGitHubIssueBundles(&config.Config{UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	g := NewGitHubWorkItemPRs(&config.Config{UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
 	ctx := context.Background()
-	if got := g.ClosingIssue(ctx, 568); got != 565 {
-		t.Errorf("ClosingIssue(568) = %d, want 565", got)
+
+	got := g.AssociatedPRs(ctx, SdlcRecord{Number: 565})
+	if len(got) != 2 || got[0] != 101 || got[1] != 102 {
+		t.Errorf("AssociatedPRs(565) = %v, want [101 102]", got)
 	}
-	if got := g.ClosingIssue(ctx, 600); got != 0 {
-		t.Errorf("ClosingIssue(600) = %d, want 0 (no closing reference)", got)
+	// Non-empty result is cached: a second call must not re-hit the timeline.
+	_ = g.AssociatedPRs(ctx, SdlcRecord{Number: 565})
+	if calls[565] != 1 {
+		t.Errorf("non-empty lookup not cached: %d timeline calls for #565", calls[565])
 	}
-	before := calls
-	if got := g.ClosingIssue(ctx, 568); got != 565 {
-		t.Errorf("cached ClosingIssue(568) = %d, want 565", got)
+
+	// An issue with no PR cross-refs returns empty and is NOT cached (retried).
+	if got := g.AssociatedPRs(ctx, SdlcRecord{Number: 600}); len(got) != 0 {
+		t.Errorf("AssociatedPRs(600) = %v, want empty", got)
 	}
-	if calls != before {
-		t.Errorf("successful lookup not cached: %d extra calls", calls-before)
+	_ = g.AssociatedPRs(ctx, SdlcRecord{Number: 600})
+	if calls[600] != 2 {
+		t.Errorf("empty lookup should not be cached: %d timeline calls for #600, want 2", calls[600])
 	}
 }
 
-// TestClosesRefVariants confirms the closing-reference regex matches the common
-// GitHub closing keywords and ignores bare mentions.
-func TestClosesRefVariants(t *testing.T) {
-	cases := map[string]int{
-		"Closes #565":             565,
-		"closes: #42":             42,
-		"Fixes #7":                7,
-		"resolved #9":             9,
-		"see #100 for context":    0,
-		"relates to HYPERSHELL-1": 0,
+// TestGitHubWorkItemPRsGraphQL confirms that when an upstream token is configured the
+// resolver uses the authoritative GraphQL closedByPullRequestsReferences set and does
+// not fall back to the REST timeline.
+func TestGitHubWorkItemPRsGraphQL(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for body, want := range cases {
-		got := 0
-		if m := closesRef.FindStringSubmatch(body); m != nil {
-			got = mustAtoi(m[1])
-		}
-		if got != want {
-			t.Errorf("closesRef(%q) = %d, want %d", body, got, want)
-		}
-	}
-}
 
-func mustAtoi(s string) int {
-	n := 0
-	for _, r := range strings.TrimSpace(s) {
-		n = n*10 + int(r-'0')
+	graphqlCalls := 0
+	graphql := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		graphqlCalls++
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Errorf("graphql auth header = %q, want bearer token", got)
+		}
+		_, _ = w.Write([]byte(`{"data":{"repository":{"issue":{"closedByPullRequestsReferences":{"nodes":[{"number":321},{"number":322}]}}}}}`))
+	}))
+	defer graphql.Close()
+
+	restCalls := 0
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		restCalls++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer rest.Close()
+
+	g := NewGitHubWorkItemPRs(&config.Config{
+		UpstreamRepo:      "acme/hypershell",
+		GitHubAPIBase:     rest.URL,
+		GitHubGraphQL:     graphql.URL,
+		UpstreamTokenFile: tokenFile,
+	})
+	got := g.AssociatedPRs(context.Background(), SdlcRecord{Number: 565})
+	if len(got) != 2 || got[0] != 321 || got[1] != 322 {
+		t.Errorf("AssociatedPRs(565) via GraphQL = %v, want [321 322]", got)
 	}
-	return n
+	if graphqlCalls != 1 {
+		t.Errorf("want exactly one GraphQL call, got %d", graphqlCalls)
+	}
+	if restCalls != 0 {
+		t.Errorf("GraphQL success must not fall back to the REST timeline, got %d REST calls", restCalls)
+	}
 }
