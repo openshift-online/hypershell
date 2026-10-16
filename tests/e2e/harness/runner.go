@@ -21,16 +21,8 @@ type Logf func(format string, args ...any)
 // of the commands a user would run by hand. It mirrors the Bash show_cmd helper
 // (which survives in the retained smoke script).
 type CommandRunner struct {
-	logf  Logf
-	color bool
-
-	// reporter, when non-nil, enables the opt-in structured streaming path:
-	// command output is emitted as redacted log records as it is produced, in
-	// addition to the unchanged combined-output capture and return values.
-	reporter *Reporter
-	// stepID attributes streamed log records to the owning step; empty means the
-	// output is run-scoped (not attributable to a specific step).
-	stepID string
+	logger *Logger
+	color  bool
 }
 
 const (
@@ -42,23 +34,25 @@ const (
 // when stdout is a TTY and NO_COLOR is unset; under go test output capture the
 // runner emits plain text.
 func NewCommandRunner(logf Logf) *CommandRunner {
-	return &CommandRunner{logf: logf, color: useColor()}
+	return &CommandRunner{logger: NewLogger(logf), color: useColor()}
 }
 
 // SetReporter attaches the structured reporter and the owning step id for the
 // streaming path. A nil reporter leaves the runner on its unchanged
 // combined-output-only behavior. stepID may be empty for run-scoped output.
 func (r *CommandRunner) SetReporter(reporter *Reporter, stepID string) {
-	r.reporter = reporter
-	r.stepID = stepID
+	r.logger = NewLogger(r.logger.human, ReporterSink(reporter)).WithStep(stepID, nil)
 }
 
 // SetStep updates the step attribution for subsequently streamed output. It is
 // used by the sequential gate path, where one shared runner serves successive
 // steps that never run concurrently.
 func (r *CommandRunner) SetStep(stepID string) {
-	r.stepID = stepID
+	r.logger = r.logger.WithStep(stepID, nil)
 }
+
+// SetLogger shares the suite logging fanout with the command runner.
+func (r *CommandRunner) SetLogger(logger *Logger) { r.logger = logger }
 
 func useColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
@@ -77,16 +71,16 @@ func useColor() bool {
 func (r *CommandRunner) Show(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
 	if r.color {
-		r.logf("%s$ %s%s", colorCyan, line, colorReset)
+		r.logger.Logf("%s$ %s%s", colorCyan, line, colorReset)
 		return
 	}
-	r.logf("$ %s", line)
+	r.logger.Logf("$ %s", line)
 }
 
 // Comment logs a `# `-prefixed note, for context around an illustrative command
 // (for example explaining a Keycloak admin API call), matching the Bash suite.
 func (r *CommandRunner) Comment(format string, args ...any) {
-	r.logf("# %s", fmt.Sprintf(format, args...))
+	r.logger.Logf("# %s", fmt.Sprintf(format, args...))
 }
 
 // Run echoes the command, then executes it with the suite context, capturing
@@ -120,20 +114,8 @@ func (r *CommandRunner) run(ctx context.Context, env []string, stdin, name strin
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var buf bytes.Buffer
-	var streamer *lineStreamer
-	if r.reporter.Enabled() {
-		// Tee combined output to a line scanner so records stream as the command
-		// produces them, before the combined buffer finishes. os/exec guarantees a
-		// single writer goroutine when Stdout and Stderr are the same comparable
-		// writer, so the shared streamer and the PEM filter need no internal locking.
-		// The filter collapses a multi-line PEM private key block, which the per-line
-		// redactor inside Log cannot match, before any body line reaches the stream.
-		pem := &pemLineFilter{}
-		streamer = newLineStreamer(func(line string) {
-			if out, ok := pem.line(line); ok {
-				r.reporter.Log(r.stepID, out)
-			}
-		})
+	streamer := r.logger.Stream()
+	if len(r.logger.sinks) > 0 {
 		w := io.MultiWriter(&buf, streamer)
 		cmd.Stdout = w
 		cmd.Stderr = w
@@ -147,7 +129,7 @@ func (r *CommandRunner) run(ctx context.Context, env []string, stdin, name strin
 	}
 	out := buf.String()
 	if out != "" {
-		r.logf("%s", strings.TrimRight(out, "\n"))
+		r.logger.Humanf("%s", strings.TrimRight(out, "\n"))
 	}
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w\noutput:\n%s", name, strings.Join(args, " "), err, out)

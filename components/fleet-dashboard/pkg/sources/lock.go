@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -259,4 +260,49 @@ func dateFromTag(tag string) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// ResolveHydrated follows immutable hydration metadata to the release lock used
+// for this exact rendered revision. Never substitute today's environment bundle.
+func (g *GitHubLockResolver) ResolveHydrated(ctx context.Context, sha string) *Release {
+	if !fullCommitSHA(sha) {
+		return nil
+	}
+	g.mu.Lock()
+	cached := g.resolved[sha]
+	g.mu.Unlock()
+	if cached != nil {
+		return copyRelease(cached)
+	}
+	var body contentsResponse
+	u := fmt.Sprintf("%s/repos/%s/contents/hydrator.metadata?ref=%s", g.base, g.repo, sha)
+	if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &body) || !strings.EqualFold(body.Encoding, "base64") {
+		return nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(body.Content, "\n", ""))
+	if err != nil {
+		return nil
+	}
+	var metadata struct {
+		DrySHA string `json:"drySha"`
+	}
+	if json.Unmarshal(raw, &metadata) != nil || !fullCommitSHA(metadata.DrySHA) {
+		return nil
+	}
+	release := g.Resolve(ctx, metadata.DrySHA)
+	if release == nil || release.Digest == "" {
+		return nil
+	}
+	g.mu.Lock()
+	g.resolved[sha] = copyRelease(release)
+	g.mu.Unlock()
+	return release
+}
+
+func fullCommitSHA(sha string) bool {
+	if len(sha) != 40 {
+		return false
+	}
+	_, err := hex.DecodeString(sha)
+	return err == nil
 }

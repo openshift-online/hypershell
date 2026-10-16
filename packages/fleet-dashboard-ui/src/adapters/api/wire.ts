@@ -86,6 +86,11 @@ interface WireGate {
 }
 
 interface WirePromotionEnvironment {
+  readonly verification?: {
+    readonly revision: string;
+    readonly cluster: string;
+    readonly namespace: string;
+  } | null;
   readonly active?: WireRelease | null;
   readonly proposed?: WireRelease | null;
   readonly activeGates?: readonly WireGate[] | null;
@@ -144,6 +149,7 @@ function mapEnvironment(
 ): PromotionEnvironment {
   return {
     name,
+    verification: env.verification ?? null,
     activeRelease: env.active?.version ?? null,
     proposedRelease: env.proposed?.version ?? null,
     // The "Gates" column reflects the gates governing what is currently active.
@@ -648,6 +654,7 @@ interface WireE2ePlanned {
 }
 
 interface WireE2eSummary {
+  readonly bundle?: WireRelease | null;
   readonly id?: string;
   readonly runId?: string;
   readonly tenant?: string;
@@ -765,6 +772,7 @@ function mapPlanned(p: WireE2ePlanned): E2ePlannedStep {
 
 function mapE2eSummary(raw: WireE2eSummary): E2eRunSummary {
   return {
+    bundle: raw.bundle ? mapRelease(raw.bundle) : null,
     id: raw.id ?? "",
     runId: raw.runId ?? "",
     tenant: raw.tenant ?? "",

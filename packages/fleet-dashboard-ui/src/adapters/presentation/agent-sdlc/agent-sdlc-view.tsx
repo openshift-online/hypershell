@@ -1029,7 +1029,7 @@ function MatrixIssues({
   if (issues.length === 0) {
     return (
       <Content component="small">
-        <FormattedMessage {...messages.sdlcBoardEmpty} />
+        <FormattedMessage {...messages.sdlcBundleNoIssues} />
       </Content>
     );
   }

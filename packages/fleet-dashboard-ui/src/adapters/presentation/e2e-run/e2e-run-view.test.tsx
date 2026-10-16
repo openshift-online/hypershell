@@ -12,6 +12,7 @@ import {
 import type { E2eStreamHandlers, FleetApi } from "../../../application/ports";
 import type { Plane } from "../../../domain/plane";
 import { FleetApiProvider } from "../../query/api-context";
+import { GateExecution } from "./gate-execution";
 import { E2eRunView } from "./e2e-run-view";
 
 // Neutral placeholders only (hub-a/tenant-1/run-1); no fleet identifiers (firewall).
@@ -172,6 +173,115 @@ describe("E2eRunView", () => {
     expect(secondLabel).toContain("old111");
   });
 
+  it.each([
+    "Revision",
+    "Attempt",
+    "Started",
+    "Duration",
+    "Verdict",
+    "Bundle",
+    "Target",
+  ])("sorts the history %s column both ways", async (column) => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    renderView(
+      api,
+      enabled([
+        summary({
+          id: "one",
+          cluster: "aaa",
+          bundle: {
+            version: "aaa",
+            digest: "sha256:aaa",
+            tag: null,
+            date: null,
+            prs: [],
+          },
+          runId: "aaa",
+          revision: "aaa",
+          startedAt: "2026-01-01T00:00:00Z",
+          durationMs: 2000,
+          verdict: "failed",
+        }),
+        summary({
+          id: "two",
+          cluster: "zzz",
+          bundle: {
+            version: "zzz",
+            digest: "sha256:zzz",
+            tag: null,
+            date: null,
+            prs: [],
+          },
+          runId: "zzz",
+          revision: "zzz",
+          startedAt: "2026-01-01T00:01:00Z",
+          durationMs: 10000,
+          verdict: "passed",
+        }),
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: column }));
+    const first = screen
+      .getAllByRole("button", { name: /Open run/ })[0]
+      ?.getAttribute("aria-label");
+    expect(first).toContain("aaa");
+    await user.click(screen.getByRole("button", { name: column }));
+    expect(
+      screen
+        .getAllByRole("button", { name: /Open run/ })[0]
+        ?.getAttribute("aria-label"),
+    ).toContain("zzz");
+  });
+
+  it("closes the drawer without clearing the history filter or selection and restores focus", async () => {
+    const user = userEvent.setup();
+    const { api, handlers } = makeApi(detail());
+    renderView(api, enabled([summary()]));
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Search instances, revisions, or attempts",
+      }),
+      "abc",
+    );
+    const trigger = screen.getByRole("button", { name: /Open run/ });
+    await user.click(trigger);
+    await screen.findByRole("button", { name: "Build" });
+    await user.click(screen.getByRole("button", { name: "Close details" }));
+    expect(screen.queryByRole("button", { name: "Build" })).toBeNull();
+    expect(handlers.current).toBeNull();
+    expect(
+      screen.getByRole("textbox", {
+        name: "Search instances, revisions, or attempts",
+      }),
+    ).toHaveProperty("value", "abc");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it.each(["Step", "State", "Duration"])(
+    "makes the progress %s column sortable",
+    async (column) => {
+      const user = userEvent.setup();
+      const { api } = makeApi(detail());
+      renderView(api, enabled([summary()]));
+      await user.click(screen.getByRole("button", { name: /Open run/ }));
+      await screen.findByRole("button", { name: "Build" });
+      const table = screen.getByRole("grid", { name: "Run steps" });
+      await user.click(within(table).getByRole("button", { name: column }));
+      expect(
+        within(table)
+          .getByRole("columnheader", { name: column })
+          .getAttribute("aria-sort"),
+      ).toBe("ascending");
+      await user.click(within(table).getByRole("button", { name: column }));
+      expect(
+        within(table)
+          .getByRole("columnheader", { name: column })
+          .getAttribute("aria-sort"),
+      ).toBe("descending");
+    },
+  );
+
   it("marks a pre-reporting run as having no structured steps", () => {
     const { api } = makeApi(detail());
     renderView(api, enabled([summary({ hasStructuredSteps: false })]));
@@ -219,7 +329,9 @@ describe("E2eRunView", () => {
     expect(await screen.findByText("Source", { exact: false })).toBeDefined();
     // Scope to the steps table via the Build step cell (role names differ by PF
     // table variant, so reach the <table> element directly).
-    const stepsTable = (await screen.findByText("Build")).closest("table");
+    const stepsTable = (
+      await screen.findByRole("button", { name: "Build" })
+    ).closest("table");
     if (!stepsTable) throw new Error("expected a steps table");
     const scope = within(stepsTable);
     expect(scope.getByText("Skipped")).toBeDefined();
@@ -253,7 +365,7 @@ describe("E2eRunView", () => {
 
     await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
     // Wait for the snapshot detail to resolve.
-    await screen.findByText("Steps");
+    await screen.findByRole("tab", { name: "Progress" });
 
     act(() => {
       handlers.current?.onStatus({ state: "live", droppedEntries: 0 });
@@ -316,7 +428,7 @@ describe("E2eRunView", () => {
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
     await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
-    await screen.findByText("Steps");
+    await screen.findByRole("tab", { name: "Progress" });
 
     // Stream far more log lines than the buffer window in a single batched update:
     // the buffer must stay bounded (no unbounded accumulation / O(n^2) refold) and
@@ -353,7 +465,7 @@ describe("E2eRunView", () => {
     const { api, handlers } = makeApi(detail());
     renderView(api, enabled([summary()]));
     await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
-    await screen.findByText("Steps");
+    await screen.findByRole("tab", { name: "Progress" });
 
     act(() => {
       handlers.current?.onStatus({ state: "disconnected", droppedEntries: 0 });
@@ -401,5 +513,98 @@ describe("E2eRunView", () => {
     expect(
       screen.getByText("Older runs are not shown - run history is truncated."),
     ).toBeDefined();
+  });
+});
+
+describe("gate execution", () => {
+  it("opens step logs and preserves filters while changing tabs without a second stream", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    render(
+      <IntlProvider locale="en">
+        <FleetApiProvider value={api}>
+          <GateExecution
+            target={{
+              revision: "abc1234",
+              cluster: "tenant-1",
+              namespace: "ns",
+            }}
+            data={enabled([summary()])}
+          />
+        </FleetApiProvider>
+      </IntlProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Build" }));
+    expect(
+      screen.getByRole("tab", { name: "Logs" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Log scope" })).toHaveProperty(
+      "value",
+      "a",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Search logs" }),
+      "build",
+    );
+    await user.click(screen.getByRole("tab", { name: "Progress" }));
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    expect(screen.getByRole("textbox", { name: "Search logs" })).toHaveProperty(
+      "value",
+      "build",
+    );
+    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+    expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
+  });
+  it("keeps the inspected attempt pinned when a newer retry arrives", async () => {
+    const { api } = makeApi(detail());
+    const view = (runs: readonly E2eRunSummary[]) => (
+      <IntlProvider locale="en">
+        <FleetApiProvider value={api}>
+          <GateExecution
+            target={{
+              revision: "abc1234",
+              cluster: "tenant-1",
+              namespace: "ns",
+            }}
+            data={enabled(runs)}
+          />
+        </FleetApiProvider>
+      </IntlProvider>
+    );
+    const rendered = render(view([summary()]));
+    await screen.findByRole("button", { name: "Build" });
+    rendered.rerender(
+      view([
+        summary({
+          id: "tenant-1/ns/run-2",
+          runId: "run-2",
+          startedAt: "2026-01-01T00:40:00Z",
+        }),
+        summary(),
+      ]),
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Test attempt" }),
+    ).toHaveProperty("value", "tenant-1/ns/run-1");
+    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+    expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
+  });
+  it("does not open a different revision's latest run", () => {
+    const { api } = makeApi(detail());
+    render(
+      <IntlProvider locale="en">
+        <FleetApiProvider value={api}>
+          <GateExecution
+            target={{ revision: "other", cluster: "tenant-1", namespace: "ns" }}
+            data={enabled([summary()])}
+          />
+        </FleetApiProvider>
+      </IntlProvider>,
+    );
+    expect(
+      screen.getByText("Waiting for a test run for this revision."),
+    ).toBeDefined();
+    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+    expect(api.getE2eRun).not.toHaveBeenCalled();
   });
 });

@@ -250,6 +250,8 @@ var redactPatterns = []struct {
 	re   *regexp.Regexp
 	repl string
 }{
+	// Sensitive CLI options now also appear in command-description events.
+	{regexp.MustCompile(`(?i)(--(?:password|token|access-token|client-secret|client_secret|secret)(?:=|\s+))(?:(?:"[^"]*")|(?:'[^']*')|[^\s]+)`), "${1}[REDACTED]"},
 	// PEM private key blocks (any key type), including the body.
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), "[REDACTED PRIVATE KEY]"},
 	// Authorization: Bearer / Basic <token> headers and bare bearer tokens.

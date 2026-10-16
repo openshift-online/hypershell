@@ -1,3 +1,4 @@
+import type { VerificationTarget } from "../promotion";
 // Promotion-topology MAP model. Pure projection of the promotion plane (+ fleet
 // metrics) into the nodes / columns / lanes / gates the interactive map draws.
 //
@@ -57,6 +58,7 @@ export interface MapNodeMetrics {
 
 /** One instance rendered as a card on the map. */
 export interface MapNode {
+  readonly verification?: VerificationTarget | null;
   /** Instance key from the payload (runtime data, never compiled in). */
   readonly id: string;
   /**
@@ -189,6 +191,7 @@ export interface GateCheck {
 }
 
 export interface MapGate {
+  readonly verification?: VerificationTarget | null;
   readonly id: string;
   /** The SOURCE column: the env whose analysis this gate reports. */
   readonly fromColumnKey: string;
@@ -487,6 +490,7 @@ function buildNode(
     argoSync: env.argoSync,
     syncRetries: env.syncRetries,
     prState: env.prState,
+    verification: env.verification ?? null,
     gateBadge: environmentGateBadge(env),
     gateNames: env.gates.map((g) => g.name).filter((n) => n !== ""),
     gateChecks: env.gates
@@ -635,6 +639,7 @@ function buildGates(
       name: source.gateNames[0] ?? null,
       checks: source.gateChecks,
       analysisUrl: source.links.analysis,
+      verification: source.verification ?? null,
       syncRetries: source.syncRetries,
       argoUrl: source.links.argo,
       promoting,
