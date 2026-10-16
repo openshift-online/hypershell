@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -473,12 +475,22 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 	for i, sandboxName := range names {
 		i, sandboxName := i, sandboxName
 		g.Go(func() error {
-			args := []string{"sandbox", action}
-			if action == "create" {
-				args = append(args, "--name")
+			steps := sandboxCLISteps(action, sandboxName)
+			outputs := make([]string, 0, len(steps))
+			for j, args := range steps {
+				out, err := s.cli(t, local, args...)
+				outputs = append(outputs, out)
+				// Only the final command decides the result; an earlier step (the
+				// stop before a delete) is best-effort, so its error is only logged.
+				if j < len(steps)-1 {
+					if err != nil {
+						t.Logf("sandbox %s %s: %q returned an error (continuing): %v", action, sandboxName, args, err)
+					}
+					continue
+				}
+				results[i].err = err
 			}
-			args = append(args, sandboxName)
-			results[i].output, results[i].err = s.cli(t, local, args...)
+			results[i].output = strings.Join(outputs, "\n")
 			return nil
 		})
 	}
@@ -487,6 +499,23 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 		if results[i].err != nil {
 			t.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
 		}
+	}
+}
+
+// sandboxCLISteps returns the openshell CLI invocations that perform action on
+// one sandbox. A delete stops the sandbox first: `sandbox stop` shuts the
+// sandbox and supervisor processes down in order, while a bare `sandbox delete`
+// leaves the pods to Kubernetes, whose SIGTERM those processes ignore, so every
+// delete waits out the 30s termination grace period and the gateway route
+// answers it with "upstream request timeout" after 15s.
+func sandboxCLISteps(action, name string) [][]string {
+	switch action {
+	case "create":
+		return [][]string{{"sandbox", "create", "--name", name}}
+	case "delete":
+		return [][]string{{"sandbox", "stop", name}, {"sandbox", "delete", name}}
+	default:
+		return [][]string{{"sandbox", action, name}}
 	}
 }
 
@@ -691,6 +720,30 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().True(found, "second managed cluster %q is registered and selectable", secondName)
 	}
 	s.assertManagedClusterGRPCIdentity(t)
+}
+
+// waitDisruptiveGate blocks until gate exists, which is how
+// tests/e2e/run-parallel.sh signals that every concurrently running suite other
+// than this one has exited and the shared controller may be disturbed. It
+// mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it reports false so
+// the caller can warn and proceed rather than hang the run.
+func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(gate); err == nil {
+			return true, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("check disruptive gate %s: %w", gate, err)
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 // p3_1AdminInventory verifies the admin-only /users boundary (non-admin 403,
