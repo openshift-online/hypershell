@@ -43,7 +43,7 @@ than introducing new outcome values, and it is a sub-spec of
 - **Out of scope (deferred or covered elsewhere):**
   - Fleet-wide or version-driven *release* rollout safety, including progressive
     and canary rollout - this spec gates the per-gateway workload rollout inside
-    a single reconcile, not the propagation of a `GatewayRelease` across the
+    a single reconcile, not the propagation of a new gateway version across the
     fleet (see HYPERSHELL-175 safe release rollout and HYPERSHELL-176 canary).
   - Runtime verification that the gateway *process* accepts the configuration;
     continuous readiness and degradation are defined in

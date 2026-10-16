@@ -4,6 +4,7 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import type { AgentSdlcData } from "../../domain/agent-sdlc";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
@@ -12,9 +13,11 @@ import {
   getFleet,
   getInstances,
   getPromotion,
+  getSdlc,
   getTopology,
 } from "../../application/use-cases";
 import { useFleetApi } from "./api-context";
+import { useObservability } from "../observability/observability-context";
 import { queryKeys } from "./keys";
 
 // DEV-only fast cadence: the local mock server can set VITE_FAST_POLL_MS to speed up
@@ -31,6 +34,10 @@ const REFETCH_MS = {
   promotion: FAST_POLL_MS ?? 20_000,
   instances: 30_000,
   topology: 60_000,
+  // SDLC reconstructs label history from the GitHub timeline on the BFF's own
+  // bounded refresh loop; the UI only polls the cached plane, so a relaxed cadence
+  // keeps the board "near real time" without adding client pressure (SDLC-VIS-04).
+  sdlc: FAST_POLL_MS ?? 30_000,
 };
 
 export function useFleet(): UseQueryResult<Plane<FleetData>> {
@@ -66,5 +73,15 @@ export function useInstances(): UseQueryResult<Plane<InstancesData>> {
     queryKey: queryKeys.instances,
     queryFn: ({ signal }) => getInstances(api, signal),
     refetchInterval: REFETCH_MS.instances,
+  });
+}
+
+export function useSdlc(): UseQueryResult<Plane<AgentSdlcData>> {
+  const api = useFleetApi();
+  const observability = useObservability();
+  return useQuery({
+    queryKey: queryKeys.sdlc,
+    queryFn: ({ signal }) => getSdlc(api, signal, observability),
+    refetchInterval: REFETCH_MS.sdlc,
   });
 }

@@ -9,6 +9,17 @@
 
 import type { InstancesData } from "../../application/ports";
 import type {
+  AgentSdlcBundleRow,
+  AgentSdlcCard,
+  AgentSdlcData,
+  AgentSdlcHubCluster,
+  AgentSdlcLabelEvent,
+  AgentSdlcMatrix,
+  AgentSdlcPhase,
+  AgentSdlcRework,
+  AgentSdlcShippedIssue,
+} from "../../domain/agent-sdlc";
+import type {
   ClusterHistory,
   FleetData,
   GatewayClusterBreakdown,
@@ -72,6 +83,9 @@ interface WirePromotionEnvironment {
   readonly cluster?: string;
   readonly argoHealth?: string;
   readonly argoSync?: string;
+  // Argo CD sync-operation retry count. Omitted by the BFF when no operation
+  // state exists (unknown), kept distinct from a genuine 0 (synced first try).
+  readonly syncRetries?: number;
   readonly consoleUrl?: string;
   readonly grafanaUrl?: string;
   readonly argoUrl?: string;
@@ -129,6 +143,8 @@ function mapEnvironment(
     cluster: nullableString(env.cluster),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
+    // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.
+    syncRetries: env.syncRetries ?? null,
     consoleUrl: nullableString(env.consoleUrl),
     grafanaUrl: nullableString(env.grafanaUrl),
     argoUrl: nullableString(env.argoUrl),
@@ -452,5 +468,150 @@ export function mapInstances(raw: unknown): InstancesData {
       region: null,
       health: null,
     })),
+  };
+}
+
+// --- Agent SDLC plane (/api/sdlc) ---------------------------------------------
+// agent-sdlc-visibility-dashboard.spec. The BFF payload is already a small, domain
+// -shaped projection; this mapper coerces each field defensively so a partial or
+// malformed snapshot degrades to an empty board/lane/matrix rather than throwing.
+
+interface WireSdlcPhase {
+  readonly key?: string;
+  readonly sleSeconds?: number;
+}
+
+interface WireSdlcRework {
+  readonly count?: number;
+  readonly threshold?: number;
+}
+
+interface WireSdlcLabelEvent {
+  readonly label?: string;
+  readonly action?: string;
+  readonly at?: string;
+}
+
+interface WireSdlcCard {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly phase?: string;
+  readonly timeInPhaseSeconds?: number;
+  readonly escalation?: string;
+  readonly rework?: WireSdlcRework | null;
+  readonly history?: readonly WireSdlcLabelEvent[] | null;
+}
+
+interface WireSdlcHubCluster {
+  readonly key?: string;
+  readonly cluster?: string;
+  readonly env?: string;
+  readonly currentVersion?: string;
+  readonly currentDigest?: string;
+}
+
+interface WireSdlcShippedIssue {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly mergedAt?: string;
+}
+
+interface WireSdlcBundleRow {
+  readonly version?: string;
+  readonly digest?: string;
+  readonly date?: string;
+  readonly unreleased?: boolean;
+  readonly hubClusters?: readonly string[] | null;
+  readonly issues?: readonly WireSdlcShippedIssue[] | null;
+}
+
+interface WireSdlcMatrix {
+  readonly hubClusters?: readonly WireSdlcHubCluster[] | null;
+  readonly rows?: readonly WireSdlcBundleRow[] | null;
+}
+
+interface WireSdlc {
+  readonly phases?: readonly WireSdlcPhase[] | null;
+  readonly cards?: readonly WireSdlcCard[] | null;
+  readonly lane?: readonly WireSdlcCard[] | null;
+  readonly matrix?: WireSdlcMatrix | null;
+}
+
+function mapSdlcLabelEvent(e: WireSdlcLabelEvent): AgentSdlcLabelEvent {
+  return { label: e.label ?? "", action: e.action ?? "", at: e.at ?? "" };
+}
+
+function mapSdlcRework(
+  r: WireSdlcRework | null | undefined,
+): AgentSdlcRework | null {
+  if (r === null || r === undefined) {
+    return null;
+  }
+  return { count: num(r.count), threshold: num(r.threshold) };
+}
+
+function mapSdlcCard(c: WireSdlcCard): AgentSdlcCard {
+  return {
+    number: num(c.number),
+    title: c.title ?? "",
+    url: c.url ?? "",
+    phase: c.phase ?? "",
+    timeInPhaseSeconds: num(c.timeInPhaseSeconds),
+    escalation: nullableString(c.escalation),
+    rework: mapSdlcRework(c.rework),
+    history: (c.history ?? []).map(mapSdlcLabelEvent),
+  };
+}
+
+function mapSdlcHubCluster(h: WireSdlcHubCluster): AgentSdlcHubCluster {
+  return {
+    key: h.key ?? "",
+    cluster: nullableString(h.cluster),
+    env: nullableString(h.env),
+    currentVersion: nullableString(h.currentVersion),
+    currentDigest: nullableString(h.currentDigest),
+  };
+}
+
+function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
+  return {
+    number: num(i.number),
+    title: i.title ?? "",
+    url: i.url ?? "",
+    mergedAt: nullableString(i.mergedAt),
+  };
+}
+
+function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
+  return {
+    version: nullableString(r.version),
+    digest: nullableString(r.digest),
+    date: nullableString(r.date),
+    unreleased: r.unreleased === true,
+    hubClusters: (r.hubClusters ?? []).slice(),
+    issues: (r.issues ?? []).map(mapSdlcShippedIssue),
+  };
+}
+
+function mapSdlcMatrix(m: WireSdlcMatrix | null | undefined): AgentSdlcMatrix {
+  return {
+    hubClusters: (m?.hubClusters ?? []).map(mapSdlcHubCluster),
+    rows: (m?.rows ?? []).map(mapSdlcBundleRow),
+  };
+}
+
+export function mapSdlc(raw: unknown): AgentSdlcData {
+  const wire = (raw ?? {}) as WireSdlc;
+  const phases: AgentSdlcPhase[] = (wire.phases ?? []).map((p) => ({
+    key: p.key ?? "",
+    sleSeconds: num(p.sleSeconds),
+  }));
+  return {
+    phases,
+    cards: (wire.cards ?? []).map(mapSdlcCard),
+    lane: (wire.lane ?? []).map(mapSdlcCard),
+    matrix: mapSdlcMatrix(wire.matrix),
   };
 }

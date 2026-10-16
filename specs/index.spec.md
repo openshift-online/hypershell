@@ -6,7 +6,7 @@ Desired state of the system. Code is the actual state. Development work reconcil
 
 ### [Platform](platform/)
 
-Data model, API, control plane, gateway lifecycle, fleet management.
+Data model, API, control plane, gateway lifecycle, observability, and ADLC agent resources.
 
 ### [Web Console](web-console/)
 
@@ -30,7 +30,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 
 | Path | Domain | Primary Entities | Components | Depends On |
 |------|--------|-----------------|------------|------------|
-| `platform/data-model.spec.md` | platform | Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, AgentRuntime, SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource | API, CP, CLI | managed-cluster-registration, openshell-gateway-service-accounts |
+| `platform/data-model.spec.md` | platform | Gateway, ManagedCluster, AgentRuntime, SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource, Repository | API, CP, CLI | managed-cluster-registration, openshell-gateway-service-accounts |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
 | `platform/openshell-gateway.spec.md` | platform | Gateway, GatewayReconciler, provisioning | CP | data-model, control-plane |
 | `platform/openshell-gateway-database.spec.md` | platform | Mounted admin credential Secret, per-gateway PostgreSQL provisioning, admin TLS verify-full, tenant TLS require, cleanup | CP, deploy | openshell-gateway, gateway-deletion-finalization |
@@ -82,6 +82,8 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/control-plane-reconciliation-metrics.spec.md` | platform | Reconciliation outcome taxonomy, duration/retry/terminal-failure metrics, bounded reason codes, BFF reconciliation query contract | CP, WEB | control-plane-observability, control-plane, security |
 | `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
 | `platform/agent-runtime-images.spec.md` | platform | Full and slim agent runtime images, pinned inputs, security and release bundle delivery | agents, CLI | hsctl-release |
+| `platform/fleet-dashboard-sync-retry-visibility.spec.md` | platform | Argo Application sync-retry count (status.operationState.retryCount) threaded to the gate details pane as nullable syncRetries with plain-English tooltip | WEB | gateway-managed-cluster-attribution |
+| `platform/agent-sdlc-visibility-dashboard.spec.md` | platform | Agent SDLC tab for the glass dashboard: aging WIP board, rework meter, escalation lane, release x hub-cluster matrix; new /api/sdlc plane behind SdlcStateProvider port (GitHub adapter, Jira drop-in seam), shared cached bundle truth, label-event history from the GitHub timeline | WEB | fleet-dashboard-sync-retry-visibility, jira-github-sync, gateway-managed-cluster-attribution, UI standards |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
 | `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |
@@ -92,3 +94,26 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/ui/hexagonal-architecture.spec.md` | standards | UI application ports, adapters, composition | WEB, BFF, SDK | foundations |
 | `standards/ui/domain-observability.spec.md` | standards | Domain probes, fan-out telemetry | WEB, BFF | hexagonal-architecture, trust-performance, security |
 | `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance, hexagonal-architecture, domain-observability |
+| `platform/gateway-phase-vocabulary.spec.md` | platform | Canonical gateway phase and health vocabulary (representation) | API, CP, WEB | data-model, openshell-gateway-health |
+| `platform/openshell-gateway-health.spec.md` | platform | Gateway phase lifecycle, workload and route readiness gating, continuous health reconciliation | CP | openshell-gateway, gateway-phase-vocabulary, openshell-gateway-routing |
+| `platform/gateway-provisioning-progress.spec.md` | platform | Provisioning progress model, sub-phase decomposition | CP, WEB | openshell-gateway-health, gateway-phase-vocabulary |
+| `platform/gateway-reconcile-concurrency.spec.md` | platform | Per-gateway reconcile queue, bounded worker pool, concurrency cap | CP | control-plane, openshell-gateway |
+| `platform/gateway-deletion-finalization.spec.md` | platform | Gateway delete finalization, cross-cutting cleanup contract, finalizer ordering | API, CP | data-model, openshell-gateway, openshell-gateway-database |
+| `platform/openshell-gateway-namespace-gc.spec.md` | platform | Orphaned-namespace garbage collection, cluster-filtered reclamation | CP | openshell-gateway, gateway-deletion-finalization |
+| `platform/openshell-gateway-sandbox-count.spec.md` | platform | Active sandbox count derivation and gauge export | CP, WEB | openshell-gateway, gateway-metrics-dashboard |
+| `platform/gateway-sandbox-attention-status.spec.md` | platform | Orphaned/expiring/idle sandbox attention gauges, BFF attention fields, widget | CP, WEB | gateway-metrics-dashboard, openshell-gateway-sandbox-count, web-console/operational-dashboard |
+| `platform/openshell-gateway-helm-adoption.spec.md` | platform | Runtime Helm-chart install of gateways via Helm CLI, upstream-chart adoption | CP | openshell-gateway, control-plane |
+| `platform/generated-gateway-config-validation.spec.md` | platform | Validation gate on the rendered gateway configuration artifact | CP | openshell-gateway, openshell-gateway-helm-adoption |
+| `platform/watch-delete-events.spec.md` | platform | Full resource snapshot in delete watch events for reconciler cleanup | API, CP | data-model, control-plane |
+| `platform/gateway-access-management.spec.md` | platform | Gateway-scoped access facade, RoleBinding-backed grants, Keycloak client-role projection, last-owner protection | API, CP | data-model, rbac-enforcement, openshell-gateway-keycloak, openshell-gateway-service-accounts |
+| `platform/gateway-provision-outcomes.spec.md` | platform | Gateway provision success/failure outcomes counter, success-rate row, provision-reliability widget | CP, WEB, deploy | web-console/operational-dashboard, control-plane-observability, gateway-provision-time |
+| `platform/gateway-release-distribution.spec.md` | platform | Fleet-wide gateway release adoption (gateways grouped by observed gateway_version) and the gateway-releases dashboard widget | WEB | web-console/operational-dashboard, gateway-metrics-dashboard |
+| `platform/api-reliability-metrics.spec.md` | platform | API request reliability (success rate, latency histogram), hourly 24h trend, BFF reliability route | API, WEB, deploy | web-console/reliability-dashboard, control-plane-observability, web-console/operational-dashboard |
+| `platform/hsctl-release.spec.md` | platform | hsctl and HyperShell bundle releases, build-once distribution, checksum verification | CLI, CI | data-model, hsctl-terminal-ui |
+| `platform/openshell-install-docs-link.spec.md` | platform | Gateway connection tab link to OpenShell install documentation | WEB | web-console/architecture, openshell-gateway-console |
+| `platform/openshift-development.spec.md` | platform | OpenShift dev and test driver model, make openshift-up, Go e2e driver | ALL, CI | local-development, e2e-testing, control-plane |
+| `platform/e2e-console-browser-testing.spec.md` | platform | Playwright console e2e, driver selection, E2E_CONSOLE_URL discovery | WEB, CI | e2e-testing, web-console/architecture, local-development |
+| `web-console/gateway-access-management.spec.md` | web-console | Gateway access-management console surface, Access tab over the access API | WEB, SDK | web-console/architecture, gateway-access-management, UI standards |
+| `web-console/gateway-version-visibility.spec.md` | web-console | Running gateway version display, neutral version presentation | WEB | web-console/architecture, gateway-phase-vocabulary, UI standards |
+| `web-console/reliability-dashboard.spec.md` | web-console | Reliability dashboard, same-origin BFF Prometheus routes, 24h hourly reconciliation trends | WEB | web-console/architecture, api-reliability-metrics, control-plane-reconciliation-metrics, UI standards |
+| `web-console/provisioning-dashboard.spec.md` | web-console | Platform-admin provisioning dashboard: hub-cluster capacity and platform-wide gateway provisioning health, 7/30-day trend selection | WEB | web-console/architecture, web-console/operational-dashboard, hub-cluster-utilization-trends, gateway-provision-outcomes, UI standards |

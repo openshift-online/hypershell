@@ -28,6 +28,7 @@ import {
   shortSha,
 } from "./config.js";
 import { queryApiReliability } from "./metrics-api-reliability.js";
+import { queryAuthorizedGatewayMetrics } from "./authorized-gateway-metrics.js";
 import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
@@ -64,6 +65,11 @@ const forwardedResponseHeaders = [
   "retry-after",
 ] as const;
 
+function dashboardRange(request: FastifyRequest): 7 | 30 {
+  const query = request.query as { range?: unknown };
+  return query.range === "30" ? 30 : 7;
+}
+
 declare module "fastify" {
   interface FastifyRequest {
     correlationId: string;
@@ -74,6 +80,8 @@ function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/dashboard" ||
+    pathname === "/dashboard/provisioning" ||
+    pathname === "/dashboard/inventory" ||
     pathname === "/dashboard/reliability" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
@@ -107,15 +115,12 @@ function consoleRedirectForDashboardHost(request: FastifyRequest): string {
   return "/";
 }
 
-function requiresDashboardAdminAccess(
-  pathname: string,
-  hostHeader: string | undefined,
-): boolean {
+function requiresDashboardAdminAccess(pathname: string): boolean {
   return (
-    pathname === "/dashboard" ||
+    pathname === "/dashboard/provisioning" ||
+    pathname === "/dashboard/inventory" ||
     pathname === "/dashboard/reliability" ||
-    pathname === "/metrics" ||
-    (pathname === "/" && isDashboardHost(hostHeader))
+    pathname === "/metrics"
   );
 }
 
@@ -453,7 +458,7 @@ export async function buildApp(
           return;
         }
         if (
-          requiresDashboardAdminAccess(pathname, request.headers.host) &&
+          requiresDashboardAdminAccess(pathname) &&
           !hasDashboardAdminRole(request.session.get("roles") ?? [])
         ) {
           reply.redirect(
@@ -504,7 +509,7 @@ export async function buildApp(
     // no-auth dev mode (OIDC_ISSUER unset) the operational dashboard is open.
     if (
       config.oidcIssuer &&
-      requiresDashboardAdminAccess(pathname, request.headers.host) &&
+      requiresDashboardAdminAccess(pathname) &&
       !hasDashboardAdminRole(request.session.get("roles") ?? [])
     ) {
       return reply.redirect(
@@ -551,6 +556,19 @@ export async function buildApp(
     }
   };
 
+  const requireOperationalMetricsAccess = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    reply.header("Cache-Control", "no-store");
+    if (!config.oidcIssuer) {
+      return;
+    }
+    if (!request.session.get("accessToken")) {
+      return reply.send(respondReauth(reply));
+    }
+  };
+
   // Same-origin browser telemetry ingest. The browser exporter posts OTLP/HTTP
   // JSON here; the BFF validates it and relays it to the configured collector,
   // keeping the collector origin out of the browser and reusing the session and
@@ -575,13 +593,24 @@ export async function buildApp(
 
   app.get(
     "/api/metrics/gateways",
-    { preHandler: requireDashboardMetricsAccess },
+    { preHandler: requireOperationalMetricsAccess },
     async (request, reply) => {
       try {
+        if (
+          config.oidcIssuer &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          return await queryAuthorizedGatewayMetrics(
+            config.apiOrigin,
+            request.session.get("accessToken"),
+            config.apiTimeoutMs,
+          );
+        }
         return await queryGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn({ err: error }, "gateway metrics query failed");
@@ -603,6 +632,7 @@ export async function buildApp(
             caFile: config.clusterPrometheusCaFile,
           },
           config.prometheusQueryTimeoutMs,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn({ err: error }, "cluster memory metrics query failed");
@@ -624,6 +654,7 @@ export async function buildApp(
             caFile: config.clusterPrometheusCaFile,
           },
           config.prometheusQueryTimeoutMs,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn({ err: error }, "cluster CPU metrics query failed");
@@ -684,6 +715,7 @@ export async function buildApp(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn(
@@ -705,6 +737,7 @@ export async function buildApp(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn(
@@ -719,13 +752,25 @@ export async function buildApp(
 
   app.get(
     "/api/metrics/gateway-sandboxes",
-    { preHandler: requireDashboardMetricsAccess },
+    { preHandler: requireOperationalMetricsAccess },
     async (request, reply) => {
       try {
+        if (
+          config.oidcIssuer &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          const authorizedMetrics = await queryAuthorizedGatewayMetrics(
+            config.apiOrigin,
+            request.session.get("accessToken"),
+            config.apiTimeoutMs,
+          );
+          return { active_sandboxes: authorizedMetrics.activeSandboxes };
+        }
         return await queryGatewaySandboxes(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
+          dashboardRange(request),
         );
       } catch (error) {
         request.log.warn(

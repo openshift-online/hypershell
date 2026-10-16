@@ -362,7 +362,7 @@ capabilities without changing those gateway assignments.
 
 ### Requirement: Watch Stream Caller Binding
 
-The six gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
+The four gRPC watch RPCs (`WatchGateways`, `WatchManagedClusters`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
 For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
 
@@ -417,9 +417,8 @@ For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRu
 
 A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
 
-- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on releases, networks, and managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
+- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
 - It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, and `SetActiveSandboxCount` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through.
-- It MAY update only the `status` of a `GatewayRelease` or `GatewayNetwork`. Changing a release's image, rollout, or name, a network's topology, or creating or deleting either SHALL be refused: those records are fleet-wide, and a control plane only reports on them.
 - It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
 - Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
@@ -444,13 +443,6 @@ The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so
 - WHEN `Y` calls `UpdateGateway`, `SetGatewayVersion`, or `AdjustActiveSandboxCount` for that gateway, or `UpdateGateway` on its own gateway with `cluster_id: X`
 - THEN the api-server returns `PERMISSION_DENIED`
 - AND `GetGateway` for that gateway returns `NOT_FOUND`
-
-#### Scenario: Control plane rewrites a release
-
-- GIVEN a registered control plane
-- WHEN it calls `UpdateGatewayRelease` setting `image`
-- THEN the api-server returns `PERMISSION_DENIED`
-- AND a call setting only `status` is authorized
 
 #### Scenario: Unregistered caller cannot use control-plane-only writes
 

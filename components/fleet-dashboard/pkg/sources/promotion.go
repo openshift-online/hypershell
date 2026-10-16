@@ -158,11 +158,17 @@ type Environment struct {
 	ArgoURL    string `json:"argoUrl,omitempty"`
 	ArgoHealth string `json:"argoHealth,omitempty"`
 	ArgoSync   string `json:"argoSync,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Env        string `json:"env,omitempty"`
-	Cluster    string `json:"cluster,omitempty"`
-	ConsoleURL string `json:"consoleUrl,omitempty"`
+	// SyncRetries is the Argo CD sync-operation retry count
+	// (status.operationState.retryCount) for the core Application. nil means no
+	// operation state was recorded (unknown), kept distinct from a genuine 0
+	// (synced on the first attempt) so a wedged, looping gate is visible. Omitted
+	// from the payload when nil.
+	SyncRetries *int   `json:"syncRetries,omitempty"`
+	Role        string `json:"role,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Env         string `json:"env,omitempty"`
+	Cluster     string `json:"cluster,omitempty"`
+	ConsoleURL  string `json:"consoleUrl,omitempty"`
 	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
 	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
 	// stays authoritative for the host (no hostname pattern is baked in here).
@@ -242,6 +248,7 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.ArgoURL = p.argoAppURL(a.ns, a.app)
 			env.ArgoHealth = a.health
 			env.ArgoSync = a.sync
+			env.SyncRetries = a.syncRetries
 			env.Role = a.role
 			env.Provider = a.provider
 			env.Env = a.env
@@ -417,6 +424,9 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 
 type argoInfo struct {
 	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
+	// syncRetries is status.operationState.retryCount, nil when no operation state
+	// is recorded (unknown) so it stays distinct from a genuine 0.
+	syncRetries *int
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -457,17 +467,25 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 		ann := stringMap(obj, "metadata", "annotations")
 		health, _ := nestedString(obj, "status", "health", "status")
 		sync, _ := nestedString(obj, "status", "sync", "status")
+		// retryCount lives on the already-fetched Application; read it from the same
+		// object (no new query). nil when operationState is absent (no operation),
+		// so the UI can omit the row rather than show a misleading "0".
+		var syncRetries *int
+		if rc, ok := nestedInt(obj, "status", "operationState", "retryCount"); ok {
+			syncRetries = &rc
+		}
 		out[key] = argoInfo{
-			app:        name,
-			ns:         ns,
-			health:     health,
-			sync:       sync,
-			role:       labels[deliveryLabelPrefix+"role"],
-			provider:   labels[deliveryLabelPrefix+"provider"],
-			env:        labels[deliveryLabelPrefix+"env"],
-			cluster:    labels[deliveryLabelPrefix+"cluster"],
-			consoleURL: ann["link.argocd.argoproj.io/external-link"],
-			grafanaURL: ann["link.argocd.argoproj.io/grafana"],
+			app:         name,
+			ns:          ns,
+			health:      health,
+			sync:        sync,
+			syncRetries: syncRetries,
+			role:        labels[deliveryLabelPrefix+"role"],
+			provider:    labels[deliveryLabelPrefix+"provider"],
+			env:         labels[deliveryLabelPrefix+"env"],
+			cluster:     labels[deliveryLabelPrefix+"cluster"],
+			consoleURL:  ann["link.argocd.argoproj.io/external-link"],
+			grafanaURL:  ann["link.argocd.argoproj.io/grafana"],
 		}
 	}
 	return out

@@ -71,7 +71,8 @@ export function isUtilizationMetric(
 
 export function UtilizationChart({
   metric,
-}: Readonly<{ metric: OperationalMetric }>) {
+  color,
+}: Readonly<{ metric: OperationalMetric; color?: string }>) {
   const intl = useIntl();
 
   if (!isUtilizationMetric(metric)) {
@@ -125,6 +126,7 @@ export function UtilizationChart({
             unit,
           })}
           constrainToVisibleArea
+          colorScale={color ? [color] : undefined}
           data={data}
           height={UTILIZATION_CHART_SIZE}
           labels={({ datum }: { datum: UsageData }) =>
@@ -136,7 +138,7 @@ export function UtilizationChart({
               : null
           }
           padding={UTILIZATION_CHART_PADDING}
-          thresholds={[...UTILIZATION_THRESHOLDS]}
+          thresholds={color ? undefined : [...UTILIZATION_THRESHOLDS]}
           width={UTILIZATION_CHART_SIZE}
         />
       </FlexItem>

@@ -39,7 +39,6 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-roundtrip",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -123,7 +122,6 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-progression",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -189,7 +187,6 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-with-idp",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -240,7 +237,6 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-failed-msg",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -298,7 +294,6 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-rest-get",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -360,7 +355,6 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-rest-list",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -440,7 +434,6 @@ func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-preserve",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())

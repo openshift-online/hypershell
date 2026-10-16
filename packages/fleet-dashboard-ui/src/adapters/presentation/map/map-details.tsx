@@ -1034,6 +1034,18 @@ function GateDetails({
           </Flex>
         </Row>
       ) : null}
+      {gate.syncRetries !== null ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailSyncAttempts} />}
+              info={messages.infoSyncAttempts}
+            />
+          }
+        >
+          {gate.syncRetries}
+        </Row>
+      ) : null}
       <Row term={<FormattedMessage {...messages.detailPromoting} />}>
         {gate.promotingSeed !== null && promotingLabel !== null ? (
           <BundleChip

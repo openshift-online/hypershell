@@ -14,7 +14,7 @@ import "../pages/dashboard-widget.css";
 interface SparklineDatum {
   name: string;
   x: string;
-  y: number;
+  y: number | null;
 }
 
 const SPARKLINE_PLOT_HEIGHT = 56;
@@ -64,11 +64,16 @@ export function TrendSparklineChart({
   }));
 
   const formatTooltip = (datum: SparklineDatum) =>
-    intl.formatMessage(messages.trendTooltip, {
-      date: datum.x,
-      metric: title,
-      value: valueFormatter ? valueFormatter(datum.y) : datum.y,
-    });
+    datum.y === null
+      ? intl.formatMessage(messages.trendTooltipNoValue, {
+          date: datum.x,
+          metric: title,
+        })
+      : intl.formatMessage(messages.trendTooltip, {
+          date: datum.x,
+          metric: title,
+          value: valueFormatter ? valueFormatter(datum.y) : datum.y,
+        });
 
   const trendDayCount = trend.points.length.toString();
 

@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
 
 ### Reconciler
 
@@ -37,10 +37,9 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
-- Configure network meshes between gateways
-- Manage release rollouts (including canary strategies)
 - Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal in-cluster gRPC service
 - Reconcile AgentRuntime resources into cluster scheduling resources and gateway-side workspace objects (see "AgentRuntime Reconciliation" below)
+- Run the declarative `.hypershell` import reconciler: for each registered `Repository`, resolve its credential cluster-side, git-clone it, render the `.hypershell` Kustomize root, and reconcile (create/update/prune) the rendered `Repository`-owned ext resources into the API (see "Declarative `.hypershell` Import Reconciliation" below)
 - Update resource status back to the API server
 
 #### Gateway Provisioning Specifications
@@ -55,10 +54,6 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
-| [`gateway-version-selection.spec.md`](./gateway-version-selection.spec.md) | Database-backed version selection: resolving `release_id` to a GatewayRelease image and its precedence over a direct image |
-| [`gateway-release-reconciliation.spec.md`](./gateway-release-reconciliation.spec.md) | GatewayRelease reconciliation: image validation, deterministic release status, change propagation to referencing gateways |
-| [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) | Safe release rollout: last-good workload preserved until the new revision passes health gates, revision-aware readiness, observed-release and rollout-state reporting, timeout/failure handling |
-| [`gateway-network-reconciliation.spec.md`](./gateway-network-reconciliation.spec.md) | GatewayNetwork reconciliation: topology vocabulary, topology/hub coherence and hub-reference validation, deterministic network status write-back |
 
 ### Config
 
@@ -90,8 +85,7 @@ restarts. The control plane SHALL use this `cluster_id` as the cluster filter fo
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
 reconciler, the instance-label backfill, the orphaned-namespace garbage collector
-(`openshell-gateway-namespace-gc.spec.md`), the GatewayRelease change fan-out
-(`gateway-release-reconciliation.spec.md`), and the RoleBinding-to-Keycloak role sync.
+(`openshell-gateway-namespace-gc.spec.md`), and the RoleBinding-to-Keycloak role sync.
 None of these SHALL ever run without the filter. The control plane SHALL open the
 `WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;
 the api-server delivers only bindings whose gateway is assigned to that cluster, and
@@ -283,6 +277,66 @@ sub-resources through the gateway gRPC API.
 - WHEN a delete event arrives on the watch stream
 - THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` from the cluster
 - AND it SHALL delete the gateway-side `AgentWorkspace` and its sub-resources through the gateway gRPC API
+
+### Requirement: Declarative `.hypershell` Import Reconciliation
+
+The control plane SHALL host the declarative `.hypershell` import process defined
+in [`data-model.spec.md`](./data-model.spec.md) ("Declarative `.hypershell`
+Import"). The import SHALL NOT be hosted by the API server: the API server has no
+in-process `SecretSource` resolver and no git access, whereas the control plane
+already holds cluster-side `SecretSource` -> `ExternalSecret` -> External Secrets
+Operator -> Kubernetes `Secret` resolution and git/cluster access.
+
+For each registered `Repository` the control plane SHALL:
+
+1. Resolve the `Repository`'s `secret_source_id` credential cluster-side, through
+   the same `SecretSource` -> `ExternalSecret` resolution path it uses for
+   AgentRuntime provisioning.
+2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
+   specified) using that resolved credential.
+3. Render the Kustomize root at `import_path` (default `.hypershell`).
+4. Reconcile the rendered ext resources into the API - create new declarations,
+   update changed declarations, and prune declarations removed from the
+   repository.
+
+Reconciliation SHALL converge, not create-and-skip, and SHALL be idempotent
+against unchanged repository state: a re-run over an unchanged `Repository` SHALL
+make no create, update, or prune write. Imported resources SHALL be owned by the
+originating `Repository`, and pruning SHALL be scoped to that `Repository`, so one
+`Repository`'s import SHALL NOT delete resources owned by another `Repository` or
+created directly through the REST API or `hsctl apply`.
+
+**Bounded write exception.** This import reconciler is the SINGLE, clearly-bounded
+control-plane path that writes HyperShell API desired-state resources. Outside it
+the control plane remains a reader of desired state: it writes back only derived
+resource `status` and provisions gateway-side objects through the gateway gRPC API.
+The import reconciler SHALL write ONLY ext resources owned by the originating
+`Repository`, SHALL perform only create / update / prune on those Repository-owned
+resources, and SHALL mark each written resource with its owning `Repository`. This
+resolves the apparent conflict with the "control plane is a reader of desired
+state" principle: the principle holds everywhere except this one named,
+ownership-scoped reconciler.
+
+#### Scenario: Import reconciles declared resources through the API
+
+- GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve the `Repository`'s credential cluster-side and git-clone the repository
+- AND it SHALL render the Kustomize root and upsert both resources into the API
+- AND the resources SHALL be owned by the `Repository`
+
+#### Scenario: Removed declaration is pruned within the owning Repository
+
+- GIVEN a `Repository` that previously imported an `AgentRuntime`, and another `AgentRuntime` created directly through the REST API
+- WHEN that imported `AgentRuntime` is removed from `.hypershell` and the import re-runs
+- THEN the control-plane import reconciler SHALL delete the imported `AgentRuntime` through the API
+- AND it SHALL NOT delete the directly-created `AgentRuntime`
+
+#### Scenario: Import is idempotent against unchanged repository state
+
+- GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
+- WHEN the control-plane import reconciler runs again
+- THEN it SHALL make no create, update, or prune write to the API
 
 ### Requirement: Watch Stream Liveness
 
@@ -488,7 +542,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings and AgentRuntimes
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings and AgentRuntimes
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
@@ -542,4 +596,4 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
-| AgentRuntime reconciled by the control plane; declarative `.hypershell` import hosted by the api-server | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import, by contrast, only reads Repository credentials and writes API resources (the same create/update/delete the REST layer already owns); it never touches a cluster, so it is hosted by the api-server, not the control plane (see [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must resolve each `Repository`'s credential and git-clone the repository, and the control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access while the api-server has neither an in-process `SecretSource` resolver nor git access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |

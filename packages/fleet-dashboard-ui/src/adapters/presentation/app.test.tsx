@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
+import type { AgentSdlcData } from "../../domain/agent-sdlc";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
@@ -34,6 +35,7 @@ const envExtras = {
   cluster: null,
   argoHealth: null,
   argoSync: null,
+  syncRetries: null,
   consoleUrl: null,
   grafanaUrl: null,
   argoUrl: null,
@@ -90,6 +92,15 @@ describe("App", () => {
       getTopology: () => Promise.resolve(plane<TopologyData>({})),
       getInstances: () =>
         Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getSdlc: () =>
+        Promise.resolve(
+          plane<AgentSdlcData>({
+            phases: [],
+            cards: [],
+            lane: [],
+            matrix: { hubClusters: [], rows: [] },
+          }),
+        ),
     } satisfies FleetApi;
 
     renderApp(empty);
@@ -101,5 +112,48 @@ describe("App", () => {
     // Governing instance came from gate data, not any hard-coded mapping. It is
     // only in the (visually hidden, still accessible) promotion table now.
     expect(await screen.findByText("gov-from-data")).toBeDefined();
+  });
+
+  it("offers Fleet Map and Agent SDLC as peer tabs in the shared chrome", async () => {
+    const promotion: PromotionData = {
+      order: [],
+      environments: {},
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const api = {
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () => Promise.resolve(plane(promotion)),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getSdlc: () =>
+        Promise.resolve(
+          plane<AgentSdlcData>({
+            phases: [],
+            cards: [],
+            lane: [],
+            matrix: { hubClusters: [], rows: [] },
+          }),
+        ),
+    } satisfies FleetApi;
+
+    renderApp(api);
+
+    // Both tabs are present and keyboard-reachable (role=tab).
+    const mapTab = await screen.findByRole("tab", { name: "Fleet Map" });
+    const sdlcTab = await screen.findByRole("tab", { name: "Agent SDLC" });
+    expect(mapTab.getAttribute("aria-selected")).toBe("true");
+
+    // Activating the Agent SDLC tab renders its view (the empty-lane cleared state)
+    // in the shared chrome.
+    fireEvent.click(sdlcTab);
+    expect(sdlcTab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      await screen.findByText(
+        "Escalation lane clear - nothing blocked or stalled.",
+      ),
+    ).toBeDefined();
   });
 });

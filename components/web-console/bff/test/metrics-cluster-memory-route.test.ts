@@ -35,6 +35,20 @@ function prometheusSample(value: string) {
   });
 }
 
+function prometheusRangeSample(timestamp: number, value: string) {
+  return JSON.stringify({
+    status: "success",
+    data: {
+      result: [
+        {
+          metric: {},
+          values: [[String(timestamp), value]],
+        },
+      ],
+    },
+  });
+}
+
 function createOidcServer(): Promise<{ close: () => void; issuer: string }> {
   const server = createServer((request, response) => {
     const address = server.address();
@@ -219,6 +233,61 @@ describe("GET /api/metrics/cluster-memory", () => {
       error: "Metrics unavailable",
       statusCode: 502,
     });
+  });
+
+  it("passes the selected 30-day range to Prometheus", async () => {
+    const now = new Date();
+    const todayStart = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+    );
+    const rangeStart = todayStart - 29 * 24 * 60 * 60 * 1000;
+    const prometheusUrl = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const query = url.searchParams.get("query");
+      response.setHeader("content-type", "application/json");
+      if (url.searchParams.has("start")) {
+        expect(url.searchParams.get("start")).toBe(
+          String(Math.floor(rangeStart / 1000)),
+        );
+        response.end(
+          prometheusRangeSample(
+            Math.floor(rangeStart / 1000),
+            String(220 * 1024 ** 3),
+          ),
+        );
+        return;
+      }
+      if (query === clusterMemoryCapacityPromql) {
+        response.end(prometheusSample(String(237 * 1024 ** 3)));
+        return;
+      }
+      if (query === clusterMemoryAvailablePromql) {
+        response.end(prometheusSample(String(17 * 1024 ** 3)));
+        return;
+      }
+      response.statusCode = 400;
+      response.end();
+    });
+
+    app = await buildTestApp({ prometheusUrl });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/metrics/cluster-memory?range=30",
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      daily_used?: { date: string; value: number | null }[];
+    }>();
+    expect(body.daily_used).toHaveLength(30);
+    const firstDailyUsed = body.daily_used?.[0];
+    const secondDailyUsed = body.daily_used?.[1];
+    expect(firstDailyUsed?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+    expect(firstDailyUsed?.value).toBe(220);
+    expect(secondDailyUsed?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+    expect(secondDailyUsed?.value).toBeNull();
   });
 
   it("requires a session when OIDC is enabled", async () => {

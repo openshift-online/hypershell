@@ -394,7 +394,7 @@ def review(args: argparse.Namespace) -> None:
         "result": args.result,
         "notes": args.notes,
         "differences": differences,
-        "attestation": "All four artifacts were opened with view_image in this task.",
+        "attestation": "All four artifacts were visually inspected in this task.",
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }
     path.write_text(json.dumps(manifest, indent=2) + "\n")

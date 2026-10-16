@@ -1,8 +1,10 @@
 import type {
+  DashboardOperationalMetricsOptions,
   DashboardControlPlane,
   DashboardFailedSourceId,
   DashboardInvocationContext,
   DashboardOperations,
+  DashboardTimeRange,
   DashboardWorkflowRuntime,
   OperationalDashboardMetrics,
 } from "./dashboard-types";
@@ -74,10 +76,14 @@ async function loadMetricsWithProbes(
   probes: DashboardProbePublisher,
   runtime: DashboardWorkflowRuntime,
   signal?: AbortSignal,
+  timeRange: DashboardTimeRange = 7,
+  options: DashboardOperationalMetricsOptions = {},
 ): Promise<OperationalDashboardMetrics> {
   const correlationId = runtime.createCorrelationId();
   const context: DashboardInvocationContext = {
     correlationId,
+    ...(options.isAdmin === undefined ? {} : { isAdmin: options.isAdmin }),
+    timeRange,
     ...(signal === undefined ? {} : { signal }),
   };
   const occurredAt = new Date().toISOString();
@@ -132,13 +138,15 @@ export function createDashboardOperations({
   runtime = defaultRuntime,
 }: DashboardOperationDependencies): DashboardOperations {
   return {
-    getOperationalMetrics: (signal) =>
+    getOperationalMetrics: (signal, timeRange = 7, options = {}) =>
       loadMetricsWithProbes(
         "get-operational-metrics",
         (context) => controlPlane.getOperationalMetrics(context),
         probes,
         runtime,
         signal,
+        timeRange,
+        options,
       ),
     getReliabilityMetrics: (signal) =>
       loadMetricsWithProbes(

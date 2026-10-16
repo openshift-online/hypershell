@@ -100,6 +100,51 @@ type Config struct {
 	RefreshPromotion time.Duration
 	RefreshTopology  time.Duration
 	RefreshInstances time.Duration
+	// RefreshSDLC is the Agent SDLC plane's own refresh cadence. The SDLC source
+	// reconstructs label-event history from the GitHub timeline, so its default is
+	// conservative: the whole fleet is served from one cached snapshot and the
+	// GitHub request rate is bounded by this loop alone, never by viewer count
+	// (agent-sdlc-visibility-dashboard.spec SDLC-VIS-04/14).
+	RefreshSDLC time.Duration
+
+	// SDLC per-phase service-level expectations (agent-sdlc-visibility-dashboard
+	// spec SDLC-VIS-13). These are policy thresholds, not fleet-identifying values,
+	// so sensible defaults are compiled in and overridable per environment through
+	// FD_SLE_* in the gitops deployment config. A card whose time-in-phase crosses its phase
+	// SLE escalates off the board into the escalation lane (SDLC-VIS-10); the dashed
+	// SLE line is drawn at this value (SDLC-VIS-08). Keyed by SDLC phase key.
+	SDLCPhaseSLE map[string]time.Duration
+}
+
+// SDLCPhaseKeys are the aging-board phase columns in funnel order, excluding the
+// terminal Shipped column (which is rendered as the release-by-hub-cluster matrix,
+// not a timed column). Each has a per-phase SLE (SDLCPhaseSLE) and an FD_SLE_*
+// override. Kept here so config and the SDLC source agree on the canonical set.
+var SDLCPhaseKeys = []string{
+	"intake",
+	"workable",
+	"spec",
+	"spec-approved",
+	"code",
+	"code-approved",
+}
+
+// sdlcSLEDefaults are the built-in per-phase SLE defaults (SDLC-VIS-13: "sensible
+// per-phase defaults overridable per environment"). Review phases carry the
+// longest expectation because rework loops legitimately take time; approval
+// hand-off phases are expected to move quickly.
+var sdlcSLEDefaults = map[string]time.Duration{
+	"intake":        24 * time.Hour,
+	"workable":      24 * time.Hour,
+	"spec":          72 * time.Hour,
+	"spec-approved": 24 * time.Hour,
+	"code":          120 * time.Hour,
+	"code-approved": 24 * time.Hour,
+}
+
+// sdlcSLEEnvVar maps a phase key to its FD_SLE_* override variable.
+func sdlcSLEEnvVar(phase string) string {
+	return "FD_SLE_" + strings.ToUpper(strings.ReplaceAll(phase, "-", "_"))
 }
 
 // SubjectAccessReview describes the resource attributes the forwarded identity
@@ -162,6 +207,8 @@ func Load() (*Config, error) {
 		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
+		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 120*time.Second),
+		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
 	}
 
 	if c.PromURL == "" {
@@ -174,6 +221,17 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("auth is enabled but no SAR attributes configured (set FD_SAR_RESOURCE/FD_SAR_GROUP, or FD_AUTH_ENABLED=false for local dev)")
 	}
 	return c, nil
+}
+
+// loadSDLCPhaseSLE resolves each aging-board phase's SLE, applying the compiled-in
+// default (sdlcSLEDefaults) unless the phase's FD_SLE_* override is set. Changing
+// an SLE is therefore a configuration change, never a code change (SDLC-VIS-13).
+func loadSDLCPhaseSLE() map[string]time.Duration {
+	out := make(map[string]time.Duration, len(SDLCPhaseKeys))
+	for _, phase := range SDLCPhaseKeys {
+		out[phase] = envDuration(sdlcSLEEnvVar(phase), sdlcSLEDefaults[phase])
+	}
+	return out
 }
 
 func env(key, def string) string {

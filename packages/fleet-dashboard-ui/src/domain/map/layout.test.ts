@@ -20,6 +20,7 @@ function env(
     cluster: null,
     argoHealth: null,
     argoSync: null,
+    syncRetries: null,
     consoleUrl: null,
     grafanaUrl: null,
     argoUrl: null,

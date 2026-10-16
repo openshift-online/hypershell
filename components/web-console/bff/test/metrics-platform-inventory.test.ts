@@ -50,6 +50,10 @@ describe("queryPlatformInventory", () => {
         response.end(prometheusScalarSample("150"));
         return;
       }
+      if (query === "hypershell_managed_clusters_created_last_7_days_total") {
+        response.end(prometheusScalarSample("1"));
+        return;
+      }
       if (query === "hypershell_managed_clusters_created_last_30_days_total") {
         response.end(prometheusScalarSample("2"));
         return;
@@ -93,6 +97,7 @@ describe("queryPlatformInventory", () => {
     );
 
     expect(result.managed_clusters.total).toBe(150);
+    expect(result.managed_clusters.created_last_7_days).toBe(1);
     expect(result.managed_clusters.created_last_30_days).toBe(2);
     expect(result.managed_clusters.by_status).toEqual({
       Failed: 50,
@@ -128,6 +133,7 @@ describe("queryPlatformInventory", () => {
 
     expect(queries).toEqual([
       'max(hypershell_managed_clusters_total{namespace="hyp1"})',
+      'max(hypershell_managed_clusters_created_last_7_days_total{namespace="hyp1"})',
       'max(hypershell_managed_clusters_created_last_30_days_total{namespace="hyp1"})',
       'max by (status, provider, region) (hypershell_managed_clusters_inventory_total{namespace="hyp1"})',
     ]);

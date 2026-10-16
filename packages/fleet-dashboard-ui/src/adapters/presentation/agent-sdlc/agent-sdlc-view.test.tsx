@@ -1,0 +1,184 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { IntlProvider } from "react-intl";
+import { describe, expect, it, vi } from "vitest";
+
+import type { AgentSdlcData } from "../../../domain/agent-sdlc";
+import { AgentSdlcView, type AgentSdlcViewProps } from "./agent-sdlc-view";
+
+const EMPTY: AgentSdlcData = {
+  phases: [],
+  cards: [],
+  lane: [],
+  matrix: { hubClusters: [], rows: [] },
+};
+
+function renderView(overrides: Partial<AgentSdlcViewProps>): {
+  onSelectBundle: ReturnType<typeof vi.fn>;
+  onJumpToMap: ReturnType<typeof vi.fn>;
+} {
+  const onSelectBundle = vi.fn();
+  const onJumpToMap = vi.fn();
+  render(
+    <IntlProvider locale="en" defaultLocale="en">
+      <AgentSdlcView
+        data={EMPTY}
+        selectedBundleSeed={null}
+        onSelectBundle={onSelectBundle}
+        onJumpToMap={onJumpToMap}
+        {...overrides}
+      />
+    </IntlProvider>,
+  );
+  return { onSelectBundle, onJumpToMap };
+}
+
+describe("AgentSdlcView board", () => {
+  it("renders a column per board phase with its card count, and the card's rework meter", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      phases: [
+        { key: "spec", sleSeconds: 100 },
+        { key: "shipped", sleSeconds: 0 },
+      ],
+      cards: [
+        {
+          number: 10,
+          title: "Add tab",
+          url: "u",
+          phase: "spec",
+          timeInPhaseSeconds: 50,
+          escalation: null,
+          rework: { count: 2, threshold: 3 },
+          history: [],
+        },
+      ],
+    };
+    renderView({ data });
+
+    // The Spec column header renders (Shipped is the matrix, not a board column).
+    expect(screen.getByText("Spec")).toBeDefined();
+    // The rework meter exposes its count/threshold as an accessible meter.
+    const meter = screen.getByRole("meter", { name: "2 of 3 rejections" });
+    expect(meter.getAttribute("aria-valuenow")).toBe("2");
+    expect(meter.getAttribute("aria-valuemax")).toBe("3");
+    // At 2 of 3 the near-threshold escalation message shows (non-color cue).
+    expect(
+      screen.getByText(/One more rejection blocks this item\./),
+    ).toBeDefined();
+  });
+});
+
+describe("AgentSdlcView escalation lane", () => {
+  it("shows the cleared state when the lane is empty", () => {
+    renderView({ data: EMPTY });
+    expect(
+      screen.getByText("Escalation lane clear - nothing blocked or stalled."),
+    ).toBeDefined();
+  });
+
+  it("renders lane cards in the order supplied, with their bucket labels", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      lane: [
+        {
+          number: 1,
+          title: "blocked one",
+          url: "u",
+          phase: "code",
+          timeInPhaseSeconds: 10,
+          escalation: "blocked",
+          rework: null,
+          history: [],
+        },
+        {
+          number: 2,
+          title: "stale one",
+          url: "u",
+          phase: "spec",
+          timeInPhaseSeconds: 999,
+          escalation: "past-sle",
+          rework: null,
+          history: [],
+        },
+      ],
+    };
+    renderView({ data });
+    expect(screen.getByText("Blocked")).toBeDefined();
+    expect(screen.getByText("Past SLE")).toBeDefined();
+  });
+});
+
+describe("AgentSdlcView matrix", () => {
+  it("shows the Unreleased row and cross-links a bundle to the map", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      matrix: {
+        hubClusters: [
+          {
+            key: "env-a",
+            cluster: "cluster-a",
+            env: "prod",
+            currentVersion: "v2",
+            currentDigest: "d2",
+          },
+        ],
+        rows: [
+          {
+            version: null,
+            digest: null,
+            date: null,
+            unreleased: true,
+            hubClusters: [],
+            issues: [],
+          },
+          {
+            version: "v2",
+            digest: "d2",
+            date: null,
+            unreleased: false,
+            hubClusters: ["env-a"],
+            issues: [],
+          },
+        ],
+      },
+    };
+    const { onSelectBundle, onJumpToMap } = renderView({ data });
+
+    expect(screen.getByText("Unreleased")).toBeDefined();
+    // The current-bundle marker reads with a non-color cue ("current" text).
+    expect(screen.getAllByText("current").length).toBeGreaterThan(0);
+
+    // Activating the bundle opens it on the map (shared freight bar + tab jump).
+    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
+    expect(onSelectBundle).toHaveBeenCalledWith("d2");
+    expect(onJumpToMap).toHaveBeenCalled();
+  });
+
+  it("renders a localized 'merged Nd ago' timestamp using the injected clock", () => {
+    const nowMs = Date.UTC(2026, 9, 15, 12, 0, 0);
+    const mergedAt = new Date(Date.UTC(2026, 9, 12, 12, 0, 0)).toISOString(); // 3 days earlier
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v9",
+            digest: "d9",
+            date: null,
+            unreleased: false,
+            hubClusters: [],
+            issues: [
+              { number: 700, title: "shipped thing", url: "u", mergedAt },
+            ],
+          },
+        ],
+      },
+    };
+    renderView({ data, nowMs });
+
+    // Expand the single bundle row to reveal its issues.
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("merged 3 days ago")).toBeDefined();
+  });
+});

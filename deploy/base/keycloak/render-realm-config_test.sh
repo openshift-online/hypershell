@@ -64,6 +64,9 @@ kind_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1]))
 assert_eq 'False' "${kind_e2e_user}" "Kind omits service-account-hypershell-e2e from the imported realm"
 kind_humans="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(sorted(u.get("username") for u in realm["users"] if u.get("username") in {"admin","developer","platform-admin"}))' "${WORKDIR}/kind.json")"
 assert_eq '[]' "${kind_humans}" "Kind import strips human test-tier principals"
+kind_frontend_scopes="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); client=next(c for c in realm["clients"] if c["clientId"]=="hypershell-frontend"); print(",".join(client["defaultClientScopes"]))' "${WORKDIR}/kind.json")"
+assert_eq 'openid,email,profile,broker-roles' \
+  "${kind_frontend_scopes}" "Kind frontend omits the roles scope so gateway roles and audiences stay out of the console token"
 
 # --- GitHub IdP enables from client_id alone (no PR_ENV_GITHUB_IDP_ENABLED) ---
 env -i PATH="${PATH}" HOME="${HOME}" \
@@ -98,8 +101,15 @@ pr_broker="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); id
 assert_eq '{"storeToken": true, "addReadTokenRoleOnCreate": true, "githubJsonFormat": "true"}' \
   "${pr_broker}" "GitHub IdP stores a JSON GitHub token and grants broker read-token on first login"
 pr_frontend_scopes="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); client=next(c for c in realm["clients"] if c["clientId"]=="hypershell-frontend"); print(",".join(client["defaultClientScopes"]))' "${WORKDIR}/pr.json")"
-assert_eq 'openid,email,profile,roles' \
-  "${pr_frontend_scopes}" "Frontend access tokens include client roles so broker.read-token can be presented"
+assert_eq 'openid,email,profile,broker-roles' \
+  "${pr_frontend_scopes}" "Frontend access tokens carry broker roles only, so broker.read-token can be presented without gateway roles"
+pr_broker_scope="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); scope=next(s for s in realm["clientScopes"] if s["name"]=="broker-roles"); print(json.dumps(sorted((m["protocolMapper"], m["config"].get("usermodel.clientRoleMapping.clientId")) for m in scope["protocolMappers"])))' "${WORKDIR}/pr.json")"
+assert_eq '[["oidc-usermodel-client-role-mapper", "broker"]]' \
+  "${pr_broker_scope}" "broker-roles emits only broker client roles and no audience-resolve mapper"
+# Keycloak stores client scope descriptions in a VARCHAR(255) column; a longer
+# value fails the realm import and Keycloak never starts.
+long_scope_descriptions="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(",".join(s["name"] for s in realm["clientScopes"] if len(s.get("description",""))>255))' "${WORKDIR}/pr.json")"
+assert_eq '' "${long_scope_descriptions}" "Client scope descriptions fit Keycloak's 255-character column"
 pr_mappers="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(",".join(sorted({m["identityProviderMapper"] for m in realm["identityProviderMappers"]})))' "${WORKDIR}/pr.json")"
 assert_eq 'oidc-hardcoded-role-idp-mapper' \
   "${pr_mappers}" "GitHub IdP hardcoded-role mapper uses the Keycloak 26 provider id"

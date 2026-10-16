@@ -1,5 +1,5 @@
 // Package api exposes the read-only BFF JSON surface described in
-// data-architecture.spec §5: /api/{fleet,promotion,topology,instances}, each
+// data-architecture.spec §5: /api/{fleet,promotion,topology,instances,sdlc}, each
 // wrapped in the cache.Snapshot envelope (data + generatedAt + stale/error).
 package api
 
@@ -17,6 +17,10 @@ type Handlers struct {
 	Promotion *cache.Source
 	Topology  *cache.Source
 	Instances *cache.Source
+	// SDLC is the Agent SDLC funnel-visibility plane
+	// (agent-sdlc-visibility-dashboard.spec). It is optional: nil when no source
+	// repository is configured, in which case the route is simply not mounted.
+	SDLC *cache.Source
 }
 
 // Register mounts the /api/* routes on the mux.
@@ -25,6 +29,9 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/promotion", h.serve(h.Promotion))
 	mux.HandleFunc("GET /api/topology", h.serve(h.Topology))
 	mux.HandleFunc("GET /api/instances", h.serve(h.Instances))
+	if h.SDLC != nil {
+		mux.HandleFunc("GET /api/sdlc", h.serve(h.SDLC))
+	}
 }
 
 // serve returns the source's snapshot. A source that has never produced data

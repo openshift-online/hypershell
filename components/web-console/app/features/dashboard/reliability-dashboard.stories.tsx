@@ -182,7 +182,7 @@ const pseudoMessages = Object.fromEntries(
 );
 
 const meta = {
-  title: "HyperShell/Reliability dashboard",
+  title: "Production/Dashboards/Reliability",
   component: ReliabilityDashboardPage,
   parameters: {
     layout: "fullscreen",
@@ -192,6 +192,8 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
 
 export const MockedMetrics: Story = {
   play: async ({ canvasElement }) => {
