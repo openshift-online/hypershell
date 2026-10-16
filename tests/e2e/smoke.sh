@@ -96,8 +96,8 @@ fi
 
 # 5. Create a sandbox, exec in it, delete it.
 SANDBOX_NAME="sb-$(date +%s | tail -c6)"
-show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
-"${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" || true
+show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox create --from ${OPENSHELL_SANDBOX_IMAGE} --name ${SANDBOX_NAME}"
+"${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox create --from "${OPENSHELL_SANDBOX_IMAGE}" --name "${SANDBOX_NAME}" || true
 if retry_until "${E2E_SANDBOX_TIMEOUT:-300}" 5 "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox exec -n ${SANDBOX_NAME} -- true 2>/dev/null"; then
   show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
   "${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a || true

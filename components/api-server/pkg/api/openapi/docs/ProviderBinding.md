@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **ProviderSpecId** | **string** |  | 
 **SecretSourceId** | Pointer to **string** |  | [optional] 
 **RefreshStrategy** | Pointer to **string** | JSON-encoded credential refresh strategy configuration | [optional] 
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
 **Status** | Pointer to **string** |  | [optional] [readonly] 
 
 ## Methods
@@ -269,6 +270,31 @@ SetRefreshStrategy sets RefreshStrategy field to given value.
 `func (o *ProviderBinding) HasRefreshStrategy() bool`
 
 HasRefreshStrategy returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *ProviderBinding) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *ProviderBinding) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *ProviderBinding) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *ProviderBinding) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 ### GetStatus
 

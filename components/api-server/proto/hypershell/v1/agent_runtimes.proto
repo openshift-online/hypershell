@@ -5,6 +5,7 @@ package hypershell.v1;
 option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
+import "hypershell/v1/secret_sources.proto";
 
 message AgentRuntime {
   ObjectReference metadata = 1;
@@ -36,20 +37,6 @@ message AgentRuntime {
   // gateway-side error (data-model.spec.md "AgentRuntime Status Lifecycle"). It
   // is control-plane-owned and written only through UpdateAgentRuntimeStatus.
   optional string status_message = 16;
-}
-
-// SecretSource is the subset of a SecretSource the control-plane reconciler needs
-// to render an ExternalSecret and wire the coordinator CronJob. It mirrors the
-// stored secretSources model (data-model.spec.md "SecretSource").
-message SecretSource {
-  string name = 1;
-  // purpose drives the ExternalSecret field mapping and the CronJob env var
-  // wiring (gateway-identity, service-account-key, app-private-key, api-key).
-  string purpose = 2;
-  // backend is one of vault, aws-secrets-manager, kubernetes.
-  string backend = 3;
-  string path = 4;
-  optional string key_mappings = 5;
 }
 
 message WatchAgentRuntimesRequest {

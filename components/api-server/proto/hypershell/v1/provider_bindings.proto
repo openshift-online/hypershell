@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// ProviderBinding binds a workspace to a ProviderSpec through a SecretSource
+// credential. The control-plane import reconciler reads it over
+// WatchProviderBindings and owns the gRPC write path for Repository-owned
+// bindings (data-model.spec.md "ProviderBinding").
+message ProviderBinding {
+  ObjectReference metadata = 1;
+  string name = 2;
+  string workspace_id = 3;
+  string provider_spec_id = 4;
+  optional string secret_source_id = 5;
+  optional string refresh_strategy = 6;
+  // repository_id is the control-plane import ownership mark; read-only, set
+  // server-side, never by a client.
+  optional string repository_id = 7;
+  optional string status = 8;
+}
+
+message GetProviderBindingRequest {
+  string id = 1;
+}
+
+message GetProviderBindingResponse {
+  ProviderBinding provider_binding = 1;
+}
+
+message CreateProviderBindingRequest {
+  string name = 1;
+  string workspace_id = 2;
+  string provider_spec_id = 3;
+  optional string secret_source_id = 4;
+  optional string refresh_strategy = 5;
+  optional string repository_id = 6;
+}
+
+message CreateProviderBindingResponse {
+  ProviderBinding provider_binding = 1;
+}
+
+message UpdateProviderBindingRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string secret_source_id = 3;
+  optional string refresh_strategy = 4;
+}
+
+message UpdateProviderBindingResponse {
+  ProviderBinding provider_binding = 1;
+}
+
+message DeleteProviderBindingRequest {
+  string id = 1;
+}
+
+message DeleteProviderBindingResponse {}
+
+message ListProviderBindingsRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListProviderBindingsResponse {
+  repeated ProviderBinding items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchProviderBindingsRequest {}
+
+message WatchProviderBindingsResponse {
+  EventType type = 1;
+  ProviderBinding provider_binding = 2;
+  string resource_id = 3;
+}
+
+service ProviderBindingService {
+  rpc GetProviderBinding(GetProviderBindingRequest) returns (GetProviderBindingResponse);
+  rpc CreateProviderBinding(CreateProviderBindingRequest) returns (CreateProviderBindingResponse);
+  rpc UpdateProviderBinding(UpdateProviderBindingRequest) returns (UpdateProviderBindingResponse);
+  rpc DeleteProviderBinding(DeleteProviderBindingRequest) returns (DeleteProviderBindingResponse);
+  rpc ListProviderBindings(ListProviderBindingsRequest) returns (ListProviderBindingsResponse);
+  rpc WatchProviderBindings(WatchProviderBindingsRequest) returns (stream WatchProviderBindingsResponse);
+}

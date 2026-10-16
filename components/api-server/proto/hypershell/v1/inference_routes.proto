@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// InferenceRoute routes a workspace's model requests through a ProviderBinding.
+// The control-plane import reconciler reads it over WatchInferenceRoutes and owns
+// the gRPC write path for Repository-owned routes. It has no Update RPC, mirroring
+// the REST surface, which exposes no PATCH (data-model.spec.md "InferenceRoute").
+message InferenceRoute {
+  ObjectReference metadata = 1;
+  string workspace_id = 2;
+  string provider_binding_id = 3;
+  string model = 4;
+  // repository_id is the control-plane import ownership mark; read-only, set
+  // server-side, never by a client.
+  optional string repository_id = 5;
+}
+
+message GetInferenceRouteRequest {
+  string id = 1;
+}
+
+message GetInferenceRouteResponse {
+  InferenceRoute inference_route = 1;
+}
+
+message CreateInferenceRouteRequest {
+  string workspace_id = 1;
+  string provider_binding_id = 2;
+  string model = 3;
+  optional string repository_id = 4;
+}
+
+message CreateInferenceRouteResponse {
+  InferenceRoute inference_route = 1;
+}
+
+message DeleteInferenceRouteRequest {
+  string id = 1;
+}
+
+message DeleteInferenceRouteResponse {}
+
+message ListInferenceRoutesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListInferenceRoutesResponse {
+  repeated InferenceRoute items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchInferenceRoutesRequest {}
+
+message WatchInferenceRoutesResponse {
+  EventType type = 1;
+  InferenceRoute inference_route = 2;
+  string resource_id = 3;
+}
+
+service InferenceRouteService {
+  rpc GetInferenceRoute(GetInferenceRouteRequest) returns (GetInferenceRouteResponse);
+  rpc CreateInferenceRoute(CreateInferenceRouteRequest) returns (CreateInferenceRouteResponse);
+  rpc DeleteInferenceRoute(DeleteInferenceRouteRequest) returns (DeleteInferenceRouteResponse);
+  rpc ListInferenceRoutes(ListInferenceRoutesRequest) returns (ListInferenceRoutesResponse);
+  rpc WatchInferenceRoutes(WatchInferenceRoutesRequest) returns (stream WatchInferenceRoutesResponse);
+}

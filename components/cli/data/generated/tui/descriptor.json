@@ -187,6 +187,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "updated_at",
           "label": "UPDATED AT",
           "priority": 0,
@@ -259,6 +265,12 @@
         {
           "property": "refresh_strategy",
           "label": "REFRESH STRATEGY",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -353,6 +365,12 @@
         {
           "property": "profile",
           "label": "PROFILE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -533,6 +551,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -623,6 +647,12 @@
         {
           "property": "purpose",
           "label": "PURPOSE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -1777,6 +1807,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "updated_at",
           "label": "UPDATED AT",
           "priority": 0,
@@ -1849,6 +1885,12 @@
         {
           "property": "refresh_strategy",
           "label": "REFRESH STRATEGY",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -1945,6 +1987,12 @@
         {
           "property": "profile",
           "label": "PROFILE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -2129,6 +2177,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -2221,6 +2275,12 @@
         {
           "property": "purpose",
           "label": "PURPOSE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -4142,6 +4202,13 @@
             "type": "string",
             "format": "date-time",
             "required": false
+          },
+          {
+            "name": "value",
+            "type": "string",
+            "required": false,
+            "writeOnly": true,
+            "description": "Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list."
           }
         ]
       },

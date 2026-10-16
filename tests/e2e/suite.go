@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -46,6 +47,10 @@ type E2ESuite struct {
 	driver  driver.E2EInfraDriver
 	clients *harness.Clients
 	runner  *harness.CommandRunner
+	// reporter emits the opt-in structured run stream when E2E_REPORT_JSON=1; it
+	// is nil (a no-op) by default, so the suite's behavior is unchanged when the
+	// feature is off. It is shared across step clones through an explicit pointer.
+	reporter *harness.Reporter
 
 	mode        string
 	concurrency int
@@ -55,9 +60,10 @@ type E2ESuite struct {
 	// check) to activity during this run, ignoring stale pre-run log noise.
 	startedAt time.Time
 
-	apiHost   string
-	admin     *apiclient.Client
-	clusterID string
+	apiHost      string
+	admin        *apiclient.Client
+	clusterID    string
+	sandboxImage string
 
 	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
 	// specific cluster id instead of discovering the seeded one. nameSuffix is
@@ -119,7 +125,18 @@ func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 func (s *E2ESuite) SetupSuite() {
 	s.ctx = s.T().Context()
 	s.startedAt = time.Now()
+	s.reporter = harness.NewReporterFromEnv(os.Stdout)
 	s.runner = harness.NewCommandRunner(s.T().Logf)
+	s.runner.SetReporter(s.reporter, "")
+	// Report the run and its setup as soon as reporting is enabled, so even a
+	// SetupSuite failure is visible as a started run with no terminal record
+	// (interpreted as incomplete, never as passed).
+	s.reporter.RunStarted(plannedReportSteps())
+	s.reporter.StepStarted("setup", "suite-setup")
+	setupStartedAt := time.Now()
+	defer func() {
+		s.reporter.StepFinished("setup", "suite-setup", outcomeFor(s.T()), time.Since(setupStartedAt))
+	}()
 	s.mode = envOrDefault("E2E_MODE", modeLong)
 	s.Require().Truef(validE2EMode(s.mode), "invalid E2E_MODE %q (valid values: %s, %s)", s.mode, modeShort, modeLong)
 	s.concurrency = intEnv("E2E_CONCURRENCY", 4)
@@ -130,6 +147,11 @@ func (s *E2ESuite) SetupSuite() {
 	if s.nameSuffix != "" {
 		s.runID = s.runID + "-" + s.nameSuffix
 	}
+
+	sandboxImage, err := readSandboxImage(filepath.Join(repoRoot(), "OPENSHELL_VERSION"))
+	s.Require().NoError(err, "resolve shared e2e and Kind-preload workload image")
+	s.sandboxImage = sandboxImage
+	s.T().Logf("sandbox workload image=%s", sandboxImage)
 
 	gatewayAuth, err := resolveGatewayAuth(os.Getenv(envGatewayAuth), s.mode)
 	s.Require().NoError(err, "invalid gateway authentication mode")
@@ -205,6 +227,25 @@ func (s *E2ESuite) SetupSuite() {
 // failed partway, and it never panics on a cleanup error.
 func (s *E2ESuite) TearDownSuite() {
 	ctx := context.Background()
+	// Emit the terminal run_finished only after cleanup has run, so it observes
+	// cleanup errors and never reports passed before teardown completes. The
+	// defer guarantees it is the last structured record even if teardown exits
+	// early. cleanupStartedAt and failedBeforeCleanup isolate a cleanup-introduced
+	// failure from an earlier phase failure for the cleanup step's own outcome.
+	cleanupStartedAt := time.Now()
+	failedBeforeCleanup := s.T().Failed()
+	s.reporter.StepStarted("cleanup", "suite-teardown")
+	defer func() {
+		verdict := outcomeFor(s.T())
+		s.reporter.RunFinished(verdict, time.Since(s.startedAt))
+	}()
+	defer func() {
+		cleanupOutcome := harness.OutcomePassed
+		if s.T().Failed() && !failedBeforeCleanup {
+			cleanupOutcome = harness.OutcomeFailed
+		}
+		s.reporter.StepFinished("cleanup", "suite-teardown", cleanupOutcome, time.Since(cleanupStartedAt))
+	}()
 	if s.orphan != nil && s.orphan.cancel != nil {
 		s.orphan.cancel()
 	}
@@ -310,7 +351,7 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 	canonical := []parallelSubtest{
 		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
 		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
-		s.parallelStep("P2.3", "deletion-namespace-gc", tagShort, (*E2ESuite).p2_3DeletionAndGC),
+		s.parallelStep("P2.3", "deletion-namespace-gc", tagLong, (*E2ESuite).p2_3DeletionAndGC),
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
@@ -359,10 +400,24 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 	name := id + "-" + slug
 	s.Run(name, func() {
 		t := s.T()
+		started := time.Now()
+		s.reporter.StepStarted(id, slug)
+		// Report the step outcome on every exit path, including a t.Skipf Goexit, a
+		// t.Fatal, and a panic. On panic the step is reported failed and the panic
+		// is re-raised so the suite's crash behavior and verdict are unchanged.
+		defer func() {
+			if r := recover(); r != nil {
+				s.reporter.StepFinished(id, slug, harness.OutcomeFailed, time.Since(started))
+				panic(r)
+			}
+			s.reporter.StepFinished(id, slug, outcomeFor(t), time.Since(started))
+		}()
 		if !s.modeAllows(tag) {
 			t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			return
 		}
+		s.runner.SetStep(id)
+		defer s.runner.SetStep("")
 		fn(t)
 	})
 }
@@ -370,21 +425,71 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 func (s *E2ESuite) parallelStep(id, slug, tag string, fn func(*E2ESuite, *testing.T)) parallelSubtest {
 	return parallelSubtest{
 		name: id + "-" + slug,
+		tag:  tag,
 		run: func(t *testing.T) {
+			started := time.Now()
+			s.reporter.StepStarted(id, slug)
+			defer func() {
+				if r := recover(); r != nil {
+					s.reporter.StepFinished(id, slug, harness.OutcomeFailed, time.Since(started))
+					panic(r)
+				}
+				s.reporter.StepFinished(id, slug, outcomeFor(t), time.Since(started))
+			}()
 			if !s.modeAllows(tag) {
 				t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 				return
 			}
-			stepSuite := s.cloneForStep(t)
+			stepSuite := s.cloneForStep(t, id)
 			fn(stepSuite, t)
 		},
+	}
+}
+
+// outcomeFor maps a finished subtest's terminal state to a structured step
+// outcome. A skipped subtest (including a mode-skipped step) reports skipped, a
+// failed one reports failed, and neither can report passed.
+func outcomeFor(t *testing.T) string {
+	switch {
+	case t.Skipped():
+		return harness.OutcomeSkipped
+	case t.Failed():
+		return harness.OutcomeFailed
+	default:
+		return harness.OutcomePassed
+	}
+}
+
+// plannedReportSteps is the canonical planned set carried by the run_started
+// event, including the synthetic setup and teardown steps so a consumer can
+// account for setup and cleanup work. It mirrors the step ids and slugs driven
+// by TestPhases; a step that never runs (fail-fast) appears here but emits no
+// started/finished pair, which a consumer reads as not-run.
+func plannedReportSteps() []harness.PlannedStep {
+	return []harness.PlannedStep{
+		{StepID: "setup", Name: "suite-setup"},
+		{StepID: "P0.1", Name: "authentication"},
+		{StepID: "P0.2", Name: "environment-readiness"},
+		{StepID: "P1.1", Name: "provisioning"},
+		{StepID: "P1.2", Name: "infra-verification"},
+		{StepID: "P1.3", Name: "token-ca-trust"},
+		{StepID: "P1.4", Name: "route-cli-registration"},
+		{StepID: "P1.5", Name: "connectivity"},
+		{StepID: "P2.1", Name: "sandbox-lifecycle"},
+		{StepID: "P2.2", Name: "rbac-enforcement"},
+		{StepID: "P2.3", Name: "deletion-namespace-gc"},
+		{StepID: "P2.4", Name: "managedcluster-lifecycle"},
+		{StepID: "P2.5", Name: "gateway-access-management"},
+		{StepID: "P2.6", Name: "gateway-service-accounts"},
+		{StepID: "P3.1", Name: "admin-inventory-validation"},
+		{StepID: "cleanup", Name: "suite-teardown"},
 	}
 }
 
 // cloneForStep gives a parallel subtest its own testify context, command logger,
 // token, and API client. Cleanup, CLI caches, orphan state, and timing remain
 // shared through explicitly synchronized pointers.
-func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
+func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	t.Helper()
 	tok, err := s.driver.AcquireOIDCToken(t.Context(), s.adminCreds())
 	if err != nil {
@@ -394,10 +499,15 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 	if err != nil {
 		t.Fatalf("build step admin API client: %v", err)
 	}
+	runner := harness.NewCommandRunner(t.Logf)
+	// Each parallel step's runner carries its own step id, so concurrent command
+	// output is attributed to the correct step rather than guessed.
+	runner.SetReporter(s.reporter, stepID)
 	clone := &E2ESuite{
 		driver:              s.driver,
 		clients:             s.clients,
-		runner:              harness.NewCommandRunner(t.Logf),
+		runner:              runner,
+		reporter:            s.reporter,
 		mode:                s.mode,
 		concurrency:         s.concurrency,
 		ctx:                 s.ctx,
@@ -406,6 +516,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 		apiHost:             s.apiHost,
 		admin:               api,
 		clusterID:           s.clusterID,
+		sandboxImage:        s.sandboxImage,
 		clusterIDOverride:   s.clusterIDOverride,
 		nameSuffix:          s.nameSuffix,
 		primary:             s.primary,

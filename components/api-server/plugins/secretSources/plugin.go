@@ -5,7 +5,12 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 
+	"github.com/golang/glog"
+
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -14,6 +19,7 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
@@ -51,7 +57,7 @@ func (l ServiceLocator) SecretSourceLookup() agentRuntimes.SecretSourceLookup {
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewSecretSourceDao(&env.Database.SessionFactory)
 	return func() SecretSourceService {
-		return NewSecretSourceService(dao)
+		return NewSecretSourceService(dao, events.Service(&env.Services))
 	}
 }
 
@@ -73,7 +79,16 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("secretSources", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices))
+		// The secret-submission endpoint writes a submitted value to the configured
+		// secret manager before persisting the reference. A misconfigured store does
+		// not block the server from starting or reference-only creates from working;
+		// it fails any value submission loudly (errorStore).
+		store, storeErr := secretstore.NewFromEnv()
+		if storeErr != nil {
+			glog.Warningf("secret store configuration error; secret submissions will be rejected: %v", storeErr)
+			store = secretstore.NewErrorStore(storeErr)
+		}
+		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store)
 
 		router := extRouter.PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
@@ -85,10 +100,22 @@ func init() {
 		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
+	pkgserver.RegisterGRPCService("secretSources", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		brokerFunc := func() *pkgserver.EventBroker {
+			if obj := envServices.GetService("EventBroker"); obj != nil {
+				return obj.(*pkgserver.EventBroker)
+			}
+			return nil
+		}
+		pb.RegisterSecretSourceServiceServer(grpcServer, NewSecretSourceGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+	})
+
 	presenters.RegisterPath(SecretSource{}, "secret_sources")
 	presenters.RegisterPath(&SecretSource{}, "secret_sources")
 	presenters.RegisterKind(SecretSource{}, "SecretSource")
 	presenters.RegisterKind(&SecretSource{}, "SecretSource")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

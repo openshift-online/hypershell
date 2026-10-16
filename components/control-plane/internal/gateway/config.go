@@ -17,12 +17,9 @@ type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
 	DefaultSandboxRuntimeImage() string
-	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
 }
-
-const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
@@ -59,16 +56,6 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 // resolves to a moving upstream tag and can skew from the pinned supervisor.
 func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
 	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
-}
-
-// DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
-// It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
-// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror.
-func (StaticImageDefaults) DefaultSandboxImage() string {
-	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
-		return v
-	}
-	return defaultSandboxImage
 }
 
 func (StaticImageDefaults) DefaultConsoleImage() string {

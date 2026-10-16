@@ -10,7 +10,8 @@
 `control-plane.spec.md` -- reconciler behavior;
 `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
 `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
-`openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting
+`openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting;
+`e2e-run-log-visibility.spec.md` (HYPERSHELL-402) -- the Glass fleet dashboard consumer of the opt-in structured run reporting this spec defines (recent runs, run detail/history, live step and log streaming via Loki)
 
 ## Purpose
 
@@ -44,7 +45,9 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     ├── matrix_test.go     -- TestMatrix entry point; fans the suite across ManagedClusters
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
     ├── harness/           -- shared helpers: CommandRunner (demo logging), Reporter
-    │                         (pass/fail/skip), Poll/Retry, kube clients, JSON/assert helpers
+    │                         (pass/fail/skip), the opt-in structured run reporter
+    │                         (NDJSON events to stdout, off by default), Poll/Retry,
+    │                         kube clients, JSON/assert helpers
     ├── apiclient/         -- thin wrapper over the generated HyperShell Go SDK (sdk-go)
     │
     └── E2EInfraDriver selected by auto-detecting the KUBECONFIG context
@@ -397,6 +400,136 @@ The suite SHALL run under `go test -failfast` so it aborts on the first failing 
 - THEN the step SHALL be counted as skipped
 - AND a run whose only non-passing outcomes are skips SHALL exit zero, while a run with any failure SHALL exit non-zero
 
+### Requirement: Opt-In Structured Run Reporting
+
+Separately from the human-readable command log ([Command Logging and Demo Output](#requirement-command-logging-and-demo-output)) and the pass/fail/skip summary ([Three-Outcome Reporting](#requirement-three-outcome-reporting)), the suite SHALL be able to emit a machine-readable stream of structured run events so a consumer (the Glass fleet dashboard, `e2e-run-log-visibility.spec.md`) can show live execution and retained history. This reporting SHALL be **off by default**: with the feature flag unset or false, the suite's behavior, stdout, test verdict, and exit code SHALL be byte-for-byte unchanged from a run without this feature. The flag SHALL be `E2E_REPORT_JSON=1`.
+
+When enabled, the suite SHALL emit one NDJSON object per line directly to stdout, immediately as each event occurs, through a single serialized, concurrency-safe writer shared across all parallel subtests and goroutines, so lines are never interleaved or torn. Each record SHALL be a versioned envelope whose `schema` field identifies the contract; the initial schema SHALL be `hypershell.e2e.v1`. The envelope SHALL carry the reporting identity supplied by the environment: `runId` (from `E2E_REPORT_RUN_ID`), `revision` (the hydrated/deployed revision from `E2E_REPORT_REVISION`), `sourceRevision` (the application test-source revision from `E2E_REPORT_SOURCE_REVISION`), `cluster` (from `E2E_REPORT_CLUSTER`), and `namespace` (from `E2E_REPORT_NAMESPACE`), plus a per-record RFC3339Nano UTC `timestamp` and a monotonically increasing per-run `sequence` integer. The suite SHALL continue to emit its human-readable output alongside the structured records, and each structured record SHALL be individually recognizable by its `schema` field so a reader can separate the two interleaved streams.
+
+Enabling structured reporting SHALL NOT change which steps run, their order, their concurrency, their verdicts, or the process exit code. A run with `E2E_REPORT_JSON=1` and a run without it SHALL reach the same pass/fail/skip outcome for every step and the same `go test` exit status.
+
+#### Scenario: Reporting absent by default
+
+- GIVEN `E2E_REPORT_JSON` is unset or `0`
+- WHEN the suite runs
+- THEN no NDJSON event line SHALL be emitted
+- AND the suite's stdout, step verdicts, and exit code SHALL be identical to a run without this feature
+
+#### Scenario: Enabled reporting emits a versioned NDJSON stream
+
+- GIVEN `E2E_REPORT_JSON=1` with the `E2E_REPORT_*` identity variables set
+- WHEN the suite runs
+- THEN it SHALL emit one NDJSON object per line to stdout as events occur
+- AND every record SHALL carry `schema: hypershell.e2e.v1`, the supplied `runId`/`revision`/`sourceRevision`/`cluster`/`namespace`, an RFC3339Nano UTC `timestamp`, and a per-run monotonically increasing `sequence`
+
+#### Scenario: Reporting does not change the verdict
+
+- GIVEN two runs of the same suite against the same environment, one with `E2E_REPORT_JSON=1` and one without
+- WHEN both complete
+- THEN each step SHALL reach the same pass/fail/skip outcome in both runs
+- AND the `go test` exit status SHALL be the same in both runs
+
+### Requirement: Structured Reporting Event Lifecycle and Terminal Integrity
+
+When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
+
+Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.Cleanup` so that terminal records observe cleanup errors, and SHALL NOT emit a `run_finished: passed` before cleanup has completed. A run that is killed without emitting its terminal `run_finished` record (for example SIGKILL) SHALL be interpretable by a consumer as incomplete/unknown -- never as passed and never as still-connected. Because the suite's existing short numeric internal run id is not globally unique, the structured stream SHALL identify the run by the supplied `E2E_REPORT_RUN_ID`; when that variable is absent (a non-Kubernetes invocation with `E2E_REPORT_JSON=1`), the suite SHALL generate a UUID rather than reuse the short internal id. Within a run, `sequence` SHALL be deterministic and strictly increasing so a consumer can order and deduplicate records across reconnects.
+
+#### Scenario: Full lifecycle with planned steps
+
+- GIVEN `E2E_REPORT_JSON=1`
+- WHEN the suite runs to completion
+- THEN it SHALL emit a `run_started` naming the planned steps, a matched `step_started`/`step_finished` pair for each step that runs, and a terminal `run_finished`
+- AND cleanup work SHALL be represented, not silently omitted
+
+#### Scenario: Fatal or skipped steps cannot report false success
+
+- GIVEN a step that fails an assertion, panics, calls `t.Fatal`, or is mode-skipped
+- WHEN its `step_finished` record is emitted
+- THEN the record SHALL carry `failed` (for the failure and panic/fatal cases) or `skipped` (for the skip case), never `passed`
+- AND the terminal `run_finished` SHALL report `failed` if any step failed
+
+#### Scenario: Terminal report follows cleanup
+
+- GIVEN a run whose teardown surfaces a cleanup error
+- WHEN the suite finishes
+- THEN `run_finished` SHALL be emitted only after cleanup has completed
+- AND it SHALL NOT report `passed` when cleanup observed an error
+
+#### Scenario: Missing terminal record is unknown, not success
+
+- GIVEN a run that is killed before emitting `run_finished`
+- WHEN a consumer reads the truncated stream
+- THEN the absence of a terminal record SHALL be interpretable as incomplete/unknown
+- AND it SHALL NOT be interpretable as passed or as still-connected
+
+### Requirement: Structured Reporting Redaction and Bounds
+
+When structured reporting is enabled, every event and log body SHALL be scrubbed of secrets before it is written: bearer tokens, `Authorization` headers, client secrets, private keys, credential-file contents, and sensitive command arguments SHALL NOT appear in any record. Record sizes and individual log lines SHALL be bounded, with long lines handled (truncated with an explicit marker) rather than emitted unbounded. An error in the reporting path SHALL be visible but SHALL NOT change the suite's test verdict or exit code. The suite SHALL write only to stdout for structured reporting and SHALL NOT perform network I/O or block indefinitely on any logging service; the collector (owned by hypershell-gitops) does the network I/O.
+
+#### Scenario: Secrets are scrubbed from records
+
+- GIVEN a step whose command includes a bearer token or client secret
+- WHEN the corresponding `log` or `step_finished` record is emitted
+- THEN the token, secret, `Authorization` header, private key, credential-file content, and sensitive argument SHALL be absent from the record
+
+#### Scenario: Reporting failure does not change the verdict
+
+- GIVEN structured reporting encounters an error while emitting a record
+- WHEN the suite continues
+- THEN the error SHALL be visible
+- AND the step verdicts and `go test` exit code SHALL be unchanged from a run where reporting succeeded
+
+#### Scenario: Oversized log line is bounded
+
+- GIVEN a command emits a very long output line
+- WHEN it is reported as a `log` record
+- THEN the record SHALL be bounded in size with an explicit truncation marker, not emitted unbounded
+
+### Requirement: Structured Reporting Live Command Output Streaming
+
+When structured reporting is enabled, command output SHALL stream into the event stream as it is produced rather than only after the combined-output buffer finishes, so a consumer sees progress mid-step. This streaming/redacting path SHALL be added behind the same `E2E_REPORT_JSON` flag; with reporting disabled, `CommandRunner` SHALL keep its current combined-output capture, its existing return values (the combined output string and error), and its current behavior unchanged. The stream SHALL distinguish run-scoped (unassigned) log lines from step-scoped log lines and SHALL NOT guess that concurrent stdout belongs to the most recently started step; a log line SHALL carry a `stepId` only when it is genuinely attributable to that step.
+
+#### Scenario: Output streams before the command returns
+
+- GIVEN `E2E_REPORT_JSON=1` and a long-running command in a step
+- WHEN the command produces output over time
+- THEN `log` records SHALL be emitted as the output is produced, before the command returns
+- AND each SHALL be redacted per [Structured Reporting Redaction and Bounds](#requirement-structured-reporting-redaction-and-bounds)
+
+#### Scenario: CommandRunner is unchanged when reporting is off
+
+- GIVEN `E2E_REPORT_JSON` is unset
+- WHEN a step runs a command through `CommandRunner`
+- THEN `CommandRunner` SHALL return the same combined-output string and error as before this feature
+- AND no streaming path SHALL be taken
+
+#### Scenario: Ambiguous output is not misattributed
+
+- GIVEN two steps running concurrently both writing to stdout
+- WHEN a log line cannot be attributed to a specific step
+- THEN its record SHALL be emitted as run-scoped (no `stepId`), not attributed to the most recently started step
+
+### Requirement: Structured Reporting Launch Contract Compatibility
+
+The opt-in structured reporting SHALL take effect purely by setting the `E2E_REPORT_*` environment on the existing production launch command; it SHALL NOT require a new runner image, a new entrypoint, a bootstrap re-implementation, a legacy fallback runner, or a Workflows dependency. The production delivery runner (hypershell-gitops `run_e2e.sh`, which fetches the released source tarball, pins the toolchain from `tests/e2e/go.mod` with checksum validation, and runs `go -C tests/e2e test . -run '^TestE2E$' -count=1 -failfast -v -timeout "${E2E_GO_TIMEOUT:-20m}"` under the digest-pinned UBI9 image with `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, writable `TMPDIR`/`GOROOT`/`GOPATH`/`GOCACHE`/`HOME`, read-only root filesystem, short/service-account mode, and in-cluster credentials) SHALL keep running unchanged; hypershell-gitops injects `E2E_REPORT_JSON=1` and the `E2E_REPORT_*` identity into the existing metric Job. Reporting SHALL take effect once the release lock selects an application source that contains this change. Both the plain runner and the reporting-enabled runner SHALL keep the same test verdict and the same failure exit code.
+
+Where this change touches a source contract the production wrapper rewrites (for example its single provider/aws selector rewrite and its console Route lookup in the extracted suite), the change SHALL NOT silently break those assumptions, and the pull request SHALL call out any affected source contract so hypershell-gitops can update its wrapper.
+
+#### Scenario: Reporting rides the existing launch command
+
+- GIVEN the production `run_e2e.sh` launch command and image are unchanged
+- WHEN hypershell-gitops sets `E2E_REPORT_JSON=1` and the `E2E_REPORT_*` identity on the existing metric Job
+- THEN the suite SHALL emit the structured stream
+- AND no new runner image, entrypoint, bootstrap, fallback runner, or Workflows dependency SHALL be required
+
+#### Scenario: Verdict and exit code preserved under reporting
+
+- GIVEN the reporting-enabled production runner
+- WHEN the suite fails a step
+- THEN the process SHALL exit with the same non-zero failure code as the plain runner
+- AND a passing run SHALL exit zero in both
+
 ### Requirement: Concurrency Model
 
 The framework SHALL use Go concurrency to shorten wall-clock where the work is independent, and SHALL bound every fan-out by the single overarching `E2E_CONCURRENCY` limit (default `4`; `1` forces fully sequential execution for debugging or a capacity-constrained Kind cluster). Concurrency SHALL be expressed with `context`-aware primitives (`errgroup.Group` with `SetLimit`, or a semaphore channel); every goroutine SHALL honor the suite `context.Context` so a timeout or failure cancels outstanding work rather than leaking it past the test. Results SHALL be collected through channels or a mutex-guarded aggregator; no goroutine SHALL touch unsynchronized shared state. The overriding safety rule SHALL be: **a unit of work may run in parallel with another only if it is read-only against shared state, or it owns its own gateway/sandbox.** Anything that mutates shared per-gateway state (notably `active_sandbox_count`) or destroys the shared gateway SHALL NOT run concurrently with another user of that gateway.
@@ -413,7 +546,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 5. **Intra-step fan-out.** Within a step, independent client-go/API checks SHALL use an `errgroup`: P1.2's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; P2.1's multiple sandboxes SHALL act on their independent targets concurrently.
 
-6. **Background orphan reaper.** The periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
+6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
 The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
@@ -524,7 +657,7 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 - **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
-- **P2.3 Gateway deletion + namespace GC** -- both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout P2; see Gateway Deletion and Namespace GC).
+- **P2.3 Gateway deletion + namespace GC** -- long-mode qualification of both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout long-mode P2; see Gateway Deletion and Namespace GC).
 - **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an empty/unregistered `cluster_id`; under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage).
 - **P2.5 Gateway access management** -- on the primary gateway, the owner lists access and searches the gateway user directory (including a user created during the run), grants the developer and a runtime user the `user` role, and checks each role's capabilities: a gateway `user` cannot grant access, a gateway `admin` can manage access but cannot grant `owner`, and the owner can grant and remove another owner. The developer creates and deletes a sandbox as a workspace user. A `platform:admin` grants and revokes access on a gateway it does not own. The owner finally revokes the developer. Runs only on Kind with the password grant, because it signs in as several secondary users; elsewhere it skips.
 - **P2.6 Gateway service accounts** -- on the primary gateway, create an `openshell-admin` service account with a `client_secret` credential, check the returned credential (grant type, audience, issuer, token endpoint), mint client-credentials tokens and validate their claims, revoke the account and confirm new tokens are refused, then delete it and confirm `GET` returns `404`.
@@ -533,7 +666,7 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, the sandbox step (P2.1) and the delete-driven half of P2.3 are `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.4, P2.5, and P2.6 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3, P2.4, P2.5, and P2.6 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
@@ -558,7 +691,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.4, P2.5, P2.6, and P3.1)
+- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.3, P2.4, P2.5, P2.6, and P3.1)
 - AND results SHALL be reported as pass/fail/skip counts with per-step detail
 
 #### Scenario: Gateway Provisioning
@@ -703,7 +836,7 @@ the gateway prefix, annotate it with a
 backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
 reap without waiting a full grace period. The P2 steps SHALL run while the periodic
 reaper may delete that namespace in the background, so the suite is not blocked
-waiting on the sweep interval. In P2.3 the suite SHALL validate delete-driven
+waiting on the sweep interval. In long-mode P2.3 the suite SHALL validate delete-driven
 gateway namespace GC first, then assert the orphan namespace was reaped and a
 `GarbageCollected` Event exists in the control-plane namespace
 (`E2E_HS_NAMESPACE`, default `hypershell-system`) with `involvedObject.name`
@@ -1550,6 +1683,12 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_DISRUPTIVE_GATE_TIMEOUT` | `900` | Seconds the Go suite waits for `E2E_DISRUPTIVE_GATE_FILE` before warning and continuing |
 | `E2E_PARALLEL_HEARTBEAT` | `60` | Seconds between "still running" lines printed by `run-parallel.sh` |
 | `E2E_PARALLEL_LOG_DIR` | (unset) | Optional directory where `run-parallel.sh` preserves one `<suite>.log` file per concurrent suite after completion |
+| `E2E_REPORT_JSON` | `0` | `1` enables the opt-in structured NDJSON run reporting ([Opt-In Structured Run Reporting](#requirement-opt-in-structured-run-reporting)). Unset or `0` leaves stdout, verdicts, and exit code unchanged. Set by hypershell-gitops on the release metric Job |
+| `E2E_REPORT_RUN_ID` | (generated UUID) | Globally unique reporting attempt id carried as `runId`; hypershell-gitops supplies the Pod UID. When unset under `E2E_REPORT_JSON=1`, the suite generates a UUID rather than reuse the short internal run id |
+| `E2E_REPORT_REVISION` | (unset) | Full hydrated/deployed Git revision carried as `revision`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_SOURCE_REVISION` | (unset) | Application test-source Git revision carried as `sourceRevision`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_CLUSTER` | (unset) | Runtime cluster identity carried as `cluster`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_NAMESPACE` | (unset) | Runtime namespace carried as `namespace`; supplied at runtime by hypershell-gitops |
 
 The managed-cluster matrix runner (`TestMatrix`, `make e2e-matrix`) adds the following; see
 [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner). Each per-cluster
@@ -1801,13 +1940,13 @@ The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The u
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2e job and the final run of the performance harness are unchanged. At `short` depth (or the harness-set `perf` depth), the suite SHALL run only the `short`-tagged steps, in the suite's normal order, and SHALL `t.Skip` the long-only steps (a skip, never a silent pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)). The suite SHALL fail fast (`t.Fatal`, non-zero `go test` exit) in `SetupSuite` if `E2E_MODE` is set to any value other than `short` or `long`. Depth tagging SHALL be expressed in Go (a step helper that takes the minimum depth and calls `t.Skip` when the active depth is lower), so all depths run the same assertion code; there SHALL be no second copy of any check.
 
-`short` is the canonical quick check. It owns the gateway it creates and SHALL tear it fully down at the end (the same delete-driven namespace-GC path a long run uses for its own gateway), leaving nothing behind. `short` is therefore a self-contained, non-destructive full-lifecycle check -- create, run, interact, delete -- safe to run repeatedly against a live or shared environment: a post-rollout promotion gate, synthetic monitoring, or a post-deploy sanity check.
+`short` is the canonical quick check. It owns the gateway it creates and its cleanup SHALL delete that gateway on every exit, leaving no API resource behind. It intentionally does not wait for or assert controller-driven namespace garbage collection: that timing-sensitive infrastructure qualification belongs to long mode. `short` therefore validates the API, gateway, and sandbox lifecycle without making a shared-environment promotion gate depend on namespace-GC timing.
 
 `short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users`, not `platform:admin`, an impersonation policy, or Keycloak administrator access -- so it is safe as a live-environment promotion gate. By default (`E2E_GATEWAY_AUTH=identity`) the per-gateway token is a same-subject token exchange onto the per-gateway audience when `E2E_OIDC_GRANT=client_credentials`, which also requires the client to hold exchange rights. With `E2E_GATEWAY_AUTH=service_account` the per-gateway token comes from a short-lived gateway service account and no exchange happens, so exchange rights are not needed; this is the minimal-privilege path for unattended gates (see [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication)). The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
 
 `perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4, P2.5, P2.6, and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.3, P2.4, P2.5, P2.6, and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
 
 | Step | Short (essential checks) | Long-only (deep / slow checks) |
 |------|--------------------------|--------------------------------|
@@ -1820,22 +1959,15 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P1.5 Connectivity | one route reachability check | n/a |
 | P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
-| P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
 | P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner, admin, and user access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
-`short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path P2.3 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 SHALL NOT run in short or perf mode; P2.3's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
+`short` mode SHALL own the gateway it provisions and its cleanup path SHALL delete that gateway on any exit, so a short run leaves no gateway behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace, wait for a managed namespace to be garbage collected, or mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 and P2.3's namespace-GC qualification SHALL NOT run in short or perf mode.
 
-`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). This governs the two checks that would otherwise tear a gateway down: the platform-admin gateway-deletion check of P2.2 SHALL NOT run at short or perf depth, and P2.3 SHALL, at perf depth, exercise delete-driven GC against a throwaway gateway it creates, never against the supplied canary. Creating that throwaway gateway SHALL reuse the seeded `cluster_id`. The suite SHALL take the cluster id from the harness-supplied config when the performance harness provides it in-process, from the reused gateway's JSON when that gateway already exists, or by discovering it from the API when it is missing.
-
-#### Scenario: Perf Depth Throwaway Uses Seed Ids
-
-- GIVEN the performance harness runs `E2ESuite` at perf depth with a reused canary gateway
-- WHEN the suite creates the namespace-GC throwaway gateway
-- THEN it SHALL POST that gateway with the seeded cluster id
-- AND it SHALL NOT fail with an unknown seed id when the parent forwarded that id or the reused gateway JSON contains it
+`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). The platform-admin gateway-deletion check of P2.2 and the namespace-GC qualification of P2.3 SHALL NOT run at perf depth, so a performance checkpoint never deletes a canary or waits for namespace GC.
 
 #### Scenario: Long Mode by Default
 
@@ -1849,8 +1981,8 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 - WHEN the e2e suite runs
 - THEN it SHALL run the `short`-tagged checks of every phase and skip the `long`-only checks (for example the second sandbox and the full RBAC matrix)
 - AND it SHALL skip the developer-RBAC check of P2.2, running as a single identity without impersonation
-- AND it SHALL delete the gateway it created and assert its namespace is garbage collected
-- AND it SHALL NOT seed the synthetic orphan namespace or mutate shared namespace-GC timing
+- AND its cleanup SHALL delete the gateway it created without waiting for namespace GC
+- AND it SHALL skip P2.3, not seed the synthetic orphan namespace, and not mutate shared namespace-GC timing
 - AND it SHALL leave no gateway behind on any exit
 
 #### Scenario: Perf Depth Runs the Short Slice Against a Reused Canary
@@ -1889,7 +2021,7 @@ The suite SHALL handle the credential as follows:
 - `TearDownSuite` SHALL retire every account still live, and SHALL remove the credential directory and the CLI token files on every path, including a failed step and `E2E_SKIP_CLEANUP=1`. `E2E_SKIP_CLEANUP=1` keeps gateways for inspection; it SHALL NOT keep credentials. Teardown SHALL run before the gateways are deleted, because the service-account API is addressed through the gateway.
 - A failed create SHALL NOT be retried automatically, because the request may have succeeded and a retry would orphan an account.
 
-Steps that need a second principal need no special handling in this mode, because they are already long-only and short mode runs none of them: P2.2 (developer and platform-admin RBAC), P2.4, P2.5, P2.6 (which exercises the same API as a long-mode feature check), P3.1, and the device-authorization sub-check of P1.3. The short steps (P0.1, P0.2, P1.1 to P1.5, P2.1, P2.3) act only as the management identity and the gateway service accounts.
+Steps that need a second principal need no special handling in this mode, because they are already long-only and short mode runs none of them: P2.2 (developer and platform-admin RBAC), P2.4, P2.5, P2.6 (which exercises the same API as a long-mode feature check), P3.1, and the device-authorization sub-check of P1.3. P2.3 is also long-only, but for namespace-GC timing rather than an identity requirement. The short steps (P0.1, P0.2, P1.1 to P1.5, P2.1) act only as the management identity and the gateway service accounts.
 
 The OIDC client that authenticates the management identity SHALL need only the realm roles `gateway:creator` and `hypershell-users`. It SHALL NOT need token-exchange rights (`standard.token.exchange.enabled` MAY be `false`), `platform:admin`, an impersonation policy, or access to the Keycloak admin API. Long mode, the Kind driver's behavior, the pull-request OpenShift path (`hypershell-e2e` with `client_credentials` and exchange), and the `identity` default SHALL be unchanged.
 

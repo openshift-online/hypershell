@@ -15,6 +15,8 @@ Name | Type | Description | Notes
 **Backend** | **string** | Secret backend type (vault, aws-secrets-manager, kubernetes) | 
 **Path** | **string** | Path to the secret in the backend | 
 **KeyMappings** | Pointer to **string** | JSON-encoded mapping of backend secret keys to environment variable names | [optional] 
+**Value** | Pointer to **string** | Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list. | [optional] 
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
 
 ## Methods
 
@@ -284,6 +286,56 @@ SetKeyMappings sets KeyMappings field to given value.
 `func (o *SecretSource) HasKeyMappings() bool`
 
 HasKeyMappings returns a boolean if a field has been set.
+
+### GetValue
+
+`func (o *SecretSource) GetValue() string`
+
+GetValue returns the Value field if non-nil, zero value otherwise.
+
+### GetValueOk
+
+`func (o *SecretSource) GetValueOk() (*string, bool)`
+
+GetValueOk returns a tuple with the Value field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetValue
+
+`func (o *SecretSource) SetValue(v string)`
+
+SetValue sets Value field to given value.
+
+### HasValue
+
+`func (o *SecretSource) HasValue() bool`
+
+HasValue returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *SecretSource) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *SecretSource) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *SecretSource) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *SecretSource) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

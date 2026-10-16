@@ -4,13 +4,16 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
@@ -19,7 +22,7 @@ type ServiceLocator func() ProviderBindingService
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewProviderBindingDao(&env.Database.SessionFactory)
 	return func() ProviderBindingService {
-		return NewProviderBindingService(dao)
+		return NewProviderBindingService(dao, events.Service(&env.Services))
 	}
 }
 
@@ -53,10 +56,22 @@ func init() {
 		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
+	pkgserver.RegisterGRPCService("providerBindings", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		brokerFunc := func() *pkgserver.EventBroker {
+			if obj := envServices.GetService("EventBroker"); obj != nil {
+				return obj.(*pkgserver.EventBroker)
+			}
+			return nil
+		}
+		pb.RegisterProviderBindingServiceServer(grpcServer, NewProviderBindingGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+	})
+
 	presenters.RegisterPath(ProviderBinding{}, "provider_bindings")
 	presenters.RegisterPath(&ProviderBinding{}, "provider_bindings")
 	presenters.RegisterKind(ProviderBinding{}, "ProviderBinding")
 	presenters.RegisterKind(&ProviderBinding{}, "ProviderBinding")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

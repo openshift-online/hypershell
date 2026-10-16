@@ -95,6 +95,26 @@ type Config struct {
 	// release-lock resolver, so it only takes effect when GitHubRepo is set.
 	ReleaseHistoryLimit int
 
+	// E2E run/log visibility (e2e-run-log-visibility.spec). All values are
+	// fleet-identifying or tuning and arrive via config; nothing is compiled in.
+	// E2ELokiURL is the internal Loki base URL (e.g.
+	// http://e2e-loki.hypershell-observability.svc:3100). EMPTY DISABLES THE
+	// FEATURE (E2E-LOG-02): the source does not run and the endpoints report the
+	// feature off rather than error. E2ELokiTenants is the allowlist of permitted
+	// Loki tenants (X-Scope-OrgID values); the browser never selects a tenant.
+	// E2ELokiTokenFile, when set, is read fresh per request for the bearer token
+	// (ESO rotation). E2ELokiInsecure opts into a self-signed in-cluster endpoint.
+	// E2ELokiSelector is the LogQL stream selector for the copied suite pods
+	// (product-level label schema; safe default). E2EHistoryWindow bounds the
+	// query_range lookback; E2ERecentRunLimit caps the recent-run list.
+	E2ELokiURL        string
+	E2ELokiTenants    []string
+	E2ELokiTokenFile  string
+	E2ELokiInsecure   bool
+	E2ELokiSelector   string
+	E2EHistoryWindow  time.Duration
+	E2ERecentRunLimit int
+
 	// Refresh intervals (§5.1)
 	RefreshFleet     time.Duration
 	RefreshPromotion time.Duration
@@ -106,6 +126,10 @@ type Config struct {
 	// GitHub request rate is bounded by this loop alone, never by viewer count
 	// (agent-sdlc-visibility-dashboard.spec SDLC-VIS-04/14).
 	RefreshSDLC time.Duration
+	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
+	// query_range sweep of recent runs). Live updates do not use this interval;
+	// they ride the Loki tail (e2e-run-log-visibility.spec E2E-LOG-04/05).
+	RefreshE2E time.Duration
 
 	// SDLC per-phase service-level expectations (agent-sdlc-visibility-dashboard
 	// spec SDLC-VIS-13). These are policy thresholds, not fleet-identifying values,
@@ -209,6 +233,15 @@ func Load() (*Config, error) {
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
 		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 120*time.Second),
 		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
+
+		E2ELokiURL:        strings.TrimRight(env("FD_E2E_LOKI_URL", ""), "/"),
+		E2ELokiTenants:    csv(env("FD_E2E_LOKI_TENANTS", "")),
+		E2ELokiTokenFile:  env("FD_E2E_LOKI_TOKEN_FILE", ""),
+		E2ELokiInsecure:   envBool("FD_E2E_LOKI_INSECURE", false),
+		E2ELokiSelector:   env("FD_E2E_LOKI_SELECTOR", `{log_type="application"}`),
+		E2EHistoryWindow:  envDuration("FD_E2E_HISTORY_WINDOW", 168*time.Hour),
+		E2ERecentRunLimit: envInt("FD_E2E_RECENT_RUN_LIMIT", 20),
+		RefreshE2E:        envDuration("FD_REFRESH_E2E", 30*time.Second),
 	}
 
 	if c.PromURL == "" {

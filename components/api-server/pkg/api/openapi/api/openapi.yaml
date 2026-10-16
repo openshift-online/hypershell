@@ -4857,6 +4857,12 @@ components:
             description: "JSON-encoded filesystem, network, and process policy for\
               \ sandboxes"
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -4871,6 +4877,7 @@ components:
         kind: kind
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         policy: policy
@@ -4900,6 +4907,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           policy: policy
@@ -4910,6 +4918,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           policy: policy
@@ -4949,6 +4958,12 @@ components:
             description: JSON-encoded opaque profile passed through to the gateway
               provider registration step
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -4963,6 +4978,7 @@ components:
         profile: profile
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         category: inference
@@ -4992,6 +5008,7 @@ components:
           profile: profile
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           category: inference
@@ -5002,6 +5019,7 @@ components:
           profile: profile
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           category: inference
@@ -5034,6 +5052,12 @@ components:
           refresh_strategy:
             description: JSON-encoded credential refresh strategy configuration
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -5050,6 +5074,7 @@ components:
         kind: kind
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         refresh_strategy: refresh_strategy
@@ -5080,6 +5105,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           refresh_strategy: refresh_strategy
@@ -5091,6 +5117,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           refresh_strategy: refresh_strategy
@@ -5119,6 +5146,12 @@ components:
           model:
             description: Model alias for LLM inference within the agent workspace
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
         required:
         - model
         - provider_binding_id
@@ -5130,6 +5163,7 @@ components:
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
         model: model
+        repository_id: repository_id
         id: id
         href: href
         provider_binding_id: provider_binding_id
@@ -5157,6 +5191,7 @@ components:
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
+          repository_id: repository_id
           id: id
           href: href
           provider_binding_id: provider_binding_id
@@ -5165,6 +5200,7 @@ components:
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
+          repository_id: repository_id
           id: id
           href: href
           provider_binding_id: provider_binding_id
@@ -5189,6 +5225,22 @@ components:
             description: JSON-encoded mapping of backend secret keys to environment
               variable names
             type: string
+          value:
+            description: "Secret value to submit for storage. Write-only (one-way)\
+              \ - when present on create, the API server writes it to the configured\
+              \ secret manager at a deterministic location derived from the submission\
+              \ identity and then persists only this SecretSource reference; path\
+              \ is set server-side to that location. The value is never persisted\
+              \ in the database, never logged, and never returned on create, get,\
+              \ or list."
+            type: string
+            writeOnly: true
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
         required:
         - agent_runtime_id
         - backend
@@ -5197,16 +5249,18 @@ components:
         - purpose
         type: object
       example:
-        path: path
-        updated_at: 2000-01-23T04:56:07.000+00:00
         purpose: purpose
         kind: kind
-        name: name
         key_mappings: key_mappings
         created_at: 2000-01-23T04:56:07.000+00:00
+        path: path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
         backend: backend
+        repository_id: repository_id
         id: id
         href: href
+        value: value
         agent_runtime_id: agent_runtime_id
     SecretSourceList:
       allOf:
@@ -5227,27 +5281,31 @@ components:
         id: id
         href: href
         items:
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
+          repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
+          repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
     SecretSourcePatchRequest:
       example:
