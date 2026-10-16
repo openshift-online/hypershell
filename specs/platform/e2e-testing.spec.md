@@ -10,7 +10,8 @@
 `control-plane.spec.md` -- reconciler behavior;
 `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
 `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
-`openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting
+`openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting;
+`e2e-run-log-visibility.spec.md` (HYPERSHELL-402) -- the Glass fleet dashboard consumer of the opt-in structured run reporting this spec defines (recent runs, run detail/history, live step and log streaming via Loki)
 
 ## Purpose
 
@@ -44,7 +45,9 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     ├── matrix_test.go     -- TestMatrix entry point; fans the suite across ManagedClusters
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
     ├── harness/           -- shared helpers: CommandRunner (demo logging), Reporter
-    │                         (pass/fail/skip), Poll/Retry, kube clients, JSON/assert helpers
+    │                         (pass/fail/skip), the opt-in structured run reporter
+    │                         (NDJSON events to stdout, off by default), Poll/Retry,
+    │                         kube clients, JSON/assert helpers
     ├── apiclient/         -- thin wrapper over the generated HyperShell Go SDK (sdk-go)
     │
     └── E2EInfraDriver selected by auto-detecting the KUBECONFIG context
@@ -398,6 +401,136 @@ The suite SHALL run under `go test -failfast` so it aborts on the first failing 
 - WHEN the suite prints its summary and `go test` reports its exit status
 - THEN the step SHALL be counted as skipped
 - AND a run whose only non-passing outcomes are skips SHALL exit zero, while a run with any failure SHALL exit non-zero
+
+### Requirement: Opt-In Structured Run Reporting
+
+Separately from the human-readable command log ([Command Logging and Demo Output](#requirement-command-logging-and-demo-output)) and the pass/fail/skip summary ([Three-Outcome Reporting](#requirement-three-outcome-reporting)), the suite SHALL be able to emit a machine-readable stream of structured run events so a consumer (the Glass fleet dashboard, `e2e-run-log-visibility.spec.md`) can show live execution and retained history. This reporting SHALL be **off by default**: with the feature flag unset or false, the suite's behavior, stdout, test verdict, and exit code SHALL be byte-for-byte unchanged from a run without this feature. The flag SHALL be `E2E_REPORT_JSON=1`.
+
+When enabled, the suite SHALL emit one NDJSON object per line directly to stdout, immediately as each event occurs, through a single serialized, concurrency-safe writer shared across all parallel subtests and goroutines, so lines are never interleaved or torn. Each record SHALL be a versioned envelope whose `schema` field identifies the contract; the initial schema SHALL be `hypershell.e2e.v1`. The envelope SHALL carry the reporting identity supplied by the environment: `runId` (from `E2E_REPORT_RUN_ID`), `revision` (the hydrated/deployed revision from `E2E_REPORT_REVISION`), `sourceRevision` (the application test-source revision from `E2E_REPORT_SOURCE_REVISION`), `cluster` (from `E2E_REPORT_CLUSTER`), and `namespace` (from `E2E_REPORT_NAMESPACE`), plus a per-record RFC3339Nano UTC `timestamp` and a monotonically increasing per-run `sequence` integer. The suite SHALL continue to emit its human-readable output alongside the structured records, and each structured record SHALL be individually recognizable by its `schema` field so a reader can separate the two interleaved streams.
+
+Enabling structured reporting SHALL NOT change which steps run, their order, their concurrency, their verdicts, or the process exit code. A run with `E2E_REPORT_JSON=1` and a run without it SHALL reach the same pass/fail/skip outcome for every step and the same `go test` exit status.
+
+#### Scenario: Reporting absent by default
+
+- GIVEN `E2E_REPORT_JSON` is unset or `0`
+- WHEN the suite runs
+- THEN no NDJSON event line SHALL be emitted
+- AND the suite's stdout, step verdicts, and exit code SHALL be identical to a run without this feature
+
+#### Scenario: Enabled reporting emits a versioned NDJSON stream
+
+- GIVEN `E2E_REPORT_JSON=1` with the `E2E_REPORT_*` identity variables set
+- WHEN the suite runs
+- THEN it SHALL emit one NDJSON object per line to stdout as events occur
+- AND every record SHALL carry `schema: hypershell.e2e.v1`, the supplied `runId`/`revision`/`sourceRevision`/`cluster`/`namespace`, an RFC3339Nano UTC `timestamp`, and a per-run monotonically increasing `sequence`
+
+#### Scenario: Reporting does not change the verdict
+
+- GIVEN two runs of the same suite against the same environment, one with `E2E_REPORT_JSON=1` and one without
+- WHEN both complete
+- THEN each step SHALL reach the same pass/fail/skip outcome in both runs
+- AND the `go test` exit status SHALL be the same in both runs
+
+### Requirement: Structured Reporting Event Lifecycle and Terminal Integrity
+
+When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
+
+Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.Cleanup` so that terminal records observe cleanup errors, and SHALL NOT emit a `run_finished: passed` before cleanup has completed. A run that is killed without emitting its terminal `run_finished` record (for example SIGKILL) SHALL be interpretable by a consumer as incomplete/unknown -- never as passed and never as still-connected. Because the suite's existing short numeric internal run id is not globally unique, the structured stream SHALL identify the run by the supplied `E2E_REPORT_RUN_ID`; when that variable is absent (a non-Kubernetes invocation with `E2E_REPORT_JSON=1`), the suite SHALL generate a UUID rather than reuse the short internal id. Within a run, `sequence` SHALL be deterministic and strictly increasing so a consumer can order and deduplicate records across reconnects.
+
+#### Scenario: Full lifecycle with planned steps
+
+- GIVEN `E2E_REPORT_JSON=1`
+- WHEN the suite runs to completion
+- THEN it SHALL emit a `run_started` naming the planned steps, a matched `step_started`/`step_finished` pair for each step that runs, and a terminal `run_finished`
+- AND cleanup work SHALL be represented, not silently omitted
+
+#### Scenario: Fatal or skipped steps cannot report false success
+
+- GIVEN a step that fails an assertion, panics, calls `t.Fatal`, or is mode-skipped
+- WHEN its `step_finished` record is emitted
+- THEN the record SHALL carry `failed` (for the failure and panic/fatal cases) or `skipped` (for the skip case), never `passed`
+- AND the terminal `run_finished` SHALL report `failed` if any step failed
+
+#### Scenario: Terminal report follows cleanup
+
+- GIVEN a run whose teardown surfaces a cleanup error
+- WHEN the suite finishes
+- THEN `run_finished` SHALL be emitted only after cleanup has completed
+- AND it SHALL NOT report `passed` when cleanup observed an error
+
+#### Scenario: Missing terminal record is unknown, not success
+
+- GIVEN a run that is killed before emitting `run_finished`
+- WHEN a consumer reads the truncated stream
+- THEN the absence of a terminal record SHALL be interpretable as incomplete/unknown
+- AND it SHALL NOT be interpretable as passed or as still-connected
+
+### Requirement: Structured Reporting Redaction and Bounds
+
+When structured reporting is enabled, every event and log body SHALL be scrubbed of secrets before it is written: bearer tokens, `Authorization` headers, client secrets, private keys, credential-file contents, and sensitive command arguments SHALL NOT appear in any record. Record sizes and individual log lines SHALL be bounded, with long lines handled (truncated with an explicit marker) rather than emitted unbounded. An error in the reporting path SHALL be visible but SHALL NOT change the suite's test verdict or exit code. The suite SHALL write only to stdout for structured reporting and SHALL NOT perform network I/O or block indefinitely on any logging service; the collector (owned by hypershell-gitops) does the network I/O.
+
+#### Scenario: Secrets are scrubbed from records
+
+- GIVEN a step whose command includes a bearer token or client secret
+- WHEN the corresponding `log` or `step_finished` record is emitted
+- THEN the token, secret, `Authorization` header, private key, credential-file content, and sensitive argument SHALL be absent from the record
+
+#### Scenario: Reporting failure does not change the verdict
+
+- GIVEN structured reporting encounters an error while emitting a record
+- WHEN the suite continues
+- THEN the error SHALL be visible
+- AND the step verdicts and `go test` exit code SHALL be unchanged from a run where reporting succeeded
+
+#### Scenario: Oversized log line is bounded
+
+- GIVEN a command emits a very long output line
+- WHEN it is reported as a `log` record
+- THEN the record SHALL be bounded in size with an explicit truncation marker, not emitted unbounded
+
+### Requirement: Structured Reporting Live Command Output Streaming
+
+When structured reporting is enabled, command output SHALL stream into the event stream as it is produced rather than only after the combined-output buffer finishes, so a consumer sees progress mid-step. This streaming/redacting path SHALL be added behind the same `E2E_REPORT_JSON` flag; with reporting disabled, `CommandRunner` SHALL keep its current combined-output capture, its existing return values (the combined output string and error), and its current behavior unchanged. The stream SHALL distinguish run-scoped (unassigned) log lines from step-scoped log lines and SHALL NOT guess that concurrent stdout belongs to the most recently started step; a log line SHALL carry a `stepId` only when it is genuinely attributable to that step.
+
+#### Scenario: Output streams before the command returns
+
+- GIVEN `E2E_REPORT_JSON=1` and a long-running command in a step
+- WHEN the command produces output over time
+- THEN `log` records SHALL be emitted as the output is produced, before the command returns
+- AND each SHALL be redacted per [Structured Reporting Redaction and Bounds](#requirement-structured-reporting-redaction-and-bounds)
+
+#### Scenario: CommandRunner is unchanged when reporting is off
+
+- GIVEN `E2E_REPORT_JSON` is unset
+- WHEN a step runs a command through `CommandRunner`
+- THEN `CommandRunner` SHALL return the same combined-output string and error as before this feature
+- AND no streaming path SHALL be taken
+
+#### Scenario: Ambiguous output is not misattributed
+
+- GIVEN two steps running concurrently both writing to stdout
+- WHEN a log line cannot be attributed to a specific step
+- THEN its record SHALL be emitted as run-scoped (no `stepId`), not attributed to the most recently started step
+
+### Requirement: Structured Reporting Launch Contract Compatibility
+
+The opt-in structured reporting SHALL take effect purely by setting the `E2E_REPORT_*` environment on the existing production launch command; it SHALL NOT require a new runner image, a new entrypoint, a bootstrap re-implementation, a legacy fallback runner, or a Workflows dependency. The production delivery runner (hypershell-gitops `run_e2e.sh`, which fetches the released source tarball, pins the toolchain from `tests/e2e/go.mod` with checksum validation, and runs `go -C tests/e2e test . -run '^TestE2E$' -count=1 -failfast -v -timeout "${E2E_GO_TIMEOUT:-20m}"` under the digest-pinned UBI9 image with `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, writable `TMPDIR`/`GOROOT`/`GOPATH`/`GOCACHE`/`HOME`, read-only root filesystem, short/service-account mode, and in-cluster credentials) SHALL keep running unchanged; hypershell-gitops injects `E2E_REPORT_JSON=1` and the `E2E_REPORT_*` identity into the existing metric Job. Reporting SHALL take effect once the release lock selects an application source that contains this change. Both the plain runner and the reporting-enabled runner SHALL keep the same test verdict and the same failure exit code.
+
+Where this change touches a source contract the production wrapper rewrites (for example its single provider/aws selector rewrite and its console Route lookup in the extracted suite), the change SHALL NOT silently break those assumptions, and the pull request SHALL call out any affected source contract so hypershell-gitops can update its wrapper.
+
+#### Scenario: Reporting rides the existing launch command
+
+- GIVEN the production `run_e2e.sh` launch command and image are unchanged
+- WHEN hypershell-gitops sets `E2E_REPORT_JSON=1` and the `E2E_REPORT_*` identity on the existing metric Job
+- THEN the suite SHALL emit the structured stream
+- AND no new runner image, entrypoint, bootstrap, fallback runner, or Workflows dependency SHALL be required
+
+#### Scenario: Verdict and exit code preserved under reporting
+
+- GIVEN the reporting-enabled production runner
+- WHEN the suite fails a step
+- THEN the process SHALL exit with the same non-zero failure code as the plain runner
+- AND a passing run SHALL exit zero in both
 
 ### Requirement: Concurrency Model
 
@@ -1602,6 +1735,12 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_DISRUPTIVE_GATE_TIMEOUT` | `900` | Seconds the Go suite waits for `E2E_DISRUPTIVE_GATE_FILE` before warning and continuing |
 | `E2E_PARALLEL_HEARTBEAT` | `60` | Seconds between "still running" lines printed by `run-parallel.sh` |
 | `E2E_PARALLEL_LOG_DIR` | (unset) | Optional directory where `run-parallel.sh` preserves one `<suite>.log` file per concurrent suite after completion |
+| `E2E_REPORT_JSON` | `0` | `1` enables the opt-in structured NDJSON run reporting ([Opt-In Structured Run Reporting](#requirement-opt-in-structured-run-reporting)). Unset or `0` leaves stdout, verdicts, and exit code unchanged. Set by hypershell-gitops on the release metric Job |
+| `E2E_REPORT_RUN_ID` | (generated UUID) | Globally unique reporting attempt id carried as `runId`; hypershell-gitops supplies the Pod UID. When unset under `E2E_REPORT_JSON=1`, the suite generates a UUID rather than reuse the short internal run id |
+| `E2E_REPORT_REVISION` | (unset) | Full hydrated/deployed Git revision carried as `revision`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_SOURCE_REVISION` | (unset) | Application test-source Git revision carried as `sourceRevision`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_CLUSTER` | (unset) | Runtime cluster identity carried as `cluster`; supplied at runtime by hypershell-gitops |
+| `E2E_REPORT_NAMESPACE` | (unset) | Runtime namespace carried as `namespace`; supplied at runtime by hypershell-gitops |
 
 The managed-cluster matrix runner (`TestMatrix`, `make e2e-matrix`) adds the following; see
 [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner). Each per-cluster
