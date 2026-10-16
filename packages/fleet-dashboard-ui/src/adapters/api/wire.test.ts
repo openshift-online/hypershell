@@ -6,6 +6,9 @@ import {
   orderedEnvironments,
 } from "../../domain/promotion";
 import {
+  mapE2eRunDetail,
+  mapE2eRuns,
+  mapE2eStreamEvent,
   mapFleet,
   mapInstances,
   mapPromotion,
@@ -400,5 +403,117 @@ describe("mapSdlc", () => {
     expect(data.cards[0]?.rework).toBeNull();
     expect(data.cards[0]?.escalation).toBeNull();
     expect(data.cards[0]?.history).toEqual([]);
+  });
+});
+
+// Neutral placeholders only (hub-a/tenant-1/run-1); the fleet-dashboard source is
+// public, so no fleet identifiers appear even in tests (firewall).
+describe("mapE2eRuns", () => {
+  it("maps the full recent-runs payload", () => {
+    const data = mapE2eRuns({
+      enabled: true,
+      truncated: true,
+      windowSeconds: 604800,
+      limit: 20,
+      runs: [
+        {
+          id: "tenant-1/ns/run-1",
+          runId: "run-1",
+          tenant: "tenant-1",
+          cluster: "tenant-1",
+          bodyCluster: "hub-a",
+          namespace: "ns",
+          revision: "abc1234",
+          sourceRevision: "def5678",
+          startedAt: "2026-01-01T00:00:00Z",
+          endedAt: "2026-01-01T00:01:00Z",
+          durationMs: 60000,
+          verdict: "passed",
+          reportingComplete: true,
+          hasStructuredSteps: true,
+          stepCount: 3,
+        },
+      ],
+    });
+    expect(data.enabled).toBe(true);
+    expect(data.truncated).toBe(true);
+    expect(data.windowSeconds).toBe(604800);
+    const run = data.runs[0];
+    if (!run) throw new Error("expected a run");
+    // Trusted cluster is the tenant; bodyCluster is display metadata (E2E-LOG-08).
+    expect(run.cluster).toBe("tenant-1");
+    expect(run.bodyCluster).toBe("hub-a");
+    expect(run.sourceRevision).toBe("def5678");
+    expect(run.durationMs).toBe(60000);
+  });
+
+  it("handles the feature-off shape (enabled:false, no runs)", () => {
+    const data = mapE2eRuns({ enabled: false });
+    expect(data.enabled).toBe(false);
+    expect(data.runs).toEqual([]);
+  });
+
+  it("defaults a malformed verdict to unknown and missing arrays to []", () => {
+    const data = mapE2eRuns({
+      enabled: true,
+      runs: [{ id: "x", runId: "r", verdict: "weird" }],
+    });
+    expect(data.runs[0]?.verdict).toBe("unknown");
+    expect(data.runs[0]?.bodyCluster).toBeNull();
+    expect(data.runs[0]?.durationMs).toBeNull();
+  });
+});
+
+describe("mapE2eRunDetail", () => {
+  it("maps steps, logs, and planned steps; coerces an unknown step state", () => {
+    const detail = mapE2eRunDetail({
+      id: "tenant-1/ns/run-1",
+      runId: "run-1",
+      verdict: "failed",
+      plannedSteps: [{ stepId: "a", name: "A" }],
+      steps: [
+        { stepId: "a", name: "A", state: "failed", durationMs: 10 },
+        { stepId: "b", name: "B", state: "bogus" },
+      ],
+      logs: [{ sequence: 1, timestamp: "t", message: "hi", stepId: "a" }],
+      logsTruncated: true,
+    });
+    expect(detail.verdict).toBe("failed");
+    expect(detail.steps[0]?.state).toBe("failed");
+    // An unrecognized state coerces to not-run, never passed.
+    expect(detail.steps[1]?.state).toBe("not-run");
+    expect(detail.logs[0]?.message).toBe("hi");
+    expect(detail.logsTruncated).toBe(true);
+  });
+
+  it("degrades an empty/partial detail to empty collections", () => {
+    const detail = mapE2eRunDetail({});
+    expect(detail.steps).toEqual([]);
+    expect(detail.logs).toEqual([]);
+    expect(detail.plannedSteps).toEqual([]);
+    expect(detail.verdict).toBe("unknown");
+  });
+});
+
+describe("mapE2eStreamEvent", () => {
+  it("maps a well-formed event", () => {
+    const event = mapE2eStreamEvent({
+      event: "step_finished",
+      runId: "run-1",
+      sequence: 4,
+      timestamp: "t",
+      stepId: "a",
+      outcome: "passed",
+      durationMs: 5,
+    });
+    expect(event).not.toBeNull();
+    expect(event?.event).toBe("step_finished");
+    expect(event?.outcome).toBe("passed");
+    expect(event?.sequence).toBe(4);
+  });
+
+  it("returns null for an unknown event name so the frame is skipped", () => {
+    expect(mapE2eStreamEvent({ event: "mystery", sequence: 1 })).toBeNull();
+    expect(mapE2eStreamEvent(null)).toBeNull();
   });
 });

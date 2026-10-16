@@ -21,7 +21,13 @@ import {
 import { useMemo, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { useFleet, usePromotion, useSdlc, useTopology } from "../query/hooks";
+import {
+  useE2eRuns,
+  useFleet,
+  usePromotion,
+  useSdlc,
+  useTopology,
+} from "../query/hooks";
 import { useSessionExpired } from "../auth/session-expiry";
 import { buildMapModel } from "../../domain/map/model";
 import type { FleetData } from "../../domain/fleet";
@@ -29,6 +35,7 @@ import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
 import { messages } from "../../messages";
 import { AgentSdlcView } from "./agent-sdlc/agent-sdlc-view";
+import { E2eRunView } from "./e2e-run/e2e-run-view";
 import { FreightBar } from "./map/freight-bar";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
@@ -46,7 +53,7 @@ const EMPTY_PROMOTION: PromotionData = {
   frontier: null,
 };
 
-type TabKey = "map" | "sdlc";
+type TabKey = "map" | "sdlc" | "e2e";
 
 /** Visually hidden, but present in the accessibility tree (sr-only pattern). */
 const srOnly: React.CSSProperties = {
@@ -68,6 +75,7 @@ export function App(): React.ReactElement {
   const fleet = useFleet();
   const topology = useTopology();
   const sdlc = useSdlc();
+  const e2e = useE2eRuns();
 
   const [activeTab, setActiveTab] = useState<TabKey>("map");
   // The shared freight bar's selection, lifted so it drives both tabs and survives a
@@ -179,6 +187,18 @@ export function App(): React.ReactElement {
                       }}
                     />
                   )}
+                </PlaneSection>
+              </Tab>
+              <Tab
+                eventKey="e2e"
+                title={
+                  <TabTitleText>
+                    <FormattedMessage {...messages.e2eTabTitle} />
+                  </TabTitleText>
+                }
+              >
+                <PlaneSection titleMessage={messages.e2eSection} query={e2e}>
+                  {(data) => <E2eRunView data={data} />}
                 </PlaneSection>
               </Tab>
             </Tabs>

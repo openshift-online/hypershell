@@ -475,7 +475,7 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 	for i, sandboxName := range names {
 		i, sandboxName := i, sandboxName
 		g.Go(func() error {
-			steps := sandboxCLISteps(action, sandboxName)
+			steps := sandboxCLISteps(action, sandboxName, s.sandboxImage)
 			outputs := make([]string, 0, len(steps))
 			for j, args := range steps {
 				out, err := s.cli(t, local, args...)
@@ -508,10 +508,10 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 // leaves the pods to Kubernetes, whose SIGTERM those processes ignore, so every
 // delete waits out the 30s termination grace period and the gateway route
 // answers it with "upstream request timeout" after 15s.
-func sandboxCLISteps(action, name string) [][]string {
+func sandboxCLISteps(action, name, image string) [][]string {
 	switch action {
 	case "create":
-		return [][]string{{"sandbox", "create", "--name", name}}
+		return [][]string{{"sandbox", "create", "--from", image, "--name", name}}
 	case "delete":
 		return [][]string{{"sandbox", "stop", name}, {"sandbox", "delete", name}}
 	default:
@@ -1123,20 +1123,29 @@ func (s *E2ESuite) assertGarbageCollectedEvent(t *testing.T, orphan string) {
 	s.Assert().NoError(err, "GarbageCollected Event for orphan namespace %s", orphan)
 }
 
-// waitPodRunning polls until a pod whose name contains substr is Running in ns.
+// waitPodRunning waits for the requested workload image, not just a supervisor
+// pod that happens to share the sandbox name.
 func (s *E2ESuite) waitPodRunning(ctx context.Context, ns, substr string, timeout time.Duration) error {
-	return harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
+	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
 		pods, err := s.clients.Kube.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return false, nil
 		}
 		for _, p := range pods.Items {
 			if strings.Contains(p.Name, substr) && p.Status.Phase == corev1.PodRunning {
-				return true, nil
+				for _, container := range p.Spec.Containers {
+					if container.Image == s.sandboxImage {
+						return true, nil
+					}
+				}
 			}
 		}
 		return false, nil
 	})
+	if err != nil {
+		return fmt.Errorf("wait for sandbox pod %q with workload image %q: %w", substr, s.sandboxImage, err)
+	}
+	return nil
 }
 
 // pollActiveSandboxCount polls the gateway's active_sandbox_count until it reaches

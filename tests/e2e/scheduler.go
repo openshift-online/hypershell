@@ -7,6 +7,7 @@ import "testing"
 // the Go test scheduler first.
 type parallelSubtest struct {
 	name string
+	tag  string
 	run  func(t *testing.T)
 }
 

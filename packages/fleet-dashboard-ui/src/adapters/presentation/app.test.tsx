@@ -4,6 +4,7 @@ import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
 import type { AgentSdlcData } from "../../domain/agent-sdlc";
+import type { E2eRunDetail, E2eRunsData } from "../../domain/e2e-run";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
@@ -14,6 +15,45 @@ import type {
 } from "../../application/ports";
 import { FleetApiProvider } from "../query/api-context";
 import { App } from "./app";
+
+const emptyE2eRuns: E2eRunsData = {
+  enabled: true,
+  runs: [],
+  truncated: false,
+  windowSeconds: 0,
+  limit: 0,
+};
+
+const emptyE2eRun: E2eRunDetail = {
+  id: "",
+  runId: "",
+  tenant: "",
+  cluster: "",
+  bodyCluster: null,
+  namespace: "",
+  revision: "",
+  sourceRevision: null,
+  startedAt: "",
+  endedAt: null,
+  durationMs: null,
+  verdict: "unknown",
+  reportingComplete: false,
+  hasStructuredSteps: false,
+  stepCount: 0,
+  plannedSteps: [],
+  steps: [],
+  logs: [],
+  logsTruncated: false,
+};
+
+/** The three e2e FleetApi methods, defaulted so a test only wires what it exercises. */
+const e2eApi = {
+  getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
+  getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
+  streamE2eRun: () => () => {
+    /* unsubscribe */
+  },
+} satisfies Pick<FleetApi, "getE2eRuns" | "getE2eRun" | "streamE2eRun">;
 
 function plane<T>(data: T): Plane<T> {
   return {
@@ -101,6 +141,7 @@ describe("App", () => {
             matrix: { hubClusters: [], rows: [] },
           }),
         ),
+      ...e2eApi,
     } satisfies FleetApi;
 
     renderApp(empty);
@@ -137,6 +178,7 @@ describe("App", () => {
             matrix: { hubClusters: [], rows: [] },
           }),
         ),
+      ...e2eApi,
     } satisfies FleetApi;
 
     renderApp(api);
@@ -154,6 +196,85 @@ describe("App", () => {
       await screen.findByText(
         "Escalation lane clear - nothing blocked or stalled.",
       ),
+    ).toBeDefined();
+  });
+
+  it("offers an E2E Runs tab that renders the e2e view", async () => {
+    const promotion: PromotionData = {
+      order: [],
+      environments: {},
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const api = {
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () => Promise.resolve(plane(promotion)),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getSdlc: () =>
+        Promise.resolve(
+          plane<AgentSdlcData>({
+            phases: [],
+            cards: [],
+            lane: [],
+            matrix: { hubClusters: [], rows: [] },
+          }),
+        ),
+      ...e2eApi,
+    } satisfies FleetApi;
+
+    renderApp(api);
+
+    const e2eTab = await screen.findByRole("tab", { name: "E2E Runs" });
+    fireEvent.click(e2eTab);
+    expect(e2eTab.getAttribute("aria-selected")).toBe("true");
+    // The empty recent-runs list renders its empty state.
+    expect(await screen.findByText("No recent runs.")).toBeDefined();
+  });
+
+  it("shows the feature-off state when e2e reporting is disabled", async () => {
+    const promotion: PromotionData = {
+      order: [],
+      environments: {},
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const api = {
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () => Promise.resolve(plane(promotion)),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getSdlc: () =>
+        Promise.resolve(
+          plane<AgentSdlcData>({
+            phases: [],
+            cards: [],
+            lane: [],
+            matrix: { hubClusters: [], rows: [] },
+          }),
+        ),
+      ...e2eApi,
+      getE2eRuns: () =>
+        Promise.resolve(
+          plane<E2eRunsData>({
+            enabled: false,
+            runs: [],
+            truncated: false,
+            windowSeconds: 0,
+            limit: 0,
+          }),
+        ),
+    } satisfies FleetApi;
+
+    renderApp(api);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "E2E Runs" }));
+    expect(
+      await screen.findByText("End-to-end run reporting is not enabled."),
     ).toBeDefined();
   });
 });

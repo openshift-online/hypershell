@@ -27,15 +27,16 @@ func ConvertSandboxTemplate(st openapi.SandboxTemplate) *SandboxTemplate {
 func PresentSandboxTemplate(st *SandboxTemplate) openapi.SandboxTemplate {
 	reference := presenters.PresentReference(st.ID, st)
 	return openapi.SandboxTemplate{
-		Id:         reference.Id,
-		Kind:       reference.Kind,
-		Href:       reference.Href,
-		CreatedAt:  openapi.PtrTime(st.CreatedAt),
-		UpdatedAt:  openapi.PtrTime(st.UpdatedAt),
-		Name:       st.Name,
-		Image:      st.Image,
-		NamePrefix: st.NamePrefix,
-		Policy:     st.Policy,
-		Status:     st.Status,
+		Id:           reference.Id,
+		Kind:         reference.Kind,
+		Href:         reference.Href,
+		CreatedAt:    openapi.PtrTime(st.CreatedAt),
+		UpdatedAt:    openapi.PtrTime(st.UpdatedAt),
+		Name:         st.Name,
+		Image:        st.Image,
+		NamePrefix:   st.NamePrefix,
+		Policy:       st.Policy,
+		RepositoryId: st.RepositoryId,
+		Status:       st.Status,
 	}
 }

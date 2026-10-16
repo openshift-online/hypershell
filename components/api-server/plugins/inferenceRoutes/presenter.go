@@ -34,5 +34,6 @@ func PresentInferenceRoute(ir *InferenceRoute) openapi.InferenceRoute {
 		WorkspaceId:       ir.WorkspaceId,
 		ProviderBindingId: ir.ProviderBindingId,
 		Model:             ir.Model,
+		RepositoryId:      ir.RepositoryId,
 	}
 }

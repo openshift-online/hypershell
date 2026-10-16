@@ -76,6 +76,43 @@ function renderApp(): void {
           matrix: { hubClusters: [], rows: [] },
         }),
       ),
+    getE2eRuns: () =>
+      Promise.resolve(
+        plane({
+          enabled: true,
+          runs: [],
+          truncated: false,
+          windowSeconds: 0,
+          limit: 0,
+        }),
+      ),
+    getE2eRun: () =>
+      Promise.resolve(
+        plane({
+          id: "",
+          runId: "",
+          tenant: "",
+          cluster: "",
+          bodyCluster: null,
+          namespace: "",
+          revision: "",
+          sourceRevision: null,
+          startedAt: "",
+          endedAt: null,
+          durationMs: null,
+          verdict: "unknown" as const,
+          reportingComplete: false,
+          hasStructuredSteps: false,
+          stepCount: 0,
+          plannedSteps: [],
+          steps: [],
+          logs: [],
+          logsTruncated: false,
+        }),
+      ),
+    streamE2eRun: () => () => {
+      /* unsubscribe */
+    },
   } satisfies FleetApi;
 
   const queryClient = new QueryClient({

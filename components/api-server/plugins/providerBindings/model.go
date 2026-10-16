@@ -12,7 +12,13 @@ type ProviderBinding struct {
 	ProviderSpecId  string  `json:"provider_spec_id"`
 	SecretSourceId  string  `json:"secret_source_id"`
 	RefreshStrategy *string `json:"refresh_strategy" gorm:"type:jsonb"`
-	Status          *string `json:"status"`
+	// RepositoryId is the ownership mark set by the control-plane declarative
+	// import reconciler when this resource originates from a Repository's
+	// .hypershell import. It is nil for resources created directly through the
+	// REST API or hsctl apply, which are never pruned by the import. It is
+	// read-only in the client contract (set server-side, never by a client).
+	RepositoryId *string `json:"repository_id"`
+	Status       *string `json:"status"`
 }
 
 type ProviderBindingList []*ProviderBinding

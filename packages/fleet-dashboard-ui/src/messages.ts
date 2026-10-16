@@ -191,6 +191,250 @@ export const messages = defineMessages({
     description:
       "Badge value shown when an instance runs a different release bundle than its environment's hub.",
   },
+  e2eAgo: {
+    id: "fleet.e2e.ago",
+    defaultMessage:
+      "{unit, select, m {{count}m ago} h {{count}h ago} d {{count}d ago} other {just now}}",
+    description:
+      "Relative time since an end-to-end run started (minutes, hours, days, or just now).",
+  },
+  e2eBackendUnavailable: {
+    id: "fleet.e2e.backendUnavailable",
+    defaultMessage: "Run details are unavailable right now.",
+    description:
+      "Degraded state shown when the e2e backend (Loki source) cannot be reached.",
+  },
+  e2eColumnAttempt: {
+    id: "fleet.e2e.column.attempt",
+    defaultMessage: "Attempt",
+    description: "Recent-runs table column header for the run attempt id.",
+  },
+  e2eColumnDuration: {
+    id: "fleet.e2e.column.duration",
+    defaultMessage: "Duration",
+    description: "Table column header for a run or step duration.",
+  },
+  e2eColumnRevision: {
+    id: "fleet.e2e.column.revision",
+    defaultMessage: "Revision",
+    description:
+      "Recent-runs table column header for the hydrated/deployed revision.",
+  },
+  e2eColumnStarted: {
+    id: "fleet.e2e.column.started",
+    defaultMessage: "Started",
+    description: "Recent-runs table column header for the run start time.",
+  },
+  e2eColumnState: {
+    id: "fleet.e2e.column.state",
+    defaultMessage: "State",
+    description: "Steps table column header for a step's reduced state.",
+  },
+  e2eColumnStep: {
+    id: "fleet.e2e.column.step",
+    defaultMessage: "Step",
+    description: "Steps table column header for the step name.",
+  },
+  e2eColumnVerdict: {
+    id: "fleet.e2e.column.verdict",
+    defaultMessage: "Verdict",
+    description: "Recent-runs table column header for a run's overall verdict.",
+  },
+  e2eDisabled: {
+    id: "fleet.e2e.disabled",
+    defaultMessage: "End-to-end run reporting is not enabled.",
+    description:
+      "Feature-off state shown when the BFF reports the e2e feature disabled.",
+  },
+  e2eDuration: {
+    id: "fleet.e2e.duration",
+    defaultMessage: "{minutes}m {seconds}s",
+    description: "Compact duration of a run or step, in minutes and seconds.",
+  },
+  e2eFollow: {
+    id: "fleet.e2e.follow",
+    defaultMessage: "Follow",
+    description: "Button that resumes following (auto-scrolling) the log pane.",
+  },
+  e2eHistoryTruncated: {
+    id: "fleet.e2e.historyTruncated",
+    defaultMessage: "Older runs are not shown - run history is truncated.",
+    description:
+      "Banner shown when more runs exist in the window than the list returns.",
+  },
+  e2eLiveDisconnected: {
+    id: "fleet.e2e.live.disconnected",
+    defaultMessage: "Live updates disconnected - reconnecting.",
+    description:
+      "Degraded state shown when the live stream for a run is disconnected.",
+  },
+  e2eLiveGap: {
+    id: "fleet.e2e.live.gap",
+    defaultMessage:
+      "Gap in live updates - {count, plural, one {# entry} other {# entries}} dropped.",
+    description:
+      "Degraded state shown when the live stream reports dropped entries.",
+  },
+  e2eLiveLabel: {
+    id: "fleet.e2e.live.label",
+    defaultMessage: "Live",
+    description: "Marker shown while a run's live stream is connected.",
+  },
+  e2eLogPaneAria: {
+    id: "fleet.e2e.log.paneAria",
+    defaultMessage: "Run log output",
+    description: "Accessible name for the scrollable log output region.",
+  },
+  e2eLogPaneTitle: {
+    id: "fleet.e2e.log.paneTitle",
+    defaultMessage: "Logs",
+    description: "Heading above the inline log pane.",
+  },
+  e2eLogScope: {
+    id: "fleet.e2e.log.scope",
+    defaultMessage: "Log scope",
+    description:
+      "Accessible name for the toggle choosing whole-run vs selected-step logs.",
+  },
+  e2eLogScopeRun: {
+    id: "fleet.e2e.log.scopeRun",
+    defaultMessage: "Whole run",
+    description: "Log-scope toggle option showing the whole run's logs.",
+  },
+  e2eLogScopeStep: {
+    id: "fleet.e2e.log.scopeStep",
+    defaultMessage: "Selected step",
+    description: "Log-scope toggle option showing the selected step's logs.",
+  },
+  e2eLogsEmpty: {
+    id: "fleet.e2e.log.empty",
+    defaultMessage: "No log output.",
+    description: "Shown when the selected scope has no log lines.",
+  },
+  e2eLogsTruncated: {
+    id: "fleet.e2e.log.truncated",
+    defaultMessage: "Log output is truncated.",
+    description: "Shown when a run produced more log lines than are retained.",
+  },
+  e2eNoRuns: {
+    id: "fleet.e2e.noRuns",
+    defaultMessage: "No recent runs.",
+    description: "Shown when the recent-runs list is empty.",
+  },
+  e2eNoSteps: {
+    id: "fleet.e2e.noSteps",
+    defaultMessage: "No steps reported yet.",
+    description: "Shown when a structured run has not yet reported any steps.",
+  },
+  e2eNoStructuredSteps: {
+    id: "fleet.e2e.noStructuredSteps",
+    defaultMessage: "No structured steps",
+    description:
+      "Marker for a pre-reporting run with logs but no structured step events (not a stepless pass).",
+  },
+  e2ePause: {
+    id: "fleet.e2e.pause",
+    defaultMessage: "Pause",
+    description: "Button that pauses following (auto-scrolling) the log pane.",
+  },
+  e2eReportingIncomplete: {
+    id: "fleet.e2e.reportingIncomplete",
+    defaultMessage: "Reporting incomplete - no final result was recorded.",
+    description:
+      "Degraded state shown when a run has no terminal record (unknown verdict).",
+  },
+  e2eRunDuration: {
+    id: "fleet.e2e.runDuration",
+    defaultMessage: "Duration {duration}",
+    description: "Label for the selected run's overall duration.",
+  },
+  e2eRunsAria: {
+    id: "fleet.e2e.runsAria",
+    defaultMessage: "Recent end-to-end runs",
+    description: "Accessible name for the recent-runs table.",
+  },
+  e2eRunSelect: {
+    id: "fleet.e2e.runSelect",
+    defaultMessage: "Open run {revision}, attempt {attempt}",
+    description: "Accessible name for a recent-run selection link.",
+  },
+  e2eSection: {
+    id: "fleet.e2e.section",
+    defaultMessage: "End-to-end tests",
+    description: "Card title for the E2E run tab content.",
+  },
+  e2eSelectRun: {
+    id: "fleet.e2e.selectRun",
+    defaultMessage: "Select a run to see its steps and logs.",
+    description:
+      "Placeholder shown in the detail pane when no run is selected.",
+  },
+  e2eSourceRevision: {
+    id: "fleet.e2e.sourceRevision",
+    defaultMessage: "Source {revision}",
+    description:
+      "Label for a run's application source revision, shown separately from the deployed revision.",
+  },
+  e2eStateFailed: {
+    id: "fleet.e2e.state.failed",
+    defaultMessage: "Failed",
+    description: "Step state: the step failed.",
+  },
+  e2eStateNotRun: {
+    id: "fleet.e2e.state.notRun",
+    defaultMessage: "Not run",
+    description: "Step state: a fail-fast step that was never reached.",
+  },
+  e2eStatePassed: {
+    id: "fleet.e2e.state.passed",
+    defaultMessage: "Passed",
+    description: "Step state: the step passed.",
+  },
+  e2eStateRunning: {
+    id: "fleet.e2e.state.running",
+    defaultMessage: "Running",
+    description: "Step state: the step is currently running.",
+  },
+  e2eStateSkipped: {
+    id: "fleet.e2e.state.skipped",
+    defaultMessage: "Skipped",
+    description: "Step state: a mode-skipped step (distinct from not-run).",
+  },
+  e2eStepsAria: {
+    id: "fleet.e2e.stepsAria",
+    defaultMessage: "Run steps",
+    description: "Accessible name for the run's steps table.",
+  },
+  e2eStepsTitle: {
+    id: "fleet.e2e.stepsTitle",
+    defaultMessage: "Steps",
+    description: "Heading above the run's ordered steps.",
+  },
+  e2eTabTitle: {
+    id: "fleet.e2e.tab.title",
+    defaultMessage: "E2E Runs",
+    description: "Tab label for the E2E run view.",
+  },
+  e2eTestFailed: {
+    id: "fleet.e2e.testFailed",
+    defaultMessage: "This run failed.",
+    description: "Degraded state shown when a run's verdict is failed.",
+  },
+  e2eVerdictFailed: {
+    id: "fleet.e2e.verdict.failed",
+    defaultMessage: "Failed",
+    description: "Run verdict: the run failed.",
+  },
+  e2eVerdictPassed: {
+    id: "fleet.e2e.verdict.passed",
+    defaultMessage: "Passed",
+    description: "Run verdict: the run passed.",
+  },
+  e2eVerdictUnknown: {
+    id: "fleet.e2e.verdict.unknown",
+    defaultMessage: "Unknown",
+    description: "Run verdict: no terminal record, so the result is unknown.",
+  },
   emptyPlane: {
     id: "fleet.plane.empty",
     defaultMessage: "No data reported.",

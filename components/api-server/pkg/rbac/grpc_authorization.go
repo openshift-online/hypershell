@@ -149,6 +149,22 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
+	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
+		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
+		// A registered control plane may READ these import kinds (list/watch/get)
+		// to drive reconciliation. Writes are intentionally NOT authorized here: the
+		// declarative-import reconciler that uses the gRPC write path (REPO-C-IMPORT)
+		// is not yet implemented, and these resources are fleet-wide (not
+		// cluster-scoped), so authorizing writes now would let any registered spoke
+		// create/update/prune another fleet's import resources, widening the
+		// spoke-isolation boundary this interceptor exists to hold. The write
+		// authorization must be defined together with the reconciler and its
+		// repository-ownership/identity model; until then writes fall through to
+		// default-deny.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
 	}
 	return denied()
 }
@@ -246,6 +262,16 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 			// The gRPC list and watch are unfiltered by caller, so only
 			// platform:admin (who sees every agent runtime over HTTP too) may use
 			// them, mirroring GatewayService.
+			return allowIf(hasPlatformAdmin(bindings))
+		}
+		return denied()
+	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
+		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
+		// These import kinds are authored over HTTP; their gRPC read methods are
+		// unfiltered by caller, so only platform:admin (who sees them all over HTTP
+		// too) may read them. Writes over gRPC are the control-plane import
+		// reconciler's exclusive path and are denied to every user caller.
+		if isReadMethodName(method) {
 			return allowIf(hasPlatformAdmin(bindings))
 		}
 		return denied()

@@ -39,6 +39,7 @@ func PresentProviderBinding(pb *ProviderBinding) openapi.ProviderBinding {
 		WorkspaceId:     pb.WorkspaceId,
 		ProviderSpecId:  pb.ProviderSpecId,
 		RefreshStrategy: pb.RefreshStrategy,
+		RepositoryId:    pb.RepositoryId,
 		Status:          pb.Status,
 	}
 	if pb.SecretSourceId != "" {

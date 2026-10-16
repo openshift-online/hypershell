@@ -33,7 +33,9 @@ type ProviderBinding struct {
 	SecretSourceId *string    `json:"secret_source_id,omitempty"`
 	// JSON-encoded credential refresh strategy configuration
 	RefreshStrategy *string `json:"refresh_strategy,omitempty"`
-	Status          *string `json:"status,omitempty"`
+	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
+	Status       *string `json:"status,omitempty"`
 }
 
 type _ProviderBinding ProviderBinding
@@ -354,6 +356,38 @@ func (o *ProviderBinding) SetRefreshStrategy(v string) {
 	o.RefreshStrategy = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *ProviderBinding) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ProviderBinding) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *ProviderBinding) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *ProviderBinding) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *ProviderBinding) GetStatus() string {
 	if o == nil || IsNil(o.Status) {
@@ -419,6 +453,9 @@ func (o ProviderBinding) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.RefreshStrategy) {
 		toSerialize["refresh_strategy"] = o.RefreshStrategy
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status

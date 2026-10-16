@@ -12,6 +12,7 @@ Name | Type | Description | Notes
 **WorkspaceId** | **string** |  | 
 **ProviderBindingId** | **string** |  | 
 **Model** | **string** | Model alias for LLM inference within the agent workspace | 
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
 
 ## Methods
 
@@ -216,6 +217,31 @@ and a boolean to check if the value has been set.
 
 SetModel sets Model field to given value.
 
+
+### GetRepositoryId
+
+`func (o *InferenceRoute) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *InferenceRoute) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *InferenceRoute) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *InferenceRoute) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

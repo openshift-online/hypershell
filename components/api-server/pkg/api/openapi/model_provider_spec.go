@@ -33,7 +33,9 @@ type ProviderSpec struct {
 	Capability *string `json:"capability,omitempty"`
 	// JSON-encoded opaque profile passed through to the gateway provider registration step
 	Profile *string `json:"profile,omitempty"`
-	Status  *string `json:"status,omitempty"`
+	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
+	Status       *string `json:"status,omitempty"`
 }
 
 type _ProviderSpec ProviderSpec
@@ -329,6 +331,38 @@ func (o *ProviderSpec) SetProfile(v string) {
 	o.Profile = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *ProviderSpec) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ProviderSpec) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *ProviderSpec) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *ProviderSpec) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *ProviderSpec) GetStatus() string {
 	if o == nil || IsNil(o.Status) {
@@ -393,6 +427,9 @@ func (o ProviderSpec) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Profile) {
 		toSerialize["profile"] = o.Profile
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
