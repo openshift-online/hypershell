@@ -50,7 +50,7 @@ adapter with no domain or UI change.
 | --- | --- | --- |
 | Current phase / column, blocked and paused set | Yes (easy) | GitHub issues-by-label on the product repo, one query |
 | Which bundle on which hub cluster | Yes (easy) | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution) |
-| Issue -> bundle membership | Yes (medium) | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) plus one new PR -> closing-issue hop |
+| Bundle contents (tracked issues + one-off PRs) | Yes (medium) | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
 | State over time, aging, rework count | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today |
 | Durable SDLC analytics / history store | No | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab |
 
@@ -131,24 +131,42 @@ bundle-to-PR enrichment, and the promotion source's `argoByInstance` cluster
 attribution). It SHALL NOT re-derive bundles, re-read the release lock, or re-call
 the GitHub compare API in a parallel pipeline.
 
-The issue-to-bundle mapping SHALL **extend** the existing bundle-to-PR enrichment
-with one additional hop: a work item to the pull requests ASSOCIATED WITH it, so a
-bundle's PR set resolves to the execution records it shipped. The hop SHALL be shaped
-work item -> PRs, not PR -> issue: a single work item MAY be delivered by several pull
-requests, and the authoritative association is the work item's own linked pull
-requests, not a closing keyword parsed out of an individual PR body. A work item SHALL
-be attributed to the NEWEST bundle any of its associated PRs landed in, so a work item
-split across releases attributes to the release by which it was fully delivered. A
-work item whose associated PRs are not found in any bundle SHALL collect in the
-Unreleased row.
+Each bundle row's contents SHALL be driven by that bundle's own merged pull requests
+as the shared bundle source already resolves them (`bundles.go` bundle-to-PR
+enrichment, the same PR set the Fleet Map freight bar shows). The plane SHALL NOT
+introduce any additional GitHub request to populate bundle contents, and it SHALL NOT
+hide a pull request that shipped in a bundle because its issue link is unrecoverable.
 
-This hop SHALL live behind a `WorkItemPRResolver` port so the unit of work can change
+The plane SHALL split each bundle's pull requests into two groups:
+
+- **Tracked issues** -- pull requests that resolve to an in-scope execution-record
+  issue, grouped under that issue. A single issue MAY contribute several pull requests
+  to one bundle; it SHALL appear once in that bundle with its pull requests grouped
+  beneath it.
+- **Other pull requests** -- pull requests with no in-scope execution-record issue,
+  listed individually.
+
+The grouping SHALL use a pull-request-to-work-item lookup inverted from the
+`WorkItemPRResolver` port: the resolver returns each in-scope work item's associated
+pull requests (shaped work item -> PRs, since a single work item MAY be delivered by
+several pull requests), and the plane inverts those results into a
+pull-request-to-issue map. The port SHALL be used only to **group** a bundle's pull
+requests under the tracked issue they belong to; it SHALL NOT be used to attribute
+issues to bundles, and bundle contents SHALL NOT depend on a closing keyword parsed
+out of an individual PR body. The plane SHALL NOT stand up a duplicate
+bundle-resolution pipeline for this grouping.
+
+This hop SHALL live behind the `WorkItemPRResolver` port so the unit of work can change
 without a domain or matrix change: the GitHub adapter resolves an issue's linked pull
 requests (authoritatively via GraphQL `closedByPullRequestsReferences` when an upstream
 token is configured, and via the REST issue timeline's `cross-referenced` events when
 unauthenticated), and a future **Jira adapter** SHALL satisfy the same port by
 returning the PRs linked to a Jira item. The matrix SHALL depend only on the port, not
 on any issue-tracker specifics.
+
+A tracked work item whose associated pull requests are absent from every bundle's PR
+set SHALL collect in the Unreleased row (SDLC-VIS-11), which holds only genuinely
+in-flight tracked work.
 
 The bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift between
 them) SHALL be the promotion plane's existing release-plus-deployment facts, not a
@@ -163,20 +181,29 @@ re-resolution.
 - AND the SDLC plane SHALL NOT independently resolve the release lock or call the
   compare API
 
-#### Scenario: Work-item-to-bundle extends existing enrichment by one hop
+#### Scenario: Bundle contents come from the bundle's pull requests
 
-- GIVEN the bundle-to-PR enrichment has resolved each bundle's merged PRs
-- WHEN the SDLC plane maps a shipped work item to a bundle
-- THEN it SHALL resolve the work item to its associated pull requests through the
-  `WorkItemPRResolver` port and match those PRs against the bundle PR sets
-- AND it SHALL NOT stand up a duplicate bundle-resolution pipeline
+- GIVEN the bundle-to-PR enrichment has resolved a bundle's merged PRs
+- WHEN the SDLC plane builds that bundle's contents
+- THEN every pull request in the bundle's PR set SHALL appear in the bundle, grouped
+  as a tracked issue or listed as an other pull request
+- AND the plane SHALL NOT issue an additional GitHub request to populate the contents
 
-#### Scenario: Work item delivered by multiple PRs
+#### Scenario: Tracked and one-off pull requests are grouped
 
-- GIVEN a work item whose associated pull requests landed in more than one bundle
-- WHEN the SDLC plane attributes it to a bundle
-- THEN it SHALL attribute the work item to the newest of those bundles
-- AND it SHALL NOT duplicate the work item across the older bundles
+- GIVEN a bundle whose PR set contains a pull request linked to an execution-record
+  issue and a pull request with no such issue
+- WHEN the SDLC plane groups the bundle's pull requests
+- THEN the linked pull request SHALL appear under its tracked issue
+- AND the unlinked pull request SHALL appear under the bundle's other pull requests
+
+#### Scenario: Tracked issue delivered by multiple PRs in one bundle
+
+- GIVEN a bundle whose PR set contains two pull requests that resolve to the same
+  execution-record issue
+- WHEN the SDLC plane groups the bundle's pull requests
+- THEN that issue SHALL appear once under the bundle's tracked issues
+- AND both of its pull requests SHALL be grouped beneath it
 
 #### Scenario: Unauthenticated deployment resolves associations
 
@@ -378,12 +405,19 @@ production, hyp1 stage, hyp2 int), and a marker SHALL sit in each hub cluster's
 **current** bundle row so deployment and drift (how far behind a cluster runs) read
 at a glance. Deployment and drift SHALL NOT be conveyed by color alone.
 
-A bundle row SHALL expand to its shipped issues (bundle contents per SDLC-VIS-03),
-each shown with a "merged Nd ago" relative timestamp.
+A bundle row SHALL expand to its contents (PR-driven, per SDLC-VIS-03) shown as two
+groups: **Tracked issues** (pull requests grouped under the execution-record issue
+they resolve to) and **Other pull requests** (one-off pull requests with no tracked
+issue). Each entry SHALL show a "merged Nd ago" relative timestamp. The row summary
+SHALL show both counts, the number of tracked issues and the number of pull requests
+in the bundle (for example "2 issues, 4 PRs").
 
-Merged work that does not yet have a released bundle SHALL collect in a single top
-**"Unreleased"** row, which SHALL carry no version and no hub-cluster markers. When
-the next bundle is released, its issues SHALL move from the Unreleased row into that
+The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
+execution-record issues whose pull requests are absent from every bundle's PR set.
+A one-off pull request SHALL NOT appear in the Unreleased row; it appears only under
+the bundle that shipped it. The Unreleased row SHALL carry no version and no
+hub-cluster markers. When a bundle is released whose PR set contains an Unreleased
+issue's pull requests, that issue SHALL move from the Unreleased row into that
 bundle's row. The matrix SHALL NOT present a named "building" bundle.
 
 #### Scenario: Current bundle marked per hub cluster
@@ -394,25 +428,43 @@ bundle's row. The matrix SHALL NOT present a named "building" bundle.
   column at the v20260815 row
 - AND the drift between them SHALL be readable without relying on color alone
 
-#### Scenario: Row expands to merged issues
+#### Scenario: Row expands to tracked issues and other PRs
 
-- GIVEN a released bundle row
+- GIVEN a released bundle row whose PR set includes a pull request linked to an
+  execution-record issue and a one-off pull request
 - WHEN the operator expands it
-- THEN it SHALL list the issues that shipped in that bundle
-- AND each issue SHALL show a "merged Nd ago" timestamp
+- THEN it SHALL list the issue under Tracked issues and the one-off pull request under
+  Other pull requests
+- AND each entry SHALL show a "merged Nd ago" timestamp
 
-#### Scenario: Merged-not-released work sits in Unreleased
+#### Scenario: Row summary shows issue and PR counts
 
-- GIVEN an issue whose PR merged to `main` but no bundle has been cut since
+- GIVEN a bundle with two tracked issues and four pull requests in its PR set
+- WHEN the bundle row renders
+- THEN its summary SHALL show both counts, the tracked-issue count and the pull-request
+  count
+
+#### Scenario: One-off PR appears under its bundle, not Unreleased
+
+- GIVEN a pull request that shipped in a bundle but resolves to no execution-record
+  issue
+- WHEN the matrix renders
+- THEN that pull request SHALL appear under that bundle's Other pull requests
+- AND it SHALL NOT appear in the Unreleased row
+
+#### Scenario: Unreleased holds only in-flight tracked work
+
+- GIVEN a shipped execution-record issue whose pull requests are absent from every
+  bundle's PR set
 - WHEN the matrix renders
 - THEN that issue SHALL appear in the single Unreleased row
 - AND the Unreleased row SHALL carry no version and no hub-cluster markers
 
 #### Scenario: Next bundle absorbs Unreleased work
 
-- GIVEN issues in the Unreleased row
-- WHEN the next bundle is released and resolved by the shared bundle source
-- THEN those issues SHALL appear in that bundle's row instead of Unreleased
+- GIVEN an issue in the Unreleased row
+- WHEN a bundle is released whose PR set contains that issue's pull requests
+- THEN that issue SHALL appear in that bundle's row instead of Unreleased
 
 ### Requirement: SDLC-VIS-12 -- Fleet Map Cross-Link and Ship Animation
 
@@ -554,19 +606,23 @@ HYPERSHELL-401 is illustrative only and SHALL NOT be copied literally.
 ### Requirement: SDLC-VIS-19 -- Tests and Storybook
 
 The repository SHALL include: BFF tests for the SDLC source (snapshot envelope,
-never-refreshed 503, stale-serving 200, issue-to-bundle hop, rework-from-timeline
-counting) and for the `SdlcStateProvider` port with its GitHub adapter; UI tests for
-the wire mapper, the tab shell and shared freight-bar coupling, the aging-board
-position and SLE line, the rework meter encoding, the escalation lane ordering, and
-the matrix including the Unreleased row; and Storybook stories for default, loading,
-stale, and empty-lane states using a mock SDLC port.
+never-refreshed 503, stale-serving 200, PR-driven bundle contents grouped into tracked
+issues and other pull requests, a tracked issue delivered by multiple PRs in one
+bundle grouped once, the Unreleased row reduced to shipped issues absent from every
+bundle's PR set, rework-from-timeline counting) and for the `SdlcStateProvider` port
+with its GitHub adapter; UI tests for the wire mapper, the tab shell and shared
+freight-bar coupling, the aging-board position and SLE line, the rework meter encoding,
+the escalation lane ordering, and the matrix including both bundle groups and the
+Unreleased row; and Storybook stories for default, loading, stale, and empty-lane
+states using a mock SDLC port.
 
 #### Scenario: Storybook shows the board and matrix from a mock port
 
 - GIVEN a mock SDLC port fixture with issues across phases and a release history
 - WHEN the default Agent SDLC Storybook story renders
 - THEN it SHALL show the aging board, the rework meters, the escalation lane, and
-  the release x hub-cluster matrix including the Unreleased row
+  the release x hub-cluster matrix with its bundle contents grouped into tracked
+  issues and other pull requests, including the Unreleased row
 
 ## Non-Goals
 
