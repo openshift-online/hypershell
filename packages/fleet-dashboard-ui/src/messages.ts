@@ -742,6 +742,12 @@ export const messages = defineMessages({
     defaultMessage: "No work in progress.",
     description: "Shown when the Agent SDLC aging board has no cards.",
   },
+  sdlcBundleNoIssues: {
+    id: "fleet.sdlc.bundle.noIssues",
+    defaultMessage: "No tracked issues in this bundle.",
+    description:
+      "Shown when an expanded release bundle (or the Unreleased row) has no agent-funnel issues. The board tracks issues, not every PR or commit, so a bundle can ship work with no linked issue.",
+  },
   sdlcCardOpen: {
     id: "fleet.sdlc.card.open",
     defaultMessage: "Open issue #{number}: {title}",
