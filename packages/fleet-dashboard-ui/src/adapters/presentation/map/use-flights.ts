@@ -9,12 +9,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { computeFlights, type Flight } from "../../../domain/map/flights";
 import type { MapModel } from "../../../domain/map/model";
+import {
+  DUST_MS,
+  FLIGHT_MS,
+  prefersReducedMotion,
+} from "../shared/flight-motion";
 
-/** Arc travel time; must stay in sync with the overlay's .flightTravel/.flightScale dur. */
-export const FLIGHT_MS = 900;
-/** Dust + impact ring linger past landing before the flying copy is removed (their CSS
- *  delay ~matches FLIGHT_MS, then they play ~0.65s). */
-const DUST_MS = 800;
+// Re-exported so existing map imports keep working; the canonical value lives in the
+// shared flight-motion primitive used by both the map and the SDLC board.
+export { FLIGHT_MS };
 
 export interface ActiveFlight extends Flight {
   /** Stable React key so re-renders never restart an in-flight animation. */
@@ -22,14 +25,6 @@ export interface ActiveFlight extends Flight {
 }
 
 let seq = 0;
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 export interface FlightsState {
   readonly flights: readonly ActiveFlight[];

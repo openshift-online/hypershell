@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentSdlcData } from "../../../domain/agent-sdlc";
+import type { AgentSdlcCard, AgentSdlcData } from "../../../domain/agent-sdlc";
 import { identiName } from "../../../domain/map/identiname";
 import { parseRoute } from "../../../domain/navigation/route";
 import { createMemoryHistory } from "../../routing/history-port";
@@ -301,5 +301,185 @@ describe("AgentSdlcView matrix", () => {
       name: /#526 import part one/,
     });
     expect(groupedLink.getAttribute("href")).toBe("pr-526");
+  });
+});
+
+describe("AgentSdlcView phase-transition flights", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function card(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
+    return {
+      number: 10,
+      title: "Fly me",
+      url: "u",
+      phase: "spec",
+      timeInPhaseSeconds: 50,
+      scope: null,
+      escalation: null,
+      rework: null,
+      history: [],
+      ...partial,
+    };
+  }
+
+  function flightData(phase: string, timeInPhaseSeconds = 50): AgentSdlcData {
+    return {
+      phases: [
+        { key: "spec", sleSeconds: 100 },
+        { key: "spec-approved", sleSeconds: 100 },
+        { key: "shipped", sleSeconds: 0 },
+      ],
+      cards: [card({ phase, timeInPhaseSeconds })],
+      lane: [],
+      matrix: { hubClusters: [], rows: [] },
+    };
+  }
+
+  function tree(data: AgentSdlcData) {
+    const history = createMemoryHistory({ path: "/sdlc", search: "" });
+    return (
+      <IntlProvider locale="en" defaultLocale="en">
+        <RouterProvider history={history}>
+          <AgentSdlcView
+            data={data}
+            selectedBundleSeed={null}
+            nowMs={1_000_000}
+          />
+        </RouterProvider>
+      </IntlProvider>
+    );
+  }
+
+  function stubReducedMotion(matches: boolean): void {
+    vi.stubGlobal(
+      "matchMedia",
+      (query: string) =>
+        ({
+          matches,
+          media: query,
+          onchange: null,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+          addListener: () => undefined,
+          removeListener: () => undefined,
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
+  }
+
+  it("flies the whole card and holds its destination when a phase advances", () => {
+    const { rerender } = render(tree(flightData("spec")));
+    // Before the transition the card rests in its column (a queryable anchor).
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+
+    rerender(tree(flightData("spec-approved")));
+
+    // A full-card flight is airborne, and the destination holds the resting card (no
+    // double render) until it lands: the resting anchor is gone while the flight shows.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+  });
+
+  it("flies on a backward reject-loop move too", () => {
+    const { rerender } = render(tree(flightData("spec-approved")));
+    rerender(tree(flightData("spec")));
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it("does not restart or cancel an in-flight flight on a continuous-aging re-render", () => {
+    const { rerender } = render(tree(flightData("spec")));
+    rerender(tree(flightData("spec-approved")));
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+
+    // A later snapshot with the SAME phase (only the aged time advanced) must not emit a
+    // new flight nor cancel the one still airborne - exactly one flight remains.
+    rerender(tree(flightData("spec-approved", 90)));
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it("snaps (no flight) under prefers-reduced-motion", () => {
+    stubReducedMotion(true);
+    const { rerender } = render(tree(flightData("spec")));
+    rerender(tree(flightData("spec-approved")));
+    // No flight plays; the card snaps straight into its new column slot.
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+  });
+
+  it("flies the card into the release matrix on the Shipped hop", () => {
+    const onBoard: AgentSdlcData = {
+      ...flightData("spec-approved"),
+      cards: [card({ phase: "spec-approved" })],
+    };
+    const shipped: AgentSdlcData = {
+      ...onBoard,
+      cards: [],
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v1",
+            digest: "d1",
+            date: null,
+            unreleased: false,
+            hubClusters: [],
+            issues: [
+              {
+                number: 10,
+                title: "Fly me",
+                url: "u",
+                mergedAt: null,
+                mergedBy: null,
+                prs: [],
+              },
+            ],
+            otherPRs: [],
+          },
+        ],
+      },
+    };
+    const { rerender } = render(tree(onBoard));
+    rerender(tree(shipped));
+    // The departing card flies into the matrix (one flight), and is gone from the board.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+  });
+
+  it("flies each of several simultaneous phase changes on its own flight", () => {
+    const before: AgentSdlcData = {
+      ...flightData("spec"),
+      cards: [
+        card({ number: 10, title: "First", phase: "spec" }),
+        card({ number: 11, title: "Second", phase: "spec" }),
+      ],
+    };
+    const after: AgentSdlcData = {
+      ...before,
+      cards: [
+        card({ number: 10, title: "First", phase: "spec-approved" }),
+        card({ number: 11, title: "Second", phase: "spec-approved" }),
+      ],
+    };
+    const { rerender } = render(tree(before));
+    rerender(tree(after));
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelectorAll('[data-card-flight="11"]')).toHaveLength(
+      1,
+    );
   });
 });

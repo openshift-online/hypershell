@@ -387,25 +387,45 @@
   border-radius: 3px;
 }
 
-/* Ship flight (SDLC-VIS-12): a ghost card flies from the board column into the
-   matrix as an issue ships. Removed entirely under prefers-reduced-motion. */
-.flight {
+/* Phase-transition flight (SDLC-VIS-12a): a full-size clone of the card flies between
+   columns (and into the matrix on ship) along the shared arc, landing with the shared
+   dust burst. The box is pinned to the card's source rect in viewport coords; the shared
+   .flightTravel keyframe (flight-motion.module.css) carries it to the destination. The
+   whole mechanism no-ops under prefers-reduced-motion (handled in the shared CSS + the
+   useCardFlights hook, which launches nothing). */
+.flightClone {
   position: fixed;
   z-index: 60;
   pointer-events: none;
-  background: var(
-    --pf-t--global--background--color--secondary--default,
-    #1b1d21
-  );
-  border: 1px solid
-    var(--pf-t--global--color--status--success--default, #3d7317);
-  border-radius: var(--pf-t--global--border--radius--small, 6px);
-  padding: var(--pf-t--global--spacer--xs, 4px)
-    var(--pf-t--global--spacer--sm, 8px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-  transition:
-    transform 0.6s cubic-bezier(0.3, 0.7, 0.3, 1),
-    opacity 0.6s ease;
+}
+/* Landing impact (shared with the Fleet Map): a shockwave ring + outward dust specks,
+   centred on the landing point. */
+.flightBurst {
+  position: fixed;
+  z-index: 61;
+  pointer-events: none;
+}
+.flightRing {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  border: 2px solid #e4d7bf;
+  border-radius: 50%;
+}
+.flightDust {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #cbb79a;
 }
 
 @keyframes shipEnter {
@@ -428,8 +448,5 @@
   }
   .card {
     will-change: auto;
-  }
-  .flight {
-    transition: none;
   }
 }

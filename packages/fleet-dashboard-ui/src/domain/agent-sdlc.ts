@@ -228,3 +228,96 @@ export function bundlePRCount(row: AgentSdlcBundleRow): number {
   const grouped = row.issues.reduce((sum, issue) => sum + issue.prs.length, 0);
   return grouped + row.otherPRs.length;
 }
+
+/**
+ * One card phase-transition flight (SDLC-VIS-12a/12b): the board analogue of the map's
+ * Flight. The whole card flies from its old column slot to its new one.
+ */
+export interface CardFlight {
+  readonly number: number;
+  /** The server phase the card left. null when the card is newly on the board (an
+   *  intake entry that flies in, the board analogue of the map's release-tray special). */
+  readonly fromPhase: string | null;
+  /** The server phase the card arrived in; PHASE_SHIPPED for the final hop into the
+   *  release matrix. */
+  readonly toPhase: string;
+  /** True when the card left the board into the Shipped release matrix. */
+  readonly toShipped: boolean;
+}
+
+/** Issue numbers that appear as shipped (tracked) in the matrix for a snapshot. */
+function shippedNumbers(data: AgentSdlcData): Set<number> {
+  const nums = new Set<number>();
+  for (const row of data.matrix.rows) {
+    for (const issue of row.issues) {
+      nums.add(issue.number);
+    }
+  }
+  return nums;
+}
+
+/**
+ * Phase-transition flights for the transition prev -> next, derived PURELY by diffing
+ * the two already-fetched SDLC snapshots (the board analogue of the map's computeFlights,
+ * SDLC-VIS-12b). A flight is emitted when a card's server `phase` changes between the
+ * snapshots, when a card newly appears on the board (intake entry), or when a board card
+ * leaves into the Shipped matrix. Detection keys off the server `phase` ONLY (never the
+ * continuously aged copy), so the one-second continuous-aging re-render does not spuriously
+ * emit flights. Returns [] on first render (no prior snapshot) so the board never flies on
+ * initial load.
+ */
+export function computeCardFlights(
+  prev: AgentSdlcData | null,
+  next: AgentSdlcData,
+): CardFlight[] {
+  if (!prev) return [];
+
+  const prevPhaseByNumber = new Map(prev.cards.map((c) => [c.number, c.phase]));
+  const prevNumbers = new Set(prev.cards.map((c) => c.number));
+  const nextNumbers = new Set(next.cards.map((c) => c.number));
+  const nextShipped = shippedNumbers(next);
+
+  const flights: CardFlight[] = [];
+
+  // Cards present on the board in the new snapshot: a phase change flies between columns;
+  // a brand-new card flies in at intake.
+  for (const card of next.cards) {
+    const before = prevPhaseByNumber.get(card.number);
+    if (before === undefined) {
+      // Only count it as an intake entry if it was not simply shipped-and-returned; a
+      // card the previous snapshot had nowhere is a genuine new arrival.
+      if (!prevNumbers.has(card.number)) {
+        flights.push({
+          number: card.number,
+          fromPhase: null,
+          toPhase: card.phase,
+          toShipped: false,
+        });
+      }
+      continue;
+    }
+    if (before !== card.phase) {
+      flights.push({
+        number: card.number,
+        fromPhase: before,
+        toPhase: card.phase,
+        toShipped: false,
+      });
+    }
+  }
+
+  // Cards that left the board into the Shipped matrix: fly the departing card into the
+  // release matrix (subsumes the old separate ship-glyph animation).
+  for (const card of prev.cards) {
+    if (nextNumbers.has(card.number)) continue;
+    if (!nextShipped.has(card.number)) continue;
+    flights.push({
+      number: card.number,
+      fromPhase: card.phase,
+      toPhase: PHASE_SHIPPED,
+      toShipped: true,
+    });
+  }
+
+  return flights;
+}

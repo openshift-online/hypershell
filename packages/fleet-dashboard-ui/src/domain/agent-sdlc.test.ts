@@ -8,11 +8,14 @@ import {
   bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
+  computeCardFlights,
   PHASE_SHIPPED,
   reworkRatio,
   reworkSeverity,
   UNRELEASED_ROW_KEY,
+  type AgentSdlcBundleRow,
   type AgentSdlcCard,
+  type AgentSdlcData,
   type AgentSdlcPhase,
   type AgentSdlcPullRequest,
 } from "./agent-sdlc";
@@ -183,5 +186,123 @@ describe("bundleRowExpandKey", () => {
         otherPRs: [],
       }),
     ).toBe(UNRELEASED_ROW_KEY);
+  });
+});
+
+describe("computeCardFlights", () => {
+  function data(
+    cards: AgentSdlcCard[],
+    rows: AgentSdlcBundleRow[] = [],
+  ): AgentSdlcData {
+    return {
+      phases: [],
+      cards,
+      lane: [],
+      matrix: { hubClusters: [], rows },
+    };
+  }
+  const shippedRow = (numbers: number[]): AgentSdlcBundleRow => ({
+    version: "v1",
+    digest: "d1",
+    date: null,
+    unreleased: false,
+    hubClusters: [],
+    issues: numbers.map((number) => ({
+      number,
+      title: `#${String(number)}`,
+      url: "u",
+      mergedAt: null,
+      mergedBy: null,
+      prs: [],
+    })),
+    otherPRs: [],
+  });
+
+  it("returns nothing on first render (no prior snapshot)", () => {
+    expect(computeCardFlights(null, data([card({ number: 1 })]))).toEqual([]);
+  });
+
+  it("emits a forward flight when a card advances a phase", () => {
+    const prev = data([card({ number: 1, phase: "spec" })]);
+    const next = data([card({ number: 1, phase: "spec-approved" })]);
+    expect(computeCardFlights(prev, next)).toEqual([
+      {
+        number: 1,
+        fromPhase: "spec",
+        toPhase: "spec-approved",
+        toShipped: false,
+      },
+    ]);
+  });
+
+  it("emits a backward flight on a reject loop", () => {
+    const prev = data([card({ number: 1, phase: "spec-approved" })]);
+    const next = data([card({ number: 1, phase: "spec" })]);
+    expect(computeCardFlights(prev, next)).toEqual([
+      {
+        number: 1,
+        fromPhase: "spec-approved",
+        toPhase: "spec",
+        toShipped: false,
+      },
+    ]);
+  });
+
+  it("does NOT emit a flight when only the aged time-in-phase changes (same phase)", () => {
+    // The continuous-aging re-render advances timeInPhaseSeconds but never the server
+    // phase, so diffing on phase alone emits nothing (SDLC-VIS-12b).
+    const prev = data([
+      card({ number: 1, phase: "spec", timeInPhaseSeconds: 10 }),
+    ]);
+    const next = data([
+      card({ number: 1, phase: "spec", timeInPhaseSeconds: 70 }),
+    ]);
+    expect(computeCardFlights(prev, next)).toEqual([]);
+  });
+
+  it("flies a brand-new card in at intake", () => {
+    const prev = data([card({ number: 1, phase: "spec" })]);
+    const next = data([
+      card({ number: 1, phase: "spec" }),
+      card({ number: 2, phase: "intake" }),
+    ]);
+    expect(computeCardFlights(prev, next)).toEqual([
+      { number: 2, fromPhase: null, toPhase: "intake", toShipped: false },
+    ]);
+  });
+
+  it("flies a card into the Shipped matrix when it leaves the board", () => {
+    const prev = data([card({ number: 1, phase: "code-approved" })]);
+    const next = data([], [shippedRow([1])]);
+    expect(computeCardFlights(prev, next)).toEqual([
+      {
+        number: 1,
+        fromPhase: "code-approved",
+        toPhase: PHASE_SHIPPED,
+        toShipped: true,
+      },
+    ]);
+  });
+
+  it("does not fly a card that merely left the board without shipping", () => {
+    // Gone from the board but not present in the matrix (e.g. closed/filtered out
+    // upstream): no flight, nothing to land.
+    const prev = data([card({ number: 1, phase: "code" })]);
+    const next = data([]);
+    expect(computeCardFlights(prev, next)).toEqual([]);
+  });
+
+  it("emits a separate flight for each simultaneous transition", () => {
+    const prev = data([
+      card({ number: 1, phase: "spec" }),
+      card({ number: 2, phase: "code" }),
+    ]);
+    const next = data([
+      card({ number: 1, phase: "spec-approved" }),
+      card({ number: 2, phase: "code-approved" }),
+    ]);
+    const flights = computeCardFlights(prev, next);
+    expect(flights).toHaveLength(2);
+    expect(flights.map((f) => f.number).sort()).toEqual([1, 2]);
   });
 });

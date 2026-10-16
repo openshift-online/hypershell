@@ -325,14 +325,17 @@ spec:
                       raise ValueError(message)
 
 
-              def indexed(items, *, require_all=True):
+              def indexed(items, *, require_all=True, allow_empty=False):
+                  # allow_empty only applies when require_all is False: it permits a managed
+                  # artifact list that is empty after exclusions. require_all enforces full
+                  # component coverage and takes precedence, so the two are not combined.
                   items = [item for item in items if item["name"] not in EXCLUDED_COMPONENTS]
                   result = {item["name"]: item for item in items}
                   require(len(result) == len(items), "Duplicate component names")
                   require(set(result) <= set(COMPONENTS), "Unexpected component names: " + ", ".join(sorted(set(result) - set(COMPONENTS))))
                   if require_all:
                       require(set(result) == set(COMPONENTS), "The snapshot is missing required components: " + ", ".join(sorted(set(COMPONENTS) - set(result))))
-                  else:
+                  elif not allow_empty:
                       require(result, "The release has no image artifacts")
                   return result
 
@@ -362,7 +365,12 @@ spec:
                       require(pull_request_prefixes <= push_prefixes,
                               "Pull request metadata requires an explicit push event")
                   components = indexed(snapshot["spec"]["components"])
-                  images = indexed(release["status"].get("artifacts", {}).get("images", []), require_all=False)
+                  # The managed release mirrors only the images that changed, so its artifact
+                  # list is a possibly partial subset of the accepted Snapshot. A merge that
+                  # touches only an excluded component leaves it empty after exclusions; the
+                  # bundle is still assembled from the complete Snapshot digests. Snapshot
+                  # completeness above is the sole component-coverage gate (HSR-06).
+                  images = indexed(release["status"].get("artifacts", {}).get("images", []), require_all=False, allow_empty=True)
                   output = []
                   for name in COMPONENTS:
                       component = components[name]
