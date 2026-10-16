@@ -43,31 +43,48 @@ func TestAuthorizeUserGRPC_ImportKinds(t *testing.T) {
 }
 
 // TestAuthorizeControlPlaneGRPC_ImportKinds confirms the registered control plane
-// may read and write every import kind through the gRPC write path (the single
-// bounded control-plane write exception). gateways is nil: these services carry
-// no per-resource cluster check, so the resolver is never consulted.
+// may READ every import kind (list/watch/get) but may NOT write them over gRPC:
+// the import reconciler that would use the write path is deferred (REPO-C-IMPORT),
+// and these resources are fleet-wide, so authorizing writes now would let any
+// spoke mutate another fleet's import resources. gateways is nil: these services
+// carry no per-resource cluster check, so the resolver is never consulted.
 func TestAuthorizeControlPlaneGRPC_ImportKinds(t *testing.T) {
 	const clusterID = "cluster-1"
-	methods := []struct {
+	reads := []struct {
+		method string
+		req    interface{}
+	}{
+		{"/hypershell.v1.RepositoryService/ListRepositories", &pb.ListRepositoriesRequest{}},
+		{"/hypershell.v1.RepositoryService/WatchRepositories", nil},
+		{"/hypershell.v1.RepositoryService/GetRepository", &pb.GetRepositoryRequest{Id: "r-1"}},
+		{"/hypershell.v1.SecretSourceService/WatchSecretSources", nil},
+		{"/hypershell.v1.SandboxTemplateService/ListSandboxTemplates", &pb.ListSandboxTemplatesRequest{}},
+	}
+	for _, m := range reads {
+		t.Run("read "+m.method, func(t *testing.T) {
+			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil); err != nil {
+				t.Fatalf("authorizeControlPlaneGRPC(%s) = %v, want nil", m.method, err)
+			}
+		})
+	}
+
+	writes := []struct {
 		method string
 		req    interface{}
 	}{
 		{"/hypershell.v1.RepositoryService/CreateRepository", &pb.CreateRepositoryRequest{}},
 		{"/hypershell.v1.RepositoryService/UpdateRepository", &pb.UpdateRepositoryRequest{Id: "r-1"}},
 		{"/hypershell.v1.RepositoryService/DeleteRepository", &pb.DeleteRepositoryRequest{Id: "r-1"}},
-		{"/hypershell.v1.RepositoryService/ListRepositories", &pb.ListRepositoriesRequest{}},
-		{"/hypershell.v1.RepositoryService/WatchRepositories", nil},
 		{"/hypershell.v1.SandboxTemplateService/CreateSandboxTemplate", &pb.CreateSandboxTemplateRequest{}},
 		{"/hypershell.v1.ProviderSpecService/DeleteProviderSpec", &pb.DeleteProviderSpecRequest{Id: "p-1"}},
 		{"/hypershell.v1.ProviderBindingService/UpdateProviderBinding", &pb.UpdateProviderBindingRequest{Id: "b-1"}},
 		{"/hypershell.v1.InferenceRouteService/CreateInferenceRoute", &pb.CreateInferenceRouteRequest{}},
 		{"/hypershell.v1.SecretSourceService/CreateSecretSource", &pb.CreateSecretSourceRequest{}},
-		{"/hypershell.v1.SecretSourceService/WatchSecretSources", nil},
 	}
-	for _, m := range methods {
-		t.Run(m.method, func(t *testing.T) {
-			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil); err != nil {
-				t.Fatalf("authorizeControlPlaneGRPC(%s) = %v, want nil", m.method, err)
+	for _, m := range writes {
+		t.Run("write denied "+m.method, func(t *testing.T) {
+			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil); status.Code(err) != codes.PermissionDenied {
+				t.Fatalf("authorizeControlPlaneGRPC(%s) = %s, want PermissionDenied", m.method, status.Code(err))
 			}
 		})
 	}

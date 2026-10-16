@@ -54,6 +54,10 @@ func TestSecretSubmission_WritesStoreFirstThenRecord_NeverReturnsValue(t *testin
 	if strings.Contains(rec.Body.String(), "topsecret") || strings.Contains(rec.Body.String(), "\"value\"") {
 		t.Fatalf("response leaked the secret value: %s", rec.Body.String())
 	}
+	// Defense in depth: the submission response is marked no-store.
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
 }
 
 func TestSecretSubmission_StoreFailureLeavesNoRecord(t *testing.T) {

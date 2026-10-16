@@ -89,6 +89,10 @@ func (h *secretSourceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *secretSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var resource openapi.SecretSource
+	// Defense in depth: a secret submission may carry a value in the request. The
+	// response never echoes it, but mark the whole create response no-store so no
+	// cache or proxy retains the request/response pair.
+	w.Header().Set("Cache-Control", "no-store")
 	cfg := &handlers.HandlerConfig{
 		Body: &resource,
 		Action: func() (interface{}, *errors.ServiceError) {

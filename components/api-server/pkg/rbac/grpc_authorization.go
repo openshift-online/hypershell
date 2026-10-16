@@ -151,13 +151,20 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		return denied()
 	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
 		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
-		// The declarative-import reconciler is the single, bounded control-plane
-		// write exception (data-model.spec.md "Control-plane write exception"): it
-		// reads these Repository-owned import kinds and creates/updates/prunes them
-		// through the generated gRPC write path. These resources are not
-		// cluster-scoped, so there is no per-resource cluster check here; ownership
-		// is enforced server-side by the repository_id mark the reconciler sets.
-		return nil
+		// A registered control plane may READ these import kinds (list/watch/get)
+		// to drive reconciliation. Writes are intentionally NOT authorized here: the
+		// declarative-import reconciler that uses the gRPC write path (REPO-C-IMPORT)
+		// is not yet implemented, and these resources are fleet-wide (not
+		// cluster-scoped), so authorizing writes now would let any registered spoke
+		// create/update/prune another fleet's import resources, widening the
+		// spoke-isolation boundary this interceptor exists to hold. The write
+		// authorization must be defined together with the reconciler and its
+		// repository-ownership/identity model; until then writes fall through to
+		// default-deny.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
 	}
 	return denied()
 }
