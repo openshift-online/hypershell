@@ -3,8 +3,8 @@
 #
 # Exercises login, whoami, list/get for every resource type, create/delete of a
 # transient SandboxTemplate, hsctl apply -f, hsctl get gateway --show-connection,
-# and logout.  It does NOT provision a full OpenShell gateway -- for that use
-# e2e-openshell.sh.
+# and logout.  It does NOT provision a full OpenShell gateway -- for that run the
+# Go E2ESuite (E2E_INFRA_DRIVER=openshift make e2e, tests/e2e/).
 #
 # Usage:
 #   bash tests/e2e/e2e-hsctl.sh              # auto-detects Kind cluster
