@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -302,10 +303,6 @@ func fullCommitSHA(sha string) bool {
 	if len(sha) != 40 {
 		return false
 	}
-	for _, c := range sha {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
+	_, err := hex.DecodeString(sha)
+	return err == nil
 }
