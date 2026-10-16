@@ -84,7 +84,7 @@ func grpcCallerContext(t *testing.T, username, sub string) context.Context {
 
 func runUnary(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindingLookup, recorder DailyActivityRecorder, config AuthzConfig, ctx context.Context, method string, req interface{}) (bool, error) {
 	t.Helper()
-	interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, recorder, resolver, fakeGateways{}, config)
+	interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, recorder, resolver, fakeGateways{}, nil, config)
 	called := false
 	_, err := interceptor(ctx, req, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {
 		called = true
@@ -95,7 +95,7 @@ func runUnary(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindi
 
 func runStream(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindingLookup, config AuthzConfig, ctx context.Context, method string) (bool, error) {
 	t.Helper()
-	interceptor := RBACStreamInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, resolver, fakeGateways{}, config)
+	interceptor := RBACStreamInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, resolver, fakeGateways{}, nil, config)
 	called := false
 	err := interceptor(nil, &fakeServerStream{ctx: ctx}, &grpc.StreamServerInfo{FullMethod: method}, func(interface{}, grpc.ServerStream) error {
 		called = true
@@ -213,7 +213,7 @@ func TestRegisteredClusterLookupErrorIsUnavailable(t *testing.T) {
 	}
 
 	// A failing gateway lookup is Unavailable as well, never a grant.
-	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{userID: "user-1"}, nil, nil, registeredSpokes(), fakeGateways{err: errors.New("db down")}, enforcedWithAllowlist)
+	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{userID: "user-1"}, nil, nil, registeredSpokes(), fakeGateways{err: errors.New("db down")}, nil, enforcedWithAllowlist)
 	_, err = interceptor(grpcCallerContext(t, spokeUsername, spokeSub), &pb.SetGatewayVersionRequest{Id: "gw-own"}, &grpc.UnaryServerInfo{FullMethod: gatewaySvc("SetGatewayVersion")},
 		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
 	if status.Code(err) != codes.Unavailable {

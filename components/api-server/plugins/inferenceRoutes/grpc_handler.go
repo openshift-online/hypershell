@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
@@ -51,7 +52,7 @@ func (h *inferenceRouteGRPCHandler) CreateInferenceRoute(ctx context.Context, re
 		WorkspaceId:       req.WorkspaceId,
 		ProviderBindingId: req.ProviderBindingId,
 		Model:             req.Model,
-		RepositoryId:      req.RepositoryId,
+		RepositoryId:      pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}
 	created, svcErr := h.service.Create(ctx, item)
 	if svcErr != nil {
@@ -64,7 +65,14 @@ func (h *inferenceRouteGRPCHandler) DeleteInferenceRoute(ctx context.Context, re
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
-	if svcErr := h.service.Delete(ctx, req.Id); svcErr != nil {
+	found, svcErr := h.service.Get(ctx, req.Id)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if svcErr = h.service.Delete(ctx, req.Id); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.DeleteInferenceRouteResponse{}, nil

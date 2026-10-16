@@ -20,6 +20,7 @@ import (
 
 	provisionerpb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/directory"
@@ -415,18 +416,29 @@ func main() {
 
 	// AgentRuntime watch (issue #521): cluster-scoped, seed-on-reconnect transport
 	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
-	// (Namespace, ServiceAccount, NetworkPolicy, one ExternalSecret per SecretSource,
-	// coordinator CronJob) and drives the status lifecycle. Gateway-side workspace
-	// provisioning (#4) is deferred, blocked on the gateway workspace API design
-	// (#526). clientset/dynamicClient may be nil on a control plane without cluster
-	// access, in which case the reconciler skips cluster-side provisioning.
+	// (Namespace, ServiceAccount, NetworkPolicy, one Kubernetes Secret per
+	// SecretSource placed directly from the read-only secret store, coordinator
+	// CronJob) and drives the status lifecycle. Gateway-side workspace provisioning
+	// (#4) is deferred, blocked on the gateway workspace API design (#526). clientset
+	// may be nil on a control plane without cluster access, in which case the
+	// reconciler skips cluster-side provisioning.
 	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
 	// reconciler's nil check works (a nil pointer in an interface is not == nil).
 	var agentRuntimeKube kubernetes.Interface
 	if clientset != nil {
 		agentRuntimeKube = clientset
 	}
-	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, dynamicClient, conn, clusterID)
+	// Read-only secret-store client: the control plane reads each SecretSource value
+	// and places a Kubernetes Secret directly (no ExternalSecret/ESO). Configuration,
+	// not code, selects the backend (HYPERSHELL_SECRET_STORE_*); the default is a
+	// disabled reader that rejects reads, so a runtime declaring a SecretSource is
+	// degraded until a store is configured.
+	secretReader, secretReaderErr := secretstore.NewReaderFromEnv()
+	if secretReaderErr != nil {
+		log.Printf("WARN secret store reader misconfigured, SecretSource placement will fail: %v", secretReaderErr)
+		secretReader = secretstore.NewErrorReader(secretReaderErr)
+	}
+	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, secretReader, conn, clusterID)
 	supervise("AgentRuntime watch", func(ctx context.Context) error {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})

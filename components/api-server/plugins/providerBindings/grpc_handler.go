@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
@@ -52,7 +53,7 @@ func (h *providerBindingGRPCHandler) CreateProviderBinding(ctx context.Context, 
 		WorkspaceId:     req.WorkspaceId,
 		ProviderSpecId:  req.ProviderSpecId,
 		RefreshStrategy: req.RefreshStrategy,
-		RepositoryId:    req.RepositoryId,
+		RepositoryId:    pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}
 	if req.SecretSourceId != nil {
 		item.SecretSourceId = *req.SecretSourceId
@@ -71,6 +72,9 @@ func (h *providerBindingGRPCHandler) UpdateProviderBinding(ctx context.Context, 
 	found, svcErr := h.service.Get(ctx, req.Id)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
 	}
 	if req.Name != nil {
 		found.Name = *req.Name
@@ -92,7 +96,14 @@ func (h *providerBindingGRPCHandler) DeleteProviderBinding(ctx context.Context, 
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
-	if svcErr := h.service.Delete(ctx, req.Id); svcErr != nil {
+	found, svcErr := h.service.Get(ctx, req.Id)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if svcErr = h.service.Delete(ctx, req.Id); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.DeleteProviderBindingResponse{}, nil

@@ -7,7 +7,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"google.golang.org/grpc/metadata"
+
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
@@ -137,5 +140,67 @@ func TestDeleteSandboxTemplate_Success(t *testing.T) {
 	}
 	if svc.deletedID != "st-1" {
 		t.Fatalf("deleted id = %q, want st-1", svc.deletedID)
+	}
+}
+
+// TestCreateSandboxTemplate_ImportOwnershipBinding proves the server sets the
+// repository_id ownership mark from the reconciled-Repository metadata and ignores a
+// client-supplied repository_id, so ownership cannot be forged (rbac-enforcement.spec.md
+// "Import reconciler writes an owned ext resource and ownership cannot be forged").
+func TestCreateSandboxTemplate_ImportOwnershipBinding(t *testing.T) {
+	svc := &stubSandboxTemplateService{ret: sampleSandboxTemplate()}
+	h := &sandboxTemplateGRPCHandler{service: svc}
+	forged := "repo-2"
+	ctx := metadata.NewIncomingContext(context.Background(),
+		metadata.Pairs(pkgrbac.ImportRepositoryMetadataKey, "repo-1"))
+
+	_, err := h.CreateSandboxTemplate(ctx, &pb.CreateSandboxTemplateRequest{
+		Name: "n", Image: "img", RepositoryId: &forged,
+	})
+	if err != nil {
+		t.Fatalf("CreateSandboxTemplate: %v", err)
+	}
+	if svc.got.RepositoryId == nil || *svc.got.RepositoryId != "repo-1" {
+		t.Fatalf("repository_id = %v, want repo-1 from metadata (client value ignored)", svc.got.RepositoryId)
+	}
+}
+
+// TestCreateSandboxTemplate_NoImportContextLeavesOwnershipUnset proves a direct
+// create (no import metadata) persists no ownership mark, so it is treated as created
+// directly and never pruned by the import.
+func TestCreateSandboxTemplate_NoImportContextLeavesOwnershipUnset(t *testing.T) {
+	svc := &stubSandboxTemplateService{ret: sampleSandboxTemplate()}
+	h := &sandboxTemplateGRPCHandler{service: svc}
+	forged := "repo-2"
+
+	if _, err := h.CreateSandboxTemplate(context.Background(), &pb.CreateSandboxTemplateRequest{
+		Name: "n", Image: "img", RepositoryId: &forged,
+	}); err != nil {
+		t.Fatalf("CreateSandboxTemplate: %v", err)
+	}
+	if svc.got.RepositoryId != nil {
+		t.Fatalf("repository_id = %v, want nil for a direct create", svc.got.RepositoryId)
+	}
+}
+
+// TestWriteSandboxTemplate_RefusedOutsideOwningRepository proves update and delete of
+// a resource owned by a different Repository (or unowned) are refused in the import
+// context (rbac-enforcement.spec.md "Import write is refused outside the owning
+// Repository").
+func TestWriteSandboxTemplate_RefusedOutsideOwningRepository(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(),
+		metadata.Pairs(pkgrbac.ImportRepositoryMetadataKey, "repo-1"))
+	otherOwner := "repo-2"
+	owned := sampleSandboxTemplate()
+	owned.RepositoryId = &otherOwner
+
+	h := &sandboxTemplateGRPCHandler{service: &stubSandboxTemplateService{ret: owned}}
+
+	name := "n"
+	if _, err := h.UpdateSandboxTemplate(ctx, &pb.UpdateSandboxTemplateRequest{Id: "st-1", Name: &name}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("update: code = %s, want PermissionDenied", status.Code(err))
+	}
+	if _, err := h.DeleteSandboxTemplate(ctx, &pb.DeleteSandboxTemplateRequest{Id: "st-1"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("delete: code = %s, want PermissionDenied", status.Code(err))
 	}
 }

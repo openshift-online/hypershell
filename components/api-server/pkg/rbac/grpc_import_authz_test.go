@@ -43,11 +43,12 @@ func TestAuthorizeUserGRPC_ImportKinds(t *testing.T) {
 }
 
 // TestAuthorizeControlPlaneGRPC_ImportKinds confirms the registered control plane
-// may READ every import kind (list/watch/get) but may NOT write them over gRPC:
-// the import reconciler that would use the write path is deferred (REPO-C-IMPORT),
-// and these resources are fleet-wide, so authorizing writes now would let any
-// spoke mutate another fleet's import resources. gateways is nil: these services
-// carry no per-resource cluster check, so the resolver is never consulted.
+// may READ every import kind (list/watch/get), and that a write WITHOUT a
+// reconciled-Repository binding (no import metadata) is denied: an owned-kind write
+// needs the import context (see TestAuthorizeControlPlaneGRPC_ImportWriteBinding),
+// and Repository writes stay denied entirely. gateways and imports are nil here: no
+// per-resource cluster check applies and, with no metadata, the import resolver is
+// never consulted.
 func TestAuthorizeControlPlaneGRPC_ImportKinds(t *testing.T) {
 	const clusterID = "cluster-1"
 	reads := []struct {
@@ -62,7 +63,7 @@ func TestAuthorizeControlPlaneGRPC_ImportKinds(t *testing.T) {
 	}
 	for _, m := range reads {
 		t.Run("read "+m.method, func(t *testing.T) {
-			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil); err != nil {
+			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil, nil); err != nil {
 				t.Fatalf("authorizeControlPlaneGRPC(%s) = %v, want nil", m.method, err)
 			}
 		})
@@ -83,7 +84,7 @@ func TestAuthorizeControlPlaneGRPC_ImportKinds(t *testing.T) {
 	}
 	for _, m := range writes {
 		t.Run("write denied "+m.method, func(t *testing.T) {
-			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil); status.Code(err) != codes.PermissionDenied {
+			if err := authorizeControlPlaneGRPC(context.Background(), clusterID, m.method, m.req, nil, nil); status.Code(err) != codes.PermissionDenied {
 				t.Fatalf("authorizeControlPlaneGRPC(%s) = %s, want PermissionDenied", m.method, status.Code(err))
 			}
 		})

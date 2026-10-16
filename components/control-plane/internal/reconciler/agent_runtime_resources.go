@@ -14,9 +14,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -39,17 +36,6 @@ const (
 	// agentSecretMountRoot is where file-valued SecretSources are mounted.
 	agentSecretMountRoot = "/var/run/secrets/agent"
 )
-
-// externalSecretGVR is the external-secrets.io ExternalSecret resource the
-// reconciler renders one of per SecretSource. It is a CRD, so it is applied
-// through the dynamic client. The served version is v1, matching the version the
-// rest of the repo installs and references (deploy/components manifests,
-// specs/platform, README); no v1beta1 CRD is installed on target clusters.
-var externalSecretGVR = schema.GroupVersionResource{
-	Group:    "external-secrets.io",
-	Version:  "v1",
-	Resource: "externalsecrets",
-}
 
 var dns1123Invalid = regexp.MustCompile(`[^a-z0-9-]+`)
 
@@ -195,12 +181,12 @@ type secretSourceKeyMapping struct {
 	TargetKey string `json:"target_key"`
 }
 
-// secretName is the Kubernetes Secret an ExternalSecret syncs a SecretSource into.
-// It matches the ExternalSecret name so the CronJob can reference it. A short hash
-// of the original (unsanitized) name is appended so two SecretSources whose names
-// sanitize to the same DNS-1123 label (for example "GitHub_Key" and "github-key")
-// never collide into one ExternalSecret - which would overwrite one secret and, for
-// file-valued purposes, produce duplicate CronJob volume names the API rejects.
+// secretName is the Kubernetes Secret the reconciler places a SecretSource value
+// into. The CronJob references it by this name. A short hash of the original
+// (unsanitized) name is appended so two SecretSources whose names sanitize to the
+// same DNS-1123 label (for example "GitHub_Key" and "github-key") never collide
+// into one Secret - which would overwrite one value and, for file-valued purposes,
+// produce duplicate CronJob volume names the API rejects.
 func secretName(source *pb.SecretSource) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(source.GetName()))
@@ -213,168 +199,143 @@ func secretName(source *pb.SecretSource) string {
 	return base + "-" + suffix
 }
 
-// buildExternalSecret renders the ExternalSecret for one SecretSource. When the
-// SecretSource carries key_mappings only those keys are extracted and renamed;
-// otherwise every field at the backend path is extracted under its original name.
-func buildExternalSecret(ar *pb.AgentRuntime, namespace string, source *pb.SecretSource) (*unstructured.Unstructured, error) {
-	name := secretName(source)
-	spec := map[string]interface{}{
-		"refreshInterval": "1h",
-		"secretStoreRef": map[string]interface{}{
-			"name": secretStoreName(source.GetBackend()),
-			"kind": "ClusterSecretStore",
-		},
-		"target": map[string]interface{}{
-			"name":           name,
-			"creationPolicy": "Owner",
-		},
-	}
-
+// buildSecretData translates a stored SecretSource value into the Kubernetes
+// Secret data map, replacing the removed ExternalSecret key mapping (ESO is no
+// longer in the architecture; see control-plane.spec.md "AgentRuntime Cluster
+// Resource Provisioning" and security.spec.md "Secret Store Access Is
+// Single-Directional per Component"). It mirrors the semantics the ExternalSecret
+// used to express, done in-process over the single value the control plane reads
+// from the store. The resulting key names MUST match what the coordinator env
+// wiring (wireSecretSource) references for each purpose, so the two stay
+// consistent.
+//
+//   - With key_mappings: the stored value is a JSON object; only the named source
+//     keys are extracted and renamed to their target keys (the in-process analog of
+//     the ExternalSecret per-key remoteRef/property extraction).
+//   - gateway-identity: the stored value is a JSON object; each field is placed
+//     under its own key (endpoint, issuer, client_id, audience, client_secret), the
+//     keys the coordinator env vars reference.
+//   - api-key: the raw value is placed under the "api-key" key.
+//   - service-account-key: the raw value is placed under "key.json" (the file the
+//     coordinator mounts).
+//   - app-private-key: the raw value is placed under "key.pem".
+//   - any other purpose: a JSON object is expanded field by field; a non-structured
+//     opaque value is placed under a single "value" key.
+func buildSecretData(source *pb.SecretSource, value string) (map[string][]byte, error) {
 	if km := strings.TrimSpace(source.GetKeyMappings()); km != "" && km != "null" {
 		var mappings []secretSourceKeyMapping
 		if err := json.Unmarshal([]byte(km), &mappings); err != nil {
 			return nil, fmt.Errorf("parse key_mappings for secret source %q: %w", source.GetName(), err)
 		}
-		data := make([]interface{}, 0, len(mappings))
+		fields, err := decodeSecretObject(value)
+		if err != nil {
+			return nil, fmt.Errorf("secret source %q value is not a JSON object but declares key_mappings: %w", source.GetName(), err)
+		}
+		data := make(map[string][]byte, len(mappings))
 		for _, m := range mappings {
 			target := m.TargetKey
 			if target == "" {
 				target = m.SourceKey
 			}
-			data = append(data, map[string]interface{}{
-				"secretKey": target,
-				"remoteRef": map[string]interface{}{
-					"key":      source.GetPath(),
-					"property": m.SourceKey,
-				},
-			})
+			fieldValue, ok := fields[m.SourceKey]
+			if !ok {
+				return nil, fmt.Errorf("secret source %q value has no key %q named by key_mappings", source.GetName(), m.SourceKey)
+			}
+			data[target] = []byte(fieldValue)
 		}
-		spec["data"] = data
-	} else {
-		spec["dataFrom"] = []interface{}{
-			map[string]interface{}{
-				"extract": map[string]interface{}{"key": source.GetPath()},
-			},
-		}
+		return data, nil
 	}
 
-	labels := map[string]interface{}{}
-	for k, v := range agentRuntimeLabels(ar) {
-		labels[k] = v
+	switch source.GetPurpose() {
+	case "gateway-identity":
+		fields, err := decodeSecretObject(value)
+		if err != nil {
+			return nil, fmt.Errorf("secret source %q (gateway-identity) value must be a JSON object: %w", source.GetName(), err)
+		}
+		data := make(map[string][]byte, len(fields))
+		for k, v := range fields {
+			data[k] = []byte(v)
+		}
+		return data, nil
+	case "api-key":
+		return map[string][]byte{"api-key": []byte(value)}, nil
+	case "service-account-key":
+		return map[string][]byte{"key.json": []byte(value)}, nil
+	case "app-private-key":
+		return map[string][]byte{"key.pem": []byte(value)}, nil
 	}
 
-	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": externalSecretGVR.Group + "/" + externalSecretGVR.Version,
-		"kind":       "ExternalSecret",
-		"metadata": map[string]interface{}{
-			"name":      name,
-			"namespace": namespace,
-			"labels":    labels,
+	if fields, err := decodeSecretObject(value); err == nil {
+		data := make(map[string][]byte, len(fields))
+		for k, v := range fields {
+			data[k] = []byte(v)
+		}
+		return data, nil
+	}
+	// A non-structured opaque value: place it under a single conventional key.
+	return map[string][]byte{"value": []byte(value)}, nil
+}
+
+// decodeSecretObject parses a stored value as a flat JSON object of string fields.
+// It returns an error when the value is not a JSON object, so a caller that
+// requires structured data (key_mappings) can fail at provisioning time rather
+// than place an empty or malformed Secret.
+func decodeSecretObject(value string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, fmt.Errorf("value is not a JSON object")
+	}
+	var fields map[string]string
+	// Deliberately do NOT wrap the json error: a decode error can echo bytes of the
+	// malformed input, which here is the secret value (security.spec.md: a raw stored
+	// secret value SHALL NOT appear in logs or errors).
+	if err := json.Unmarshal([]byte(trimmed), &fields); err != nil {
+		return nil, fmt.Errorf("value is not a decodable JSON object of string fields")
+	}
+	return fields, nil
+}
+
+// buildSecret renders the Kubernetes Secret for one SecretSource from the value
+// the control plane read from the store. The Secret carries the ownership labels
+// so a removed SecretSource's Secret can be pruned.
+func buildSecret(ar *pb.AgentRuntime, namespace string, source *pb.SecretSource, value string) (*corev1.Secret, error) {
+	data, err := buildSecretData(source, value)
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName(source),
+			Namespace: namespace,
+			Labels:    agentRuntimeLabels(ar),
 		},
-		"spec": spec,
-	}}, nil
+		Type: corev1.SecretTypeOpaque,
+		Data: data,
+	}, nil
 }
 
-// secretStoreName maps a SecretSource backend to the conventional
-// ClusterSecretStore name the external-secrets operator is expected to expose for
-// that backend. Configuration, not code, selects the concrete backend.
-func secretStoreName(backend string) string {
-	switch backend {
-	case "aws-secrets-manager":
-		return "aws-secrets-manager"
-	case "kubernetes":
-		return "kubernetes"
-	case "vault":
-		return "vault-backend"
-	default:
-		return "vault-backend"
-	}
-}
-
-// applyExternalSecret creates or updates one ExternalSecret through the dynamic
-// client, carrying the existing resourceVersion forward on update.
-func applyExternalSecret(ctx context.Context, dyn dynamic.Interface, namespace string, obj *unstructured.Unstructured) error {
-	client := dyn.Resource(externalSecretGVR).Namespace(namespace)
-	name := obj.GetName()
-	existing, err := client.Get(ctx, name, metav1.GetOptions{})
+// applySecret creates or updates one placed Secret. Placement is one-shot per
+// reconcile: the control plane reads the store and writes the Secret directly, with
+// no ExternalSecret and no operator-driven resync (security.spec.md).
+func applySecret(ctx context.Context, kube kubernetes.Interface, namespace string, desired *corev1.Secret) error {
+	name := desired.Name
+	existing, err := kube.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		if _, err := client.Create(ctx, obj, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("create external secret %s/%s: %w", namespace, name, err)
+		if _, err := kube.CoreV1().Secrets(namespace).Create(ctx, desired, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("create secret %s/%s: %w", namespace, name, err)
 		}
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("get external secret %s/%s: %w", namespace, name, err)
+		return fmt.Errorf("get secret %s/%s: %w", namespace, name, err)
 	}
-	obj.SetResourceVersion(existing.GetResourceVersion())
-	// Merge labels so a label another controller added to the owned ExternalSecret
-	// survives the update, consistent with the typed resources' mergeLabels path.
-	obj.SetLabels(mergeLabels(existing.GetLabels(), obj.GetLabels()))
-	// status is an operator-owned subresource; carry it forward so a spec update
-	// never clobbers the sync state the reconciler later reads for Degraded
-	// detection.
-	if existingStatus, found, _ := unstructured.NestedMap(existing.Object, "status"); found {
-		if err := unstructured.SetNestedMap(obj.Object, existingStatus, "status"); err != nil {
-			return fmt.Errorf("preserve external secret %s/%s status: %w", namespace, name, err)
-		}
-	}
-	if _, err := client.Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update external secret %s/%s: %w", namespace, name, err)
+	existing.Labels = mergeLabels(existing.Labels, desired.Labels)
+	existing.Data = desired.Data
+	existing.Type = desired.Type
+	if _, err := kube.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update secret %s/%s: %w", namespace, name, err)
 	}
 	return nil
-}
-
-// externalSecretSyncFailed reports whether an ExternalSecret is in a sync-error
-// state (its Ready condition is False), returning the reason/message for the
-// AgentRuntime status. A freshly created ExternalSecret has no status yet and is
-// treated as still syncing (not failed), so a brand-new runtime is not flapped to
-// Degraded before the external-secrets operator has had a chance to reconcile.
-func externalSecretSyncFailed(obj *unstructured.Unstructured) (bool, string) {
-	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
-	if err != nil || !found {
-		return false, ""
-	}
-	for _, c := range conditions {
-		cond, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		condType, _ := cond["type"].(string)
-		condStatus, _ := cond["status"].(string)
-		if condType == "Ready" && condStatus == "False" {
-			msg, _ := cond["message"].(string)
-			reason, _ := cond["reason"].(string)
-			if msg == "" {
-				msg = reason
-			}
-			return true, msg
-		}
-	}
-	return false, ""
-}
-
-// externalSecretSyncReady reports whether an ExternalSecret has confirmed a
-// successful sync (its Ready condition is True). A freshly created ExternalSecret
-// whose operator has not yet reconciled it has no Ready condition and is not yet
-// ready; the reconciler treats that as still-syncing and requeues rather than
-// latching the AgentRuntime to Running before the secret has actually landed.
-func externalSecretSyncReady(obj *unstructured.Unstructured) bool {
-	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
-	if err != nil || !found {
-		return false
-	}
-	for _, c := range conditions {
-		cond, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		condType, _ := cond["type"].(string)
-		condStatus, _ := cond["status"].(string)
-		if condType == "Ready" && condStatus == "True" {
-			return true
-		}
-	}
-	return false
 }
 
 // secretEnvWiring is the env vars, volumes, and volume mounts a SecretSource
@@ -415,7 +376,7 @@ func wireSecretSource(source *pb.SecretSource) secretEnvWiring {
 	return w
 }
 
-// secretEnv builds an env var sourced from a key in a synced Secret.
+// secretEnv builds an env var sourced from a key in a placed Secret.
 func secretEnv(envName, secret, key string) corev1.EnvVar {
 	return corev1.EnvVar{
 		Name: envName,
@@ -544,7 +505,7 @@ func mergeLabels(existing, desired map[string]string) map[string]string {
 }
 
 // deleteAgentRuntimeNamespace deletes the agent namespace, which cascades to the
-// ServiceAccount, NetworkPolicy, ExternalSecrets, and CronJob it contains. A
+// ServiceAccount, NetworkPolicy, placed Secrets, and CronJob it contains. A
 // missing namespace is treated as already deleted.
 func deleteAgentRuntimeNamespace(ctx context.Context, kube kubernetes.Interface, namespace string) error {
 	err := kube.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})

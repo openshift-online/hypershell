@@ -73,8 +73,9 @@ func isManagedClusterRecordMutation(fullMethod string) bool {
 }
 
 // authorizeControlPlaneGRPC decides a call from the control plane registered as
-// clusterID. req is nil on a streaming call, where only Watch methods exist.
-func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string, req interface{}, gateways GatewayClusterResolver) error {
+// clusterID. req is nil on a streaming call, where only Watch methods exist. imports
+// validates the reconciled Repository on a declarative-import write.
+func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string, req interface{}, gateways GatewayClusterResolver, imports ImportRepositoryResolver) error {
 	service, method, ok := splitHypershellMethod(fullMethod)
 	if !ok {
 		return nil
@@ -149,18 +150,25 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
-	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
+	case "SandboxTemplateService", "ProviderSpecService",
 		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
-		// A registered control plane may READ these import kinds (list/watch/get)
-		// to drive reconciliation. Writes are intentionally NOT authorized here: the
-		// declarative-import reconciler that uses the gRPC write path (REPO-C-IMPORT)
-		// is not yet implemented, and these resources are fleet-wide (not
-		// cluster-scoped), so authorizing writes now would let any registered spoke
-		// create/update/prune another fleet's import resources, widening the
-		// spoke-isolation boundary this interceptor exists to hold. The write
-		// authorization must be defined together with the reconciler and its
-		// repository-ownership/identity model; until then writes fall through to
-		// default-deny.
+		// A registered control plane may READ these owned import kinds (list/watch/get)
+		// to drive reconciliation. WRITES are the declarative-import reconciler's
+		// bounded path: they are authorized only when the write carries the reconciled
+		// Repository id in trusted metadata and that Repository exists
+		// (authorizeImportWrite / import_binding.go). The handler then sets the
+		// repository_id ownership mark server-side from that metadata and refuses a
+		// write to a resource owned by a different Repository, so a registered spoke
+		// cannot forge ownership of or prune another Repository's resources.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return authorizeImportWrite(ctx, imports)
+	case "RepositoryService":
+		// A Repository is the owner (no ownership mark) and is registered and managed
+		// by an admin over HTTP, not created, updated, or pruned by the import
+		// reconciler. The control plane may READ repositories to drive the import;
+		// Repository writes over gRPC stay denied.
 		if isReadMethodName(method) {
 			return nil
 		}

@@ -36,9 +36,14 @@ the store (through its `pkg/secretstore` client) and persists only the reference
 `SecretSource` record), and it SHALL NOT read a stored secret value back. The control
 plane SHALL be read-only from the store: it reads a referenced value (through its
 read-only `pkg/secretstore` client) and places it directly into a Kubernetes `Secret`
-on the target cluster, and it SHALL NOT write values to the store. HyperShell SHALL
-NOT resolve stored secrets through `ExternalSecret` objects or External Secrets
-Operator; the control plane places secrets directly.
+on the target cluster, and it SHALL NOT write values to the store. For the
+`SecretSource`/secret-store resolution path specifically, HyperShell SHALL NOT
+resolve a stored `SecretSource` value through an `ExternalSecret` object or External
+Secrets Operator; the control plane reads the store and places the Kubernetes
+`Secret` directly. This scoping applies only to `SecretSource`/secret-store
+resolution and does not govern the unrelated ESO-based subsystems (for example
+ephemeral-ci-secrets, ephemeral-test-credentials, gateway-database, and the
+global-architecture platform secrets), which retain their own secret mechanisms.
 
 A raw stored secret value SHALL NOT be returned by any API read endpoint, SHALL NOT
 be carried on any gRPC message (the `SecretSource` gRPC message has no value field),
