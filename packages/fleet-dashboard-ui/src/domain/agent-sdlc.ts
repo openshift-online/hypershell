@@ -52,7 +52,21 @@ export interface AgentSdlcHubCluster {
   readonly currentDigest: string | null;
 }
 
-/** One execution record that shipped (or awaits a bundle, in Unreleased). */
+/** One pull request shipped in a bundle. Bundle contents are PR-driven
+ *  (SDLC-VIS-03): these mirror the shared bundle PRs the Fleet Map freight bar
+ *  shows, so a pull request is never hidden because its issue link is unrecoverable. */
+export interface AgentSdlcPullRequest {
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly author: string | null;
+  readonly mergedAt: string | null;
+}
+
+/** One tracked execution record that shipped (or awaits a bundle, in Unreleased).
+ *  In a bundle it carries the bundle's pull requests that resolve to it (prs), so a
+ *  single issue delivered by several PRs appears once with those PRs grouped beneath
+ *  it; in the Unreleased row prs is empty. */
 export interface AgentSdlcShippedIssue {
   readonly number: number;
   readonly title: string;
@@ -60,9 +74,15 @@ export interface AgentSdlcShippedIssue {
   readonly mergedAt: string | null;
   /** GitHub login of whoever merged the closing PR, if known. */
   readonly mergedBy: string | null;
+  /** The bundle's pull requests grouped under this tracked issue (empty in Unreleased). */
+  readonly prs: readonly AgentSdlcPullRequest[];
 }
 
-/** One matrix row: a release bundle (newest first) or the single Unreleased row. */
+/** One matrix row: a release bundle (newest first) or the single Unreleased row.
+ *  A bundle row's contents are PR-driven and split into two groups: issues (the
+ *  bundle's PRs grouped under the tracked execution record they resolve to) and
+ *  otherPRs (one-off PRs with no tracked issue). The Unreleased row carries only
+ *  tracked issues and no otherPRs. */
 export interface AgentSdlcBundleRow {
   readonly version: string | null;
   readonly digest: string | null;
@@ -71,6 +91,7 @@ export interface AgentSdlcBundleRow {
   /** Instance keys currently running this bundle. */
   readonly hubClusters: readonly string[];
   readonly issues: readonly AgentSdlcShippedIssue[];
+  readonly otherPRs: readonly AgentSdlcPullRequest[];
 }
 
 /** The release-by-hub-cluster matrix (the Shipped column). */
@@ -195,4 +216,15 @@ export const UNRELEASED_ROW_KEY = "__unreleased__";
  */
 export function bundleRowExpandKey(row: AgentSdlcBundleRow): string {
   return bundleRowSeed(row) ?? UNRELEASED_ROW_KEY;
+}
+
+/**
+ * Total pull requests in a bundle row: every grouped pull request under a tracked
+ * issue plus every one-off pull request. This is the "M PRs" count in the row summary
+ * (SDLC-VIS-11), equal to the bundle's whole PR set since each PR is either grouped
+ * under a tracked issue or listed as a one-off.
+ */
+export function bundlePRCount(row: AgentSdlcBundleRow): number {
+  const grouped = row.issues.reduce((sum, issue) => sum + issue.prs.length, 0);
+  return grouped + row.otherPRs.length;
 }

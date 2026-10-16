@@ -31,6 +31,7 @@ import type {
   AgentSdlcLabelEvent,
   AgentSdlcMatrix,
   AgentSdlcPhase,
+  AgentSdlcPullRequest,
   AgentSdlcRework,
   AgentSdlcShippedIssue,
 } from "../../domain/agent-sdlc";
@@ -533,12 +534,21 @@ interface WireSdlcHubCluster {
   readonly currentDigest?: string;
 }
 
+interface WireSdlcPullRequest {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly author?: string;
+  readonly mergedAt?: string;
+}
+
 interface WireSdlcShippedIssue {
   readonly number?: number;
   readonly title?: string;
   readonly url?: string;
   readonly mergedAt?: string;
   readonly mergedBy?: string;
+  readonly prs?: readonly WireSdlcPullRequest[] | null;
 }
 
 interface WireSdlcBundleRow {
@@ -548,6 +558,7 @@ interface WireSdlcBundleRow {
   readonly unreleased?: boolean;
   readonly hubClusters?: readonly string[] | null;
   readonly issues?: readonly WireSdlcShippedIssue[] | null;
+  readonly otherPRs?: readonly WireSdlcPullRequest[] | null;
 }
 
 interface WireSdlcMatrix {
@@ -599,6 +610,16 @@ function mapSdlcHubCluster(h: WireSdlcHubCluster): AgentSdlcHubCluster {
   };
 }
 
+function mapSdlcPullRequest(p: WireSdlcPullRequest): AgentSdlcPullRequest {
+  return {
+    number: num(p.number),
+    title: p.title ?? "",
+    url: p.url ?? "",
+    author: nullableString(p.author),
+    mergedAt: nullableString(p.mergedAt),
+  };
+}
+
 function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
   return {
     number: num(i.number),
@@ -606,6 +627,7 @@ function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
     url: i.url ?? "",
     mergedAt: nullableString(i.mergedAt),
     mergedBy: nullableString(i.mergedBy),
+    prs: (i.prs ?? []).map(mapSdlcPullRequest),
   };
 }
 
@@ -617,6 +639,7 @@ function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
     unreleased: r.unreleased === true,
     hubClusters: (r.hubClusters ?? []).slice(),
     issues: (r.issues ?? []).map(mapSdlcShippedIssue),
+    otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
   };
 }
 

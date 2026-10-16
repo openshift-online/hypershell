@@ -4,6 +4,7 @@ import {
   agingRatio,
   agingScaleSeconds,
   boardPhases,
+  bundlePRCount,
   bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
@@ -13,6 +14,7 @@ import {
   UNRELEASED_ROW_KEY,
   type AgentSdlcCard,
   type AgentSdlcPhase,
+  type AgentSdlcPullRequest,
 } from "./agent-sdlc";
 
 function card(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
@@ -92,6 +94,7 @@ describe("bundleRowSeed", () => {
         unreleased: false,
         hubClusters: [],
         issues: [],
+        otherPRs: [],
       }),
     ).toBe("d1");
     expect(
@@ -102,6 +105,7 @@ describe("bundleRowSeed", () => {
         unreleased: false,
         hubClusters: [],
         issues: [],
+        otherPRs: [],
       }),
     ).toBe("v1");
     expect(
@@ -112,8 +116,41 @@ describe("bundleRowSeed", () => {
         unreleased: true,
         hubClusters: [],
         issues: [],
+        otherPRs: [],
       }),
     ).toBeNull();
+  });
+});
+
+describe("bundlePRCount", () => {
+  it("sums grouped tracked-issue PRs and one-off PRs (the bundle's whole PR set)", () => {
+    const pr = (number: number): AgentSdlcPullRequest => ({
+      number,
+      title: `pr ${String(number)}`,
+      url: `u-${String(number)}`,
+      author: null,
+      mergedAt: null,
+    });
+    expect(
+      bundlePRCount({
+        version: "v1",
+        digest: "d1",
+        date: null,
+        unreleased: false,
+        hubClusters: [],
+        issues: [
+          {
+            number: 525,
+            title: "tracked",
+            url: "i",
+            mergedAt: null,
+            mergedBy: null,
+            prs: [pr(1), pr(2)],
+          },
+        ],
+        otherPRs: [pr(3), pr(4)],
+      }),
+    ).toBe(4);
   });
 });
 
@@ -127,6 +164,7 @@ describe("bundleRowExpandKey", () => {
         unreleased: false,
         hubClusters: [],
         issues: [],
+        otherPRs: [],
       }),
     ).toBe("d1");
   });
@@ -142,6 +180,7 @@ describe("bundleRowExpandKey", () => {
         unreleased: true,
         hubClusters: [],
         issues: [],
+        otherPRs: [],
       }),
     ).toBe(UNRELEASED_ROW_KEY);
   });
