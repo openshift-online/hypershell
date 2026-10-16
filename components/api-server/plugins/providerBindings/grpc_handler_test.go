@@ -149,7 +149,7 @@ func TestUpdateProviderBinding_AppliesFields(t *testing.T) {
 }
 
 func TestDeleteProviderBinding_Success(t *testing.T) {
-	svc := &stubProviderBindingService{}
+	svc := &stubProviderBindingService{ret: sampleProviderBinding()}
 	h := &providerBindingGRPCHandler{service: svc}
 	if _, err := h.DeleteProviderBinding(context.Background(), &pb.DeleteProviderBindingRequest{Id: "pb-1"}); err != nil {
 		t.Fatalf("DeleteProviderBinding error = %v", err)

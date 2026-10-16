@@ -142,7 +142,7 @@ func TestUpdateSecretSource_AppliesFields(t *testing.T) {
 }
 
 func TestDeleteSecretSource_Success(t *testing.T) {
-	svc := &stubSecretSourceService{}
+	svc := &stubSecretSourceService{ret: sampleSecretSource()}
 	h := &secretSourceGRPCHandler{service: svc}
 	if _, err := h.DeleteSecretSource(context.Background(), &pb.DeleteSecretSourceRequest{Id: "ss-1"}); err != nil {
 		t.Fatalf("DeleteSecretSource error = %v", err)

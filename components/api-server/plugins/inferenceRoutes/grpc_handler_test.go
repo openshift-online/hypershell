@@ -112,7 +112,7 @@ func TestGetInferenceRoute_ValidatesID(t *testing.T) {
 }
 
 func TestDeleteInferenceRoute_Success(t *testing.T) {
-	svc := &stubInferenceRouteService{}
+	svc := &stubInferenceRouteService{ret: sampleInferenceRoute()}
 	h := &inferenceRouteGRPCHandler{service: svc}
 	if _, err := h.DeleteInferenceRoute(context.Background(), &pb.DeleteInferenceRouteRequest{Id: "ir-1"}); err != nil {
 		t.Fatalf("DeleteInferenceRoute error = %v", err)

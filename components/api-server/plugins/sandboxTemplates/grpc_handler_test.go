@@ -133,7 +133,7 @@ func TestUpdateSandboxTemplate_AppliesFields(t *testing.T) {
 }
 
 func TestDeleteSandboxTemplate_Success(t *testing.T) {
-	svc := &stubSandboxTemplateService{}
+	svc := &stubSandboxTemplateService{ret: sampleSandboxTemplate()}
 	h := &sandboxTemplateGRPCHandler{service: svc}
 	if _, err := h.DeleteSandboxTemplate(context.Background(), &pb.DeleteSandboxTemplateRequest{Id: "st-1"}); err != nil {
 		t.Fatalf("DeleteSandboxTemplate error = %v", err)

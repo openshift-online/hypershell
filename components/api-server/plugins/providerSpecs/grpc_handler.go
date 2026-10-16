@@ -94,6 +94,9 @@ func (h *providerSpecGRPCHandler) DeleteProviderSpec(ctx context.Context, req *p
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
+	if found == nil {
+		return nil, status.Errorf(codes.NotFound, "provider spec %s not found", req.Id)
+	}
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
 		return nil, err
 	}

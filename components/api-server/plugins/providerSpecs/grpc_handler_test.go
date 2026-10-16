@@ -132,7 +132,7 @@ func TestUpdateProviderSpec_AppliesFields(t *testing.T) {
 }
 
 func TestDeleteProviderSpec_Success(t *testing.T) {
-	svc := &stubProviderSpecService{}
+	svc := &stubProviderSpecService{ret: sampleProviderSpec()}
 	h := &providerSpecGRPCHandler{service: svc}
 	if _, err := h.DeleteProviderSpec(context.Background(), &pb.DeleteProviderSpecRequest{Id: "ps-1"}); err != nil {
 		t.Fatalf("DeleteProviderSpec error = %v", err)

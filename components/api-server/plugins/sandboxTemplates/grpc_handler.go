@@ -97,6 +97,9 @@ func (h *sandboxTemplateGRPCHandler) DeleteSandboxTemplate(ctx context.Context, 
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
+	if found == nil {
+		return nil, status.Errorf(codes.NotFound, "sandbox template %s not found", req.Id)
+	}
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
 		return nil, err
 	}
