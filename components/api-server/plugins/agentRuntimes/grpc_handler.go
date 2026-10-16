@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -141,9 +142,18 @@ func (h *agentRuntimeGRPCHandler) ListAgentRuntimes(ctx context.Context, req *pb
 		return nil, status.Errorf(codes.Internal, "list agent runtimes: %v", svcErr)
 	}
 
+	// repositoryFilter, when set, restricts the result to the AgentRuntimes owned by
+	// that Repository. It is the declarative import reconciler's Repository-scoped
+	// read; the cluster caller binding exemption that lets this read span clusters is
+	// decided in pkg/rbac (import-bound + repository_id filter), not here.
+	repositoryFilter := req.GetRepositoryId()
+
 	resp := &pb.ListAgentRuntimesResponse{}
 	for _, ar := range runtimes {
 		if ar == nil {
+			continue
+		}
+		if repositoryFilter != "" && (ar.RepositoryId == nil || *ar.RepositoryId != repositoryFilter) {
 			continue
 		}
 		if scope != nil {
@@ -188,6 +198,126 @@ func (h *agentRuntimeGRPCHandler) UpdateAgentRuntimeStatus(ctx context.Context, 
 		return nil, srcErr
 	}
 	return agentRuntimeToProto(ar, sources), nil
+}
+
+// CreateAgentRuntime is the declarative-import create path. The import ownership
+// mark (repository_id) is set server-side from the x-hypershell-import-repository-id
+// binding and a client-supplied value is ignored, so ownership cannot be forged
+// (rbac-enforcement.spec.md). The gRPC authorization layer has already confirmed
+// the caller is the control-plane identity reconciling a real Repository.
+func (h *agentRuntimeGRPCHandler) CreateAgentRuntime(ctx context.Context, req *pb.CreateAgentRuntimeRequest) (*pb.CreateAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateStringField("name", req.GetName(), true); err != nil {
+		return nil, err
+	}
+	if err := grpcutil.ValidateStringField("gateway_id", req.GetGatewayId(), true); err != nil {
+		return nil, err
+	}
+	ar := &AgentRuntime{
+		Name:                req.GetName(),
+		GatewayId:           req.GetGatewayId(),
+		SandboxTemplateId:   req.GetSandboxTemplateId(),
+		ClusterId:           req.GetClusterId(),
+		Selector:            req.GetSelector(),
+		Description:         req.Description,
+		Cron:                req.Cron,
+		CoordinatorImage:    req.CoordinatorImage,
+		ConcurrencyPolicy:   req.ConcurrencyPolicy,
+		LoginRefreshSeconds: req.LoginRefreshSeconds,
+		Parameters:          req.Parameters,
+		RepositoryId:        pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
+	}
+	created, svcErr := h.service.Create(ctx, ar)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	sources, srcErr := h.resolveSecretSources(ctx, created)
+	if srcErr != nil {
+		return nil, srcErr
+	}
+	return &pb.CreateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(created, sources)}, nil
+}
+
+// UpdateAgentRuntime replaces the mutable spec of an AgentRuntime. In an import
+// context it refuses a write to a runtime owned by a different Repository (or to an
+// unowned one) via EnforceImportOwnership; outside an import context that check is a
+// no-op, so this cannot regress a direct REST/hsctl write. status and status_message
+// are control-plane-owned and are deliberately not settable here. The reconciler
+// sends the full desired spec, so selector is replaced wholesale.
+func (h *agentRuntimeGRPCHandler) UpdateAgentRuntime(ctx context.Context, req *pb.UpdateAgentRuntimeRequest) (*pb.UpdateAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.GetId()); err != nil {
+		return nil, err
+	}
+	found, svcErr := h.service.Get(ctx, req.GetId())
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if req.Name != nil {
+		found.Name = *req.Name
+	}
+	if req.GatewayId != nil {
+		found.GatewayId = *req.GatewayId
+	}
+	if req.SandboxTemplateId != nil {
+		found.SandboxTemplateId = *req.SandboxTemplateId
+	}
+	if req.ClusterId != nil {
+		found.ClusterId = *req.ClusterId
+	}
+	found.Selector = req.GetSelector()
+	if req.Description != nil {
+		found.Description = req.Description
+	}
+	if req.Cron != nil {
+		found.Cron = req.Cron
+	}
+	if req.CoordinatorImage != nil {
+		found.CoordinatorImage = req.CoordinatorImage
+	}
+	if req.ConcurrencyPolicy != nil {
+		found.ConcurrencyPolicy = req.ConcurrencyPolicy
+	}
+	if req.LoginRefreshSeconds != nil {
+		found.LoginRefreshSeconds = req.LoginRefreshSeconds
+	}
+	if req.Parameters != nil {
+		found.Parameters = req.Parameters
+	}
+	updated, svcErr := h.service.Replace(ctx, found)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	sources, srcErr := h.resolveSecretSources(ctx, updated)
+	if srcErr != nil {
+		return nil, srcErr
+	}
+	return &pb.UpdateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(updated, sources)}, nil
+}
+
+// DeleteAgentRuntime removes an AgentRuntime. It loads the runtime first so a
+// missing row is a clean NotFound (nil-found guard) and so import ownership can be
+// enforced: in an import context a runtime owned by another Repository (or unowned)
+// is refused, so one Repository's prune cannot delete another's resource.
+func (h *agentRuntimeGRPCHandler) DeleteAgentRuntime(ctx context.Context, req *pb.DeleteAgentRuntimeRequest) (*pb.DeleteAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.GetId()); err != nil {
+		return nil, err
+	}
+	found, svcErr := h.service.Get(ctx, req.GetId())
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if found == nil {
+		return nil, status.Errorf(codes.NotFound, "agent runtime %s not found", req.GetId())
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if svcErr := h.service.Delete(ctx, req.GetId()); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	return &pb.DeleteAgentRuntimeResponse{}, nil
 }
 
 func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesRequest, stream grpc.ServerStreamingServer[pb.WatchAgentRuntimesResponse]) error {

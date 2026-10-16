@@ -3658,6 +3658,12 @@ components:
             format: int64
             readOnly: true
             type: integer
+          repository_id:
+            description: Repository that owns this gateway through the control-plane
+              .hypershell import. Null for gateways created directly through the REST
+              API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           can_delete:
             description: Whether the authenticated caller is authorized to delete
               this gateway (gateway owner or platform admin). Advertised so clients
@@ -3687,6 +3693,7 @@ components:
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         can_delete: true
+        repository_id: repository_id
         id: id
         href: href
         gateway_version: gateway_version
@@ -3745,6 +3752,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version
@@ -3784,6 +3792,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version

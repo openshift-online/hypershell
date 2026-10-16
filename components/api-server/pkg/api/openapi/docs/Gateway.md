@@ -33,6 +33,7 @@ Name | Type | Description | Notes
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 **Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
 **ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
+**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
 **CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
 **CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
 
@@ -764,6 +765,31 @@ SetObservedGeneration sets ObservedGeneration field to given value.
 `func (o *Gateway) HasObservedGeneration() bool`
 
 HasObservedGeneration returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *Gateway) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *Gateway) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *Gateway) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *Gateway) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 ### GetCanDelete
 

@@ -68,6 +68,8 @@ type Gateway struct {
 	Generation *int64 `json:"generation,omitempty"`
 	// Generation the control plane last successfully applied; converged when equal to generation
 	ObservedGeneration *int64 `json:"observed_generation,omitempty"`
+	// Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
 	// Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative.
 	CanDelete *bool `json:"can_delete,omitempty"`
 	// Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
@@ -1000,6 +1002,38 @@ func (o *Gateway) SetObservedGeneration(v int64) {
 	o.ObservedGeneration = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *Gateway) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *Gateway) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *Gateway) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 // GetCanDelete returns the CanDelete field value if set, zero value otherwise.
 func (o *Gateway) GetCanDelete() bool {
 	if o == nil || IsNil(o.CanDelete) {
@@ -1154,6 +1188,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ObservedGeneration) {
 		toSerialize["observed_generation"] = o.ObservedGeneration
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
 	}
 	if !IsNil(o.CanDelete) {
 		toSerialize["can_delete"] = o.CanDelete

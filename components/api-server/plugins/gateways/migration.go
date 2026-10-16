@@ -199,6 +199,25 @@ func migrationDropFleetsTable() *gormigrate.Migration {
 	}
 }
 
+// migrationAddRepositoryOwnership adds the nullable repository_id import ownership
+// mark. It is NULL for gateways created directly through the REST API or hsctl
+// apply, and is set server-side by the control-plane declarative-import reconciler
+// for gateways it imports from a Repository's .hypershell directory, scoping prune
+// to the owning Repository. Raw idempotent ALTER TABLE is used instead of
+// AutoMigrate because AutoMigrate's add-column introspection breaks under the test
+// session's lib/pq driver with PreferSimpleProtocol (see migrationAddProvisioningFields).
+func migrationAddRepositoryOwnership() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026101600000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS repository_id TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS repository_id").Error
+		},
+	}
+}
+
 func migrationAddGatewayVersion() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026082712000001",

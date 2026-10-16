@@ -189,7 +189,7 @@ func init() {
 	// new spoke needs no hub-side config; everyone else gets the HTTP rules.
 	pkgserver.RegisterPostAuthGRPCUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		lazy.init(ctx)
-		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, info.FullMethod, req); err != nil {
+		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, lazy.imports, info.FullMethod, req); err != nil {
 			return nil, err
 		}
 		if lazy.lookup == nil {

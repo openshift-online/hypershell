@@ -85,23 +85,13 @@ type ImportWriter interface {
 	// ListOwned returns every resource currently owned by repoID.
 	ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error)
 	// Upsert creates the resource when absent and updates it when present, marking
-	// it owned by repoID. It returns the importable Kinds the API does not yet
-	// accept over the import write path as a classified error (see
-	// ErrKindNotWritable) so the caller can collect rather than silently drop them.
+	// it owned by repoID. An error for one resource is collected by the caller
+	// rather than aborting the rest of the import. All seven importable Kinds have a
+	// control-plane import write path.
 	Upsert(ctx context.Context, repoID string, res RenderedResource) error
 	// Delete removes one Repository-owned resource.
 	Delete(ctx context.Context, repoID string, ref ResourceRef) error
 }
-
-// ErrKindNotWritable marks an importable Kind that is accepted by the
-// importable-Kinds filter but has no control-plane import write path yet. The
-// RepositoryReconciler collects it (never swallows it) so an operator sees that a
-// declared resource was not synced and why, rather than the import silently
-// dropping it. Gateway has no repository_id ownership field and AgentRuntime has
-// no gRPC Create/Update/Delete, so neither can be upserted under Repository
-// ownership today; the five ext Kinds (SandboxTemplate, ProviderSpec,
-// ProviderBinding, InferenceRoute, SecretSource) are fully supported.
-var ErrKindNotWritable = errors.New("importable kind has no control-plane import write path yet")
 
 // RepositoryReconciler is the system's single git-to-API sync component (the
 // declarative `.hypershell` import reconciler). For each registered Repository it

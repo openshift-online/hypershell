@@ -35,6 +35,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		Oidc:               d.Oidc,
 		Route:              d.Route,
 		CredentialDriver:   d.CredentialDriver,
+		RepositoryId:       d.RepositoryId,
 		Generation:         d.Generation,
 		ObservedGeneration: &d.ObservedGeneration,
 		// provisioning_version (proto field 28) is intentionally left unset on the

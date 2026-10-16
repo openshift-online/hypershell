@@ -362,9 +362,16 @@ func TestReconcileRepository_CredentialPassedToFetcher(t *testing.T) {
 	}
 }
 
-func TestReconcileRepository_CollectsNotWritableKinds(t *testing.T) {
+// errUpsertFailed is a sentinel used to confirm the reconciler collects (never
+// swallows) a writer error for one resource while continuing the rest of the import.
+var errUpsertFailed = errors.New("upsert failed")
+
+func TestReconcileRepository_CollectsUpsertErrors(t *testing.T) {
 	writer := newFakeImportWriter()
-	writer.failKinds = map[string]error{"Gateway": ErrKindNotWritable, "AgentRuntime": ErrKindNotWritable}
+	// A writer error on one Kind must surface as a collected error, not abort the
+	// import. All seven Kinds are writable now, so this tests generic error
+	// collection rather than a not-writable classification.
+	writer.failKinds = map[string]error{"Gateway": errUpsertFailed}
 	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
 		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
 		"/r.yaml": `apiVersion: hypershell.redhat.io/v1
@@ -373,15 +380,107 @@ metadata:
   name: gw-1
 spec:
   cluster_id: c1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: tmpl-1
+spec:
+  image: img:v1
 `,
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
 	err := r.reconcileRepository(context.Background(), repo("abc"))
 	if err == nil {
-		t.Fatal("expected a collected error for a not-writable kind, got nil")
+		t.Fatal("expected a collected error for the failing upsert, got nil")
 	}
-	if !errors.Is(err, ErrKindNotWritable) {
-		t.Errorf("error = %v, want it to wrap ErrKindNotWritable", err)
+	if !errors.Is(err, errUpsertFailed) {
+		t.Errorf("error = %v, want it to wrap errUpsertFailed", err)
+	}
+	// The healthy resource was still upserted despite the failure on the other Kind.
+	if _, ok := writer.owned["abc"][ResourceRef{Kind: "SandboxTemplate", Name: "tmpl-1"}]; !ok {
+		t.Error("the healthy SandboxTemplate was not upserted; a single failure aborted the import")
+	}
+}
+
+// TestReconcileRepository_AllSevenKindsImport confirms every importable Kind flows
+// through the writer's upsert path (no not-writable branch) in a single import.
+func TestReconcileRepository_AllSevenKindsImport(t *testing.T) {
+	writer := newFakeImportWriter()
+	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
+		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
+		"/r.yaml": `apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: tmpl-1
+spec:
+  image: img:v1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderSpec
+metadata:
+  name: ps-1
+spec:
+  category: inference
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: pb-1
+spec:
+  workspace_id: ws-1
+  provider_spec_id: ps-1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: ss-1
+spec:
+  backend: vault
+  path: secret/data/x
+---
+apiVersion: hypershell.redhat.io/v1
+kind: InferenceRoute
+metadata:
+  name: ir-1
+spec:
+  workspace_id: ws-1
+  provider_binding_id: pb-1
+  model: gpt
+---
+apiVersion: hypershell.redhat.io/v1
+kind: AgentRuntime
+metadata:
+  name: ar-1
+spec:
+  gateway_id: gw-1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: Gateway
+metadata:
+  name: gw-1
+spec:
+  cluster_id: c1
+`,
+	}), root: "/"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+	if err := r.reconcileRepository(context.Background(), repo("abc")); err != nil {
+		t.Fatalf("reconcile error = %v", err)
+	}
+	if len(writer.upserts) != 7 {
+		t.Fatalf("upserts = %d, want 7 (all importable kinds)", len(writer.upserts))
+	}
+	for _, kind := range []string{"SandboxTemplate", "ProviderSpec", "ProviderBinding", "SecretSource", "InferenceRoute", "AgentRuntime", "Gateway"} {
+		found := false
+		for _, u := range writer.upserts {
+			if u.Kind == kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("kind %s was not upserted; it hit a not-writable branch", kind)
+		}
 	}
 }
 

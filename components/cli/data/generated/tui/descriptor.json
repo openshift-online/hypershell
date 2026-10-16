@@ -1183,6 +1183,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "route",
           "label": "ROUTE",
           "priority": 0,
@@ -2627,6 +2633,12 @@
         {
           "property": "provisioning_version",
           "label": "PROVISIONING VERSION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },

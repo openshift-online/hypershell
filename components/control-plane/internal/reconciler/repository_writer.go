@@ -22,18 +22,18 @@ const importRepositoryMetadataKey = "x-hypershell-import-repository-id"
 // Repository-owned ext resources over the generated gRPC write path, attaching the
 // x-hypershell-import-repository-id ownership binding (#585) to every write so the
 // API server sets and enforces Repository ownership server-side (the client-side
-// repository_id is never trusted). It supports the five import-write ext Kinds
-// that have both a repository_id ownership field and a gRPC write surface:
-// SandboxTemplate, ProviderSpec, ProviderBinding, SecretSource (name identity,
+// repository_id is never trusted). It supports all seven importable Kinds:
+// SandboxTemplate, ProviderSpec, ProviderBinding, SecretSource and Gateway (name
+// identity, create/update/delete), AgentRuntime (name identity,
 // create/update/delete), and InferenceRoute (tuple identity, immutable,
 // create/delete). See security/rbac-enforcement.spec.md ("gRPC Authorization").
 //
-// Gateway and AgentRuntime are accepted by the importable-Kinds filter but are not
-// writable over the import path yet: Gateway has no repository_id ownership field
-// on its message (it cannot be ownership-marked or pruned), and AgentRuntime has
-// no gRPC Create/Update/Delete methods at all (only status). Upsert returns
-// ErrKindNotWritable for them, which the reconciler collects and surfaces rather
-// than silently dropping the declaration.
+// Gateway and AgentRuntime are cluster-assigned, so their list reads are normally
+// held to the caller's own cluster. The writer lists them with the same import
+// ownership binding plus the repository_id read filter, which the API server exempts
+// from the cluster caller binding (control-plane.spec.md, "import reads") so the
+// reconciler can enumerate and prune a Repository's gateways and agent runtimes
+// across clusters.
 type grpcImportWriter struct {
 	conn             *grpc.ClientConn
 	sandboxTemplates pb.SandboxTemplateServiceClient
@@ -41,6 +41,8 @@ type grpcImportWriter struct {
 	providerBindings pb.ProviderBindingServiceClient
 	secretSources    pb.SecretSourceServiceClient
 	inferenceRoutes  pb.InferenceRouteServiceClient
+	gateways         pb.GatewayServiceClient
+	agentRuntimes    pb.AgentRuntimeServiceClient
 	pageSize         int32
 }
 
@@ -53,6 +55,8 @@ func NewGRPCImportWriter(conn *grpc.ClientConn) ImportWriter {
 		providerBindings: pb.NewProviderBindingServiceClient(conn),
 		secretSources:    pb.NewSecretSourceServiceClient(conn),
 		inferenceRoutes:  pb.NewInferenceRouteServiceClient(conn),
+		gateways:         pb.NewGatewayServiceClient(conn),
+		agentRuntimes:    pb.NewAgentRuntimeServiceClient(conn),
 		pageSize:         100,
 	}
 }
@@ -111,6 +115,22 @@ func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 		})
 	}
 
+	gws, err := w.ownedGateways(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	for _, gw := range gws {
+		refs = append(refs, ResourceRef{Kind: "Gateway", Name: gw.GetName(), ID: gw.GetMetadata().GetId()})
+	}
+
+	ars, err := w.ownedAgentRuntimes(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ar := range ars {
+		refs = append(refs, ResourceRef{Kind: "AgentRuntime", Name: ar.GetName(), ID: ar.GetMetadata().GetId()})
+	}
+
 	return refs, nil
 }
 
@@ -127,9 +147,9 @@ func (w *grpcImportWriter) Upsert(ctx context.Context, repoID string, res Render
 	case "InferenceRoute":
 		return w.upsertInferenceRoute(ctx, repoID, res)
 	case "Gateway":
-		return fmt.Errorf("%s: Gateway has no repository_id ownership field; import write path not available: %w", res.Name, ErrKindNotWritable)
+		return w.upsertGateway(ctx, repoID, res)
 	case "AgentRuntime":
-		return fmt.Errorf("%s: AgentRuntime has no gRPC create/update/delete; import write path not available: %w", res.Name, ErrKindNotWritable)
+		return w.upsertAgentRuntime(ctx, repoID, res)
 	default:
 		return fmt.Errorf("unsupported import kind %q", res.Kind)
 	}
@@ -152,6 +172,12 @@ func (w *grpcImportWriter) Delete(ctx context.Context, repoID string, ref Resour
 		return err
 	case "InferenceRoute":
 		_, err := w.inferenceRoutes.DeleteInferenceRoute(ctx, &pb.DeleteInferenceRouteRequest{Id: ref.ID})
+		return err
+	case "Gateway":
+		_, err := w.gateways.DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: ref.ID})
+		return err
+	case "AgentRuntime":
+		_, err := w.agentRuntimes.DeleteAgentRuntime(ctx, &pb.DeleteAgentRuntimeRequest{Id: ref.ID})
 		return err
 	default:
 		return fmt.Errorf("cannot prune unsupported import kind %q", ref.Kind)
@@ -435,6 +461,185 @@ func (w *grpcImportWriter) upsertInferenceRoute(ctx context.Context, repoID stri
 	return err
 }
 
+// ---- Gateway ----
+
+// ownedGateways lists the gateways owned by repoID. It sets the repository_id read
+// filter so the API server returns only this Repository's gateways and, together
+// with the import ownership binding attached by the reconciler, exempts the read
+// from the cluster caller binding so it spans clusters (control-plane.spec.md,
+// "import reads"). The server-side filter is authoritative; the client-side check is
+// a defence-in-depth guard.
+func (w *grpcImportWriter) ownedGateways(ctx context.Context, repoID string) ([]*pb.Gateway, error) {
+	ctx = withOwnership(ctx, repoID)
+	var out []*pb.Gateway
+	for page := int32(1); ; page++ {
+		resp, err := w.gateways.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: w.pageSize, RepositoryId: &repoID})
+		if err != nil {
+			return nil, fmt.Errorf("list gateways: %w", err)
+		}
+		items := resp.GetItems()
+		for _, it := range items {
+			if it.GetRepositoryId() == repoID {
+				out = append(out, it)
+			}
+		}
+		if int32(len(items)) < w.pageSize {
+			return out, nil
+		}
+	}
+}
+
+func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res RenderedResource) error {
+	owned, err := w.ownedGateways(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	clusterID := specString(res.Spec, "cluster_id")
+	externalDNS := specStringPtr(res.Spec, "external_dns")
+	tlsMode := specStringPtr(res.Spec, "tls_mode")
+	serviceType := specStringPtr(res.Spec, "service_type")
+	image := specStringPtr(res.Spec, "image")
+	supervisorImage := specStringPtr(res.Spec, "supervisor_image")
+	oidc := specStringPtr(res.Spec, "oidc")
+	route := specStringPtr(res.Spec, "route")
+	credentialDriver := specStringPtr(res.Spec, "credential_driver")
+	serverDNSNames := specStringSlice(res.Spec, "server_dns_names")
+
+	for _, existing := range owned {
+		if existing.GetName() != res.Name {
+			continue
+		}
+		if existing.GetClusterId() == clusterID &&
+			stringPtrEqual(existing.ExternalDns, externalDNS) &&
+			stringPtrEqual(existing.TlsMode, tlsMode) &&
+			stringPtrEqual(existing.ServiceType, serviceType) &&
+			stringPtrEqual(existing.Image, image) &&
+			stringPtrEqual(existing.SupervisorImage, supervisorImage) &&
+			stringPtrEqual(existing.Oidc, oidc) &&
+			stringPtrEqual(existing.Route, route) &&
+			stringPtrEqual(existing.CredentialDriver, credentialDriver) &&
+			stringSliceEqual(existing.GetServerDnsNames(), serverDNSNames) {
+			return nil
+		}
+		// Only send cluster_id when the spec actually declares one. An empty
+		// clusterID would be read by the handler as a reassignment to "" and
+		// rejected; leaving it nil keeps the gateway on its current cluster while
+		// the other changed fields still apply.
+		var clusterIDPtr *string
+		if clusterID != "" {
+			clusterIDPtr = &clusterID
+		}
+		_, err := w.gateways.UpdateGateway(withOwnership(ctx, repoID), &pb.UpdateGatewayRequest{
+			Id:               existing.GetMetadata().GetId(),
+			ClusterId:        clusterIDPtr,
+			ExternalDns:      externalDNS,
+			TlsMode:          tlsMode,
+			ServiceType:      serviceType,
+			Image:            image,
+			SupervisorImage:  supervisorImage,
+			Oidc:             oidc,
+			Route:            route,
+			CredentialDriver: credentialDriver,
+			ServerDnsNames:   serverDNSNames,
+		})
+		return err
+	}
+	_, err = w.gateways.CreateGateway(withOwnership(ctx, repoID), &pb.CreateGatewayRequest{
+		Name:             res.Name,
+		ClusterId:        clusterID,
+		ExternalDns:      externalDNS,
+		TlsMode:          tlsMode,
+		ServiceType:      serviceType,
+		Image:            image,
+		SupervisorImage:  supervisorImage,
+		Oidc:             oidc,
+		Route:            route,
+		CredentialDriver: credentialDriver,
+		ServerDnsNames:   serverDNSNames,
+	})
+	return err
+}
+
+// ---- AgentRuntime ----
+
+func (w *grpcImportWriter) ownedAgentRuntimes(ctx context.Context, repoID string) ([]*pb.AgentRuntime, error) {
+	ctx = withOwnership(ctx, repoID)
+	resp, err := w.agentRuntimes.ListAgentRuntimes(ctx, &pb.ListAgentRuntimesRequest{RepositoryId: &repoID})
+	if err != nil {
+		return nil, fmt.Errorf("list agent runtimes: %w", err)
+	}
+	var out []*pb.AgentRuntime
+	for _, it := range resp.GetItems() {
+		if it.GetRepositoryId() == repoID {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+func (w *grpcImportWriter) upsertAgentRuntime(ctx context.Context, repoID string, res RenderedResource) error {
+	owned, err := w.ownedAgentRuntimes(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	gatewayID := specString(res.Spec, "gateway_id")
+	sandboxTemplateID := specString(res.Spec, "sandbox_template_id")
+	clusterID := specStringPtr(res.Spec, "cluster_id")
+	selector := specStringSlice(res.Spec, "selector")
+	description := specStringPtr(res.Spec, "description")
+	cron := specStringPtr(res.Spec, "cron")
+	coordinatorImage := specStringPtr(res.Spec, "coordinator_image")
+	concurrencyPolicy := specStringPtr(res.Spec, "concurrency_policy")
+	loginRefreshSeconds := specInt32Ptr(res.Spec, "login_refresh_seconds")
+	parameters := specStringPtr(res.Spec, "parameters")
+
+	for _, existing := range owned {
+		if existing.GetName() != res.Name {
+			continue
+		}
+		if existing.GetGatewayId() == gatewayID &&
+			existing.GetSandboxTemplateId() == sandboxTemplateID &&
+			stringPtrEqual(stringToPtr(existing.GetClusterId()), clusterID) &&
+			stringSliceEqual(existing.GetSelector(), selector) &&
+			stringPtrEqual(existing.Description, description) &&
+			stringPtrEqual(existing.Cron, cron) &&
+			stringPtrEqual(existing.CoordinatorImage, coordinatorImage) &&
+			stringPtrEqual(existing.ConcurrencyPolicy, concurrencyPolicy) &&
+			int32PtrEqual(existing.LoginRefreshSeconds, loginRefreshSeconds) &&
+			stringPtrEqual(existing.Parameters, parameters) {
+			return nil
+		}
+		_, err := w.agentRuntimes.UpdateAgentRuntime(withOwnership(ctx, repoID), &pb.UpdateAgentRuntimeRequest{
+			Id:                  existing.GetMetadata().GetId(),
+			GatewayId:           &gatewayID,
+			SandboxTemplateId:   &sandboxTemplateID,
+			ClusterId:           clusterID,
+			Selector:            selector,
+			Description:         description,
+			Cron:                cron,
+			CoordinatorImage:    coordinatorImage,
+			ConcurrencyPolicy:   concurrencyPolicy,
+			LoginRefreshSeconds: loginRefreshSeconds,
+			Parameters:          parameters,
+		})
+		return err
+	}
+	_, err = w.agentRuntimes.CreateAgentRuntime(withOwnership(ctx, repoID), &pb.CreateAgentRuntimeRequest{
+		Name:                res.Name,
+		GatewayId:           gatewayID,
+		SandboxTemplateId:   sandboxTemplateID,
+		ClusterId:           clusterID,
+		Selector:            selector,
+		Description:         description,
+		Cron:                cron,
+		CoordinatorImage:    coordinatorImage,
+		ConcurrencyPolicy:   concurrencyPolicy,
+		LoginRefreshSeconds: loginRefreshSeconds,
+		Parameters:          parameters,
+	})
+	return err
+}
+
 // specStringPtr reads an optional string field, returning nil when absent or
 // empty so an omitted field stays unset rather than being written as "".
 func specStringPtr(spec map[string]interface{}, key string) *string {
@@ -449,6 +654,90 @@ func specStringPtr(spec map[string]interface{}, key string) *string {
 // so a skip decision is stable whether the server returns nil or "".
 func stringPtrEqual(a, b *string) bool {
 	av, bv := "", ""
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	return av == bv
+}
+
+// stringToPtr wraps a value so a scalar proto field (returned as "") can be compared
+// against an optional spec value through stringPtrEqual.
+func stringToPtr(s string) *string { return &s }
+
+// specStringSlice reads a repeated string field, returning nil when absent so an
+// omitted field compares equal to an empty server value.
+func specStringSlice(spec map[string]interface{}, key string) []string {
+	if spec == nil {
+		return nil
+	}
+	raw, ok := spec[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// stringSliceEqual reports whether two string slices carry the same ordered values,
+// treating nil and empty as equal.
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// specInt32Ptr reads an optional integer field as *int32, returning nil when absent.
+// YAML/JSON decoding may surface the value as int, int64, or float64, so all three
+// are accepted.
+func specInt32Ptr(spec map[string]interface{}, key string) *int32 {
+	if spec == nil {
+		return nil
+	}
+	raw, ok := spec[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	var v int32
+	switch n := raw.(type) {
+	case int:
+		v = int32(n)
+	case int32:
+		v = n
+	case int64:
+		v = int32(n)
+	case float64:
+		v = int32(n)
+	default:
+		return nil
+	}
+	return &v
+}
+
+// int32PtrEqual compares two optional int32s treating nil and a pointer to 0 as
+// equal, so a skip decision is stable whether the server returns nil or 0.
+func int32PtrEqual(a, b *int32) bool {
+	var av, bv int32
 	if a != nil {
 		av = *a
 	}

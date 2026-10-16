@@ -315,7 +315,15 @@ type ListAgentRuntimesRequest struct {
 	// that managed cluster. Same semantics as WatchAgentRuntimesRequest.cluster_id;
 	// a registered caller must set it to its own cluster id. Used to seed the watch
 	// on (re)connect.
-	ClusterId     *string `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	ClusterId *string `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	// repository_id, when set, restricts results to AgentRuntimes owned by that
+	// Repository (the control-plane import ownership mark). It is the declarative
+	// import reconciler's cross-cluster, Repository-scoped read: a call that sets it
+	// AND carries the x-hypershell-import-repository-id import binding is exempted
+	// from the cluster caller binding so the single import reconciler can enumerate
+	// and prune a Repository's AgentRuntimes across clusters. See
+	// security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+	RepositoryId  *string `protobuf:"bytes,2,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -353,6 +361,13 @@ func (*ListAgentRuntimesRequest) Descriptor() ([]byte, []int) {
 func (x *ListAgentRuntimesRequest) GetClusterId() string {
 	if x != nil && x.ClusterId != nil {
 		return *x.ClusterId
+	}
+	return ""
+}
+
+func (x *ListAgentRuntimesRequest) GetRepositoryId() string {
+	if x != nil && x.RepositoryId != nil {
+		return *x.RepositoryId
 	}
 	return ""
 }
@@ -466,6 +481,440 @@ func (x *UpdateAgentRuntimeStatusRequest) GetStatusMessage() string {
 	return ""
 }
 
+// CreateAgentRuntimeRequest creates an AgentRuntime. repository_id is NOT a
+// client field: on a declarative-import write the server sets it from the
+// reconciled Repository carried in the x-hypershell-import-repository-id binding
+// and ignores any client-supplied value, so ownership cannot be forged
+// (data-model.spec.md, rbac-enforcement.spec.md).
+type CreateAgentRuntimeRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Name                string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	GatewayId           string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	SandboxTemplateId   string                 `protobuf:"bytes,3,opt,name=sandbox_template_id,json=sandboxTemplateId,proto3" json:"sandbox_template_id,omitempty"`
+	ClusterId           *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	Selector            []string               `protobuf:"bytes,5,rep,name=selector,proto3" json:"selector,omitempty"`
+	Description         *string                `protobuf:"bytes,6,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	Cron                *string                `protobuf:"bytes,7,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
+	CoordinatorImage    *string                `protobuf:"bytes,8,opt,name=coordinator_image,json=coordinatorImage,proto3,oneof" json:"coordinator_image,omitempty"`
+	ConcurrencyPolicy   *string                `protobuf:"bytes,9,opt,name=concurrency_policy,json=concurrencyPolicy,proto3,oneof" json:"concurrency_policy,omitempty"`
+	LoginRefreshSeconds *int32                 `protobuf:"varint,10,opt,name=login_refresh_seconds,json=loginRefreshSeconds,proto3,oneof" json:"login_refresh_seconds,omitempty"`
+	Parameters          *string                `protobuf:"bytes,11,opt,name=parameters,proto3,oneof" json:"parameters,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CreateAgentRuntimeRequest) Reset() {
+	*x = CreateAgentRuntimeRequest{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAgentRuntimeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAgentRuntimeRequest) ProtoMessage() {}
+
+func (x *CreateAgentRuntimeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAgentRuntimeRequest.ProtoReflect.Descriptor instead.
+func (*CreateAgentRuntimeRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *CreateAgentRuntimeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetSandboxTemplateId() string {
+	if x != nil {
+		return x.SandboxTemplateId
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetClusterId() string {
+	if x != nil && x.ClusterId != nil {
+		return *x.ClusterId
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetSelector() []string {
+	if x != nil {
+		return x.Selector
+	}
+	return nil
+}
+
+func (x *CreateAgentRuntimeRequest) GetDescription() string {
+	if x != nil && x.Description != nil {
+		return *x.Description
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetCron() string {
+	if x != nil && x.Cron != nil {
+		return *x.Cron
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetCoordinatorImage() string {
+	if x != nil && x.CoordinatorImage != nil {
+		return *x.CoordinatorImage
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetConcurrencyPolicy() string {
+	if x != nil && x.ConcurrencyPolicy != nil {
+		return *x.ConcurrencyPolicy
+	}
+	return ""
+}
+
+func (x *CreateAgentRuntimeRequest) GetLoginRefreshSeconds() int32 {
+	if x != nil && x.LoginRefreshSeconds != nil {
+		return *x.LoginRefreshSeconds
+	}
+	return 0
+}
+
+func (x *CreateAgentRuntimeRequest) GetParameters() string {
+	if x != nil && x.Parameters != nil {
+		return *x.Parameters
+	}
+	return ""
+}
+
+type CreateAgentRuntimeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentRuntime  *AgentRuntime          `protobuf:"bytes,1,opt,name=agent_runtime,json=agentRuntime,proto3" json:"agent_runtime,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAgentRuntimeResponse) Reset() {
+	*x = CreateAgentRuntimeResponse{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAgentRuntimeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAgentRuntimeResponse) ProtoMessage() {}
+
+func (x *CreateAgentRuntimeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAgentRuntimeResponse.ProtoReflect.Descriptor instead.
+func (*CreateAgentRuntimeResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *CreateAgentRuntimeResponse) GetAgentRuntime() *AgentRuntime {
+	if x != nil {
+		return x.AgentRuntime
+	}
+	return nil
+}
+
+// UpdateAgentRuntimeRequest replaces the mutable spec of an AgentRuntime. The
+// import reconciler sends the full desired spec, so selector is applied as a
+// replace. status and status_message are control-plane-owned and are written only
+// through UpdateAgentRuntimeStatus. repository_id is immutable ownership and is
+// never changed here.
+type UpdateAgentRuntimeRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	GatewayId           *string                `protobuf:"bytes,3,opt,name=gateway_id,json=gatewayId,proto3,oneof" json:"gateway_id,omitempty"`
+	SandboxTemplateId   *string                `protobuf:"bytes,4,opt,name=sandbox_template_id,json=sandboxTemplateId,proto3,oneof" json:"sandbox_template_id,omitempty"`
+	ClusterId           *string                `protobuf:"bytes,5,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	Selector            []string               `protobuf:"bytes,6,rep,name=selector,proto3" json:"selector,omitempty"`
+	Description         *string                `protobuf:"bytes,7,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	Cron                *string                `protobuf:"bytes,8,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
+	CoordinatorImage    *string                `protobuf:"bytes,9,opt,name=coordinator_image,json=coordinatorImage,proto3,oneof" json:"coordinator_image,omitempty"`
+	ConcurrencyPolicy   *string                `protobuf:"bytes,10,opt,name=concurrency_policy,json=concurrencyPolicy,proto3,oneof" json:"concurrency_policy,omitempty"`
+	LoginRefreshSeconds *int32                 `protobuf:"varint,11,opt,name=login_refresh_seconds,json=loginRefreshSeconds,proto3,oneof" json:"login_refresh_seconds,omitempty"`
+	Parameters          *string                `protobuf:"bytes,12,opt,name=parameters,proto3,oneof" json:"parameters,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *UpdateAgentRuntimeRequest) Reset() {
+	*x = UpdateAgentRuntimeRequest{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentRuntimeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentRuntimeRequest) ProtoMessage() {}
+
+func (x *UpdateAgentRuntimeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentRuntimeRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAgentRuntimeRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UpdateAgentRuntimeRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetGatewayId() string {
+	if x != nil && x.GatewayId != nil {
+		return *x.GatewayId
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetSandboxTemplateId() string {
+	if x != nil && x.SandboxTemplateId != nil {
+		return *x.SandboxTemplateId
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetClusterId() string {
+	if x != nil && x.ClusterId != nil {
+		return *x.ClusterId
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetSelector() []string {
+	if x != nil {
+		return x.Selector
+	}
+	return nil
+}
+
+func (x *UpdateAgentRuntimeRequest) GetDescription() string {
+	if x != nil && x.Description != nil {
+		return *x.Description
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetCron() string {
+	if x != nil && x.Cron != nil {
+		return *x.Cron
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetCoordinatorImage() string {
+	if x != nil && x.CoordinatorImage != nil {
+		return *x.CoordinatorImage
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetConcurrencyPolicy() string {
+	if x != nil && x.ConcurrencyPolicy != nil {
+		return *x.ConcurrencyPolicy
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeRequest) GetLoginRefreshSeconds() int32 {
+	if x != nil && x.LoginRefreshSeconds != nil {
+		return *x.LoginRefreshSeconds
+	}
+	return 0
+}
+
+func (x *UpdateAgentRuntimeRequest) GetParameters() string {
+	if x != nil && x.Parameters != nil {
+		return *x.Parameters
+	}
+	return ""
+}
+
+type UpdateAgentRuntimeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentRuntime  *AgentRuntime          `protobuf:"bytes,1,opt,name=agent_runtime,json=agentRuntime,proto3" json:"agent_runtime,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAgentRuntimeResponse) Reset() {
+	*x = UpdateAgentRuntimeResponse{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentRuntimeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentRuntimeResponse) ProtoMessage() {}
+
+func (x *UpdateAgentRuntimeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentRuntimeResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAgentRuntimeResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateAgentRuntimeResponse) GetAgentRuntime() *AgentRuntime {
+	if x != nil {
+		return x.AgentRuntime
+	}
+	return nil
+}
+
+type DeleteAgentRuntimeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAgentRuntimeRequest) Reset() {
+	*x = DeleteAgentRuntimeRequest{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAgentRuntimeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAgentRuntimeRequest) ProtoMessage() {}
+
+func (x *DeleteAgentRuntimeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAgentRuntimeRequest.ProtoReflect.Descriptor instead.
+func (*DeleteAgentRuntimeRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DeleteAgentRuntimeRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteAgentRuntimeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAgentRuntimeResponse) Reset() {
+	*x = DeleteAgentRuntimeResponse{}
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAgentRuntimeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAgentRuntimeResponse) ProtoMessage() {}
+
+func (x *DeleteAgentRuntimeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_agent_runtimes_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAgentRuntimeResponse.ProtoReflect.Descriptor instead.
+func (*DeleteAgentRuntimeResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_agent_runtimes_proto_rawDescGZIP(), []int{11}
+}
+
 var File_hypershell_v1_agent_runtimes_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_agent_runtimes_proto_rawDesc = "" +
@@ -510,22 +959,86 @@ const file_hypershell_v1_agent_runtimes_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12@\n" +
 	"\ragent_runtime\x18\x02 \x01(\v2\x1b.hypershell.v1.AgentRuntimeR\fagentRuntime\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId\"M\n" +
+	"resourceId\"\x89\x01\n" +
 	"\x18ListAgentRuntimesRequest\x12\"\n" +
 	"\n" +
-	"cluster_id\x18\x01 \x01(\tH\x00R\tclusterId\x88\x01\x01B\r\n" +
-	"\v_cluster_id\"N\n" +
+	"cluster_id\x18\x01 \x01(\tH\x00R\tclusterId\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x02 \x01(\tH\x01R\frepositoryId\x88\x01\x01B\r\n" +
+	"\v_cluster_idB\x10\n" +
+	"\x0e_repository_id\"N\n" +
 	"\x19ListAgentRuntimesResponse\x121\n" +
 	"\x05items\x18\x01 \x03(\v2\x1b.hypershell.v1.AgentRuntimeR\x05items\"\x88\x01\n" +
 	"\x1fUpdateAgentRuntimeStatusRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12*\n" +
 	"\x0estatus_message\x18\x03 \x01(\tH\x00R\rstatusMessage\x88\x01\x01B\x11\n" +
-	"\x0f_status_message2\xd3\x02\n" +
+	"\x0f_status_message\"\xc0\x04\n" +
+	"\x19CreateAgentRuntimeRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12.\n" +
+	"\x13sandbox_template_id\x18\x03 \x01(\tR\x11sandboxTemplateId\x12\"\n" +
+	"\n" +
+	"cluster_id\x18\x04 \x01(\tH\x00R\tclusterId\x88\x01\x01\x12\x1a\n" +
+	"\bselector\x18\x05 \x03(\tR\bselector\x12%\n" +
+	"\vdescription\x18\x06 \x01(\tH\x01R\vdescription\x88\x01\x01\x12\x17\n" +
+	"\x04cron\x18\a \x01(\tH\x02R\x04cron\x88\x01\x01\x120\n" +
+	"\x11coordinator_image\x18\b \x01(\tH\x03R\x10coordinatorImage\x88\x01\x01\x122\n" +
+	"\x12concurrency_policy\x18\t \x01(\tH\x04R\x11concurrencyPolicy\x88\x01\x01\x127\n" +
+	"\x15login_refresh_seconds\x18\n" +
+	" \x01(\x05H\x05R\x13loginRefreshSeconds\x88\x01\x01\x12#\n" +
+	"\n" +
+	"parameters\x18\v \x01(\tH\x06R\n" +
+	"parameters\x88\x01\x01B\r\n" +
+	"\v_cluster_idB\x0e\n" +
+	"\f_descriptionB\a\n" +
+	"\x05_cronB\x14\n" +
+	"\x12_coordinator_imageB\x15\n" +
+	"\x13_concurrency_policyB\x18\n" +
+	"\x16_login_refresh_secondsB\r\n" +
+	"\v_parameters\"^\n" +
+	"\x1aCreateAgentRuntimeResponse\x12@\n" +
+	"\ragent_runtime\x18\x01 \x01(\v2\x1b.hypershell.v1.AgentRuntimeR\fagentRuntime\"\x8f\x05\n" +
+	"\x19UpdateAgentRuntimeRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"gateway_id\x18\x03 \x01(\tH\x01R\tgatewayId\x88\x01\x01\x123\n" +
+	"\x13sandbox_template_id\x18\x04 \x01(\tH\x02R\x11sandboxTemplateId\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"cluster_id\x18\x05 \x01(\tH\x03R\tclusterId\x88\x01\x01\x12\x1a\n" +
+	"\bselector\x18\x06 \x03(\tR\bselector\x12%\n" +
+	"\vdescription\x18\a \x01(\tH\x04R\vdescription\x88\x01\x01\x12\x17\n" +
+	"\x04cron\x18\b \x01(\tH\x05R\x04cron\x88\x01\x01\x120\n" +
+	"\x11coordinator_image\x18\t \x01(\tH\x06R\x10coordinatorImage\x88\x01\x01\x122\n" +
+	"\x12concurrency_policy\x18\n" +
+	" \x01(\tH\aR\x11concurrencyPolicy\x88\x01\x01\x127\n" +
+	"\x15login_refresh_seconds\x18\v \x01(\x05H\bR\x13loginRefreshSeconds\x88\x01\x01\x12#\n" +
+	"\n" +
+	"parameters\x18\f \x01(\tH\tR\n" +
+	"parameters\x88\x01\x01B\a\n" +
+	"\x05_nameB\r\n" +
+	"\v_gateway_idB\x16\n" +
+	"\x14_sandbox_template_idB\r\n" +
+	"\v_cluster_idB\x0e\n" +
+	"\f_descriptionB\a\n" +
+	"\x05_cronB\x14\n" +
+	"\x12_coordinator_imageB\x15\n" +
+	"\x13_concurrency_policyB\x18\n" +
+	"\x16_login_refresh_secondsB\r\n" +
+	"\v_parameters\"^\n" +
+	"\x1aUpdateAgentRuntimeResponse\x12@\n" +
+	"\ragent_runtime\x18\x01 \x01(\v2\x1b.hypershell.v1.AgentRuntimeR\fagentRuntime\"+\n" +
+	"\x19DeleteAgentRuntimeRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x1c\n" +
+	"\x1aDeleteAgentRuntimeResponse2\x94\x05\n" +
 	"\x13AgentRuntimeService\x12k\n" +
 	"\x12WatchAgentRuntimes\x12(.hypershell.v1.WatchAgentRuntimesRequest\x1a).hypershell.v1.WatchAgentRuntimesResponse0\x01\x12f\n" +
 	"\x11ListAgentRuntimes\x12'.hypershell.v1.ListAgentRuntimesRequest\x1a(.hypershell.v1.ListAgentRuntimesResponse\x12g\n" +
-	"\x18UpdateAgentRuntimeStatus\x12..hypershell.v1.UpdateAgentRuntimeStatusRequest\x1a\x1b.hypershell.v1.AgentRuntimeBgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\x18UpdateAgentRuntimeStatus\x12..hypershell.v1.UpdateAgentRuntimeStatusRequest\x1a\x1b.hypershell.v1.AgentRuntime\x12i\n" +
+	"\x12CreateAgentRuntime\x12(.hypershell.v1.CreateAgentRuntimeRequest\x1a).hypershell.v1.CreateAgentRuntimeResponse\x12i\n" +
+	"\x12UpdateAgentRuntime\x12(.hypershell.v1.UpdateAgentRuntimeRequest\x1a).hypershell.v1.UpdateAgentRuntimeResponse\x12i\n" +
+	"\x12DeleteAgentRuntime\x12(.hypershell.v1.DeleteAgentRuntimeRequest\x1a).hypershell.v1.DeleteAgentRuntimeResponseBgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_agent_runtimes_proto_rawDescOnce sync.Once
@@ -539,7 +1052,7 @@ func file_hypershell_v1_agent_runtimes_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_agent_runtimes_proto_rawDescData
 }
 
-var file_hypershell_v1_agent_runtimes_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_hypershell_v1_agent_runtimes_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_hypershell_v1_agent_runtimes_proto_goTypes = []any{
 	(*AgentRuntime)(nil),                    // 0: hypershell.v1.AgentRuntime
 	(*WatchAgentRuntimesRequest)(nil),       // 1: hypershell.v1.WatchAgentRuntimesRequest
@@ -547,27 +1060,41 @@ var file_hypershell_v1_agent_runtimes_proto_goTypes = []any{
 	(*ListAgentRuntimesRequest)(nil),        // 3: hypershell.v1.ListAgentRuntimesRequest
 	(*ListAgentRuntimesResponse)(nil),       // 4: hypershell.v1.ListAgentRuntimesResponse
 	(*UpdateAgentRuntimeStatusRequest)(nil), // 5: hypershell.v1.UpdateAgentRuntimeStatusRequest
-	(*ObjectReference)(nil),                 // 6: hypershell.v1.ObjectReference
-	(*SecretSource)(nil),                    // 7: hypershell.v1.SecretSource
-	(EventType)(0),                          // 8: hypershell.v1.EventType
+	(*CreateAgentRuntimeRequest)(nil),       // 6: hypershell.v1.CreateAgentRuntimeRequest
+	(*CreateAgentRuntimeResponse)(nil),      // 7: hypershell.v1.CreateAgentRuntimeResponse
+	(*UpdateAgentRuntimeRequest)(nil),       // 8: hypershell.v1.UpdateAgentRuntimeRequest
+	(*UpdateAgentRuntimeResponse)(nil),      // 9: hypershell.v1.UpdateAgentRuntimeResponse
+	(*DeleteAgentRuntimeRequest)(nil),       // 10: hypershell.v1.DeleteAgentRuntimeRequest
+	(*DeleteAgentRuntimeResponse)(nil),      // 11: hypershell.v1.DeleteAgentRuntimeResponse
+	(*ObjectReference)(nil),                 // 12: hypershell.v1.ObjectReference
+	(*SecretSource)(nil),                    // 13: hypershell.v1.SecretSource
+	(EventType)(0),                          // 14: hypershell.v1.EventType
 }
 var file_hypershell_v1_agent_runtimes_proto_depIdxs = []int32{
-	6, // 0: hypershell.v1.AgentRuntime.metadata:type_name -> hypershell.v1.ObjectReference
-	7, // 1: hypershell.v1.AgentRuntime.secret_sources:type_name -> hypershell.v1.SecretSource
-	8, // 2: hypershell.v1.WatchAgentRuntimesResponse.type:type_name -> hypershell.v1.EventType
-	0, // 3: hypershell.v1.WatchAgentRuntimesResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
-	0, // 4: hypershell.v1.ListAgentRuntimesResponse.items:type_name -> hypershell.v1.AgentRuntime
-	1, // 5: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:input_type -> hypershell.v1.WatchAgentRuntimesRequest
-	3, // 6: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:input_type -> hypershell.v1.ListAgentRuntimesRequest
-	5, // 7: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:input_type -> hypershell.v1.UpdateAgentRuntimeStatusRequest
-	2, // 8: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:output_type -> hypershell.v1.WatchAgentRuntimesResponse
-	4, // 9: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:output_type -> hypershell.v1.ListAgentRuntimesResponse
-	0, // 10: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:output_type -> hypershell.v1.AgentRuntime
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	12, // 0: hypershell.v1.AgentRuntime.metadata:type_name -> hypershell.v1.ObjectReference
+	13, // 1: hypershell.v1.AgentRuntime.secret_sources:type_name -> hypershell.v1.SecretSource
+	14, // 2: hypershell.v1.WatchAgentRuntimesResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 3: hypershell.v1.WatchAgentRuntimesResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	0,  // 4: hypershell.v1.ListAgentRuntimesResponse.items:type_name -> hypershell.v1.AgentRuntime
+	0,  // 5: hypershell.v1.CreateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	0,  // 6: hypershell.v1.UpdateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	1,  // 7: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:input_type -> hypershell.v1.WatchAgentRuntimesRequest
+	3,  // 8: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:input_type -> hypershell.v1.ListAgentRuntimesRequest
+	5,  // 9: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:input_type -> hypershell.v1.UpdateAgentRuntimeStatusRequest
+	6,  // 10: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:input_type -> hypershell.v1.CreateAgentRuntimeRequest
+	8,  // 11: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:input_type -> hypershell.v1.UpdateAgentRuntimeRequest
+	10, // 12: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:input_type -> hypershell.v1.DeleteAgentRuntimeRequest
+	2,  // 13: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:output_type -> hypershell.v1.WatchAgentRuntimesResponse
+	4,  // 14: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:output_type -> hypershell.v1.ListAgentRuntimesResponse
+	0,  // 15: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:output_type -> hypershell.v1.AgentRuntime
+	7,  // 16: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:output_type -> hypershell.v1.CreateAgentRuntimeResponse
+	9,  // 17: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:output_type -> hypershell.v1.UpdateAgentRuntimeResponse
+	11, // 18: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:output_type -> hypershell.v1.DeleteAgentRuntimeResponse
+	13, // [13:19] is the sub-list for method output_type
+	7,  // [7:13] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_agent_runtimes_proto_init() }
@@ -581,13 +1108,15 @@ func file_hypershell_v1_agent_runtimes_proto_init() {
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[1].OneofWrappers = []any{}
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[3].OneofWrappers = []any{}
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[5].OneofWrappers = []any{}
+	file_hypershell_v1_agent_runtimes_proto_msgTypes[6].OneofWrappers = []any{}
+	file_hypershell_v1_agent_runtimes_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_agent_runtimes_proto_rawDesc), len(file_hypershell_v1_agent_runtimes_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

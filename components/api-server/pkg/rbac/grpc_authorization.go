@@ -82,6 +82,18 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 	}
 	switch service {
 	case "GatewayService":
+		// A declarative-import write (Create/Update/Delete) is marked with the
+		// reconciled Repository id in trusted metadata. It is authorized as an import
+		// write (control-plane identity + a real named Repository), and the handler
+		// sets repository_id ownership server-side and refuses a cross-Repository
+		// write. A Gateway write WITHOUT that mark is the control plane's
+		// cluster-scoped health/status path, decided per method below and held to its
+		// own cluster. Gateway and AgentRuntime are not in importExtKindServices, so
+		// the bootstrap-allowlist guard in the interceptor does not cover them; this
+		// registered-identity path is where their import writes are authorized.
+		if !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
+			return authorizeImportWrite(ctx, imports)
+		}
 		switch method {
 		case "ListGateways", "WatchGateways":
 			// The watch-stream caller binding already requires cluster_id to be
@@ -143,12 +155,23 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		}
 		return denied()
 	case "AgentRuntimeService":
+		// A declarative-import write (Create/Update/Delete) marked with the reconciled
+		// Repository id is authorized as an import write; the handler sets and enforces
+		// repository_id ownership server-side (see the GatewayService note above).
+		if !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
+			return authorizeImportWrite(ctx, imports)
+		}
 		if method == "ListAgentRuntimes" || method == "WatchAgentRuntimes" {
 			// Scoped to the caller's cluster by the caller binding, which resolves
 			// each AgentRuntime's effective cluster (its own cluster_id, or the
-			// cluster of its referenced gateway) server-side.
+			// cluster of its referenced gateway) server-side. The import reconciler's
+			// Repository-scoped, cross-cluster read is the one exemption, decided in
+			// cluster_binding.go (import binding + repository_id filter).
 			return nil
 		}
+		// UpdateAgentRuntimeStatus (the control-plane status write-back) without an
+		// import mark remains out of this registered-cluster path; it is reached
+		// through the bootstrap-service-account allowlist, unchanged.
 		return denied()
 	case "SandboxTemplateService", "ProviderSpecService",
 		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":

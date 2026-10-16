@@ -46,6 +46,13 @@ type clusterScopedRequest interface {
 	GetClusterId() string
 }
 
+// repositoryScopedRequest is implemented by the generated ListGatewaysRequest and
+// ListAgentRuntimesRequest messages, which carry the declarative-import
+// reconciler's repository_id read filter.
+type repositoryScopedRequest interface {
+	GetRepositoryId() string
+}
+
 func isClusterBoundMethod(fullMethod string) bool {
 	switch fullMethod {
 	case watchGatewaysMethod, listGatewaysMethod, watchRoleBindingsMethod, listRoleBindingsMethod,
@@ -56,9 +63,11 @@ func isClusterBoundMethod(fullMethod string) bool {
 }
 
 // CheckClusterCallerBindingUnary enforces the binding on a unary call
-// (ListGateways, ListRoleBindings). It runs before role-binding authorization and regardless of
-// the RBAC_SERVICE_ACCOUNTS allowlist.
-func CheckClusterCallerBindingUnary(ctx context.Context, resolver RegisteredClusterResolver, fullMethod string, req interface{}) error {
+// (ListGateways, ListAgentRuntimes, ListRoleBindings). It runs before role-binding
+// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist. imports
+// validates the reconciled Repository on the one exemption below; a nil imports
+// disables the exemption (every read stays own-cluster).
+func CheckClusterCallerBindingUnary(ctx context.Context, resolver RegisteredClusterResolver, imports ImportRepositoryResolver, fullMethod string, req interface{}) error {
 	if !isClusterBoundMethod(fullMethod) {
 		return nil
 	}
@@ -66,7 +75,60 @@ func CheckClusterCallerBindingUnary(ctx context.Context, resolver RegisteredClus
 	if err != nil || !bound {
 		return err
 	}
+	// Declarative-import reconciler exemption (B-narrowed, control-plane.spec.md /
+	// rbac-enforcement.spec.md "import reads"): a Repository-scoped read may span
+	// clusters so the single import reconciler can enumerate and prune a Repository's
+	// gateways and agent runtimes. It is exempt from the own-cluster requirement ONLY
+	// when it carries the reconciled-Repository import binding, sets the matching
+	// repository_id filter, and that Repository exists; the handler then filters
+	// server-side by repository_id. Every other read keeps the own-cluster binding.
+	exempt, exemptErr := importScopedReadExempt(ctx, fullMethod, req, imports)
+	if exemptErr != nil {
+		return exemptErr
+	}
+	if exempt {
+		return nil
+	}
 	return checkRequestCluster(req, clusterID)
+}
+
+// importScopedReadExempt reports whether a cluster-bound list read is the import
+// reconciler's Repository-scoped, cross-cluster read and may bypass the own-cluster
+// binding. It is tightly scoped: the method must be the gateway or agent-runtime
+// list, the call must carry the x-hypershell-import-repository-id binding, the
+// request's repository_id filter must be set and equal that binding, and the named
+// Repository must exist. A missing registry or lookup failure is Unavailable
+// (retryable), never a silent grant; a filter that names an unknown Repository is
+// denied.
+func importScopedReadExempt(ctx context.Context, fullMethod string, req interface{}, imports ImportRepositoryResolver) (bool, error) {
+	if fullMethod != listGatewaysMethod && fullMethod != listAgentRuntimesMethod {
+		return false, nil
+	}
+	repoBinding := ImportRepositoryIDFromContext(ctx)
+	if repoBinding == "" {
+		return false, nil
+	}
+	scoped, ok := req.(repositoryScopedRequest)
+	if !ok {
+		return false, nil
+	}
+	// The filter the handler applies must be the reconciled Repository from the
+	// trusted binding; a mismatch is not this exemption and falls back to the
+	// own-cluster check.
+	if scoped.GetRepositoryId() != repoBinding {
+		return false, nil
+	}
+	if imports == nil {
+		return false, status.Error(codes.Unavailable, "repository registry unavailable; cannot verify the reconciled repository for an import-scoped read")
+	}
+	exists, err := imports.RepositoryExists(ctx, repoBinding)
+	if err != nil {
+		return false, status.Error(codes.Unavailable, "repository lookup failed; cannot verify the reconciled repository for an import-scoped read")
+	}
+	if !exists {
+		return false, denied()
+	}
+	return true, nil
 }
 
 // BindClusterCallerStream enforces the binding on a server-streaming call

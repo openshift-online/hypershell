@@ -36,6 +36,11 @@ type Gateway struct {
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`
 	ObservedGeneration     int64   `json:"observed_generation" gorm:"not null;default:0"`
+	// RepositoryId is the control-plane import ownership mark: the Repository that
+	// owns this gateway through the declarative .hypershell import. NULL for gateways
+	// created directly through the REST API or hsctl apply. Read-only in the client
+	// contract; set server-side from the import binding, never from a client body.
+	RepositoryId *string `json:"repository_id"`
 }
 
 type GatewayList []*Gateway

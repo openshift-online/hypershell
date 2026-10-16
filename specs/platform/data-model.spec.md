@@ -622,7 +622,13 @@ desired-state resources. This resolves what would otherwise contradict the "cont
 plane is a reader of desired state" principle: the principle holds everywhere except
 this one named, ownership-scoped reconciler.
 
-Imported resources SHALL be owned by the originating `Repository`. The import
+Imported resources SHALL be owned by the originating `Repository`. Every one of the
+seven importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway` - SHALL carry a
+nullable, read-only `repository_id` ownership mark for this purpose: it is NULL for a
+resource created directly through the REST API or `hsctl apply`, and set server-side to
+the originating `Repository` for an imported resource, so prune can be scoped to the
+owning `Repository`. The import
 process SHALL reconcile, not create-and-skip: a resource added to `.hypershell`
 is created, a changed resource is updated, and a resource removed from
 `.hypershell` is pruned. Re-running the import against unchanged repository state

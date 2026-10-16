@@ -507,6 +507,28 @@ bootstrap bypass:
   A bootstrap service account that is not a registered control plane SHALL NOT be
   treated as an import reconciler.
 
+The remaining importable Kinds, `Gateway` and `AgentRuntime`, are cluster-assigned and
+their gRPC `Create`, `Update`, and `Delete` are also authorized for the control-plane
+identity on the same `Repository`-scoped import terms: a write marked with the
+reconciled `Repository` id in trusted metadata is authorized as an import write, the
+server SHALL set `repository_id` from that metadata (ignoring any client value), and a
+write to a `Gateway` or `AgentRuntime` owned by a different `Repository`, or unowned,
+SHALL be refused. A `Gateway` or `AgentRuntime` write that carries NO import metadata
+stays on its existing non-import path (the control plane's cluster-scoped health and
+status write-backs), unchanged.
+
+**Declarative-import reads (control-plane identity only).** `Gateway` and
+`AgentRuntime` list reads are normally held to the caller's own `cluster_id` by the
+watch-stream caller binding. Because the single import reconciler must enumerate and
+prune a `Repository`'s gateways and agent runtimes across clusters, a `ListGateways`
+or `ListAgentRuntimes` read SHALL be exempted from the own-cluster requirement, and
+served across clusters, ONLY when ALL hold: the caller is the registered
+control-plane identity; the call carries the reconciled-`Repository` id in trusted
+metadata; the request sets the `repository_id` read filter equal to that id; and the
+named `Repository` exists. The server then filters the result to that `Repository`
+server-side. Any other read keeps the own-cluster binding, so this exemption does not
+widen a tenant's or a spoke's view beyond one named `Repository` it is reconciling.
+
 The hub's gRPC API is reachable from outside the cluster (`platform/hub-grpc-tls.spec.md`),
 so these rules are the only boundary between tenants, and between clusters, on that API.
 

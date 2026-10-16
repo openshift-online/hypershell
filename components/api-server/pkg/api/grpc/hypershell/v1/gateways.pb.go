@@ -329,7 +329,12 @@ type Gateway struct {
 	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
 	// image_pinned reports whether this gateway pins an explicit image and so need
 	// not track its cluster's provisioning version. Read-only, derived from image.
-	ImagePinned   *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	ImagePinned *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	// repository_id is the control-plane import ownership mark: the Repository that
+	// owns this Gateway through the declarative .hypershell import. Null for gateways
+	// created directly through the REST API or hsctl apply. Read-only; set server-side
+	// from the x-hypershell-import-repository-id binding, never from a client body.
+	RepositoryId  *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -530,6 +535,13 @@ func (x *Gateway) GetImagePinned() bool {
 		return *x.ImagePinned
 	}
 	return false
+}
+
+func (x *Gateway) GetRepositoryId() string {
+	if x != nil && x.RepositoryId != nil {
+		return *x.RepositoryId
+	}
+	return ""
 }
 
 type CreateGatewayRequest struct {
@@ -1390,7 +1402,15 @@ type ListGatewaysRequest struct {
 	// managed cluster. A control-plane agent sets it to its own cluster identity
 	// so it only ever lists its cluster's gateways (managed-cluster pull model).
 	// Unset preserves the prior behaviour of listing every gateway.
-	ClusterId     *string `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	ClusterId *string `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	// repository_id, when set, restricts results to gateways owned by that Repository
+	// (the control-plane import ownership mark). It is the declarative import
+	// reconciler's cross-cluster, Repository-scoped read: a call that sets it AND
+	// carries the x-hypershell-import-repository-id import binding is exempted from
+	// the cluster caller binding so the single import reconciler can enumerate and
+	// prune a Repository's gateways across clusters. See
+	// security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+	RepositoryId  *string `protobuf:"bytes,4,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1442,6 +1462,13 @@ func (x *ListGatewaysRequest) GetSize() int32 {
 func (x *ListGatewaysRequest) GetClusterId() string {
 	if x != nil && x.ClusterId != nil {
 		return *x.ClusterId
+	}
+	return ""
+}
+
+func (x *ListGatewaysRequest) GetRepositoryId() string {
+	if x != nil && x.RepositoryId != nil {
+		return *x.RepositoryId
 	}
 	return ""
 }
@@ -1658,8 +1685,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"9\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
-	"\x12LocalKindPlacement\"\xdc\n" +
-	"\n" +
+	"\x12LocalKindPlacement\"\x98\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1689,7 +1715,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"generation\x124\n" +
 	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x126\n" +
 	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
-	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01B\x0f\n" +
+	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1706,7 +1733,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10_gateway_versionB\x16\n" +
 	"\x14_observed_generationB\x17\n" +
 	"\x15_provisioning_versionB\x0f\n" +
-	"\r_image_pinnedJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x19\x10\x1aR\bfleet_idR\n" +
+	"\r_image_pinnedB\x10\n" +
+	"\x0e_repository_idJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x19\x10\x1aR\bfleet_idR\n" +
 	"release_idR\vdatabase_idR\x13observed_release_id\"\xd2\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
@@ -1798,13 +1826,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x19SetGatewayVersionResponse\x12'\n" +
 	"\x0fgateway_version\x18\x01 \x01(\tR\x0egatewayVersion\"&\n" +
 	"\x14DeleteGatewayRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"p\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xac\x01\n" +
 	"\x13ListGatewaysRequest\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x05R\x04size\x12\"\n" +
 	"\n" +
-	"cluster_id\x18\x03 \x01(\tH\x00R\tclusterId\x88\x01\x01B\r\n" +
-	"\v_cluster_id\"y\n" +
+	"cluster_id\x18\x03 \x01(\tH\x00R\tclusterId\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x04 \x01(\tH\x01R\frepositoryId\x88\x01\x01B\r\n" +
+	"\v_cluster_idB\x10\n" +
+	"\x0e_repository_id\"y\n" +
 	"\x14ListGatewaysResponse\x12,\n" +
 	"\x05items\x18\x01 \x03(\v2\x16.hypershell.v1.GatewayR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x17\n" +

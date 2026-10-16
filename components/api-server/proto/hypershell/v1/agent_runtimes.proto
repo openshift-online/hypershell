@@ -62,6 +62,14 @@ message ListAgentRuntimesRequest {
   // a registered caller must set it to its own cluster id. Used to seed the watch
   // on (re)connect.
   optional string cluster_id = 1;
+  // repository_id, when set, restricts results to AgentRuntimes owned by that
+  // Repository (the control-plane import ownership mark). It is the declarative
+  // import reconciler's cross-cluster, Repository-scoped read: a call that sets it
+  // AND carries the x-hypershell-import-repository-id import binding is exempted
+  // from the cluster caller binding so the single import reconciler can enumerate
+  // and prune a Repository's AgentRuntimes across clusters. See
+  // security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+  optional string repository_id = 2;
 }
 
 message ListAgentRuntimesResponse {
@@ -79,8 +87,67 @@ message UpdateAgentRuntimeStatusRequest {
   optional string status_message = 3;
 }
 
+// CreateAgentRuntimeRequest creates an AgentRuntime. repository_id is NOT a
+// client field: on a declarative-import write the server sets it from the
+// reconciled Repository carried in the x-hypershell-import-repository-id binding
+// and ignores any client-supplied value, so ownership cannot be forged
+// (data-model.spec.md, rbac-enforcement.spec.md).
+message CreateAgentRuntimeRequest {
+  string name = 1;
+  string gateway_id = 2;
+  string sandbox_template_id = 3;
+  optional string cluster_id = 4;
+  repeated string selector = 5;
+  optional string description = 6;
+  optional string cron = 7;
+  optional string coordinator_image = 8;
+  optional string concurrency_policy = 9;
+  optional int32 login_refresh_seconds = 10;
+  optional string parameters = 11;
+}
+
+message CreateAgentRuntimeResponse {
+  AgentRuntime agent_runtime = 1;
+}
+
+// UpdateAgentRuntimeRequest replaces the mutable spec of an AgentRuntime. The
+// import reconciler sends the full desired spec, so selector is applied as a
+// replace. status and status_message are control-plane-owned and are written only
+// through UpdateAgentRuntimeStatus. repository_id is immutable ownership and is
+// never changed here.
+message UpdateAgentRuntimeRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string gateway_id = 3;
+  optional string sandbox_template_id = 4;
+  optional string cluster_id = 5;
+  repeated string selector = 6;
+  optional string description = 7;
+  optional string cron = 8;
+  optional string coordinator_image = 9;
+  optional string concurrency_policy = 10;
+  optional int32 login_refresh_seconds = 11;
+  optional string parameters = 12;
+}
+
+message UpdateAgentRuntimeResponse {
+  AgentRuntime agent_runtime = 1;
+}
+
+message DeleteAgentRuntimeRequest {
+  string id = 1;
+}
+
+message DeleteAgentRuntimeResponse {}
+
 service AgentRuntimeService {
   rpc WatchAgentRuntimes(WatchAgentRuntimesRequest) returns (stream WatchAgentRuntimesResponse);
   rpc ListAgentRuntimes(ListAgentRuntimesRequest) returns (ListAgentRuntimesResponse);
   rpc UpdateAgentRuntimeStatus(UpdateAgentRuntimeStatusRequest) returns (AgentRuntime);
+  // Create / Update / Delete are the declarative-import reconciler's bounded write
+  // surface for AgentRuntime; authorized only for the control-plane identity with
+  // a valid reconciled-Repository binding (rbac-enforcement.spec.md).
+  rpc CreateAgentRuntime(CreateAgentRuntimeRequest) returns (CreateAgentRuntimeResponse);
+  rpc UpdateAgentRuntime(UpdateAgentRuntimeRequest) returns (UpdateAgentRuntimeResponse);
+  rpc DeleteAgentRuntime(DeleteAgentRuntimeRequest) returns (DeleteAgentRuntimeResponse);
 }

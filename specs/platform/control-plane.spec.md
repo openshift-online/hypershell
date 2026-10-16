@@ -379,9 +379,18 @@ authorized for the control-plane identity, bounded to the `RepositoryReconciler`
 `Repository` scope, and remain denied for every other caller (users, spokes acting
 outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
 (see the canonical importable-Kinds list in
-[`data-model.spec.md`](./data-model.spec.md)), are NOT in this default-deny set:
-the control-plane identity already writes them through its per-Kind reconciler
-authorization, and the `RepositoryReconciler` upserts them under the same
+[`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC
+`Create` / `Update` / `Delete` are authorized for the control-plane identity on the
+same `Repository`-scoped import terms (a write carrying the reconciled-`Repository`
+binding is set and enforced as that `Repository`'s ownership server-side), while a
+`Gateway` or `AgentRuntime` write WITHOUT that binding stays on its existing
+cluster-scoped non-import path (health and status write-backs). Because the import
+reconciler must enumerate and prune a `Repository`'s gateways and agent runtimes
+across clusters, a `ListGateways` / `ListAgentRuntimes` read that carries the
+reconciled-`Repository` binding AND sets a matching `repository_id` filter for an
+existing `Repository` is exempted from the own-cluster watch-stream caller binding and
+served (and filtered) across clusters; every other read keeps the own-cluster binding.
+The `RepositoryReconciler` upserts and prunes all seven importable Kinds under the same
 `Repository`-scoped ownership mark.
 `Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
 the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
