@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -14,6 +16,7 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
@@ -51,7 +54,7 @@ func (l ServiceLocator) SecretSourceLookup() agentRuntimes.SecretSourceLookup {
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewSecretSourceDao(&env.Database.SessionFactory)
 	return func() SecretSourceService {
-		return NewSecretSourceService(dao)
+		return NewSecretSourceService(dao, events.Service(&env.Services))
 	}
 }
 
@@ -83,6 +86,17 @@ func init() {
 		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
 		router.Use(authMiddleware.AuthenticateAccountJWT)
 		router.Use(authzMiddleware.AuthorizeApi)
+	})
+
+	pkgserver.RegisterGRPCService("secretSources", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		brokerFunc := func() *pkgserver.EventBroker {
+			if obj := envServices.GetService("EventBroker"); obj != nil {
+				return obj.(*pkgserver.EventBroker)
+			}
+			return nil
+		}
+		pb.RegisterSecretSourceServiceServer(grpcServer, NewSecretSourceGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(SecretSource{}, "secret_sources")

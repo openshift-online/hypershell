@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// SandboxTemplate is a reusable sandbox workload definition. The control-plane
+// import reconciler reads it over WatchSandboxTemplates and owns the gRPC write
+// path for Repository-owned templates (data-model.spec.md "SandboxTemplate").
+message SandboxTemplate {
+  ObjectReference metadata = 1;
+  string name = 2;
+  string image = 3;
+  optional string name_prefix = 4;
+  optional string policy = 5;
+  // repository_id is the control-plane import ownership mark; read-only, set
+  // server-side, never by a client.
+  optional string repository_id = 6;
+  optional string status = 7;
+}
+
+message GetSandboxTemplateRequest {
+  string id = 1;
+}
+
+message GetSandboxTemplateResponse {
+  SandboxTemplate sandbox_template = 1;
+}
+
+message CreateSandboxTemplateRequest {
+  string name = 1;
+  string image = 2;
+  optional string name_prefix = 3;
+  optional string policy = 4;
+  optional string repository_id = 5;
+}
+
+message CreateSandboxTemplateResponse {
+  SandboxTemplate sandbox_template = 1;
+}
+
+message UpdateSandboxTemplateRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string image = 3;
+  optional string name_prefix = 4;
+  optional string policy = 5;
+}
+
+message UpdateSandboxTemplateResponse {
+  SandboxTemplate sandbox_template = 1;
+}
+
+message DeleteSandboxTemplateRequest {
+  string id = 1;
+}
+
+message DeleteSandboxTemplateResponse {}
+
+message ListSandboxTemplatesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListSandboxTemplatesResponse {
+  repeated SandboxTemplate items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchSandboxTemplatesRequest {}
+
+message WatchSandboxTemplatesResponse {
+  EventType type = 1;
+  SandboxTemplate sandbox_template = 2;
+  string resource_id = 3;
+}
+
+service SandboxTemplateService {
+  rpc GetSandboxTemplate(GetSandboxTemplateRequest) returns (GetSandboxTemplateResponse);
+  rpc CreateSandboxTemplate(CreateSandboxTemplateRequest) returns (CreateSandboxTemplateResponse);
+  rpc UpdateSandboxTemplate(UpdateSandboxTemplateRequest) returns (UpdateSandboxTemplateResponse);
+  rpc DeleteSandboxTemplate(DeleteSandboxTemplateRequest) returns (DeleteSandboxTemplateResponse);
+  rpc ListSandboxTemplates(ListSandboxTemplatesRequest) returns (ListSandboxTemplatesResponse);
+  rpc WatchSandboxTemplates(WatchSandboxTemplatesRequest) returns (stream WatchSandboxTemplatesResponse);
+}

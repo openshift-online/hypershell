@@ -3,9 +3,16 @@ package sandboxTemplates
 import (
 	"context"
 
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// sandboxTemplateEventSource is the event broker Source string for
+// SandboxTemplate mutations. The gRPC watch handler filters the shared broker
+// fan-out on this value, so it MUST match the Source written here on
+// create/update/delete.
+const sandboxTemplateEventSource = "SandboxTemplates"
 
 type SandboxTemplateService interface {
 	Get(ctx context.Context, id string) (*SandboxTemplate, *errors.ServiceError)
@@ -16,14 +23,15 @@ type SandboxTemplateService interface {
 	FindByIDs(ctx context.Context, ids []string) (SandboxTemplateList, *errors.ServiceError)
 }
 
-func NewSandboxTemplateService(dao SandboxTemplateDao) SandboxTemplateService {
-	return &sqlSandboxTemplateService{dao: dao}
+func NewSandboxTemplateService(dao SandboxTemplateDao, events services.EventService) SandboxTemplateService {
+	return &sqlSandboxTemplateService{dao: dao, events: events}
 }
 
 var _ SandboxTemplateService = &sqlSandboxTemplateService{}
 
 type sqlSandboxTemplateService struct {
-	dao SandboxTemplateDao
+	dao    SandboxTemplateDao
+	events services.EventService
 }
 
 func (s *sqlSandboxTemplateService) Get(ctx context.Context, id string) (*SandboxTemplate, *errors.ServiceError) {
@@ -39,6 +47,13 @@ func (s *sqlSandboxTemplateService) Create(ctx context.Context, sandboxTemplate 
 	if err != nil {
 		return nil, errors.GeneralError("Unable to create sandbox template: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    sandboxTemplateEventSource,
+		SourceID:  item.ID,
+		EventType: api.CreateEventType,
+	}); evErr != nil {
+		return nil, services.HandleCreateError("SandboxTemplate", evErr)
+	}
 	return item, nil
 }
 
@@ -47,12 +62,26 @@ func (s *sqlSandboxTemplateService) Replace(ctx context.Context, sandboxTemplate
 	if err != nil {
 		return nil, errors.GeneralError("Unable to update sandbox template: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    sandboxTemplateEventSource,
+		SourceID:  item.ID,
+		EventType: api.UpdateEventType,
+	}); evErr != nil {
+		return nil, services.HandleUpdateError("SandboxTemplate", evErr)
+	}
 	return item, nil
 }
 
 func (s *sqlSandboxTemplateService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if err := s.dao.Delete(ctx, id); err != nil {
 		return errors.GeneralError("Unable to delete sandbox template: %s", err)
+	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    sandboxTemplateEventSource,
+		SourceID:  id,
+		EventType: api.DeleteEventType,
+	}); evErr != nil {
+		return services.HandleDeleteError("SandboxTemplate", evErr)
 	}
 	return nil
 }
