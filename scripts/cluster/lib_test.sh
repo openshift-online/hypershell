@@ -517,7 +517,7 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: dev overlays must name the control plane local-kind / local-openshift, matching the seed scripts'
 fi
-if grep -rq 'WatchGateways\|WatchGatewayReleases\|WatchManagedClusters\|WatchGatewayNetworks' --include='*.yaml' "${REPO_ROOT}/deploy" \
+if grep -rq 'WatchGateways\|WatchManagedClusters\|WatchRoleBindings\|WatchAgentRuntimes' --include='*.yaml' "${REPO_ROOT}/deploy" \
   && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: a deploy overlay still exempts a Watch* RPC from JWT via --auth-bypass-methods'

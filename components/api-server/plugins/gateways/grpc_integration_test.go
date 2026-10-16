@@ -56,7 +56,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	createReq := &pb.CreateGatewayRequest{
 		Name:        "TestName",
 		ClusterId:   registerTestCluster(t),
-		ReleaseId:   "TestReleaseId",
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -87,7 +86,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Id:          gatewayID,
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
 		ClusterId:   func() *string { s := registerTestCluster(t); return &s }(),
-		ReleaseId:   func() *string { s := "UpdatedReleaseId"; return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -317,7 +315,6 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	createReq := &pb.CreateGatewayRequest{
 		Name:      "delete-watch-test",
 		ClusterId: clusterID,
-		ReleaseId: "test-release",
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())

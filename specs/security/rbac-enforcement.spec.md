@@ -353,7 +353,7 @@ The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, a
 The `platform:admin` role covers gateway **view**, **delete**, and **access management** (the access facade; `platform/gateway-access-management.spec.md`). It does NOT grant permissions to:
 
 - Modify gateway configuration (PATCH), or create gateways (requires `gateway:creator`)
-- View or modify GatewayNetworks, GatewayReleases, or ManagedClusters
+- View or modify ManagedClusters
 - Create or delete `RoleBinding` records through the generic `/role_bindings` resource (access is managed through the access facade instead)
 - Access platform-level configuration or system administration functions
 
@@ -459,7 +459,6 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - `ManagedClusterService`: reads for `gateway:creator` or `platform:admin`; writes for
   `platform:admin` (`platform/managed-cluster-registration.spec.md`, "Record Writes and
   Deregistration").
-- `GatewayReleaseService` and `GatewayNetworkService`: as their HTTP resources.
 - `RoleBindingService`: denied. Its list and watch are not filtered by user or gateway;
   users manage bindings over HTTP.
 - Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
@@ -467,8 +466,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": its own
-cluster's gateways, fleet-wide reads, status-only writes to releases and networks, and
-deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
+cluster's gateways, fleet-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
 registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
 allowlisted account that is registered is scoped as a control plane.
 

@@ -17,10 +17,8 @@ This feature is a local-development and testing capability. It reuses the
 existing Kind environment ([`local-development.spec.md`](./local-development.spec.md))
 and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
 It also adds three optional Gateway schema fields (`sandbox_image`, `dev_build`,
-`dev_build_metadata`) and makes `release_id` optional so a Gateway can be created
-from a direct `image`/`supervisor_image` reference. Those schema changes apply
-to every environment; they do not change the production provisioning path for
-Gateways that continue to use a GatewayRelease.
+`dev_build_metadata`). A Gateway is created from a direct `image`/`supervisor_image`
+reference. Those schema changes apply to every environment.
 
 ## Requirements
 
@@ -167,10 +165,8 @@ The image references written into the seeded Gateway resource SHALL be:
 The seeded dev gateway SHALL be provisioned with the branch-built images rather
 than the pinned defaults. The branch-built gateway and supervisor images SHALL
 be set via the Gateway's `image` and `supervisor_image` fields directly. The
-Gateway MUST NOT have a `release_id` set, because per `data-model.spec.md`,
-when both `release_id` and `image` are present, `release_id` takes precedence
-and the direct image references would be ignored. The `sandbox_image` field
-SHALL reference the published community base image.
+branch-build gateway is created from those direct image references. The
+`sandbox_image` field SHALL reference the published community base image.
 
 The seed SHALL reuse the Kind environment's existing placement and exposure
 fields so the branch-built gateway is reachable the same way `dev-gateway` is:
@@ -190,7 +186,8 @@ not by patching a static ConfigMap or SSA placeholder.
 - AND the Kind environment already has a seeded ManagedCluster, ManagedDatabase,
   and Keycloak OIDC issuer
 - WHEN the dev gateway is seeded and reconciled
-- THEN the Gateway resource SHALL have no `release_id` field set
+- THEN the Gateway resource SHALL use the direct branch-built `image` and
+  `supervisor_image` references
 - AND SHALL reuse that environment's `cluster_id` and `database_id`
 - AND SHALL set `route: {enabled: true}` and the Kind Keycloak OIDC config
 - AND the gateway container SHALL run `gateway:dev-<sha>`

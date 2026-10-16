@@ -35,11 +35,11 @@ func TestGRPCGatewayRejectsUnregisteredCluster(t *testing.T) {
 	ctx := context.Background()
 
 	for _, clusterID := range []string{"", createManualCluster(t)} {
-		_, err := gw.CreateGateway(ctx, &pb.CreateGatewayRequest{Name: "grpc-unregistered", ClusterId: clusterID, ReleaseId: "test-release"})
+		_, err := gw.CreateGateway(ctx, &pb.CreateGatewayRequest{Name: "grpc-unregistered", ClusterId: clusterID})
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "create with cluster_id %q: %v", clusterID, err)
 	}
 
-	created, err := gw.CreateGateway(ctx, &pb.CreateGatewayRequest{Name: "grpc-registered", ClusterId: registerTestCluster(t), ReleaseId: "test-release"})
+	created, err := gw.CreateGateway(ctx, &pb.CreateGatewayRequest{Name: "grpc-registered", ClusterId: registerTestCluster(t)})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = gw.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: created.Gateway.Metadata.Id, ClusterId: strPtr(createManualCluster(t))})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "reassign to unregistered cluster: %v", err)

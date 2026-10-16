@@ -54,8 +54,6 @@ checks manually with `make check`.
 | Kind | Purpose |
 |------|---------|
 | **Gateway** | API gateway instance deployed on a cluster |
-| **GatewayNetwork** | Network connectivity topology between gateways |
-| **GatewayRelease** | Versioned container images for gateway deployments |
 | **ManagedCluster** | Kubernetes cluster registered into the platform |
 
 All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
@@ -67,8 +65,7 @@ PostgreSQL database and role per gateway on the server named by the mounted
 ## Resource Flow
 
 ```
-Clusters Registered -> Release Published ->
-Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
+Clusters Registered -> Gateway Deployed on Cluster -> Traffic Flows
 ```
 
 ## SDLC Workflow

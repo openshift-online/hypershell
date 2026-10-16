@@ -265,7 +265,6 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
 		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
 		ClusterId: clusterID,
-		ReleaseId: "test-release",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create gateway")
 	id := created.GetGateway().GetMetadata().GetId()
