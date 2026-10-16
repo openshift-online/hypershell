@@ -210,8 +210,8 @@ Because the OpenShell gateway's default credential driver is `vault`
 (`openshell-gateway-credentials.spec.md`), a gateway created without a `credential_driver`
 fails closed unless a per-cluster Vault is reachable. Both environments' bring-up
 (`make kind-up` and `make openshift-up`, via `scripts/cluster/vault.sh`) SHALL therefore
-stand up a stand-in HashiCorp Vault — one per cluster in namespace `openshell-vault` at the
-convention address, configured to the GitOps Contract — so the suite exercises the
+stand up a stand-in HashiCorp Vault - one per cluster in namespace `openshell-vault` at the
+convention address, configured to the GitOps Contract - so the suite exercises the
 production credential path. The setup SHALL be idempotent (safe to re-run against an
 already-initialized Vault, so it holds on a shared cluster across pull-request
 environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the

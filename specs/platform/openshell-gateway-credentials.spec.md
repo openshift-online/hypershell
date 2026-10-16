@@ -564,8 +564,8 @@ environments it runs in (Kind and OpenShift), so the whole path is proven in CI 
 Field) without reddening e2e. Each environment's bring-up SHALL stand up a **stand-in
 HashiCorp Vault** (the same software the per-cluster production Vault runs), as one
 Vault per cluster in namespace `openshell-vault` at the convention address
-`openshell-gateway-vault.openshell-vault.svc:8200` — the per-cluster production shape, so
-the control plane uses the convention with no address override — configured to the GitOps
+`openshell-gateway-vault.openshell-vault.svc:8200` - the per-cluster production shape, so
+the control plane uses the convention with no address override - configured to the GitOps
 Contract below (KV v2 at `secret`, Kubernetes auth, the `openshell-gateway` role and the
 namespace-templated policy, a serving CA). The stand-in differs from production only in the
 seal/storage plumbing (file storage + a scripted, idempotent init+unseal, not KMS/Shamir +
