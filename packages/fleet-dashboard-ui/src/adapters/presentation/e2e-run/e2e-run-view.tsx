@@ -378,8 +378,8 @@ function RunBundleIdentity({
         <Identicon seed={bundle.digest} x={0} y={0} size={28} />
       </svg>
       <span>
-        {bundle.version}
-        <small className={styles.instance}>{identiName(bundle.digest)}</small>
+        {identiName(bundle.digest)}
+        <small className={styles.instance}>{bundle.version}</small>
       </span>
     </span>
   ) : (
