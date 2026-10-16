@@ -39,7 +39,7 @@ The release SHALL attach all five binaries, the exact `bundle.json` stored in th
 
 ### HSR-04 -- Failure and retry behavior
 
-Publication SHALL require a successful managed release, accepted push metadata, valid source ancestry, and all six released images and tags. It SHALL publish the OCI bundle before completing the GitHub release. GitHub assets SHALL be uploaded to a draft; the release SHALL become public only after all assets have matching SHA-256 digests and sizes.
+Publication SHALL require a successful managed release, accepted push metadata, valid source ancestry, and all six Snapshot component images resolved, with matching tags, in their release repositories. This gate is measured against the accepted Snapshot, not against the managed release artifact list, which MAY be partial (HSR-06). It SHALL publish the OCI bundle before completing the GitHub release. GitHub assets SHALL be uploaded to a draft; the release SHALL become public only after all assets have matching SHA-256 digests and sizes.
 
 Quay and GitHub cannot commit atomically. A failed GitHub operation MAY leave a Quay bundle and a draft. Retrying the same Konflux Release SHALL reuse that bundle and resume the same draft. Existing bundle contents, Git tag targets, release notes, and uploaded assets SHALL be validated; conflicting contents SHALL fail rather than be overwritten. A completed matching release SHALL be a successful no-op. An unfinished GitHub upload in `starter` state MAY be deleted and retried while the release is still a draft.
 
@@ -55,6 +55,36 @@ The GitHub App and tenant secret were provisioned and live publication succeeded
 
 The documented RelEng Vault/ExternalSecret SOP provisions secrets in `rhtap-releng-tenant`. It SHALL NOT be assumed to provision this tenant's secret. Before activation, RelEng must confirm an approved secret delivery mechanism for `hcm-eng-prod-tenant`. If using Vault, the source record must include `generated-by`, `generated-on`, `owner-team`, and `expires` provenance metadata. Existing Quay write access for the API-server build repository is reused for bundle publication; released component images are public.
 
+### HSR-06 -- Partial and empty managed artifact lists
+
+The managed release mirrors only the component images that changed, so `status.artifacts.images` SHALL be treated as a possibly partial subset of the accepted Snapshot, not as the source of bundle contents. The publisher SHALL assemble the bundle from the complete Snapshot component digests and SHALL cross-check a released artifact only for a component that appears in that list. Components that are independently distributed and excluded from the bundle (the fleet dashboard) SHALL be removed from the released artifact list before it is used.
+
+Snapshot completeness is the sole publication gate for component coverage: a Snapshot missing any required component SHALL fail before registry writes (HSR-02), while the released artifact list, after exclusions, MAY be empty without blocking publication. A merge that changes only an excluded component therefore SHALL re-confirm the existing bundle from the full Snapshot digests and complete the final pipeline successfully, with bundle contents identical to the prior bundle and no new component digests.
+
+#### Scenario: Merge of an excluded component only publishes successfully
+
+- GIVEN an accepted Snapshot that contains all six required components
+- AND a managed release whose `status.artifacts.images` lists only the excluded fleet-dashboard component
+- WHEN the final pipeline assembles the bundle
+- THEN the excluded artifact is removed, leaving an empty released artifact list
+- AND the bundle is assembled from the six Snapshot digests
+- AND the final pipeline completes successfully with bundle contents identical to the prior bundle and no new component digests
+
+#### Scenario: Partial managed artifact list is cross-checked only where present
+
+- GIVEN an accepted complete Snapshot
+- AND a managed release that lists only a subset of the required components as released images
+- WHEN the final pipeline assembles the bundle
+- THEN each listed image is checked against its Snapshot digest and release repository
+- AND each component absent from the list is taken from its Snapshot digest without a released-artifact cross-check
+- AND publication proceeds
+
+#### Scenario: Incomplete Snapshot still fails regardless of the artifact list
+
+- GIVEN a Snapshot that is missing a required component
+- WHEN the final pipeline runs
+- THEN publication fails before any registry write, independent of the released artifact list contents
+
 ## Validation
 
-Local tests cover incomplete Snapshots, mismatched digests, ancestry, extraction, draft publication and retries. Cross-compilation validates all five targets. The four-component flow was verified in a live Konflux release on 2026-10-09. The six-component extension requires the rollout in `agent-runtime-images.spec.md`.
+Local tests cover incomplete Snapshots, mismatched digests, ancestry, extraction, draft publication and retries. They also cover a partial managed artifact list and an artifact list that is empty after excluding independently distributed components, which SHALL still publish from the complete Snapshot digests. Cross-compilation validates all five targets. The four-component flow was verified in a live Konflux release on 2026-10-09. The six-component extension requires the rollout in `agent-runtime-images.spec.md`.
