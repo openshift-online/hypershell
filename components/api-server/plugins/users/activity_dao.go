@@ -16,6 +16,12 @@ type UserActivityDao interface {
 	UpsertDailyActivity(ctx context.Context, userID string, activityDate time.Time) error
 	DailyUniqueLoginCounts(ctx context.Context, startDate time.Time, endDate time.Time) (map[string]int64, error)
 	CountDistinctUsersWithActivity(ctx context.Context, startDate time.Time, endDate time.Time) (int64, error)
+	CountRetentionWindows(
+		ctx context.Context,
+		previousStartDate time.Time,
+		currentStartDate time.Time,
+		endDate time.Time,
+	) (previousCount int64, retainedCount int64, err error)
 	PruneBefore(ctx context.Context, cutoffDate time.Time) error
 }
 
@@ -88,6 +94,40 @@ func (d *sqlUserActivityDao) CountDistinctUsersWithActivity(
 		return 0, fmt.Errorf("count distinct users with activity: %w", err)
 	}
 	return count, nil
+}
+
+func (d *sqlUserActivityDao) CountRetentionWindows(
+	ctx context.Context,
+	previousStartDate time.Time,
+	currentStartDate time.Time,
+	endDate time.Time,
+) (int64, int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type retentionCounts struct {
+		PreviousCount int64
+		RetainedCount int64
+	}
+	counts := retentionCounts{}
+	err := g2.Raw(`
+		WITH previous_users AS (
+			SELECT DISTINCT user_id
+			FROM user_daily_activities
+			WHERE activity_date >= ? AND activity_date <= ?
+		),
+		current_users AS (
+			SELECT DISTINCT user_id
+			FROM user_daily_activities
+			WHERE activity_date >= ? AND activity_date <= ?
+		)
+		SELECT
+			(SELECT COUNT(*) FROM previous_users) AS previous_count,
+			(SELECT COUNT(*) FROM previous_users previous JOIN current_users current USING (user_id)) AS retained_count
+	`, utcCalendarDate(previousStartDate), utcCalendarDate(currentStartDate).AddDate(0, 0, -1),
+		utcCalendarDate(currentStartDate), utcCalendarDate(endDate)).Scan(&counts).Error
+	if err != nil {
+		return 0, 0, fmt.Errorf("count retention windows: %w", err)
+	}
+	return counts.PreviousCount, counts.RetainedCount, nil
 }
 
 func (d *sqlUserActivityDao) PruneBefore(ctx context.Context, cutoffDate time.Time) error {

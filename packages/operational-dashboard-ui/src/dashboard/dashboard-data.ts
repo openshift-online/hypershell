@@ -8,6 +8,11 @@ export const reliabilityDashboardMetricsQueryRoot = [
   "metrics",
 ] as const;
 
+export const adoptionDashboardMetricsQueryRoot = [
+  "adoption-dashboard",
+  "metrics",
+] as const;
+
 export const operationalDashboardRefreshMilliseconds = 15 * 60 * 1000;
 
 export const reliabilityDashboardRefreshMilliseconds =
@@ -19,4 +24,8 @@ export function operationalDashboardMetricsQueryKey() {
 
 export function reliabilityDashboardMetricsQueryKey() {
   return [...reliabilityDashboardMetricsQueryRoot] as const;
+}
+
+export function adoptionDashboardMetricsQueryKey(timeRange: 7 | 30) {
+  return [...adoptionDashboardMetricsQueryRoot, timeRange] as const;
 }

@@ -15,6 +15,8 @@ type testUserDao struct {
 	registeredTotal   int64
 	createdLast7Days  int64
 	createdLast30Days int64
+	inactiveUsers     int64
+	dailyCreated      map[string]int64
 	registeredErr     error
 	created7Err       error
 	created30Err      error
@@ -39,12 +41,22 @@ func (d *testUserDao) CountCreatedSince(_ context.Context, since time.Time) (int
 	return d.createdLast30Days, d.created30Err
 }
 
+func (d *testUserDao) CountCreatedBetweenByDay(context.Context, time.Time, time.Time) (map[string]int64, error) {
+	return d.dailyCreated, nil
+}
+
+func (d *testUserDao) CountInactiveSinceWithoutActivityAfter(context.Context, time.Time, time.Time) (int64, error) {
+	return d.inactiveUsers, nil
+}
+
 type testActivityDao struct {
 	dailyCounts             map[string]int64
 	distinctUsersLast7Days  int64
 	distinctUsersLast30Days int64
 	err                     error
 	distinctCountErr        error
+	retentionPreviousCount  int64
+	retentionRetainedCount  int64
 }
 
 func (d *testActivityDao) UpsertDailyActivity(context.Context, string, time.Time) error { return nil }
@@ -64,6 +76,10 @@ func (d *testActivityDao) CountDistinctUsersWithActivity(_ context.Context, star
 		return d.distinctUsersLast7Days, nil
 	}
 	return d.distinctUsersLast30Days, nil
+}
+
+func (d *testActivityDao) CountRetentionWindows(context.Context, time.Time, time.Time, time.Time) (int64, int64, error) {
+	return d.retentionPreviousCount, d.retentionRetainedCount, nil
 }
 func (d *testActivityDao) PruneBefore(context.Context, time.Time) error { return nil }
 
@@ -93,6 +109,69 @@ func TestRegisteredUsersCollectorActivityFailureDoesNotInvalidateRegistrationSer
 	if len(invalid) != 3 {
 		t.Fatalf("expected 3 invalid login metrics, got %d", len(invalid))
 	}
+}
+
+func TestRegisteredUsersCollectorAddsAdoptionAggregates(t *testing.T) {
+	today := utcDayStart(time.Now().UTC())
+	collector := newRegisteredUsersCollector(
+		&testUserDao{
+			registeredTotal: 42,
+			inactiveUsers:   7,
+			dailyCreated: map[string]int64{
+				today.Format("2006-01-02"): 4,
+			},
+		},
+		&testActivityDao{
+			dailyCounts:             map[string]int64{},
+			distinctUsersLast7Days:  9,
+			distinctUsersLast30Days: 11,
+			retentionPreviousCount:  5,
+			retentionRetainedCount:  4,
+		},
+	)
+
+	values, invalid, err := collectRegisteredUserMetrics(collector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invalid) != 0 {
+		t.Fatalf("expected no invalid metrics, got %d", len(invalid))
+	}
+	if values["hypershell_users_inactive_last_30_days_total"] != 7 {
+		t.Fatalf("inactive users = %v, want 7", values["hypershell_users_inactive_last_30_days_total"])
+	}
+	if values["hypershell_users_retention_7_days_percent"] != 80 {
+		t.Fatalf("retention = %v, want 80", values["hypershell_users_retention_7_days_percent"])
+	}
+
+	dailySamples := collectRegisteredUserLabeledSamples(collector)
+	if dailySamples["hypershell_users_created_daily_total"][today.Format("2006-01-02")] != 4 {
+		t.Fatalf("daily created sample = %v, want 4", dailySamples["hypershell_users_created_daily_total"])
+	}
+}
+
+func collectRegisteredUserLabeledSamples(collector *registeredUsersCollector) map[string]map[string]float64 {
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collector)
+	families, err := registry.Gather()
+	if err != nil {
+		panic(err)
+	}
+
+	samples := make(map[string]map[string]float64)
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			if len(metric.GetLabel()) == 0 {
+				continue
+			}
+			label := metric.GetLabel()[0].GetValue()
+			if samples[family.GetName()] == nil {
+				samples[family.GetName()] = make(map[string]float64)
+			}
+			samples[family.GetName()][label] = metric.GetGauge().GetValue()
+		}
+	}
+	return samples
 }
 
 func collectRegisteredUserMetrics(collector *registeredUsersCollector) (map[string]float64, []string, error) {

@@ -117,6 +117,20 @@ interface RegisteredUsersResponse {
   unique_logins_last_30_days?: number;
 }
 
+interface AdoptionResponse {
+  registered_users: number;
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+  inactive_users_last_30_days?: number;
+  users_with_gateway?: number;
+  gateway_conversion_percent?: number;
+  daily_created_users?: RegisteredUsersDailyLogin[];
+  daily_unique_logins?: RegisteredUsersDailyLogin[];
+  retention_7_days_percent?: number;
+}
+
 function registeredUsersResponseToMetric(
   body: RegisteredUsersResponse,
 ): OperationalMetric {
@@ -147,6 +161,72 @@ function registeredUsersResponseToMetric(
   }
 
   return metric;
+}
+
+function adoptionResponseToMetric(body: AdoptionResponse): OperationalMetric {
+  const dailyActiveUsers = body.daily_unique_logins?.at(-1)?.count;
+
+  return {
+    id: "adoption",
+    value: String(body.registered_users),
+    ...(body.created_last_7_days === undefined
+      ? {}
+      : { createdLast7Days: String(body.created_last_7_days) }),
+    ...(body.created_last_30_days === undefined
+      ? {}
+      : { createdLast30Days: String(body.created_last_30_days) }),
+    ...(dailyActiveUsers === undefined
+      ? {}
+      : { dailyActiveUsers: String(dailyActiveUsers) }),
+    ...(body.unique_logins_last_7_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast7Days: String(body.unique_logins_last_7_days),
+        }),
+    ...(body.unique_logins_last_30_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast30Days: String(body.unique_logins_last_30_days),
+        }),
+    ...(body.inactive_users_last_30_days === undefined
+      ? {}
+      : {
+          inactiveUsersLast30Days: String(body.inactive_users_last_30_days),
+        }),
+    ...(body.users_with_gateway === undefined
+      ? {}
+      : { usersWithGateway: String(body.users_with_gateway) }),
+    ...(body.gateway_conversion_percent === undefined
+      ? {}
+      : {
+          gatewayConversionPercent: body.gateway_conversion_percent.toFixed(1),
+        }),
+    ...(body.daily_created_users === undefined
+      ? {}
+      : {
+          createdTrend: {
+            points: body.daily_created_users.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.daily_unique_logins === undefined
+      ? {}
+      : {
+          trend: {
+            points: body.daily_unique_logins.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.retention_7_days_percent === undefined
+      ? {}
+      : {
+          retention7DaysPercent: body.retention_7_days_percent.toFixed(1),
+        }),
+  };
 }
 
 function mapDailyTrend(
@@ -546,6 +626,26 @@ async function fetchRegisteredUsersMetric(
   return [registeredUsersResponseToMetric(body)];
 }
 
+async function fetchAdoptionMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch(
+    rangePath("/api/metrics/adoption", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch adoption metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as AdoptionResponse;
+  return [adoptionResponseToMetric(body)];
+}
+
 async function fetchPlatformInventoryMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
@@ -909,6 +1009,20 @@ export function createDashboardControlPlaneAdapter(
           metrics: [],
         };
       }
+    },
+
+    async getAdoptionMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<OperationalDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const metrics = await fetchAdoptionMetrics(context);
+
+      return {
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
     },
   };
 }

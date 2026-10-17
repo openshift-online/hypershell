@@ -44,6 +44,8 @@ const deterministicMetrics = {
 const deterministicDashboard = createDashboardOperations({
   controlPlane: {
     getOperationalMetrics: () => Promise.resolve(deterministicMetrics),
+    getAdoptionMetrics: () =>
+      Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     getReliabilityMetrics: () =>
       Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
   },

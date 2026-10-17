@@ -19,6 +19,8 @@ const dashboard = createDashboardOperations({
   controlPlane: {
     getOperationalMetrics: () =>
       Promise.resolve(mockOperationalDashboardMetrics),
+    getAdoptionMetrics: () =>
+      Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     getReliabilityMetrics: () =>
       Promise.resolve(mockOperationalDashboardMetrics),
   },

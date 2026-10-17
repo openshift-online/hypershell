@@ -5,7 +5,7 @@ import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 
 export type DashboardSecondaryNavActive =
-  "operational" | "provisioning" | "inventory" | "reliability";
+  "operational" | "provisioning" | "inventory" | "reliability" | "adoption";
 
 export interface DashboardSecondaryNavProps {
   active: DashboardSecondaryNavActive;
@@ -26,6 +26,7 @@ const items = [
     messages.reliabilityNavReliability,
     true,
   ],
+  ["adoption", "/dashboard/adoption", messages.dashboardNavAdoption, true],
 ] as const;
 
 export function DashboardSecondaryNav({

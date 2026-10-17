@@ -37,12 +37,18 @@ export {
   operationalDashboardRefreshMilliseconds,
   reliabilityDashboardMetricsQueryKey,
   reliabilityDashboardRefreshMilliseconds,
+  adoptionDashboardMetricsQueryKey,
 } from "./dashboard/dashboard-data";
 export { ResourceRefreshButton } from "./shared/resource-refresh-button";
+export {
+  AdoptionDashboardPage,
+  type AdoptionDashboardPageProps,
+} from "./pages/adoption-dashboard-page";
 export {
   OperationalDashboardPage,
   type OperationalDashboardPageProps,
 } from "./pages/operational-dashboard-page";
+export { useGetAdoptionMetricsData } from "./pages/get-adoption-metrics-data";
 export {
   ReliabilityDashboardPage,
   type ReliabilityDashboardPageProps,

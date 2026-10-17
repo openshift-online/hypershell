@@ -28,6 +28,7 @@ import {
   shortSha,
 } from "./config.js";
 import { queryApiReliability } from "./metrics-api-reliability.js";
+import { queryAdoptionMetrics } from "./metrics-adoption.js";
 import { queryAuthorizedGatewayMetrics } from "./authorized-gateway-metrics.js";
 import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
@@ -83,6 +84,7 @@ function isApplicationRoute(pathname: string): boolean {
     pathname === "/dashboard/provisioning" ||
     pathname === "/dashboard/inventory" ||
     pathname === "/dashboard/reliability" ||
+    pathname === "/dashboard/adoption" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
     pathname === "/metrics" ||
@@ -120,6 +122,7 @@ function requiresDashboardAdminAccess(pathname: string): boolean {
     pathname === "/dashboard/provisioning" ||
     pathname === "/dashboard/inventory" ||
     pathname === "/dashboard/reliability" ||
+    pathname === "/dashboard/adoption" ||
     pathname === "/metrics"
   );
 }
@@ -819,6 +822,24 @@ export async function buildApp(
           { err: error },
           "registered user metrics query failed",
         );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/adoption",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryAdoptionMetrics(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "adoption metrics query failed");
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };
       }

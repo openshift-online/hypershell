@@ -46,7 +46,10 @@ export interface OperationalMetricProvisionOutcomes {
 export interface OperationalMetric {
   createdLast7Days?: string;
   createdLast30Days?: string;
+  createdTrend?: OperationalMetricTrend;
+  dailyActiveUsers?: string;
   id: string;
+  inactiveUsersLast30Days?: string;
   inventoryProviders?: Record<string, number>;
   inventoryRegions?: Record<string, number>;
   inventoryStatus?: Record<string, number>;
@@ -63,8 +66,11 @@ export interface OperationalMetric {
   successRateTrend?: OperationalMetricTrend;
   total?: string;
   trend?: OperationalMetricTrend;
+  usersWithGateway?: string;
+  gatewayConversionPercent?: string;
   uniqueLoginsLast7Days?: string;
   uniqueLoginsLast30Days?: string;
+  retention7DaysPercent?: string;
   unit?: string;
   value: string;
 }
@@ -75,6 +81,7 @@ export interface SignupTrendPoint {
 }
 
 export type DashboardMetricSourceId =
+  | "adoption"
   | "cluster-cpu"
   | "cluster-memory"
   | "cluster-nodes"
@@ -127,6 +134,9 @@ export interface DashboardControlPlane {
   getReliabilityMetrics(
     context: DashboardInvocationContext,
   ): Promise<OperationalDashboardMetrics>;
+  getAdoptionMetrics(
+    context: DashboardInvocationContext,
+  ): Promise<OperationalDashboardMetrics>;
 }
 
 /** Driving entry port used by the dashboard presentation adapters. */
@@ -138,6 +148,11 @@ export interface DashboardOperations {
   ): Promise<OperationalDashboardMetrics>;
   getReliabilityMetrics(
     signal?: AbortSignal,
+  ): Promise<OperationalDashboardMetrics>;
+  getAdoptionMetrics(
+    signal?: AbortSignal,
+    timeRange?: DashboardTimeRange,
+    options?: DashboardOperationalMetricsOptions,
   ): Promise<OperationalDashboardMetrics>;
 }
 

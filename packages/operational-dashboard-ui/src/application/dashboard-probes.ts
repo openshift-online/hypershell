@@ -4,7 +4,9 @@ import type {
 } from "@openshift-online/hypershell-domain-probes";
 
 export type DashboardWorkflowAction =
-  "get-operational-metrics" | "get-reliability-metrics";
+  | "get-operational-metrics"
+  | "get-reliability-metrics"
+  | "get-adoption-metrics";
 export type DashboardLayoutAction = "persist-layout-template";
 export type DashboardProbeAction =
   DashboardWorkflowAction | DashboardLayoutAction;

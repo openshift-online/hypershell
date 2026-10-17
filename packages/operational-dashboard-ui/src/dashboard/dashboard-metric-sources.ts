@@ -9,6 +9,7 @@ export type { DashboardMetricSourceId };
 export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   Record<DashboardMetricSourceId, readonly string[]>
 > = {
+  adoption: ["adoption"],
   "gateway-metrics": [
     "provisioned-gateways",
     "provisioned-sandboxes",
@@ -86,5 +87,16 @@ export function mergeReliabilityDashboardMetrics(
     previous,
     next,
     RELIABILITY_METRIC_SOURCE_METRIC_IDS,
+  );
+}
+
+export function mergeAdoptionDashboardMetrics(
+  previous: OperationalDashboardMetrics | undefined,
+  next: OperationalDashboardMetrics,
+): OperationalDashboardMetrics {
+  return mergeDashboardMetricsBySourceMap(
+    previous,
+    next,
+    DASHBOARD_METRIC_SOURCE_METRIC_IDS,
   );
 }
