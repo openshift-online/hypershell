@@ -15,6 +15,5 @@ resources:
   - agents/spec-review/agent.yaml
   - agents/code-implementation/agent.yaml
   - agents/code-review/agent.yaml
-  - agents/review-response/agent.yaml
   - agents/release-verification/agent.yaml
   - agents/update-openshell/agent.yaml

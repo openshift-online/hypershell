@@ -49,8 +49,9 @@ ELSE:
 - Push to branch
 - Open a Pull Request. Its body MUST contain a GitHub closing reference to the issue
   (`Closes #$ISSUE_NUMBER`) so the pull request is machine-linked to the work item.
-  This linkage is load-bearing: `review-response` reads it to find the issue, and the
-  fleet dashboard uses it to attribute shipped work to a release bundle. A work item
+  This linkage is load-bearing: the review and `reconcile` agents read it to find the
+  issue and its pull requests, and the fleet dashboard uses it to attribute shipped
+  work to a release bundle. A work item
   may be delivered by several PRs; each such PR MUST carry the closing reference.
 - PR Body must conform to [SIMPLIFIED TECHNICAL ENGLISH STANDARD](https://en.wikipedia.org/wiki/Simplified_Technical_English).
 
