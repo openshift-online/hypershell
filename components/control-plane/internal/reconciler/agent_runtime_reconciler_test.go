@@ -440,6 +440,132 @@ func TestSecretFileMount_PreservesHashUniqueness(t *testing.T) {
 	}
 }
 
+// fakeProviderRealizer records the materials it was asked to realize and whether
+// DeleteProviders was called, so tests can assert the provider-realization path.
+type fakeProviderRealizer struct {
+	realized   []ProviderMaterial
+	deleted    bool
+	realizeErr error
+}
+
+func (f *fakeProviderRealizer) RealizeProviders(_ context.Context, _ *pb.AgentRuntime, materials []ProviderMaterial) error {
+	if f.realizeErr != nil {
+		return f.realizeErr
+	}
+	f.realized = append(f.realized, materials...)
+	return nil
+}
+
+func (f *fakeProviderRealizer) DeleteProviders(_ context.Context, _ *pb.AgentRuntime) error {
+	f.deleted = true
+	return nil
+}
+
+// With a ProviderRealizer wired, provider material is realized as OpenShell providers
+// (no raw Secret placed for it) while the coordinator gateway-identity is still placed
+// as a Secret (HYPERSHELL-409).
+func TestAgentRuntimeReconcile_RealizesProvidersInsteadOfPlacingSecrets(t *testing.T) {
+	ar := testAgentRuntime()
+	ns := agentRuntimeNamespace(ar)
+	r, writes := newTestReconciler(seedForTestAgentRuntime())
+	realizer := &fakeProviderRealizer{}
+	r.providers = realizer
+
+	if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
+		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
+	}); err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+
+	ctx := context.Background()
+	// Only the gateway-identity Secret is placed; the app-private-key provider material
+	// is realized as a provider, not rendered as a Secret.
+	secList, err := r.kube.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list secrets: %v", err)
+	}
+	if len(secList.Items) != 1 {
+		t.Fatalf("placed secret count = %d, want 1 (only gateway-identity)", len(secList.Items))
+	}
+	if _, err := r.kube.CoreV1().Secrets(ns).Get(ctx, secretName(ar.SecretSources[0]), metav1.GetOptions{}); err != nil {
+		t.Fatalf("gateway-identity secret must still be placed: %v", err)
+	}
+	if _, err := r.kube.CoreV1().Secrets(ns).Get(ctx, secretName(ar.SecretSources[1]), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("provider material must not be placed as a Secret, got err=%v", err)
+	}
+
+	// The realizer received the provider material (the app-private-key source).
+	if len(realizer.realized) != 1 {
+		t.Fatalf("realized provider count = %d, want 1", len(realizer.realized))
+	}
+	if realizer.realized[0].Source.GetName() != "github-key" {
+		t.Fatalf("realized source = %q, want github-key", realizer.realized[0].Source.GetName())
+	}
+	if realizer.realized[0].Material == "" {
+		t.Fatalf("realizer must receive the resolved provider material")
+	}
+
+	// The coordinator env wires only gateway-identity (5 vars), not provider material.
+	cj, err := r.kube.BatchV1().CronJobs(ns).Get(ctx, agentCronJobName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("cronjob not created: %v", err)
+	}
+	container := cj.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+	if hasEnv(container.Env, "APP_PRIVATE_KEY_FILE") {
+		t.Fatalf("coordinator env must not wire provider material when it is realized as a provider")
+	}
+
+	last := (*writes)[len(*writes)-1]
+	if last.status != agentRuntimeStatusRunning {
+		t.Fatalf("final status = %q, want Running", last.status)
+	}
+}
+
+// With a realizer wired, provider material absent from a reachable store holds the
+// runtime at Provisioning (SecretPending gates provider creation) and the realizer is
+// not invoked.
+func TestAgentRuntimeReconcile_ProviderMaterialPendingGatesRealization(t *testing.T) {
+	ar := testAgentRuntime()
+	// gateway-identity present, provider material (secret/github) absent.
+	r, writes := newTestReconciler(map[string]string{"secret/gateway": gatewayIdentityValue})
+	realizer := &fakeProviderRealizer{}
+	r.providers = realizer
+
+	err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
+		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
+	})
+	if err == nil {
+		t.Fatalf("expected a retryable SecretPending error while provider material is absent")
+	}
+	last := (*writes)[len(*writes)-1]
+	if last.status != agentRuntimeStatusProvisioning {
+		t.Fatalf("final status = %q, want Provisioning (SecretPending gates provider creation)", last.status)
+	}
+	if last.message == nil || !strings.Contains(*last.message, "github-key") {
+		t.Fatalf("SecretPending message must name the pending provider SecretSource, got %v", last.message)
+	}
+	if len(realizer.realized) != 0 {
+		t.Fatalf("realizer must not be invoked while provider material is pending")
+	}
+}
+
+// With a realizer wired, deletion removes the gateway-side providers.
+func TestAgentRuntimeReconcile_DeleteRemovesProviders(t *testing.T) {
+	ar := testAgentRuntime()
+	r, _ := newTestReconciler(seedForTestAgentRuntime())
+	realizer := &fakeProviderRealizer{}
+	r.providers = realizer
+
+	if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
+		Type: watcher.EventDeleted, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
+	}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !realizer.deleted {
+		t.Fatalf("DeleteProviders must be called on AgentRuntime deletion")
+	}
+}
+
 func TestAgentRuntimeNamespace_DNS1123(t *testing.T) {
 	ar := &pb.AgentRuntime{Metadata: &pb.ObjectReference{Id: "AbC123XyZ"}}
 	ns := agentRuntimeNamespace(ar)

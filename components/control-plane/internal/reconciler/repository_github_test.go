@@ -2,12 +2,17 @@ package reconciler
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"google.golang.org/grpc"
@@ -179,5 +184,117 @@ func TestCredentialResolver_PerRepositoryPrecedence(t *testing.T) {
 	}
 	if got != "repo-specific-token" {
 		t.Errorf("Resolve() = %q, want the per-repository credential to take precedence over the platform token", got)
+	}
+}
+
+func TestParseGitHubAppMaterial(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		ok    bool
+	}{
+		{"complete app material", `{"app_id":"1","installation_id":"2","private_key":"-----BEGIN RSA PRIVATE KEY-----\nx\n-----END RSA PRIVATE KEY-----"}`, true},
+		{"plain token", "ghs_abc123", false},
+		{"missing private_key", `{"app_id":"1","installation_id":"2"}`, false},
+		{"missing app_id", `{"installation_id":"2","private_key":"pem"}`, false},
+		{"missing installation_id", `{"app_id":"1","private_key":"pem"}`, false},
+		{"not an object", `["a","b"]`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, ok := parseGitHubAppMaterial(c.value)
+			if ok != c.ok {
+				t.Errorf("parseGitHubAppMaterial(%q) ok = %v, want %v", c.value, ok, c.ok)
+			}
+		})
+	}
+}
+
+// newTestAppPrivateKeyPEM generates a throwaway RSA key and returns its PKCS1 PEM.
+func newTestAppPrivateKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	block := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}
+	return string(pem.EncodeToMemory(block))
+}
+
+// TestCredentialResolver_GitHubAppMintsInstallationToken verifies that App material
+// is exchanged for an installation token (an RS256 App JWT is presented to the
+// access-tokens endpoint) and that the minted token is cached across resolves.
+func TestCredentialResolver_GitHubAppMintsInstallationToken(t *testing.T) {
+	pemKey := newTestAppPrivateKeyPEM(t)
+	calls := 0
+	var authSeen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/app/installations/inst-9/access_tokens") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		calls++
+		authSeen = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"token":      "ghs_minted_installation_token",
+			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		})
+	}))
+	defer srv.Close()
+
+	material := githubAppMaterial{AppID: "42", InstallationID: "inst-9", PrivateKey: pemKey}
+	matJSON, err := json.Marshal(material)
+	if err != nil {
+		t.Fatalf("marshal material: %v", err)
+	}
+	sources := &fakeSecretSourceClient{source: &pb.SecretSource{Path: "secret/data/github-app", Metadata: &pb.ObjectReference{Id: "ss1"}}}
+	reader := &fakeSecretReader{values: map[string]string{"secret/data/github-app": string(matJSON)}}
+	r := NewSecretStoreCredentialResolverWithGitHubApp(reader, sources, "platform-token", srv.Client(), srv.URL)
+
+	repo := &pb.Repository{Metadata: &pb.ObjectReference{Id: "r1"}, SecretSourceId: "ss1", Provider: "github"}
+	got, err := r.Resolve(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got != "ghs_minted_installation_token" {
+		t.Errorf("Resolve() = %q, want the minted installation token", got)
+	}
+	if !strings.HasPrefix(authSeen, "Bearer ") {
+		t.Errorf("access-tokens request Authorization = %q, want a Bearer App JWT", authSeen)
+	}
+
+	// A second resolve must serve the cached token without re-minting.
+	if _, err := r.Resolve(context.Background(), repo); err != nil {
+		t.Fatalf("second Resolve() error = %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("installation-token endpoint called %d times, want 1 (token should be cached)", calls)
+	}
+}
+
+// TestCredentialResolver_GitHubAppMintError surfaces a GitHub failure as an error
+// that names the ids but never the key.
+func TestCredentialResolver_GitHubAppMintError(t *testing.T) {
+	pemKey := newTestAppPrivateKeyPEM(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+	}))
+	defer srv.Close()
+
+	material := githubAppMaterial{AppID: "42", InstallationID: "inst-9", PrivateKey: pemKey}
+	matJSON, _ := json.Marshal(material)
+	sources := &fakeSecretSourceClient{source: &pb.SecretSource{Path: "secret/data/github-app", Metadata: &pb.ObjectReference{Id: "ss1"}}}
+	reader := &fakeSecretReader{values: map[string]string{"secret/data/github-app": string(matJSON)}}
+	r := NewSecretStoreCredentialResolverWithGitHubApp(reader, sources, "", srv.Client(), srv.URL)
+
+	repo := &pb.Repository{Metadata: &pb.ObjectReference{Id: "r1"}, SecretSourceId: "ss1", Provider: "github"}
+	_, err := r.Resolve(context.Background(), repo)
+	if err == nil {
+		t.Fatal("Resolve() expected an error from the token exchange")
+	}
+	if strings.Contains(err.Error(), pemKey) {
+		t.Error("Resolve() error leaked the private key material")
 	}
 }

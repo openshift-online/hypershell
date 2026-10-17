@@ -27,27 +27,62 @@ const (
 	agentRuntimeStatusTerminating  = "Terminating"
 )
 
+// ProviderMaterial is one SecretSource's durable provider material (a GitHub App
+// PEM, a Vertex service-account key) resolved cluster-local, paired with the
+// SecretSource it came from so a ProviderRealizer can map it to the matching
+// ProviderBinding.
+type ProviderMaterial struct {
+	Source   *pb.SecretSource
+	Material string
+}
+
+// ProviderRealizer realizes an AgentRuntime's credentials as OpenShell providers on
+// the agent's gateway/workspace, from durable material the control plane read
+// cluster-local (agent-secret-late-binding.spec.md "Credentials Realized as OpenShell
+// Providers, Not Rendered Secrets"). OpenShell owns rotation through the provider
+// refresh strategy; a realizer never mints or rotates the usable credential and never
+// renders a raw Kubernetes Secret.
+//
+// It is a seam. The gateway provider client that implements it (the gateway-side
+// workspace/provider provisioning over the gateway gRPC API) is tracked separately
+// and is not wired yet (issue #526); the AgentRuntime watch payload does not yet
+// carry its ProviderBindings. Until a realizer is configured the reconciler keeps the
+// transitional raw-Secret placement so the live agent fleet does not regress; once a
+// realizer is wired, provider material is realized as providers instead of placed as
+// Secrets.
+type ProviderRealizer interface {
+	// RealizeProviders creates or updates the OpenShell providers for the runtime
+	// from the resolved provider material. It is idempotent.
+	RealizeProviders(ctx context.Context, ar *pb.AgentRuntime, materials []ProviderMaterial) error
+	// DeleteProviders removes the runtime's OpenShell providers.
+	DeleteProviders(ctx context.Context, ar *pb.AgentRuntime) error
+}
+
 // AgentRuntimeReconciler reconciles AgentRuntime cluster-side scheduling resources
 // (issue #521 Wave B, requirements #3 and #5). On an upsert it applies the
 // namespace, non-auto-mounting ServiceAccount, default-deny-ingress NetworkPolicy,
-// one Kubernetes Secret per SecretSource, and the coordinator CronJob to the target
+// the coordinator gateway-identity Secret, and the coordinator CronJob to the target
 // cluster, then writes the status lifecycle (Pending -> Provisioning ->
 // Running/Degraded) back to the API server. On a delete it writes Terminating and
 // removes the resources.
 //
-// Secret placement is direct and one-shot: for each SecretSource the reconciler
-// reads the referenced value from the configured secret store through its read-only
-// pkg/secretstore client and writes a Kubernetes Secret itself. It does NOT create
-// an ExternalSecret and does NOT depend on External Secrets Operator, and it runs no
-// ESO-style periodic resync or rotation of the placed value (security.spec.md
-// "Secret Store Access Is Single-Directional per Component"; control-plane.spec.md
-// "AgentRuntime Cluster Resource Provisioning").
+// Credential model (agent-secret-late-binding.spec.md, HYPERSHELL-409): an agent's
+// provider credentials are realized as OpenShell providers from durable material read
+// cluster-local, and OpenShell owns rotation; the control plane does NOT render a raw
+// Kubernetes Secret for them and never mints or rotates the usable credential. The
+// coordinator's own gateway-identity (its OIDC login to the gateway) is the one
+// credential the coordinator consumes directly, read cluster-local and wired as
+// coordinator environment. For gateway-identity the reconciler reads the referenced
+// value through its read-only pkg/secretstore client and writes a Kubernetes Secret
+// itself; it creates no ExternalSecret, depends on no External Secrets Operator, and
+// runs no ESO-style periodic resync.
 //
-// Gateway-side workspace provisioning (requirement #4, data-model.spec.md
-// "Gateway-Side Provisioning") is NOT performed here: it is blocked on the gateway
-// workspace API design (issue #526) and is therefore excluded from Wave B. The
-// Running transition here reflects cluster-side success only; once #4 lands it will
-// additionally gate on the AgentWorkspace being provisioned.
+// Provider realization is gateway-side and delegated to a ProviderRealizer. That
+// client is not wired yet (issue #526) and the AgentRuntime watch payload does not
+// yet carry its ProviderBindings; until a realizer is configured, provider-material
+// SecretSources keep the transitional raw-Secret placement so the live fleet does not
+// regress. The Running transition reflects cluster-side success (and provider
+// realization when a realizer is configured).
 //
 // Handle holds no per-resource dedup state: the watch reconcile queue serializes
 // work per AgentRuntime id (a key in flight is never handed to a second worker),
@@ -59,12 +94,19 @@ type AgentRuntimeReconciler struct {
 	// skipped (mirroring the other reconcilers).
 	kube kubernetes.Interface
 	// secrets is the read-only secret-store client the reconciler reads each
-	// SecretSource value from before placing it as a Kubernetes Secret. It is never
-	// used to write to the store. A disabled store (the default when none is
-	// configured) rejects reads, so an AgentRuntime that declares a SecretSource is
-	// degraded until a store is configured; an AgentRuntime with no SecretSource is
-	// unaffected.
+	// SecretSource value from (to place the gateway-identity Secret and to resolve
+	// provider material for realization). It is never used to write to the store. A
+	// disabled store (the default when none is configured) rejects reads, so an
+	// AgentRuntime that declares a SecretSource is degraded until a store is
+	// configured; an AgentRuntime with no SecretSource is unaffected.
 	secrets secretstore.Reader
+
+	// providers realizes provider-material SecretSources as OpenShell providers on the
+	// agent's gateway/workspace. It is nil until the gateway provider client is wired
+	// (issue #526); while nil the reconciler keeps the transitional raw-Secret
+	// placement for provider material so the live fleet does not regress. Settable in
+	// tests to exercise the realization path.
+	providers ProviderRealizer
 
 	grpcConn  *grpc.ClientConn
 	clusterID string
@@ -163,15 +205,20 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 		return r.fail(ctx, ar, fmt.Errorf("apply network policy: %w", err))
 	}
 
-	// One Kubernetes Secret per SecretSource, placed directly from the value read
-	// out of the secret store (no ExternalSecret, no ESO). Track the names so a
-	// Secret whose SecretSource was removed is pruned. A read or placement failure
-	// degrades the runtime and surfaces the failing SecretSource by name
-	// (control-plane.spec.md "SecretSource read or placement failure degrades the
-	// AgentRuntime"); since placement is synchronous the result is known on this
-	// pass, so there is no separate operator-driven sync state to poll.
+	// Split the SecretSources into those the control plane places as Kubernetes
+	// Secrets and those realized as OpenShell providers. Only the coordinator
+	// gateway-identity (the coordinator's own OIDC login to the gateway) is placed as
+	// a Secret and wired as coordinator environment; provider material is realized as
+	// providers (HYPERSHELL-409). While no ProviderRealizer is wired (issue #526) the
+	// reconciler keeps the transitional behavior of placing every SecretSource so the
+	// live fleet does not regress.
+	secretSources, providerSources := r.classifySecretSources(ar.GetSecretSources())
+
+	// Placed Secrets, written directly from the value read out of the store (no
+	// ExternalSecret, no ESO). Track the names so a Secret whose SecretSource was
+	// removed - or that is now realized as a provider - is pruned.
 	desiredSecrets := map[string]struct{}{}
-	for _, source := range ar.GetSecretSources() {
+	for _, source := range secretSources {
 		// placeSecret returns a classified, value-free reason for the persisted status
 		// and a detailed error (used only for the requeue). The status message carries
 		// just the SecretSource name (a safe reference) and the reason, never any bytes
@@ -179,18 +226,8 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 		// logs, events, or the database).
 		reason, err := r.placeSecret(ctx, ar, namespace, source)
 		if err != nil {
-			// Reachable store, value not uploaded yet: a benign, self-healing
-			// SecretPending state, NOT a failure. Hold at Provisioning with an
-			// actionable instruction (resolved cluster + exact mount/path), place no
-			// empty credential, do not mark the workspace Running, and return so the
-			// reconcile queue retries on its cadence and converges the moment the value
-			// appears (agent-secret-late-binding.spec.md "SecretPending Condition and
-			// Self-Healing Retry"; control-plane.spec.md "AgentRuntime Reconciliation").
 			if errors.Is(err, secretstore.ErrNotFound) {
-				msg := secretPendingMessage(r.clusterName, r.secretStoreMount, source)
-				r.setStatus(ctx, ar, agentRuntimeStatusProvisioning, &msg)
-				log.Printf("INFO AgentRuntime %s: SecretPending for %q: %s", ar.GetMetadata().GetId(), source.GetName(), msg)
-				return fmt.Errorf("reconcile agent runtime %s: secret %q pending upload: %w", ar.GetMetadata().GetId(), source.GetName(), err)
+				return r.holdSecretPending(ctx, ar, source, err)
 			}
 			// Unreachable or erroring store (or malformed value): a genuine failure
 			// that degrades the runtime.
@@ -205,14 +242,100 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 		return r.fail(ctx, ar, fmt.Errorf("prune secrets: %w", err))
 	}
 
-	cronJob := buildCoordinatorCronJob(ar, namespace, ar.GetSecretSources())
+	cronJob := buildCoordinatorCronJob(ar, namespace, secretSources)
 	if err := applyCronJob(ctx, r.kube, namespace, cronJob); err != nil {
 		return r.fail(ctx, ar, fmt.Errorf("apply cronjob: %w", err))
+	}
+
+	// Realize provider material as OpenShell providers. SecretPending now gates
+	// PROVIDER CREATION: material absent from a reachable store holds at Provisioning;
+	// an unreachable store degrades; present material is realized and OpenShell owns
+	// rotation thereafter (agent-secret-late-binding.spec.md "SecretPending Condition
+	// Gates Provider Creation", "OpenShell Owns Credential Rotation").
+	if r.providers != nil && len(providerSources) > 0 {
+		if err := r.realizeProviders(ctx, ar, providerSources); err != nil {
+			return err
+		}
 	}
 
 	r.setStatus(ctx, ar, agentRuntimeStatusRunning, nil)
 	log.Printf("INFO AgentRuntime %s provisioned in namespace %s", ar.GetMetadata().GetId(), namespace)
 	return nil
+}
+
+// classifySecretSources splits SecretSources into those placed as Kubernetes Secrets
+// and those realized as OpenShell providers. When no ProviderRealizer is wired (issue
+// #526) every source is placed as a Secret - the transitional behavior that keeps the
+// live fleet working until provider realization is available. When a realizer is
+// wired, only the coordinator gateway-identity is placed as a Secret; everything else
+// is provider material realized as providers.
+func (r *AgentRuntimeReconciler) classifySecretSources(sources []*pb.SecretSource) (placed, providers []*pb.SecretSource) {
+	if r.providers == nil {
+		return sources, nil
+	}
+	for _, s := range sources {
+		if isCoordinatorIdentitySource(s) {
+			placed = append(placed, s)
+		} else {
+			providers = append(providers, s)
+		}
+	}
+	return placed, providers
+}
+
+// realizeProviders reads each provider SecretSource's material cluster-local and
+// hands the set to the ProviderRealizer. A material absent from a reachable store
+// holds the runtime at Provisioning with an actionable SecretPending message (gating
+// provider creation); an unreachable store degrades; a realizer error degrades.
+func (r *AgentRuntimeReconciler) realizeProviders(ctx context.Context, ar *pb.AgentRuntime, sources []*pb.SecretSource) error {
+	materials := make([]ProviderMaterial, 0, len(sources))
+	for _, source := range sources {
+		material, err := r.readMaterial(ctx, source)
+		if err != nil {
+			if errors.Is(err, secretstore.ErrNotFound) {
+				return r.holdSecretPending(ctx, ar, source, err)
+			}
+			msg := fmt.Sprintf("SecretSource %q: provider material read failed", source.GetName())
+			r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
+			log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+			return fmt.Errorf("reconcile agent runtime %s: read provider material for %q: %w", ar.GetMetadata().GetId(), source.GetName(), err)
+		}
+		materials = append(materials, ProviderMaterial{Source: source, Material: material})
+	}
+	if err := r.providers.RealizeProviders(ctx, ar, materials); err != nil {
+		msg := "provider realization failed"
+		r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
+		log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+		return fmt.Errorf("reconcile agent runtime %s: realize providers: %w", ar.GetMetadata().GetId(), err)
+	}
+	return nil
+}
+
+// readMaterial reads one SecretSource's durable material from the store (read-only).
+// It preserves the error chain (including a wrapped ErrNotFound) so the caller can
+// distinguish not-yet-uploaded material (SecretPending) from a store failure. It
+// never returns the material in an error.
+func (r *AgentRuntimeReconciler) readMaterial(ctx context.Context, source *pb.SecretSource) (string, error) {
+	if r.secrets == nil {
+		return "", fmt.Errorf("no secret store client configured; cannot read provider material")
+	}
+	value, err := r.secrets.Get(ctx, source.GetPath())
+	if err != nil {
+		return "", fmt.Errorf("read provider material from store: %w", err)
+	}
+	return value, nil
+}
+
+// holdSecretPending records the benign, self-healing SecretPending state: a reachable
+// store that does not yet hold the referenced material. It holds at Provisioning with
+// an actionable instruction (resolved cluster + exact mount/path), places no empty
+// credential, does not mark the workspace Running, and returns a retryable error so
+// the reconcile queue converges the moment the material appears (no manual trigger).
+func (r *AgentRuntimeReconciler) holdSecretPending(ctx context.Context, ar *pb.AgentRuntime, source *pb.SecretSource, cause error) error {
+	msg := secretPendingMessage(r.clusterName, r.secretStoreMount, source)
+	r.setStatus(ctx, ar, agentRuntimeStatusProvisioning, &msg)
+	log.Printf("INFO AgentRuntime %s: SecretPending for %q: %s", ar.GetMetadata().GetId(), source.GetName(), msg)
+	return fmt.Errorf("reconcile agent runtime %s: secret %q pending upload: %w", ar.GetMetadata().GetId(), source.GetName(), cause)
 }
 
 // placeSecret reads one SecretSource value from the store and places it directly
@@ -261,6 +384,15 @@ func secretPendingMessage(clusterName, mount string, source *pb.SecretSource) st
 func (r *AgentRuntimeReconciler) handleDelete(ctx context.Context, ar *pb.AgentRuntime, namespace string) error {
 	log.Printf("INFO AgentRuntime %s deleted, removing resources in namespace %s", ar.GetMetadata().GetId(), namespace)
 	r.setStatus(ctx, ar, agentRuntimeStatusTerminating, nil)
+	// Remove the gateway-side OpenShell providers when a realizer is wired. This is
+	// best-effort: a failure here is logged and must not block cluster-side cleanup
+	// (the namespace delete), so a gateway outage cannot strand the namespace. The
+	// error is surfaced in the log, not silently swallowed.
+	if r.providers != nil {
+		if err := r.providers.DeleteProviders(ctx, ar); err != nil {
+			log.Printf("WARN AgentRuntime %s: delete gateway providers failed (continuing with cluster cleanup): %v", ar.GetMetadata().GetId(), err)
+		}
+	}
 	if err := deleteAgentRuntimeNamespace(ctx, r.kube, namespace); err != nil {
 		return fmt.Errorf("delete agent runtime %s namespace %s: %w", ar.GetMetadata().GetId(), namespace, err)
 	}

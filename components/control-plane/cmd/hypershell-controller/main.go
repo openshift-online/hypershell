@@ -467,7 +467,7 @@ func main() {
 		} else {
 			log.Printf("INFO repository import: no HYPERSHELL_GITHUB_TOKEN_FILE set; only repositories with a per-Repository secret_source_id credential (or public repositories) can be read")
 		}
-		importResolver := reconciler.NewSecretStoreCredentialResolver(secretReader, pb.NewSecretSourceServiceClient(conn), platformToken)
+		importResolver := reconciler.NewSecretStoreCredentialResolverWithGitHubApp(secretReader, pb.NewSecretSourceServiceClient(conn), platformToken, nil, cfg.GitHubAPIBase)
 		importFetcher := reconciler.NewGitHubSubtreeFetcher(nil, cfg.GitHubAPIBase)
 		importWriter := reconciler.NewGRPCImportWriter(conn)
 		repositoryReconciler := reconciler.NewRepositoryReconciler(

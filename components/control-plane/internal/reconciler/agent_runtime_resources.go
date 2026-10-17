@@ -175,6 +175,19 @@ func applyDenyIngressNetworkPolicy(ctx context.Context, kube kubernetes.Interfac
 	return nil
 }
 
+// coordinatorIdentityPurpose is the SecretSource purpose the coordinator consumes
+// directly: its own OIDC identity for authenticating to the gateway. Every other
+// purpose is provider material realized as an OpenShell provider rather than placed as
+// a raw Secret (agent-secret-late-binding.spec.md, HYPERSHELL-409).
+const coordinatorIdentityPurpose = "gateway-identity"
+
+// isCoordinatorIdentitySource reports whether a SecretSource is the coordinator's own
+// gateway-identity login (placed as a Secret and wired as coordinator environment)
+// rather than provider material (realized as an OpenShell provider).
+func isCoordinatorIdentitySource(source *pb.SecretSource) bool {
+	return source.GetPurpose() == coordinatorIdentityPurpose
+}
+
 // secretSourceKeyMapping is one {source_key, target_key} rename pair.
 type secretSourceKeyMapping struct {
 	SourceKey string `json:"source_key"`
