@@ -25,6 +25,50 @@ conflated.
 
 ## Requirements
 
+### Requirement: Two Secret Resolution Paths
+
+HyperShell SHALL resolve secrets through two distinct, non-overlapping paths, and
+every `SecretSource` consumer SHALL use exactly one of them. The two paths SHALL NOT
+be conflated and SHALL NOT be collapsed onto one shared store address in the general
+multi-cluster fleet.
+
+1. **Hub-side write-then-record path.** For a secret legitimately submitted at the
+   hub, the api-server write-only `pkg/secretstore` client writes the value to the
+   hub-reachable store and records only the reference (the
+   [`data-model.spec.md`](./data-model.spec.md) "Secret Submission and Storage" flow).
+   This path serves:
+   - the `Repository.secret_source_id` git credential the `RepositoryReconciler`
+     reads hub-side to fetch a private `.hypershell` subtree (see
+     [`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell`
+     Import Reconciliation"), and
+   - the co-located / single-cluster deployment (for example `hyp0`, where the
+     api-server, the control plane, and one Vault share a single cluster), in which
+     the api-server write client and that cluster's control-plane read client MAY
+     share one `HYPERSHELL_SECRET_STORE_*` backend and address because they are the
+     same cluster's store.
+
+2. **Distributed AgentRuntime late-binding path.** For an `AgentRuntime`
+   `SecretSource` value in a multi-cluster fleet, the value SHALL be written DIRECTLY
+   into the ASSIGNED cluster's local Vault by that cluster's per-cluster writer
+   identity (see "Scoped Per-Cluster Writer Access"), and the control plane managing
+   that cluster SHALL read it from its OWN cluster-local Vault. The value SHALL NOT be
+   submitted to the hub api-server and SHALL NOT transit the hub. Each control plane
+   SHALL be wired to its own cluster-local Vault; there SHALL be no shared global
+   store address across clusters and no hub staging store.
+
+The co-located case is the single point where the two paths coincide, and it does so
+only because the hub and the cluster are the same cluster. It SHALL NOT be read as
+licensing one global store that a hub api-server writes and every spoke reads.
+
+#### Scenario: Repository git credential resolves hub-side; AgentRuntime value resolves cluster-local
+
+- GIVEN a multi-cluster fleet with a hub api-server and spoke clusters each running a local Vault
+- WHEN the `RepositoryReconciler` needs a `Repository.secret_source_id` git credential
+- THEN it SHALL resolve that credential through the hub-reachable store (path 1)
+- WHEN instead an `AgentRuntime` `SecretSource` value is consumed on a spoke cluster
+- THEN the spoke's control plane SHALL read it from that cluster's local Vault (path 2)
+- AND the `AgentRuntime` value SHALL NOT be written to or read from a hub store
+
 ### Requirement: Reference-Only SecretSource Submission
 
 A `SecretSource` SHALL be a first-class, valid resource with NO value supplied at
@@ -42,6 +86,15 @@ api-server SHALL derive it from the submission identity as
 location a value-bearing submission is written to). The derived path SHALL be stable
 across re-submission of the same `SecretSource`.
 
+In the distributed late-binding flow (path 2 of "Two Secret Resolution Paths") the
+`AgentRuntime` `SecretSource` value SHALL NOT be submitted to the hub api-server at
+all: the reference is declared value-less, and the value is uploaded later directly
+into the assigned cluster's local Vault by the per-cluster writer. The api-server
+write-then-record path (path 1) carries a value only when a secret is legitimately
+submitted at the hub - the `Repository` git credential or the co-located single-cluster
+deployment - which is why "plaintext never touches the hub" holds for distributed
+`AgentRuntime` secrets.
+
 #### Scenario: Create a value-less SecretSource reference
 
 - GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO `value`
@@ -50,12 +103,19 @@ across re-submission of the same `SecretSource`.
 - AND it SHALL NOT perform any `pkg/secretstore` write
 - AND the created `SecretSource` SHALL be a valid, consumable resource
 
-#### Scenario: Value supplied later follows the existing write-then-record flow
+#### Scenario: Hub-submitted value follows the write-then-record flow
 
-- GIVEN an existing reference-only `SecretSource`
-- WHEN a value is supplied through the secret-submission path
+- GIVEN a secret legitimately submitted at the hub (a `Repository` git credential, or any secret in a co-located single-cluster deployment)
+- WHEN a value is supplied through the api-server secret-submission path
 - THEN the api-server SHALL write the value to the store at the `SecretSource` convention path FIRST
 - AND it SHALL NOT persist the raw value in the database and SHALL NOT return it on any read
+
+#### Scenario: Distributed AgentRuntime value is never submitted to the api-server
+
+- GIVEN a reference-only `SecretSource` consumed by an `AgentRuntime` placed on a spoke cluster
+- WHEN the value is provided
+- THEN it SHALL be uploaded directly into the assigned cluster's local Vault by the per-cluster writer
+- AND it SHALL NOT be submitted to the hub api-server and SHALL NOT transit the hub
 
 ### Requirement: Distributed Per-Cluster Runtime Placement
 
@@ -213,45 +273,72 @@ the import is configuration, not a code change (separate configuration from code
 
 ### Requirement: Secret Store Wiring on Both Components
 
-The secret store SHALL be wired on both components through the
-`HYPERSHELL_SECRET_STORE_*` configuration, keeping the single-directional split from
-[`security/security.spec.md`](../standards/security/security.spec.md): the api-server
-configures the WRITE client and the control plane configures the READ client from the
-same `HYPERSHELL_SECRET_STORE_BACKEND` (plus backend address, auth, and mount
-settings). When the backend is unset, the api-server SHALL reject secret submissions
-loudly and the control plane SHALL fail a `SecretSource` placement loudly rather than
-place an empty credential (no silent degradation). A `Repository` that declares a
-`secret_source_id` SHALL be resolvable only when the store is wired on both components.
+The secret store SHALL be wired through the `HYPERSHELL_SECRET_STORE_*` configuration,
+keeping the single-directional split from
+[`security/security.spec.md`](../standards/security/security.spec.md) (api-server
+write-only, control plane read-only). The wiring SHALL follow the two resolution paths
+above, not a single shared global store:
+
+- The api-server SHALL configure its WRITE client from `HYPERSHELL_SECRET_STORE_*` for
+  the hub-side write-then-record path (path 1): the `Repository` git credential and,
+  in a co-located deployment, locally-submitted secrets.
+- Each control plane SHALL configure its READ client from `HYPERSHELL_SECRET_STORE_*`
+  pointing at the store it must read: in the general multi-cluster fleet that is its
+  OWN cluster-local Vault (path 2, `AgentRuntime` `SecretSource` placement). The hub
+  control plane additionally reads the hub-reachable store for the `Repository` git
+  credential (path 1).
+- The api-server write client and a given control plane's read client MAY share one
+  `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the
+  same cluster's store). In the general fleet they SHALL point at different, per-cluster
+  stores; the `AgentRuntime` `SecretSource` value SHALL NOT be resolvable through a
+  single store that the hub api-server writes and every spoke reads.
+
+When the backend is unset, the api-server SHALL reject secret submissions loudly and a
+control plane SHALL fail a `SecretSource` placement loudly rather than place an empty
+credential (no silent degradation). A `Repository` that declares a `secret_source_id`
+SHALL be resolvable only when the hub-side store (path 1) is wired.
 
 #### Scenario: Unwired store fails loudly on both directions
 
 - GIVEN `HYPERSHELL_SECRET_STORE_BACKEND` is unset
 - WHEN a user submits a secret value to the api-server
 - THEN the api-server SHALL reject the submission with a clear configuration error
-- AND when the control plane attempts to read a `SecretSource` value
+- AND when a control plane attempts to read a `SecretSource` value
 - THEN it SHALL fail loudly and SHALL NOT place an empty credential
+
+#### Scenario: Fleet control plane reads its own cluster-local store
+
+- GIVEN a multi-cluster fleet where the hub api-server and a spoke control plane are NOT co-located
+- WHEN the spoke control plane is wired through `HYPERSHELL_SECRET_STORE_*`
+- THEN its read client SHALL point at its own cluster-local Vault
+- AND the `AgentRuntime` `SecretSource` value SHALL NOT be resolved through a store the hub api-server writes
 
 ### Requirement: Agent-Secret Vault Client Capabilities
 
-The `pkg/secretstore` Vault client (`VaultStore` write client and `VaultReader` read
-client) SHALL support connecting to a per-cluster Vault served with a PRIVATE
-certificate authority and SHALL support the authentication method that cluster's Vault
-uses. Specifically:
+The secret-store Vault client SHALL be able to reach a per-cluster Vault as that
+cluster actually serves it. Observable behavior:
 
-- The client SHALL support a configurable private-CA trust bundle (for example the
-  cluster Vault's `openshell-gateway-vault-tls` serving CA) so a TLS handshake against
-  a privately-signed Vault succeeds, rather than relying on the system trust store
-  alone.
-- The client SHALL support the cluster Vault's authentication method. Where the cluster
-  Vault uses Kubernetes auth, the client SHALL authenticate with the component
-  ServiceAccount through the Vault Kubernetes auth mount, in addition to the existing
-  static-token (`X-Vault-Token`) auth.
-- The agent-secret plane SHALL be governed by a Vault policy and role scoped to
-  `secret/data/hypershell/secret-sources/*`, distinct from the gateway-provider Vault
-  policy.
+- **Private-CA trust.** The client SHALL complete a TLS handshake against a Vault
+  served with a PRIVATE certificate authority (for example the cluster Vault's
+  `openshell-gateway-vault-tls` serving CA), using a configurable trust bundle rather
+  than the system trust store alone. A privately-signed Vault SHALL NOT be rejected for
+  an untrusted-CA reason.
+- **Cluster auth method.** The client SHALL authenticate using the method that
+  cluster's Vault requires. Where the cluster Vault uses Kubernetes auth, the client
+  SHALL authenticate with the component ServiceAccount through the Vault Kubernetes auth
+  mount; the existing static-token method SHALL remain supported for stores that use it.
+- **Scoped policy and path mapping.** The agent-secret plane SHALL be governed by a
+  Vault policy and role scoped to the agent-secret path, distinct from the
+  gateway-provider Vault policy. The logical, mount-relative path a `SecretSource`
+  records is `hypershell/secret-sources/<agent_runtime_id>/<name>`. On a KV v2 engine
+  mounted at `secret`, this maps to the physical policy path
+  `secret/data/hypershell/secret-sources/*` (`secret` is the KV mount and `data/` is the
+  KV v2 API prefix). The write and read clients SHALL apply the SAME mount and `data/`
+  prefix, so the stored logical path and the policy path refer to the same entries.
 
 These capabilities SHALL be driven by `HYPERSHELL_SECRET_STORE_*` configuration, not by
-code changes.
+code changes. (The current implementation surface is the `pkg/secretstore` write and
+read clients.)
 
 #### Scenario: Client connects to a privately-signed cluster Vault
 
@@ -267,6 +354,7 @@ code changes.
 |----------|-----------|
 | Late-binding reference model over hub staging | The destination Vault is unknown at import time because cluster assignment happens only at Gateway provisioning. Declaring a value-less reference and supplying the value later into the assigned cluster's Vault removes all ordering constraints (eventually correct) with no central plaintext store. |
 | Distributed per-cluster read, no global runtime store | A single global store every control plane reads from at runtime is a central trust sink with fleet-wide blast radius and cross-boundary auth. Cluster-local reads keep the plaintext on the cluster that consumes it. |
+| Two explicit resolution paths, coinciding only when co-located | The hub-side write-then-record path (Repository git credential, co-located single-cluster deployment) and the distributed AgentRuntime late-binding path are different stores with different writers. Stating them separately prevents an implementer from collapsing both onto one shared store address, which would reintroduce the forbidden global reader. The paths coincide only in the co-located case, and only because the hub and cluster are the same cluster. |
 | `SecretPending` is a benign waiting condition, not `Degraded` | A reference whose value is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent converge automatically once the value appears. |
 | Actionable upload target on status | Surfacing the resolved cluster and exact Vault mount and path turns a chicken-and-egg ordering problem into a guided user experience. |
 | Agent-secret Vault plane separate from gateway-provider and application planes | Conflating planes would widen each identity's blast radius and couple unrelated rotation and policy lifecycles. A dedicated `secret/data/hypershell/secret-sources/*` path with its own least-privilege writer keeps the three planes isolated. |

@@ -995,8 +995,12 @@ failure and SHALL NOT drive the `AgentRuntime` to `Degraded`. The `AgentRuntime`
 SHALL hold at `Provisioning` and carry a `SecretPending` condition (see
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and
 [`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation").
-`Degraded` is reserved for a store that is unreachable or errors, or for a
-gateway-side provisioning failure.
+In this hold, `Provisioning` is a PARTIAL-application state: the secret-independent
+resources MAY be applied, but the pending `SecretSource`'s Kubernetes `Secret` and the
+resources that depend on it (the coordinator `CronJob` and the Ready workspace) are
+intentionally NOT applied until the value appears, so the table's "cluster resources
+applied" is not yet fully true while `SecretPending` is set. `Degraded` is reserved for
+a store that is unreachable or errors, or for a gateway-side provisioning failure.
 
 #### Scenario: SecretSource Sync Failure Degrades AgentRuntime
 

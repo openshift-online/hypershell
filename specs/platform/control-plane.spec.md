@@ -317,17 +317,32 @@ The declarative import and `SecretSource` placement SHALL be enabled through
 configuration, not code (separate configuration from code). The control plane SHALL
 run the `RepositoryReconciler` import loop ONLY when `HYPERSHELL_REPOSITORY_IMPORT_ENABLED`
 is `true`; when it is unset or `false` the control plane SHALL log that the import
-reconciler is disabled and SHALL NOT run the loop. The control plane SHALL configure its
-read-only `pkg/secretstore` client from the `HYPERSHELL_SECRET_STORE_*` environment (the
-api-server configures the matching write-only client from the same settings), so a
-`Repository` declaring a `secret_source_id` and an `AgentRuntime` `SecretSource` are both
-resolvable. The `pkg/secretstore` Vault client SHALL support the per-cluster Vault's
-private-CA trust bundle and its authentication method (Kubernetes auth where the cluster
-Vault uses it, in addition to static-token auth), and the agent-secret plane SHALL be
-governed by a Vault policy and role scoped to `secret/data/hypershell/secret-sources/*`,
-as defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
-When the secret store is unset the control plane SHALL fail a `SecretSource` placement
-loudly rather than place an empty credential.
+reconciler is disabled and SHALL NOT run the loop.
+
+The control plane SHALL configure its read-only `pkg/secretstore` client from the
+`HYPERSHELL_SECRET_STORE_*` environment, following the two resolution paths defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) ("Two Secret
+Resolution Paths"), NOT a single shared global store:
+
+- For an `AgentRuntime` `SecretSource` value (distributed path), each control plane's
+  read client SHALL point at its OWN cluster-local Vault, so the value it places was
+  uploaded directly into that cluster's Vault by the per-cluster writer and never
+  transited the hub.
+- For the `Repository` `secret_source_id` git credential (hub-side path), the hub
+  control plane SHALL read the hub-reachable store that the api-server write client
+  populates.
+- The api-server write client and a control plane's read client MAY share one
+  `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the same
+  cluster's store, for example `hyp0`). In the general multi-cluster fleet the
+  `AgentRuntime` `SecretSource` value SHALL NOT be resolvable through a single store that
+  the hub api-server writes and every spoke reads.
+
+The secret-store Vault client SHALL reach the per-cluster Vault as that cluster serves
+it (private-CA trust and the cluster's auth method, Kubernetes auth where the cluster
+Vault uses it), under a policy scoped to the agent-secret path, as defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)
+("Agent-Secret Vault Client Capabilities"). When the secret store is unset the control
+plane SHALL fail a `SecretSource` placement loudly rather than place an empty credential.
 
 #### Scenario: Import loop runs only when enabled
 
@@ -335,7 +350,14 @@ loudly rather than place an empty credential.
 - WHEN the control plane starts
 - THEN it SHALL log that the import reconciler is disabled and SHALL NOT run the import loop
 - WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true` and the secret store is wired
-- THEN it SHALL run the import reconcile loop and SHALL resolve `secret_source_id` credentials through its read-only `pkg/secretstore` client
+- THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` git credential through its read-only `pkg/secretstore` client
+
+#### Scenario: AgentRuntime secret is read from the control plane's own cluster-local store
+
+- GIVEN a spoke control plane not co-located with the hub api-server
+- WHEN it places an `AgentRuntime` `SecretSource`
+- THEN its read client SHALL read the value from its own cluster-local Vault
+- AND the value SHALL NOT be resolved through a store the hub api-server writes
 
 #### Scenario: Client reaches a privately-signed cluster Vault with Kubernetes auth
 
