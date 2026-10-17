@@ -231,56 +231,61 @@ in place.
 On reconcile the control plane SHALL, using its in-cluster credentials, create or
 update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
 (with `automountServiceAccountToken: false`), default-deny-ingress `NetworkPolicy`,
-one Kubernetes `Secret` per `SecretSource` (with the purpose-to-env-var wiring from
-the data-model "SecretSource" table), and the coordinator `CronJob`. For each
-`SecretSource` the control plane SHALL read the secret value from the configured
-secret store through its read-only `pkg/secretstore` client and SHALL place that
-value directly into the Kubernetes `Secret` it creates; it SHALL NOT create an
-`ExternalSecret` and SHALL NOT rely on External Secrets Operator. Secret placement
-SHALL be one-shot at provision time: the control plane reads the store and writes the
-`Secret` once when it provisions the `AgentRuntime` and SHALL NOT run any ESO-style
-periodic resync or rotation of the placed value. It SHALL then provision the
-gateway-side `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and
-`InferenceRoute` objects through the gateway gRPC API, the same idempotent mechanism
-it uses for gateway database provisioning.
+the coordinator `gateway-identity` wiring (the OIDC identity the coordinator uses to
+authenticate to its gateway, from the `gateway-identity` `SecretSource` material read
+cluster-local), and the coordinator `CronJob`. The control plane SHALL read each
+referenced `SecretSource`'s durable material from the configured secret store through
+its read-only `pkg/secretstore` client; for provider material it SHALL NOT render the
+credential as a raw Kubernetes `Secret`, SHALL NOT create an `ExternalSecret`, and
+SHALL NOT rely on External Secrets Operator. It SHALL then provision the gateway-side
+`AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute`
+objects through the gateway gRPC API, the same idempotent mechanism it uses for
+gateway database provisioning, and SHALL realize each `ProviderBinding` as an OpenShell
+**provider** on the agent's gateway/workspace from the binding's `provider_spec_id`,
+its `refresh_strategy`, and the material read cluster-local. OpenShell owns rotation of
+the realized credential through the provider `refresh_strategy` (`app-installation-token`,
+`google-service-account-jwt`, `static-token`); the control plane SHALL NOT mint,
+refresh, or rotate the usable credential and SHALL NOT place or rotate a raw `Secret`.
 
 The control plane SHALL drive `AgentRuntime.status` through
 `Pending -> Provisioning -> Running -> Degraded -> Terminating` as the data-model
 status lifecycle defines, and SHALL write the status back to the API server. When a
-`SecretSource` value cannot be read from the store or placed into its Kubernetes
-`Secret`, or gateway-side provisioning fails, the control plane SHALL set `status`
+`SecretSource` material cannot be read from the store, or gateway-side provisioning
+(including provider realization) fails, the control plane SHALL set `status`
 to `Degraded` and SHALL surface the failing `SecretSource` name or the gateway-side
 error in the status message.
 
-A reference-only `SecretSource` whose value has not yet been uploaded to the assigned
+A reference-only `SecretSource` whose material has not yet been uploaded to the assigned
 cluster's local store is a benign waiting state, NOT a failure (the late-binding model
 in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). When
-the store is reachable and reports the value missing, the control plane SHALL set a
-durable, observable `SecretPending` condition on the `AgentRuntime`, SHALL NOT place an
-empty or partial credential, SHALL NOT mark the workspace `Ready` (the runtime holds at
+the store is reachable and reports the material missing, the control plane SHALL set a
+durable, observable `SecretPending` condition on the `AgentRuntime`, SHALL NOT create
+the dependent OpenShell provider(s) and SHALL NOT configure a provider with empty or
+partial material, SHALL NOT mark the workspace `Ready` (the runtime holds at
 `Provisioning`, not `Running` or `Degraded`), SHALL NOT crash-loop, and SHALL retry
-idempotently on its reconcile cadence, converging the moment the value appears with no
-manual trigger. The `SecretPending` condition SHALL name the resolved `ManagedCluster`
-and the exact store mount and path to upload the value to, phrased as an actionable
-instruction rather than a bare error. Placement remains one-shot: the control plane
-writes the Kubernetes `Secret` once, when the value first appears, and re-placement on a
-later value change (rotation) is out of scope (see
-[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "First-Placement
-Rotation Scope"). A store that is unreachable or errors SHALL still degrade the
+idempotently on its reconcile cadence, converging the moment the material appears with
+no manual trigger. The `SecretPending` condition SHALL name the resolved `ManagedCluster`
+and the exact store mount and path to upload the material to, phrased as an actionable
+instruction rather than a bare error. Once the material appears the control plane
+realizes the provider and updates it in place on subsequent reconciles; keeping the
+usable credential current (rotation) is owned by OpenShell, not the control plane (see
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "Rotation
+Owned by OpenShell"). A store that is unreachable or errors SHALL still degrade the
 `AgentRuntime` as above.
 
 On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
-created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret`
-resources, and the `CronJob`) and SHALL delete the gateway-side `AgentWorkspace` and
-its sub-resources through the gateway gRPC API.
+created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator
+`gateway-identity` wiring, and the `CronJob`) and SHALL delete the gateway-side
+`AgentWorkspace`, its OpenShell providers, and its sub-resources through the gateway
+gRPC API.
 
 #### Scenario: New AgentRuntime is provisioned end to end
 
 - GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
 - WHEN the control plane reconciles it
-- THEN it SHALL read each `SecretSource` value from the store and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret` resources, and `CronJob` on this cluster
+- THEN it SHALL read each `SecretSource`'s material cluster-local and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` on this cluster, rendering no raw credential `Secret`
 - AND it SHALL transition the `AgentRuntime` status to `Provisioning`
-- AND after it has provisioned the gateway-side `AgentWorkspace` and providers, it SHALL transition the status to `Running`
+- AND after it has provisioned the gateway-side `AgentWorkspace` and realized its OpenShell providers from the material, it SHALL transition the status to `Running`
 
 #### Scenario: AgentRuntime change re-applies affected resources
 
@@ -289,18 +294,18 @@ its sub-resources through the gateway gRPC API.
 - THEN the control plane SHALL update the coordinator `CronJob` on the target cluster
 - AND reconciliation SHALL remain idempotent for the unchanged resources
 
-#### Scenario: Pending SecretSource value holds, converges when uploaded
+#### Scenario: Pending SecretSource material holds, converges when uploaded
 
-- GIVEN an `AgentRuntime` whose reference-only `SecretSource` value has not yet been uploaded to the assigned cluster's reachable local store
+- GIVEN an `AgentRuntime` whose reference-only `SecretSource` material has not yet been uploaded to the assigned cluster's reachable local store
 - WHEN the control plane reconciles the `AgentRuntime`
 - THEN it SHALL set a `SecretPending` condition naming the resolved `ManagedCluster` and the exact store mount and path to upload to
-- AND it SHALL NOT place an empty credential, SHALL NOT mark the workspace `Ready`, and SHALL NOT set `Degraded`
-- AND after the value is uploaded, the next reconcile SHALL place the `Secret`, clear `SecretPending`, and converge the `AgentRuntime` to `Running` with no manual trigger
+- AND it SHALL NOT create the dependent OpenShell provider, SHALL NOT mark the workspace `Ready`, and SHALL NOT set `Degraded`
+- AND after the material is uploaded, the next reconcile SHALL realize the provider, clear `SecretPending`, and converge the `AgentRuntime` to `Running` with no manual trigger
 
-#### Scenario: SecretSource read or placement failure degrades the AgentRuntime
+#### Scenario: SecretSource read failure degrades the AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
-- WHEN one of its `SecretSource` values cannot be read from the store or placed into its Kubernetes `Secret`
+- WHEN one of its `SecretSource` materials cannot be read from the store, or provider realization fails on the gateway
 - THEN the control plane SHALL set the `AgentRuntime` status to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 
@@ -308,12 +313,12 @@ its sub-resources through the gateway gRPC API.
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a delete event arrives on the watch stream
-- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret` resources, and `CronJob` from the cluster
-- AND it SHALL delete the gateway-side `AgentWorkspace` and its sub-resources through the gateway gRPC API
+- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` from the cluster
+- AND it SHALL delete the gateway-side `AgentWorkspace`, its OpenShell providers, and its sub-resources through the gateway gRPC API
 
 ### Requirement: Secret Store and Import Reconciler Enablement
 
-The declarative import and `SecretSource` placement SHALL be enabled through
+The declarative import and `SecretSource` material resolution SHALL be enabled through
 configuration, not code (separate configuration from code). The control plane SHALL
 run the `RepositoryReconciler` import loop ONLY when `HYPERSHELL_REPOSITORY_IMPORT_ENABLED`
 is `true`; when it is unset or `false` the control plane SHALL log that the import
@@ -321,28 +326,30 @@ reconciler is disabled and SHALL NOT run the loop.
 
 The control plane SHALL configure its read-only `pkg/secretstore` client from the
 `HYPERSHELL_SECRET_STORE_*` environment, following the two resolution paths defined in
-[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) ("Two Secret
-Resolution Paths"), NOT a single shared global store:
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) ("Two
+Material Resolution Paths"), NOT a single shared global store:
 
-- For an `AgentRuntime` `SecretSource` value (distributed path), each control plane's
-  read client SHALL point at its OWN cluster-local Vault, so the value it places was
-  uploaded directly into that cluster's Vault by the per-cluster writer and never
-  transited the hub.
-- For the `Repository` `secret_source_id` git credential (hub-side path), the hub
+- For an `AgentRuntime` `SecretSource` material (distributed path), each control plane's
+  read client SHALL point at its OWN cluster-local Vault, so the material it reads to
+  configure providers was uploaded directly into that cluster's Vault by the per-cluster
+  writer and never transited the hub.
+- For the `Repository` `secret_source_id` import credential (hub-side path), the hub
   control plane SHALL read the hub-reachable store that the api-server write client
-  populates.
+  populates; for a GitHub `Repository` the stored material is the App PEM, from which
+  the `RepositoryReconciler` mints the short-lived installation token.
 - The api-server write client and a control plane's read client MAY share one
   `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the same
   cluster's store, for example `hyp0`). In the general multi-cluster fleet the
-  `AgentRuntime` `SecretSource` value SHALL NOT be resolvable through a single store that
-  the hub api-server writes and every spoke reads.
+  `AgentRuntime` `SecretSource` material SHALL NOT be resolvable through a single store
+  that the hub api-server writes and every spoke reads.
 
 The secret-store Vault client SHALL reach the per-cluster Vault as that cluster serves
 it (private-CA trust and the cluster's auth method, Kubernetes auth where the cluster
 Vault uses it), under a policy scoped to the agent-secret path, as defined in
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)
 ("Agent-Secret Vault Client Capabilities"). When the secret store is unset the control
-plane SHALL fail a `SecretSource` placement loudly rather than place an empty credential.
+plane SHALL fail provider realization loudly rather than configure a provider with empty
+material.
 
 #### Scenario: Import loop runs only when enabled
 
@@ -350,19 +357,19 @@ plane SHALL fail a `SecretSource` placement loudly rather than place an empty cr
 - WHEN the control plane starts
 - THEN it SHALL log that the import reconciler is disabled and SHALL NOT run the import loop
 - WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true` and the secret store is wired
-- THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` git credential through its read-only `pkg/secretstore` client
+- THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` import credential material through its read-only `pkg/secretstore` client, minting the installation token from the App PEM
 
-#### Scenario: AgentRuntime secret is read from the control plane's own cluster-local store
+#### Scenario: AgentRuntime material is read from the control plane's own cluster-local store
 
 - GIVEN a spoke control plane not co-located with the hub api-server
-- WHEN it places an `AgentRuntime` `SecretSource`
-- THEN its read client SHALL read the value from its own cluster-local Vault
-- AND the value SHALL NOT be resolved through a store the hub api-server writes
+- WHEN it realizes providers for an `AgentRuntime` from its `SecretSource` material
+- THEN its read client SHALL read the material from its own cluster-local Vault
+- AND the material SHALL NOT be resolved through a store the hub api-server writes
 
 #### Scenario: Client reaches a privately-signed cluster Vault with Kubernetes auth
 
 - GIVEN a per-cluster Vault served with a private CA and configured for Kubernetes auth
-- WHEN the control plane reads a `SecretSource` value from it
+- WHEN the control plane reads `SecretSource` material from it
 - THEN the `pkg/secretstore` client SHALL trust the configured private-CA bundle and authenticate through the Vault Kubernetes auth mount
 - AND it SHALL read only under the `secret/data/hypershell/secret-sources/*`-scoped policy
 

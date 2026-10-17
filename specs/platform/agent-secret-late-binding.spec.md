@@ -1,21 +1,38 @@
-# Agent Secret Late Binding
+# Agent Credential Late Binding
 
 **Date:** 2026-10-17
 **Status:** Active
-**Jira:** HYPERSHELL-408
-**Related:** [`data-model.spec.md`](./data-model.spec.md) (SecretSource model, Secret Submission and Storage, AgentRuntime provisioning), [`control-plane.spec.md`](./control-plane.spec.md) (AgentRuntime Reconciliation, Declarative `.hypershell` Import Reconciliation), [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md), [`standards/security/security.spec.md`](../standards/security/security.spec.md) (Secret Store Access Is Single-Directional per Component), [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) (the separate gateway-provider Vault plane)
+**Jira:** HYPERSHELL-409
+**Supersedes:** HYPERSHELL-408 credential-materialization model (the raw Kubernetes `Secret` placement, `SecretPending`-on-raw-secret, and control-plane-owned rotation it defined)
+**Related:** [`data-model.spec.md`](./data-model.spec.md) (SecretSource material model, Secret Submission and Storage, ProviderBinding, AgentRuntime provisioning), [`control-plane.spec.md`](./control-plane.spec.md) (AgentRuntime Reconciliation, Declarative `.hypershell` Import Reconciliation), [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md), [`standards/security/security.spec.md`](../standards/security/security.spec.md) (Secret Store Access Is Single-Directional per Component), [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) (the separate gateway-provider Vault plane)
 
 ## Purpose
 
 A declarative `.hypershell` agent fleet is imported on the hub before any Gateway
-exists, yet an agent's secrets are consumed on whichever `ManagedCluster` its
+exists, yet an agent's credentials are consumed on whichever `ManagedCluster` its
 Gateway is later placed on. The destination is therefore unknown at the moment a
 `SecretSource` is declared. This spec defines the late-binding reference model that
-removes that ordering constraint: a `SecretSource` is declared by name as a value-less
-reference at import time, the value is supplied later directly into the assigned
-cluster's local Vault, and the agent converges the moment the value appears. The model
-is distributed and eventually correct: the plaintext never touches the hub, no
-component reads a global runtime store, and every runtime read is cluster-local.
+removes that ordering constraint, and it fixes the materialization target of that
+model.
+
+HyperShell SHALL realize an agent's credentials as OpenShell **Providers** carrying a
+**refresh strategy**, and OpenShell SHALL own credential rotation. The control plane
+SHALL NOT render a raw Kubernetes `Secret` for the credential and SHALL NOT mint,
+refresh, or rotate the usable credential itself. A raw `Secret` is inert, so whoever
+renders it must rotate it; an OpenShell Provider is live. Given the durable
+**material** (the GitHub App PEM, the Vertex service-account key, the gateway
+identity) plus a **refresh strategy** (`app-installation-token`,
+`google-service-account-jwt`, `static-token`), OpenShell mints and rotates the usable
+credential. This is already the declared model: each `.hypershell` `ProviderBinding`
+carries these `refresh_strategy` values, and it is the provider-provisioning pattern
+the control plane already uses on the gateway gRPC API.
+
+Late binding is preserved: a `SecretSource` is declared by name as a value-less
+reference at import time, the durable material is supplied later directly into the
+assigned cluster's local Vault, and the agent realizes its providers the moment the
+material appears. The model is distributed and eventually correct: the material never
+touches the hub, no component reads a global runtime store, and every runtime read is
+cluster-local.
 
 This spec also governs the agent-secret Vault plane (the convention-addressed,
 per-cluster store holding `secret/data/hypershell/secret-sources/*`), which is a
@@ -25,22 +42,70 @@ conflated.
 
 ## Requirements
 
-### Requirement: Two Secret Resolution Paths
+### Requirement: Credentials Realized as OpenShell Providers, Not Rendered Secrets
 
-HyperShell SHALL resolve secrets through two distinct, non-overlapping paths, and
-every `SecretSource` consumer SHALL use exactly one of them. The two paths SHALL NOT
-be conflated and SHALL NOT be collapsed onto one shared store address in the general
-multi-cluster fleet.
+On reconcile, the control plane SHALL realize each of an `AgentRuntime`'s declared
+`ProviderBinding`s as an OpenShell **provider** on the agent's gateway/workspace,
+from the binding's `provider_spec_id`, its `refresh_strategy`, and the durable
+material referenced through its `SecretSource`s. The control plane SHALL provision
+and update these providers through the gateway gRPC API, idempotently, the same
+mechanism it uses for the rest of the gateway-side workspace objects.
 
-1. **Hub-side write-then-record path.** For a secret legitimately submitted at the
+The control plane SHALL NOT render the agent credential as a raw Kubernetes `Secret`
+and SHALL NOT depend on an `ExternalSecret` or External Secrets Operator to
+materialize it. The durable material SHALL be read cluster-local (see "Distributed
+Per-Cluster Material Read") and supplied to OpenShell as provider configuration; the
+usable credential lives inside OpenShell, not in a `Secret` the control plane placed.
+
+The coordinator's own `gateway-identity` credential - the OIDC identity the
+coordinator `CronJob` uses to authenticate TO the gateway so it can reach its
+providers - is the one credential the coordinator consumes directly rather than as a
+provider, and it is read cluster-local and wired as coordinator environment per
+[`data-model.spec.md`](./data-model.spec.md) ("SecretSource"). It is NOT a provider
+and is NOT a rendered agent credential `Secret` for provider material.
+
+#### Scenario: ProviderBindings become OpenShell providers, no credential Secret
+
+- GIVEN an `AgentRuntime` whose `.hypershell` declares `ProviderBinding`s with `refresh_strategy` values
+- WHEN the control plane reconciles it and the referenced material is present in the assigned cluster's local Vault
+- THEN it SHALL create or update one OpenShell provider per `ProviderBinding` on the agent's gateway/workspace with the declared refresh strategy
+- AND it SHALL NOT render a raw Kubernetes `Secret` for the credential and SHALL NOT create an `ExternalSecret`
+
+### Requirement: OpenShell Owns Credential Rotation
+
+The provider `refresh_strategy` (`app-installation-token`,
+`google-service-account-jwt`, `static-token`) SHALL drive credential minting and
+rotation inside OpenShell. The control plane SHALL NOT mint, refresh, or rotate the
+usable credential, SHALL NOT place or rotate a raw `Secret`, and SHALL NOT run any
+control-plane token rotator or stale-token handling. Once a provider is realized with
+its material and refresh strategy, OpenShell SHALL keep the usable credential current
+with no external rotation.
+
+#### Scenario: Provider credential keeps working past its token lifetime with no external rotation
+
+- GIVEN an OpenShell provider realized from stored material with an `app-installation-token` refresh strategy
+- WHEN more than one installation-token lifetime (approximately one hour) elapses
+- THEN the provider SHALL continue to authenticate because OpenShell refreshes the token
+- AND no control-plane component SHALL mint or rotate the credential
+
+### Requirement: Two Material Resolution Paths
+
+HyperShell SHALL resolve credential material through two distinct, non-overlapping
+paths, and every `SecretSource` consumer SHALL use exactly one of them. The two paths
+SHALL NOT be conflated and SHALL NOT be collapsed onto one shared store address in the
+general multi-cluster fleet.
+
+1. **Hub-side write-then-record path.** For material legitimately submitted at the
    hub, the api-server write-only `pkg/secretstore` client writes the value to the
    hub-reachable store and records only the reference (the
    [`data-model.spec.md`](./data-model.spec.md) "Secret Submission and Storage" flow).
    This path serves:
-   - the `Repository.secret_source_id` git credential the `RepositoryReconciler`
-     reads hub-side to fetch a private `.hypershell` subtree (see
-     [`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell`
-     Import Reconciliation"), and
+   - the `Repository` import credential the `RepositoryReconciler` reads hub-side to
+     fetch a private `.hypershell` subtree (see "GitHub App Credentials via
+     app-installation-token" below and [`control-plane.spec.md`](./control-plane.spec.md),
+     "Declarative `.hypershell` Import Reconciliation"); the material stored is the
+     durable GitHub App PEM (plus `app_id` / `installation_id`), not a static
+     installation token, and
    - the co-located / single-cluster deployment (for example `hyp0`, where the
      api-server, the control plane, and one Vault share a single cluster), in which
      the api-server write client and that cluster's control-plane read client MAY
@@ -48,165 +113,169 @@ multi-cluster fleet.
      same cluster's store.
 
 2. **Distributed AgentRuntime late-binding path.** For an `AgentRuntime`
-   `SecretSource` value in a multi-cluster fleet, the value SHALL be written DIRECTLY
-   into the ASSIGNED cluster's local Vault by that cluster's per-cluster writer
-   identity (see "Scoped Per-Cluster Writer Access"), and the control plane managing
-   that cluster SHALL read it from its OWN cluster-local Vault. The value SHALL NOT be
-   submitted to the hub api-server and SHALL NOT transit the hub. Each control plane
-   SHALL be wired to its own cluster-local Vault; there SHALL be no shared global
-   store address across clusters and no hub staging store.
+   `SecretSource` material in a multi-cluster fleet, the durable material SHALL be
+   written DIRECTLY into the ASSIGNED cluster's local Vault by that cluster's
+   per-cluster writer identity (see "Scoped Per-Cluster Writer Access"), and the
+   control plane managing that cluster SHALL read it from its OWN cluster-local Vault
+   to configure the agent's OpenShell providers. The material SHALL NOT be submitted
+   to the hub api-server and SHALL NOT transit the hub. Each control plane SHALL be
+   wired to its own cluster-local Vault; there SHALL be no shared global store address
+   across clusters and no hub staging store.
 
 The co-located case is the single point where the two paths coincide, and it does so
 only because the hub and the cluster are the same cluster. It SHALL NOT be read as
 licensing one global store that a hub api-server writes and every spoke reads.
 
-#### Scenario: Repository git credential resolves hub-side; AgentRuntime value resolves cluster-local
+#### Scenario: Repository credential resolves hub-side; AgentRuntime material resolves cluster-local
 
 - GIVEN a multi-cluster fleet with a hub api-server and spoke clusters each running a local Vault
-- WHEN the `RepositoryReconciler` needs a `Repository.secret_source_id` git credential
-- THEN it SHALL resolve that credential through the hub-reachable store (path 1)
-- WHEN instead an `AgentRuntime` `SecretSource` value is consumed on a spoke cluster
+- WHEN the `RepositoryReconciler` needs the `Repository` import credential
+- THEN it SHALL resolve that material through the hub-reachable store (path 1)
+- WHEN instead an `AgentRuntime` `SecretSource` material is consumed on a spoke cluster
 - THEN the spoke's control plane SHALL read it from that cluster's local Vault (path 2)
-- AND the `AgentRuntime` value SHALL NOT be written to or read from a hub store
+- AND the `AgentRuntime` material SHALL NOT be written to or read from a hub store
 
 ### Requirement: Reference-Only SecretSource Submission
 
-A `SecretSource` SHALL be a first-class, valid resource with NO value supplied at
-creation. On the api-server create path the secret value SHALL be optional: when a
-value is supplied the api-server writes it to the configured secret store through its
+A `SecretSource` SHALL be a first-class, valid resource with NO material supplied at
+creation. A `SecretSource` holds durable provider **material** (a GitHub App PEM, a
+Vertex service-account key, a gateway identity), not a usable, rotatable credential.
+On the api-server create path the material SHALL be optional: when material is
+supplied the api-server writes it to the configured secret store through its
 write-only `pkg/secretstore` client and records only the reference, exactly as
 [`data-model.spec.md`](./data-model.spec.md) ("Secret Submission and Storage")
-defines; when no value is supplied the api-server SHALL persist the `SecretSource`
+defines; when no material is supplied the api-server SHALL persist the `SecretSource`
 reference alone and SHALL perform no `pkg/secretstore` write.
 
-A reference-only `SecretSource` SHALL carry its convention path so the value can be
+A reference-only `SecretSource` SHALL carry its convention path so the material can be
 uploaded later to a known location. When the create request omits `path`, the
 api-server SHALL derive it from the submission identity as
 `hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic
-location a value-bearing submission is written to). The derived path SHALL be stable
-across re-submission of the same `SecretSource`.
+location a material-bearing submission is written to). The derived path SHALL be
+stable across re-submission of the same `SecretSource`.
 
-In the distributed late-binding flow (path 2 of "Two Secret Resolution Paths") the
-`AgentRuntime` `SecretSource` value SHALL NOT be submitted to the hub api-server at
-all: the reference is declared value-less, and the value is uploaded later directly
+In the distributed late-binding flow (path 2 of "Two Material Resolution Paths") the
+`AgentRuntime` `SecretSource` material SHALL NOT be submitted to the hub api-server at
+all: the reference is declared value-less, and the material is uploaded later directly
 into the assigned cluster's local Vault by the per-cluster writer. The api-server
-write-then-record path (path 1) carries a value only when a secret is legitimately
-submitted at the hub - the `Repository` git credential or the co-located single-cluster
-deployment - which is why "plaintext never touches the hub" holds for distributed
-`AgentRuntime` secrets.
+write-then-record path (path 1) carries material only when it is legitimately
+submitted at the hub - the `Repository` import credential or the co-located
+single-cluster deployment - which is why "material never touches the hub" holds for
+distributed `AgentRuntime` credentials.
 
 #### Scenario: Create a value-less SecretSource reference
 
-- GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO `value`
+- GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO material
 - WHEN the api-server accepts the request
 - THEN it SHALL persist the `SecretSource` reference with `path = hypershell/secret-sources/<agent_runtime_id>/<name>`
 - AND it SHALL NOT perform any `pkg/secretstore` write
 - AND the created `SecretSource` SHALL be a valid, consumable resource
 
-#### Scenario: Hub-submitted value follows the write-then-record flow
+#### Scenario: Hub-submitted material follows the write-then-record flow
 
-- GIVEN a secret legitimately submitted at the hub (a `Repository` git credential, or any secret in a co-located single-cluster deployment)
-- WHEN a value is supplied through the api-server secret-submission path
-- THEN the api-server SHALL write the value to the store at the `SecretSource` convention path FIRST
-- AND it SHALL NOT persist the raw value in the database and SHALL NOT return it on any read
+- GIVEN material legitimately submitted at the hub (the `Repository` import credential PEM, or any secret in a co-located single-cluster deployment)
+- WHEN it is supplied through the api-server secret-submission path
+- THEN the api-server SHALL write it to the store at the `SecretSource` convention path FIRST
+- AND it SHALL NOT persist the raw material in the database and SHALL NOT return it on any read
 
-#### Scenario: Distributed AgentRuntime value is never submitted to the api-server
+#### Scenario: Distributed AgentRuntime material is never submitted to the api-server
 
 - GIVEN a reference-only `SecretSource` consumed by an `AgentRuntime` placed on a spoke cluster
-- WHEN the value is provided
+- WHEN the material is provided
 - THEN it SHALL be uploaded directly into the assigned cluster's local Vault by the per-cluster writer
 - AND it SHALL NOT be submitted to the hub api-server and SHALL NOT transit the hub
 
-### Requirement: Distributed Per-Cluster Runtime Placement
+### Requirement: Distributed Per-Cluster Material Read
 
-The referenced value SHALL be read and placed cluster-locally. When the control plane
-reconciles an `AgentRuntime` whose effective cluster is its own `cluster_id`, it SHALL
-read each `SecretSource` value from the LOCAL Vault of that assigned cluster (the
+The referenced material SHALL be read cluster-locally and used to configure the
+agent's OpenShell providers. When the control plane reconciles an `AgentRuntime` whose
+effective cluster is its own `cluster_id`, it SHALL read each referenced
+`SecretSource` material from the LOCAL Vault of that assigned cluster (the
 convention-addressed, per-cluster agent-secret Vault) through its read-only
-`pkg/secretstore` client and SHALL place the value directly into the Kubernetes
-`Secret` it creates on that cluster. There SHALL be no hub staging store, no
-plaintext transfer through the hub, and no global runtime reader that every control
-plane consults. Every runtime read SHALL be cluster-local.
+`pkg/secretstore` client, and SHALL supply that material to OpenShell as provider
+configuration over the gateway gRPC API. The control plane SHALL NOT render the
+material into a raw Kubernetes `Secret` as the agent credential. There SHALL be no hub
+staging store, no material transfer through the hub, and no global runtime reader that
+every control plane consults. Every runtime read SHALL be cluster-local.
 
 The agent-secret Vault plane (holding `secret/data/hypershell/secret-sources/*`) SHALL
 be a SEPARATE secret plane from the gateway-provider Vault defined by
 [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) and
 from the application-secret plane (Secrets Manager plus External Secrets Operator). The
 three planes SHALL NOT share paths, policies, or identities and SHALL NOT be conflated.
-As with all `SecretSource` placement, the control plane SHALL place the Kubernetes
-`Secret` directly and SHALL NOT create an `ExternalSecret` and SHALL NOT depend on
-External Secrets Operator.
 
-#### Scenario: Value is read from the assigned cluster's local Vault
+#### Scenario: Material is read from the assigned cluster's local Vault to configure providers
 
 - GIVEN an `AgentRuntime` placed on `cluster_id: Y` with a `SecretSource` reference
-- WHEN the control plane registered as `Y` reconciles the `AgentRuntime` and the value is present in cluster `Y`'s local Vault
-- THEN it SHALL read the value from cluster `Y`'s local Vault and place it directly into the Kubernetes `Secret`
+- WHEN the control plane registered as `Y` reconciles the `AgentRuntime` and the material is present in cluster `Y`'s local Vault
+- THEN it SHALL read the material from cluster `Y`'s local Vault and configure the OpenShell provider with it
 - AND no hub store and no other cluster's Vault SHALL be read
+- AND no raw credential `Secret` SHALL be rendered by the control plane
 
-#### Scenario: No plaintext is ever written to a hub or global store
+#### Scenario: No material is ever written to a hub or global store
 
 - GIVEN a reference-only `SecretSource`
-- WHEN its value is supplied and later consumed
-- THEN the plaintext SHALL exist only in the assigned cluster's local Vault and the Kubernetes `Secret` placed on that cluster
-- AND no hub-side or global store SHALL hold the plaintext
+- WHEN its material is supplied and later consumed
+- THEN the material SHALL exist only in the assigned cluster's local Vault (and inside the OpenShell provider configured from it)
+- AND no hub-side or global store SHALL hold the material
 
-### Requirement: SecretPending Condition and Self-Healing Retry
+### Requirement: SecretPending Condition Gates Provider Creation
 
-When a referenced `SecretSource` value is absent from the assigned cluster's local
+When referenced `SecretSource` material is absent from the assigned cluster's local
 Vault, the control-plane reconcile SHALL treat this as an expected waiting state, not
 a failure. It SHALL:
 
 - set a durable, observable `SecretPending` status condition on the owning
   `AgentRuntime` (and surface it per pending `SecretSource`),
-- NOT place an empty or partial credential,
+- NOT create the OpenShell provider(s) that depend on the absent material and NOT
+  configure a provider with empty or partial material,
 - NOT mark the `AgentRuntime` workspace `Ready` (the runtime stays in `Provisioning`,
   not `Running`),
 - NOT crash-loop or exit, and
-- retry idempotently on the normal reconcile cadence, converging the moment the value
-  appears, with no manual kick (reconcile, do not create-or-skip).
+- retry idempotently on the normal reconcile cadence, converging the moment the
+  material appears, with no manual kick (reconcile, do not create-or-skip).
 
-An absent referenced value (`SecretPending`) SHALL be distinct from a store read
-failure of a value expected to exist. A reachable store that reports the value missing
-SHALL yield `SecretPending`; a store that is unreachable or errors SHALL continue to
-degrade the `AgentRuntime` as [`data-model.spec.md`](./data-model.spec.md)
+An absent referenced material (`SecretPending`) SHALL be distinct from a store read
+failure of material expected to exist. A reachable store that reports the material
+missing SHALL yield `SecretPending`; a store that is unreachable or errors SHALL
+continue to degrade the `AgentRuntime` as [`data-model.spec.md`](./data-model.spec.md)
 ("AgentRuntime Status Lifecycle") defines. `SecretPending` SHALL NOT transition the
 `AgentRuntime` to `Degraded`.
 
-Placement SHALL remain one-shot in the sense of
-[`security/security.spec.md`](../standards/security/security.spec.md): the control
-plane writes the Kubernetes `Secret` once, when the value first appears. Retrying a
-reconcile while the value is still absent is convergence toward first placement, not
-an ESO-style periodic resync of an already-placed value.
+Provider creation is self-healing and idempotent: once the material appears the
+control plane realizes the provider; re-running reconcile against an already-realized
+provider SHALL update it in place without error. OpenShell owns rotation of the
+realized credential thereafter (see "OpenShell Owns Credential Rotation"); the control
+plane does not resync or re-place a credential value.
 
-#### Scenario: Missing value sets SecretPending and holds, not Ready
+#### Scenario: Missing material sets SecretPending and holds, not Ready
 
-- GIVEN an `AgentRuntime` whose `SecretSource` value has not yet been uploaded to the assigned cluster's Vault
+- GIVEN an `AgentRuntime` whose `SecretSource` material has not yet been uploaded to the assigned cluster's Vault
 - WHEN the control plane reconciles the `AgentRuntime`
 - THEN it SHALL set a `SecretPending` condition naming the pending `SecretSource`
-- AND it SHALL NOT place an empty credential and SHALL NOT mark the workspace `Ready`
+- AND it SHALL NOT create the dependent OpenShell provider and SHALL NOT mark the workspace `Ready`
 - AND it SHALL NOT crash-loop
 
-#### Scenario: Converges the moment the value appears
+#### Scenario: Converges the moment the material appears
 
 - GIVEN an `AgentRuntime` reporting `SecretPending`
-- WHEN the operator writes the value into the assigned cluster's Vault at the given path
-- THEN the next reconcile SHALL read the value, place the Kubernetes `Secret`, clear `SecretPending`, and converge the `AgentRuntime` to `Running`
+- WHEN the operator writes the material into the assigned cluster's Vault at the given path
+- THEN the next reconcile SHALL read the material, realize the OpenShell provider, clear `SecretPending`, and converge the `AgentRuntime` to `Running`
 - AND no manual reconcile trigger SHALL be required
 
 #### Scenario: Reachable-but-missing is Pending, unreachable is Degraded
 
 - GIVEN an `AgentRuntime` with a `SecretSource` reference
-- WHEN the assigned cluster's Vault is reachable and reports the value missing
+- WHEN the assigned cluster's Vault is reachable and reports the material missing
 - THEN the control plane SHALL report `SecretPending` and SHALL NOT set `Degraded`
 - WHEN instead the Vault is unreachable or returns an error
 - THEN the control plane SHALL set `Degraded` and surface the failing `SecretSource` name
 
 ### Requirement: Discoverable Upload Target
 
-The platform SHALL make each pending secret actionable. On the
+The platform SHALL make each pending credential actionable. On the
 `AgentRuntime`/`SecretSource` status the platform SHALL surface the resolved
-`ManagedCluster` AND the exact Vault mount plus path at which the value must be
+`ManagedCluster` AND the exact Vault mount plus path at which the material must be
 uploaded. The `SecretPending` condition message SHALL read as an actionable next step
 (for example, `write <secret-source-name> to <mount>/<path> on cluster <cluster-name>`)
 rather than a bare error.
@@ -216,18 +285,18 @@ rather than a bare error.
 - GIVEN an `AgentRuntime` reporting `SecretPending` for a `SecretSource`
 - WHEN a user reads the `AgentRuntime` status
 - THEN the status SHALL identify the resolved `ManagedCluster` by name
-- AND it SHALL state the exact Vault mount and path to upload the value to
+- AND it SHALL state the exact Vault mount and path to upload the material to
 - AND the condition message SHALL be phrased as an instruction, not a bare error
 
 ### Requirement: Scoped Per-Cluster Writer Access
 
-Uploading a value into a cluster's agent-secret Vault SHALL use a per-cluster,
+Uploading material into a cluster's agent-secret Vault SHALL use a per-cluster,
 least-privilege WRITER path and identity, separate from any reader identity. The
 writer identity SHALL be authorized only to write under
 `secret/data/hypershell/secret-sources/*` on that cluster's Vault and SHALL NOT be
-granted read access to placed credentials or write access to the gateway-provider
-Vault plane. The platform SHALL document (and provision) this writer path and identity
-so a human or automation can drop the value in. The gateway-provider Vault policy is
+granted read access to provider material or write access to the gateway-provider Vault
+plane. The platform SHALL document (and provision) this writer path and identity so a
+human or automation can drop the material in. The gateway-provider Vault policy is
 namespace-templated for the gateway ServiceAccount to READ its own secrets; the
 agent-secret writer path is a distinct, separately-scoped grant.
 
@@ -236,22 +305,57 @@ agent-secret writer path is a distinct, separately-scoped grant.
 - GIVEN the per-cluster writer identity for the agent-secret Vault plane
 - WHEN it authenticates to that cluster's Vault
 - THEN it SHALL be permitted to write under `secret/data/hypershell/secret-sources/*`
-- AND it SHALL NOT be permitted to read placed credentials or to write to the gateway-provider Vault plane
+- AND it SHALL NOT be permitted to read provider material or to write to the gateway-provider Vault plane
 
-### Requirement: First-Placement Rotation Scope
+### Requirement: GitHub App Credentials via app-installation-token
 
-Placement SHALL occur on the FIRST appearance of a `SecretSource` value. Re-placing
-the Kubernetes `Secret` when the stored value LATER changes (rotation) is OUT OF SCOPE
-of this spec and SHALL be treated as a separate, explicit decision. This spec SHALL
-NOT be read as requiring any periodic resync of a placed value; the retry behavior in
-"SecretPending Condition and Self-Healing Retry" converges toward first placement only.
+GitHub credentials - BOTH the agent GitHub providers AND the `Repository` import
+credential the `RepositoryReconciler` uses to read a private `.hypershell` subtree -
+SHALL store only the durable GitHub App **PEM** (plus `app_id` / `installation_id`)
+and SHALL be realized through the `app-installation-token` refresh strategy, so the
+short-lived (approximately one hour) installation token is minted and rotated from the
+PEM rather than stored. No static installation token SHALL be stored, and no
+control-plane token rotator SHALL be built.
 
-#### Scenario: Later value change is not auto-re-placed
+- For an agent GitHub provider, the control plane SHALL realize an
+  `app-installation-token` OpenShell provider from the stored PEM so OpenShell mints
+  and rotates the installation token.
+- For the `Repository` import credential, the `RepositoryReconciler` SHALL mint the
+  installation token from the stored PEM (plus `app_id` / `installation_id`) when it
+  reads the subtree, rather than reading a pre-stored static installation token. This
+  SUPERSEDES the static-token credential-resolver path previously used by the
+  `RepositoryReconciler`.
 
-- GIVEN an `AgentRuntime` whose `SecretSource` value was already placed as a Kubernetes `Secret`
-- WHEN the stored value is subsequently changed in the cluster's Vault
-- THEN the control plane SHALL NOT automatically re-place the Kubernetes `Secret` under this spec
-- AND re-placement on change SHALL be governed by a separate, explicit rotation decision
+#### Scenario: Agent GitHub provider is realized from the stored PEM
+
+- GIVEN an `AgentRuntime` with a GitHub `ProviderBinding` whose `refresh_strategy.type = app-installation-token` and whose referenced `SecretSource` holds the GitHub App PEM
+- WHEN the control plane reconciles it with the PEM present in the assigned cluster's Vault
+- THEN it SHALL realize an `app-installation-token` OpenShell provider configured with the PEM, `app_id`, and `installation_id`
+- AND no static installation token SHALL be stored and no raw credential `Secret` SHALL be rendered
+
+#### Scenario: Repository import mints its token from the PEM
+
+- GIVEN a `Repository` whose import credential `SecretSource` holds a GitHub App PEM plus `app_id` / `installation_id`
+- WHEN the `RepositoryReconciler` reads the `.hypershell` subtree
+- THEN it SHALL mint a short-lived installation token from the PEM and use it to authenticate to GitHub
+- AND it SHALL NOT read a pre-stored static installation token
+
+### Requirement: Rotation Owned by OpenShell
+
+Keeping the realized credential current SHALL be OpenShell's responsibility through
+the provider `refresh_strategy`, not a control-plane concern. The control plane
+realizes the provider when the material first appears and updates the provider
+configuration in place when the `ProviderBinding` or its material changes; it SHALL
+NOT mint, refresh, or rotate the usable credential and SHALL NOT re-place a rendered
+`Secret`. There SHALL be no control-plane periodic resync or rotation of a credential
+value; there is no rendered credential value to resync.
+
+#### Scenario: Rotation happens inside OpenShell, not the control plane
+
+- GIVEN an `AgentRuntime` whose GitHub provider was realized from stored material
+- WHEN the short-lived credential OpenShell mints expires
+- THEN OpenShell SHALL refresh it under the provider `refresh_strategy`
+- AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT re-place any `Secret`
 
 ### Requirement: Import Reconciler Enablement
 
@@ -280,38 +384,38 @@ write-only, control plane read-only). The wiring SHALL follow the two resolution
 above, not a single shared global store:
 
 - The api-server SHALL configure its WRITE client from `HYPERSHELL_SECRET_STORE_*` for
-  the hub-side write-then-record path (path 1): the `Repository` git credential and,
-  in a co-located deployment, locally-submitted secrets.
+  the hub-side write-then-record path (path 1): the `Repository` import credential and,
+  in a co-located deployment, locally-submitted material.
 - Each control plane SHALL configure its READ client from `HYPERSHELL_SECRET_STORE_*`
   pointing at the store it must read: in the general multi-cluster fleet that is its
-  OWN cluster-local Vault (path 2, `AgentRuntime` `SecretSource` placement). The hub
-  control plane additionally reads the hub-reachable store for the `Repository` git
+  OWN cluster-local Vault (path 2, `AgentRuntime` provider material). The hub control
+  plane additionally reads the hub-reachable store for the `Repository` import
   credential (path 1).
 - The api-server write client and a given control plane's read client MAY share one
   `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the
   same cluster's store). In the general fleet they SHALL point at different, per-cluster
-  stores; the `AgentRuntime` `SecretSource` value SHALL NOT be resolvable through a
-  single store that the hub api-server writes and every spoke reads.
+  stores; the `AgentRuntime` provider material SHALL NOT be resolvable through a single
+  store that the hub api-server writes and every spoke reads.
 
 When the backend is unset, the api-server SHALL reject secret submissions loudly and a
-control plane SHALL fail a `SecretSource` placement loudly rather than place an empty
-credential (no silent degradation). A `Repository` that declares a `secret_source_id`
-SHALL be resolvable only when the hub-side store (path 1) is wired.
+control plane SHALL fail provider realization loudly rather than configure a provider
+with empty material (no silent degradation). A `Repository` that declares an import
+credential SHALL be resolvable only when the hub-side store (path 1) is wired.
 
 #### Scenario: Unwired store fails loudly on both directions
 
 - GIVEN `HYPERSHELL_SECRET_STORE_BACKEND` is unset
-- WHEN a user submits a secret value to the api-server
+- WHEN a user submits credential material to the api-server
 - THEN the api-server SHALL reject the submission with a clear configuration error
-- AND when a control plane attempts to read a `SecretSource` value
-- THEN it SHALL fail loudly and SHALL NOT place an empty credential
+- AND when a control plane attempts to read `SecretSource` material to realize a provider
+- THEN it SHALL fail loudly and SHALL NOT configure a provider with empty material
 
 #### Scenario: Fleet control plane reads its own cluster-local store
 
 - GIVEN a multi-cluster fleet where the hub api-server and a spoke control plane are NOT co-located
 - WHEN the spoke control plane is wired through `HYPERSHELL_SECRET_STORE_*`
 - THEN its read client SHALL point at its own cluster-local Vault
-- AND the `AgentRuntime` `SecretSource` value SHALL NOT be resolved through a store the hub api-server writes
+- AND the `AgentRuntime` provider material SHALL NOT be resolved through a store the hub api-server writes
 
 ### Requirement: Agent-Secret Vault Client Capabilities
 
@@ -343,7 +447,7 @@ read clients.)
 #### Scenario: Client connects to a privately-signed cluster Vault
 
 - GIVEN a cluster Vault served with a private CA and configured for Kubernetes auth
-- WHEN the control plane reads a `SecretSource` value from it
+- WHEN the control plane reads `SecretSource` material from it
 - THEN the client SHALL trust the configured private-CA bundle and complete the TLS handshake
 - AND it SHALL authenticate through the Vault Kubernetes auth mount with its ServiceAccount
 - AND it SHALL read only under the `secret/data/hypershell/secret-sources/*`-scoped policy
@@ -352,10 +456,13 @@ read clients.)
 
 | Decision | Rationale |
 |----------|-----------|
-| Late-binding reference model over hub staging | The destination Vault is unknown at import time because cluster assignment happens only at Gateway provisioning. Declaring a value-less reference and supplying the value later into the assigned cluster's Vault removes all ordering constraints (eventually correct) with no central plaintext store. |
-| Distributed per-cluster read, no global runtime store | A single global store every control plane reads from at runtime is a central trust sink with fleet-wide blast radius and cross-boundary auth. Cluster-local reads keep the plaintext on the cluster that consumes it. |
-| Two explicit resolution paths, coinciding only when co-located | The hub-side write-then-record path (Repository git credential, co-located single-cluster deployment) and the distributed AgentRuntime late-binding path are different stores with different writers. Stating them separately prevents an implementer from collapsing both onto one shared store address, which would reintroduce the forbidden global reader. The paths coincide only in the co-located case, and only because the hub and cluster are the same cluster. |
-| `SecretPending` is a benign waiting condition, not `Degraded` | A reference whose value is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent converge automatically once the value appears. |
+| Realize credentials as OpenShell providers, not rendered raw Secrets | A rendered raw `Secret` is inert, so whoever rendered it must rotate it - the root cause of the GitHub-App stale-token problem in the superseded model. An OpenShell provider is live: given durable material plus a refresh strategy, OpenShell mints and rotates the usable credential, removing any need for a control-plane rotator. It is already the declared model (`ProviderBinding.refresh_strategy`) and the control plane's existing gateway provider-provisioning pattern. |
+| OpenShell owns rotation | Rotation belongs where the live credential is minted. Keeping the control plane out of minting and rotation eliminates stale-token handling and a bespoke rotator component, and keeps the control plane a configurator of providers rather than a credential issuer. |
+| SecretSource holds durable material, not a usable credential | The durable material (GitHub App PEM, Vertex SA key, gateway identity) is long-lived and rotation-free; the usable, short-lived credential is derived from it inside OpenShell. Storing only the material, never the usable credential, is what lets OpenShell own rotation and keeps no rotatable secret at rest in a control-plane-placed `Secret`. |
+| Late-binding reference model over hub staging | The destination Vault is unknown at import time because cluster assignment happens only at Gateway provisioning. Declaring a value-less reference and supplying the material later into the assigned cluster's Vault removes all ordering constraints (eventually correct) with no central material store. |
+| Distributed per-cluster read, no global runtime store | A single global store every control plane reads from at runtime is a central trust sink with fleet-wide blast radius and cross-boundary auth. Cluster-local reads keep the material on the cluster that consumes it. |
+| Two explicit resolution paths, coinciding only when co-located | The hub-side write-then-record path (Repository import credential, co-located single-cluster deployment) and the distributed AgentRuntime late-binding path are different stores with different writers. Stating them separately prevents an implementer from collapsing both onto one shared store address, which would reintroduce the forbidden global reader. The paths coincide only in the co-located case, and only because the hub and cluster are the same cluster. |
+| GitHub App via app-installation-token for both agent providers and the Repository import credential | Storing only the durable PEM (plus `app_id` / `installation_id`) and minting the ~1h installation token on demand means there is no static installation token to go stale and no rotator to build. Unifying the agent providers and the `RepositoryReconciler` import credential on this one model supersedes the static-token resolver and closes the import-credential rotation gap. |
+| `SecretPending` is a benign waiting condition that gates provider creation, not `Degraded` | A reference whose material is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent realize its providers automatically once the material appears. |
 | Actionable upload target on status | Surfacing the resolved cluster and exact Vault mount and path turns a chicken-and-egg ordering problem into a guided user experience. |
 | Agent-secret Vault plane separate from gateway-provider and application planes | Conflating planes would widen each identity's blast radius and couple unrelated rotation and policy lifecycles. A dedicated `secret/data/hypershell/secret-sources/*` path with its own least-privilege writer keeps the three planes isolated. |
-| First-placement only; rotation deferred | Re-placing on value change is a distinct lifecycle concern (resync, restart semantics, drift) that deserves its own decision rather than being implied by the placement path. |

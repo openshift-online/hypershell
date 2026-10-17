@@ -31,67 +31,77 @@ All sensitive values (kubeconfig, database credentials) SHALL be stored as Kuber
 **3. Secret Store Access Is Single-Directional per Component**
 
 Access to the configured secret store SHALL be split by component and direction. The
-API server SHALL be write-only to the store: it writes a submitted secret value to
-the store (through its `pkg/secretstore` client) and persists only the reference (a
-`SecretSource` record), and it SHALL NOT read a stored secret value back. The control
-plane SHALL be read-only from the store: it reads a referenced value (through its
-read-only `pkg/secretstore` client) and places it directly into a Kubernetes `Secret`
-on the target cluster, and it SHALL NOT write values to the store. For the
-`SecretSource`/secret-store resolution path specifically, HyperShell SHALL NOT
-resolve a stored `SecretSource` value through an `ExternalSecret` object or External
-Secrets Operator; the control plane reads the store and places the Kubernetes
-`Secret` directly. This scoping applies only to `SecretSource`/secret-store
-resolution and does not govern the unrelated ESO-based subsystems (for example
-ephemeral-ci-secrets, ephemeral-test-credentials, gateway-database, and the
-global-architecture platform secrets), which retain their own secret mechanisms.
+API server SHALL be write-only to the store: it writes submitted credential material
+to the store (through its `pkg/secretstore` client) and persists only the reference (a
+`SecretSource` record), and it SHALL NOT read stored material back. The control plane
+SHALL be read-only from the store: it reads referenced durable material (through its
+read-only `pkg/secretstore` client) and uses it to realize the agent's credentials as
+OpenShell **providers** on the gateway/workspace, and it SHALL NOT write material to
+the store. HyperShell SHALL NOT render agent provider credentials as raw Kubernetes
+`Secret`s and SHALL NOT resolve `SecretSource` material through an `ExternalSecret`
+object or External Secrets Operator. This scoping applies only to
+`SecretSource`/secret-store resolution and does not govern the unrelated ESO-based
+subsystems (for example ephemeral-ci-secrets, ephemeral-test-credentials,
+gateway-database, and the global-architecture platform secrets), which retain their own
+secret mechanisms.
 
-A raw stored secret value SHALL NOT be returned by any API read endpoint, SHALL NOT
-be carried on any gRPC message (the `SecretSource` gRPC message has no value field),
-SHALL NOT be persisted in the database, and SHALL NOT appear in logs, events, or the
-query cache.
+Raw stored material SHALL NOT be returned by any API read endpoint, SHALL NOT be
+carried on any gRPC message (the `SecretSource` gRPC message has no value field), SHALL
+NOT be persisted in the database, and SHALL NOT appear in logs, events, or the query
+cache.
 
-Control-plane secret placement SHALL be one-shot at provision time: the control plane
-reads the store and writes the Kubernetes `Secret` once when it provisions the owning
-resource, and SHALL NOT run an ESO-style periodic resync or rotation of the placed
-value. A reference whose value has not yet been supplied is a benign waiting state, not
-a placement: the control plane SHALL hold with a `SecretPending` condition, SHALL NOT
-place an empty credential, and SHALL converge when the value first appears (see
+The control plane SHALL NOT mint, refresh, or rotate the usable credential and SHALL
+NOT place or rotate a raw credential `Secret`. Keeping the usable credential current is
+OWNED BY OpenShell, through the provider `refresh_strategy`
+(`app-installation-token`, `google-service-account-jwt`, `static-token`): given the
+durable material, OpenShell mints and rotates the short-lived credential itself. A
+reference whose material has not yet been supplied is a benign waiting state, not a
+failure: the control plane SHALL hold with a `SecretPending` condition that gates
+PROVIDER CREATION, SHALL NOT configure a provider with empty material, and SHALL
+converge when the material first appears (see
 [`platform/agent-secret-late-binding.spec.md`](../../platform/agent-secret-late-binding.spec.md)).
 
 **Three separate secret planes, never conflated.** The agent-secret plane (the
-per-cluster store holding `secret/data/hypershell/secret-sources/*` that backs
-`SecretSource` placement) SHALL be kept SEPARATE from the gateway-provider Vault plane
+per-cluster store holding `secret/data/hypershell/secret-sources/*` that holds
+`SecretSource` material) SHALL be kept SEPARATE from the gateway-provider Vault plane
 ([`platform/openshell-gateway-credentials.spec.md`](../../platform/openshell-gateway-credentials.spec.md))
 and from the application-secret plane (Secrets Manager plus External Secrets Operator).
 The three planes SHALL NOT share paths, policies, or identities and SHALL NOT be
 conflated.
 
-**Distributed per-cluster reads; no global runtime store.** `SecretSource` values SHALL
-be read cluster-locally: the control plane reads a referenced value from the LOCAL store
-of the cluster the owning agent is assigned to and places it there. There SHALL be no
-hub staging store, no plaintext transfer through the hub, and no global runtime reader
-that every control plane consults.
+**Distributed per-cluster reads; no global runtime store.** `SecretSource` material SHALL
+be read cluster-locally: the control plane reads referenced material from the LOCAL store
+of the cluster the owning agent is assigned to and uses it to configure that agent's
+providers. There SHALL be no hub staging store, no material transfer through the hub, and
+no global runtime reader that every control plane consults.
 
-**Scoped per-cluster writer.** Uploading a value into a cluster's agent-secret store
+**Scoped per-cluster writer.** Uploading material into a cluster's agent-secret store
 SHALL use a per-cluster, least-privilege WRITER identity authorized only to write under
 `secret/data/hypershell/secret-sources/*` on that cluster. The writer SHALL NOT be
-granted read access to placed credentials and SHALL NOT be granted write access to the
+granted read access to provider material and SHALL NOT be granted write access to the
 gateway-provider Vault plane.
 
 #### Scenario: Store access respects component direction
 
-- GIVEN a user submits a secret value to the API server
+- GIVEN a user submits credential material to the API server
 - WHEN the API server stores it
-- THEN the API server SHALL write the value to the store and persist only a `SecretSource` reference
-- AND the API server SHALL NOT read the value back from the store
-- AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the value through its read-only store client and place it directly into a Kubernetes `Secret`, once, without an `ExternalSecret`
+- THEN the API server SHALL write the material to the store and persist only a `SecretSource` reference
+- AND the API server SHALL NOT read the material back from the store
+- AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the material through its read-only store client and realize an OpenShell provider from it, rendering no raw credential `Secret` and using no `ExternalSecret`
 
-#### Scenario: Agent secret is read cluster-locally and the writer is confined
+#### Scenario: Agent material is read cluster-locally and the writer is confined
 
 - GIVEN an `AgentRuntime` placed on cluster `Y` with a `SecretSource` reference
-- WHEN its value is uploaded by the per-cluster writer identity and later consumed
-- THEN the value SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
-- AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read placed credentials or write the gateway-provider Vault plane
+- WHEN its material is uploaded by the per-cluster writer identity and later consumed
+- THEN the material SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
+- AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read provider material or write the gateway-provider Vault plane
+
+#### Scenario: Rotation is owned by OpenShell, not the control plane
+
+- GIVEN an agent credential realized as an OpenShell provider from stored durable material
+- WHEN the short-lived usable credential expires
+- THEN OpenShell SHALL mint and rotate it under the provider `refresh_strategy`
+- AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT render or re-place a raw credential `Secret`
 
 ### Input Validation
 
@@ -146,7 +156,8 @@ Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:
 - [ ] Secrets stored as K8s Secret references
 - [ ] Secret values absent from routine API responses
 - [ ] One-time credential responses use `no-store`, redact telemetry, and never persist plaintext
-- [ ] Secret store access is single-directional: API server write-only, control plane read-only; no `ExternalSecret`/ESO resolution; placement is one-shot
+- [ ] Secret store access is single-directional: API server write-only, control plane read-only; no `ExternalSecret`/ESO resolution; no raw credential `Secret` rendered for provider material
+- [ ] Agent credentials realized as OpenShell providers; OpenShell owns rotation; control plane never mints/refreshes/rotates the usable credential; `SecretPending` gates provider creation
 - [ ] Agent-secret, gateway-provider, and application-secret planes kept separate; agent-secret reads are cluster-local (no hub/global store); writer scoped to `secret/data/hypershell/secret-sources/*`
 
 **Input:**
