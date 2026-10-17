@@ -82,7 +82,6 @@ Load-Bearing`).
 | `spec-review` | `agent/reviewable-spec` | `agent/review-spec-approved`, `agent/review-spec-rejected` |
 | `code-implementation` | `agent/review-spec-approved` | `agent/reviewable-code` |
 | `code-review` | `agent/reviewable-code` | `agent/review-code-approved`, `agent/review-code-rejected` |
-| `review-response` | `agent/needs-review-response` | re-queues spec/code review |
 | `release-verification` | `agent/release-pending` | `agent/release-verified`, `agent/release-verification-failed` |
 | `update-openshell` | (scheduled, no selector) | opens an update PR (`agent/reviewable-code`) |
 
