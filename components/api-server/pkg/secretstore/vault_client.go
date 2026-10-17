@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -179,6 +180,8 @@ func newVaultHTTPClient(caCertPath string) (*http.Client, error) {
 		// holding only the configured private CA. This is intended for a private-CA Vault
 		// where the system roots are not required; a store reachable only via a
 		// public CA would then fail its handshake and surface loudly rather than silently.
+		// Log the fallback so a dropped system trust store is diagnosable.
+		log.Printf("WARN secretstore: system cert pool unavailable (%v); trusting only the configured private CA bundle %s", err, caCertPath)
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(pem) {
