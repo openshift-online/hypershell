@@ -53,7 +53,30 @@ query cache.
 Control-plane secret placement SHALL be one-shot at provision time: the control plane
 reads the store and writes the Kubernetes `Secret` once when it provisions the owning
 resource, and SHALL NOT run an ESO-style periodic resync or rotation of the placed
-value.
+value. A reference whose value has not yet been supplied is a benign waiting state, not
+a placement: the control plane SHALL hold with a `SecretPending` condition, SHALL NOT
+place an empty credential, and SHALL converge when the value first appears (see
+[`platform/agent-secret-late-binding.spec.md`](../../platform/agent-secret-late-binding.spec.md)).
+
+**Three separate secret planes, never conflated.** The agent-secret plane (the
+per-cluster store holding `secret/data/hypershell/secret-sources/*` that backs
+`SecretSource` placement) SHALL be kept SEPARATE from the gateway-provider Vault plane
+([`platform/openshell-gateway-credentials.spec.md`](../../platform/openshell-gateway-credentials.spec.md))
+and from the application-secret plane (Secrets Manager plus External Secrets Operator).
+The three planes SHALL NOT share paths, policies, or identities and SHALL NOT be
+conflated.
+
+**Distributed per-cluster reads; no global runtime store.** `SecretSource` values SHALL
+be read cluster-locally: the control plane reads a referenced value from the LOCAL store
+of the cluster the owning agent is assigned to and places it there. There SHALL be no
+hub staging store, no plaintext transfer through the hub, and no global runtime reader
+that every control plane consults.
+
+**Scoped per-cluster writer.** Uploading a value into a cluster's agent-secret store
+SHALL use a per-cluster, least-privilege WRITER identity authorized only to write under
+`secret/data/hypershell/secret-sources/*` on that cluster. The writer SHALL NOT be
+granted read access to placed credentials and SHALL NOT be granted write access to the
+gateway-provider Vault plane.
 
 #### Scenario: Store access respects component direction
 
@@ -62,6 +85,13 @@ value.
 - THEN the API server SHALL write the value to the store and persist only a `SecretSource` reference
 - AND the API server SHALL NOT read the value back from the store
 - AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the value through its read-only store client and place it directly into a Kubernetes `Secret`, once, without an `ExternalSecret`
+
+#### Scenario: Agent secret is read cluster-locally and the writer is confined
+
+- GIVEN an `AgentRuntime` placed on cluster `Y` with a `SecretSource` reference
+- WHEN its value is uploaded by the per-cluster writer identity and later consumed
+- THEN the value SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
+- AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read placed credentials or write the gateway-provider Vault plane
 
 ### Input Validation
 
@@ -117,6 +147,7 @@ Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:
 - [ ] Secret values absent from routine API responses
 - [ ] One-time credential responses use `no-store`, redact telemetry, and never persist plaintext
 - [ ] Secret store access is single-directional: API server write-only, control plane read-only; no `ExternalSecret`/ESO resolution; placement is one-shot
+- [ ] Agent-secret, gateway-provider, and application-secret planes kept separate; agent-secret reads are cluster-local (no hub/global store); writer scoped to `secret/data/hypershell/secret-sources/*`
 
 **Input:**
 - [ ] All user input validated

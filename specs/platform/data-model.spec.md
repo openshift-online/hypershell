@@ -681,6 +681,20 @@ secret **value** in the configured secret manager and SHALL persist only a
 **reference** to that stored value as a `SecretSource` record in the database. The
 response SHALL identify the created `SecretSource`.
 
+The secret **value** SHALL be OPTIONAL on the create path. A reference-only
+`SecretSource` - a `name`, `agent_runtime_id`, `purpose`, and `backend` with NO
+value - SHALL be a first-class, valid state, so a `.hypershell` import or `hsctl
+apply` can declare a credential by name before its value exists and before the
+owning agent is placed on a cluster. The API server SHALL write to the secret
+manager ONLY when a value is supplied; when no value is supplied it SHALL persist
+the `SecretSource` reference alone and SHALL perform no `pkg/secretstore` write. A
+reference-only `SecretSource` SHALL carry its convention path so the value can be
+uploaded later: when the request omits `path`, the API server SHALL derive it as
+`hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic
+location a value-bearing submission is written to). The late-binding model that
+supplies the value afterward, directly into the assigned cluster's local Vault, is
+defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
+
 The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
 resolve a stored secret value in-process, and SHALL NOT clone a git repository.
 Reading a stored `SecretSource` value and placing it as a usable credential is the
@@ -702,6 +716,14 @@ The API server is write-only to the store; the control plane is read-only from i
 - WHEN the API server persists the `SecretSource` record
 - THEN the database record SHALL contain only the reference to the secret manager entry
 - AND it SHALL NOT contain the raw secret value
+
+#### Scenario: Reference-Only SecretSource Is Accepted Without a Value
+
+- GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO value
+- WHEN the API server accepts the request
+- THEN it SHALL persist the `SecretSource` reference with `path = hypershell/secret-sources/<agent_runtime_id>/<name>`
+- AND it SHALL NOT perform any `pkg/secretstore` write
+- AND the created `SecretSource` SHALL be a valid, consumable resource
 
 ---
 
@@ -914,6 +936,8 @@ The sandbox network policy and the `ProviderBinding.capability.allowed_operation
 
 A `SecretSource` is an abstract reference to a secret stored in the configured secret store (Vault, AWS Secrets Manager, or a Kubernetes Secret). When producing the agent's scheduling resources the control plane reads the referenced value from the store through its read-only `pkg/secretstore` client and places it directly into a Kubernetes `Secret`; it does not create an `ExternalSecret`.
 
+A `SecretSource` MAY be a value-less reference (see "Secret Submission and Storage"). When the referenced value has not yet been supplied to the assigned cluster's local store, the control plane SHALL NOT place an empty credential; it SHALL surface a `SecretPending` condition that names the resolved `ManagedCluster` and the exact store mount and path to upload the value to, and it SHALL converge automatically when the value appears. This late-binding placement behavior is defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation").
+
 `SecretSource.purpose` is a semantic enum that drives both the placed `Secret` field mapping and the environment variable wiring in the CronJob. Supported values:
 
 | Purpose | Description | Controller-generated env vars |
@@ -936,11 +960,19 @@ A `SecretSource` is an abstract reference to a secret stored in the configured s
 
 #### Scenario: Unknown Backend Path Fails at Provisioning, Not at Persist Time
 
-- GIVEN a `SecretSource` with a valid `path` that does not exist in the store
+- GIVEN a `SecretSource` with a valid `path` whose store is unreachable or errors
 - WHEN the control plane reads the `SecretSource` value to place its Kubernetes `Secret`
 - THEN the read SHALL fail at provisioning time
 - AND the `AgentRuntime` status SHALL reflect the placement failure
 - AND the `SecretSource` record itself SHALL remain in the database
+
+#### Scenario: Reference-Only Value Not Yet Uploaded Is Pending, Not Failed
+
+- GIVEN a reference-only `SecretSource` whose value has not yet been uploaded to the assigned cluster's reachable store
+- WHEN the control plane reconciles the owning `AgentRuntime`
+- THEN it SHALL set a `SecretPending` condition rather than a placement failure
+- AND it SHALL NOT place an empty credential and SHALL NOT mark the workspace `Ready`
+- AND the next reconcile after the value is uploaded SHALL place the `Secret` and converge
 
 ---
 
@@ -957,6 +989,14 @@ A `SecretSource` is an abstract reference to a secret stored in the configured s
 | `Terminating` | Delete in progress; cluster resources being removed, gateway-side cleanup in progress |
 
 A `Degraded` `AgentRuntime` SHALL surface the failing `SecretSource` name and the gateway-side error in the status message.
+
+A reference-only `SecretSource` whose value has not yet been uploaded is NOT a
+failure and SHALL NOT drive the `AgentRuntime` to `Degraded`. The `AgentRuntime`
+SHALL hold at `Provisioning` and carry a `SecretPending` condition (see
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and
+[`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation").
+`Degraded` is reserved for a store that is unreachable or errors, or for a
+gateway-side provisioning failure.
 
 #### Scenario: SecretSource Sync Failure Degrades AgentRuntime
 
@@ -1286,6 +1326,7 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | Gateway-agnostic capability model | Provider driver names and credential env var conventions are implementation details of the gateway backend. Keeping them out of the API allows the controller to support multiple gateway implementations without API changes. |
 | ProviderSpec as a reusable top-level resource | The same GitHub App or Vertex AI project configuration is shared by multiple agent types. Centralizing it avoids duplication and makes rotation (e.g., new App installation ID) a single change. |
 | SandboxTemplate as a reusable top-level resource | Sandbox base image and policy evolve independently of which agents use them. Shared templates reduce blast radius when updating a sandbox image digest. |
+| SecretSource value optional; late-binding reference | A `.hypershell` import declares credentials by name before any Gateway exists, yet the destination Vault is only known after cluster assignment. Making the value optional lets a reference-only `SecretSource` be a valid state; the value is uploaded later directly into the assigned cluster's local Vault, and the agent converges via a `SecretPending` condition with no hub staging store (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). |
 | SecretSource purpose enum for env var wiring | Requiring operators to spell out every env var binding is error-prone and duplicates knowledge that the controller already has from the purpose. The enum collapses this to a single semantic declaration. |
 | AgentWorkspace 1:1 with AgentRuntime | Workspaces are the gateway's isolation primitive. Sharing a workspace between agent types would mix their provider bindings and inference routes, defeating isolation. One-to-one ownership makes lifecycle management unambiguous. |
 | InferenceRoute capped at one per AgentWorkspace | A workspace has one active LLM at a time. Multiple routes would require the sandbox to select one, introducing configuration the agent author must manage. The controller updates the route atomically on any model change. |
