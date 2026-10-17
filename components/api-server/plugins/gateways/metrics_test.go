@@ -150,16 +150,19 @@ func TestActiveSandboxesCollector_AttributesByManagedCluster(t *testing.T) {
 	_, _ = dao.Create(ctx, &Gateway{ClusterId: "hyp0-spoke1", Namespace: "c", ActiveSandboxCount: ptr(1)})
 	_, _ = dao.Create(ctx, &Gateway{ClusterId: "", Namespace: "d", ActiveSandboxCount: ptr(2)})
 
-	got := gatherGauge(t, newGatewayActiveSandboxesCollector(dao), "hypershell_gateways_active_sandboxes_total", "managed_cluster")
+	got := gatherGauge(t, newGatewayActiveSandboxesCollector(dao), "hypershell_gateways_active_sandboxes_total", "managed_cluster", "gateway_namespace")
 
-	if v := got[[2]string{"hyp0-spoke0"}]; v != 4 {
-		t.Errorf("hyp0-spoke0 sandboxes = %v, want 4", v)
+	if v := got[[2]string{"hyp0-spoke0", "a"}]; v != 3 {
+		t.Errorf("hyp0-spoke0/a sandboxes = %v, want 3", v)
 	}
-	if v := got[[2]string{"hyp0-spoke1"}]; v != 1 {
-		t.Errorf("hyp0-spoke1 sandboxes = %v, want 1", v)
+	if v := got[[2]string{"hyp0-spoke0", "b"}]; v != 1 {
+		t.Errorf("hyp0-spoke0/b sandboxes = %v, want 1", v)
 	}
-	if v := got[[2]string{"unknown"}]; v != 2 {
-		t.Errorf("unknown sandboxes = %v, want 2", v)
+	if v := got[[2]string{"hyp0-spoke1", "c"}]; v != 1 {
+		t.Errorf("hyp0-spoke1/c sandboxes = %v, want 1", v)
+	}
+	if v := got[[2]string{"unknown", "d"}]; v != 2 {
+		t.Errorf("unknown/d sandboxes = %v, want 2", v)
 	}
 
 	var sum float64

@@ -65,10 +65,7 @@ export function TrendSparklineChart({
 
   const formatTooltip = (datum: SparklineDatum) =>
     datum.y === null
-      ? intl.formatMessage(messages.trendTooltipNoValue, {
-          date: datum.x,
-          metric: title,
-        })
+      ? ""
       : intl.formatMessage(messages.trendTooltip, {
           date: datum.x,
           metric: title,

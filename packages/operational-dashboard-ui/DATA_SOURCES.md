@@ -5,10 +5,10 @@ package are backed by live data. Widgets without a connected source still
 appear on the dashboard; they render the localized "Metric unavailable" empty
 state.
 
-Reliability dashboard sources are documented in
-[API reliability](#api-reliability) below. They load through a separate
-control-plane method and must not be added to the operational `metricSources`
-list.
+Reliability and usage dashboard sources are documented in
+[API reliability](#api-reliability) and [Usage dashboard](#usage-dashboard)
+below. They load through separate control-plane methods and must not be added
+to the operational `metricSources` list.
 
 ## Data flow
 
@@ -287,6 +287,103 @@ instant-query failure is a total source failure (HTTP `502`). Specs:
 
 Refresh uses `reliabilityDashboardRefreshMilliseconds` (same 15-minute
 interval as the operational dashboard).
+
+## Usage dashboard
+
+The usage dashboard (`/dashboard/usage`) loads through
+`useGetUsageMetricsData` → `dashboard.getUsageMetrics` →
+`createDashboardControlPlaneAdapter.getUsageMetrics`. It is available to every
+authenticated user. Users with `platform:admin` receive fleet aggregates and
+the UI adds the localized `System` label to every usage widget. Other users
+receive only aggregates calculated from their authorized Gateway inventory.
+
+| Source ID                | BFF route                                             | Metrics emitted                                                                      |
+| ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `usage-gateways`         | `GET /api/metrics/usage/gateways?range=7\|30`         | `gateway-request-volume`, `gateway-error-rate`, `active-gateways`, `unused-gateways` |
+| `usage-sandboxes`        | `GET /api/metrics/usage/sandboxes?range=7\|30`        | `sandbox-utilization`                                                                |
+| `usage-sandbox-lifetime` | `GET /api/metrics/usage/sandbox-lifetime?range=7\|30` | `sandbox-lifetime`                                                                   |
+
+### Authorization scope
+
+When OIDC is enabled, every usage route requires an authenticated session.
+Both administrators and non-administrators resolve the current Gateway inventory
+from the authorized Gateway list. Before resolving that inventory, each route
+refreshes the caller's access token when needed; if refresh fails, the route
+returns the standard reauthentication response. Administrators receive the fleet
+inventory and omit the usage namespace selector. Non-administrator requests
+build the set of authorized `openshell-<id>` namespaces and add that selector to
+every usage PromQL query before aggregation. The active sandbox instant value is
+also taken from the authorized Gateway list, so the browser never receives a
+fleet aggregate for local filtering. Intentional no-auth development, where OIDC
+is unconfigured, treats the caller as an administrator; partial OIDC
+configuration fails validation rather than falling back to no-auth.
+
+### Gateway usage metrics
+
+Gateway request metrics reuse the gateway-native Prometheus counters
+`openshell_server_grpc_requests_total{method,code}` and
+`openshell_server_http_requests_total{path,status}`. No additional
+`ServiceMonitor` or `PodMonitor` is introduced by this dashboard.
+`PROMETHEUS_URL` MUST point to an application metrics endpoint that already
+exposes these series for the managed clusters in the fleet.
+
+| Metric ID                | Prometheus type  | Calculation                                                                                                                                                               |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                       |
+| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="OK"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
+| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                              |
+| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                               |
+
+Current Gateway namespaces come from the authorized Gateway list for both
+administrators and non-administrators. Historical traffic from a deleted
+namespace is never counted because active namespaces are intersected with the
+current inventory before the totals are calculated.
+
+Daily volume and error-rate series use the same PromQL with a one-day
+`increase()` window, UTC calendar-day boundaries, and one-day steps. Missing
+days remain `null`; they are never backfilled with zero. If an instant value is
+available but a daily range query fails, the route returns the instant value and
+omits the trend. A successful absent protocol series contributes zero. If
+either protocol query fails, request volume, daily request volume, active
+Gateways, and unused Gateways are omitted.
+
+### Sandbox usage metrics
+
+| Metric ID             | Prometheus type | Calculation                                                                                                                                                              |
+| --------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sandbox-utilization` | Gauges          | 100 * active sandboxes / provisioned sandboxes                                                                                                                           |
+| `sandbox-lifetime`    | Histogram       | Mean from `gateway_sandbox_lifetime_seconds_sum / _count`; P50 and P95 from `histogram_quantile` over `gateway_sandbox_lifetime_seconds_bucket` selected-range increases |
+
+Active sandboxes use
+`hypershell_gateways_active_sandboxes_total`, deduplicated by
+`managed_cluster` and `gateway_namespace`. Provisioned sandboxes use the control-plane
+gauge `gateway_sandbox_total`, deduplicated by `hypershell_cluster_id` and
+`namespace`. The control-plane OTel instrument `gateway.sandbox.total` exports
+that gauge. The control-plane OTel instrument `gateway.sandbox.lifetime` exports
+the `gateway_sandbox_lifetime_seconds` histogram because the exporter appends
+the instrument unit suffix. OTel scope attributes are exported as PromQL labels
+`namespace` and `hypershell_cluster_id`, and the OTel collector scrape honors
+exported labels. The lifetime histogram records an
+observation when a sandbox leaves the active set, using the Sandbox CR creation
+timestamp with pod creation as the fallback. It never uses the optional
+`spec.lifecycle.shutdownTime` as an observed end time.
+
+Daily sandbox utilization and daily mean lifetime use one-day windows with UTC
+boundaries. Lifetime daily mean applies the one-day window to both the histogram
+sum and count. Missing days remain `null`. A zero denominator produces an explicit
+`0%` utilization; a missing active or total series omits the metric so the
+widget shows the localized unavailable state. The lifetime source emits mean,
+P50, and P95 independently, so the UI shows whichever values remain.
+
+### Refresh and failure semantics
+
+All usage metrics share `usageDashboardRefreshMilliseconds` (15 minutes).
+Manual refresh immediately re-fetches all three sources. Each source fails
+independently: the adapter records its source ID in `failedSources`, emits
+metrics from successful sources, and shows the shared partial-failure warning.
+After a successful load, a later failed refresh preserves the stale metrics for
+that source. If all sources fail on the first load, the query fails and the
+page shows the total load-failure state.
 
 ## Adding a new source
 

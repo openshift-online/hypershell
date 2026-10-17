@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func TestObservationFromPodUsesSandboxFields(t *testing.T) {
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:              "sb-1",
+			Name:              "sb-1-pod",
 			Namespace:         "openshell-live",
 			CreationTimestamp: metav1.NewTime(created.Add(-time.Hour)),
 			Labels:            map[string]string{sandboxPodLabelKey: "hash"},
@@ -50,6 +51,9 @@ func TestObservationFromPodUsesSandboxFields(t *testing.T) {
 	if !obs.Active {
 		t.Fatal("expected active observation")
 	}
+	if obs.Name != "sb-1" {
+		t.Fatalf("Name = %q, want sb-1", obs.Name)
+	}
 	if obs.CreationTime.UTC() != created.UTC() {
 		t.Fatalf("CreationTime = %v, want %v", obs.CreationTime, created.Time)
 	}
@@ -58,6 +62,25 @@ func TestObservationFromPodUsesSandboxFields(t *testing.T) {
 	}
 	if obs.LastActivityTime == nil || !obs.LastActivityTime.Equal(activity) {
 		t.Fatalf("LastActivityTime = %v, want %v", obs.LastActivityTime, activity)
+	}
+}
+
+func TestObservationFromPodUsesOwnerReferenceWhenSandboxIsMissing(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sb-1-pod",
+			Namespace: "openshell-live",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "Sandbox",
+				Name: "sb-1",
+			}},
+		},
+	}
+
+	obs := ObservationFromPod(pod, nil)
+
+	if obs.Name != "sb-1" {
+		t.Fatalf("Name = %q, want sb-1", obs.Name)
 	}
 }
 
@@ -108,5 +131,71 @@ func TestBuildAttentionObservationsFiltersNamespaces(t *testing.T) {
 	got := BuildAttentionObservations(pods, nil, eligible)
 	if len(got) != 1 || got[0].Namespace != "openshell-eligible" {
 		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestProvisionedSandboxCounts(t *testing.T) {
+	sandboxes := []*unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "a", "namespace": "openshell-a"},
+		}},
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "b", "namespace": "openshell-a"},
+		}},
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "c", "namespace": "other"},
+		}},
+		nil,
+	}
+	eligible := map[string]struct{}{"openshell-a": {}, "openshell-empty": {}}
+
+	got := ProvisionedSandboxCounts(sandboxes, eligible)
+	want := map[string]int{"openshell-a": 2, "openshell-empty": 0}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ProvisionedSandboxCounts() = %#v, want %#v", got, want)
+	}
+}
+
+func TestReconcileActiveSandboxes(t *testing.T) {
+	created := time.Date(2026, 9, 21, 9, 0, 0, 0, time.UTC)
+	observations := []SandboxObservation{
+		{Namespace: "openshell-a", Name: "keep", Active: true, CreationTime: created},
+		{Namespace: "openshell-a", Name: "leave", Active: false, CreationTime: created},
+		{Namespace: "openshell-b", Active: true, CreationTime: created},
+	}
+
+	current, departed := ReconcileActiveSandboxes(nil, observations)
+	if len(current) != 1 || current["openshell-a/keep"].Name != "keep" {
+		t.Fatalf("initial current = %#v, want only openshell-a/keep", current)
+	}
+	if len(departed) != 0 {
+		t.Fatalf("initial departed = %#v, want none", departed)
+	}
+
+	previous := map[string]SandboxObservation{
+		"openshell-a/keep":  observations[0],
+		"openshell-a/leave": {Namespace: "openshell-a", Name: "leave", Active: true, CreationTime: created},
+	}
+	current, departed = ReconcileActiveSandboxes(previous, observations)
+	if len(current) != 1 || current["openshell-a/keep"].Name != "keep" {
+		t.Fatalf("current = %#v, want only openshell-a/keep", current)
+	}
+	if len(departed) != 1 || departed[0].Name != "leave" {
+		t.Fatalf("departed = %#v, want openshell-a/leave", departed)
+	}
+}
+
+func TestSandboxLifetime(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	created := now.Add(-3 * time.Hour)
+
+	if lifetime, ok := SandboxLifetime(SandboxObservation{CreationTime: created}, now); !ok || lifetime != 3*time.Hour {
+		t.Fatalf("SandboxLifetime() = %v, %v; want 3h, true", lifetime, ok)
+	}
+	if _, ok := SandboxLifetime(SandboxObservation{}, now); ok {
+		t.Fatal("SandboxLifetime() succeeded without a creation time")
+	}
+	if _, ok := SandboxLifetime(SandboxObservation{CreationTime: now.Add(time.Minute)}, now); ok {
+		t.Fatal("SandboxLifetime() succeeded with a future creation time")
 	}
 }

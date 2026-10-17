@@ -19,6 +19,7 @@ const (
 // object is available.
 type SandboxObservation struct {
 	Namespace        string
+	Name             string
 	Active           bool
 	ShutdownTime     *time.Time
 	LastActivityTime *time.Time

@@ -652,6 +652,31 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 - Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all OP-DASH-08 metrics are connected so the banner is no longer required.
 - OP-W2 (2026-09-03): partial metric-source failure handling - adapter fetches sources independently, page shows warning + metric-unavailable per widget/summary row, refresh merges stale data for failed sources (`dashboard-metric-sources.ts`, `get-metrics-data.ts` `keepPreviousData`).
 
+### web-console/usage-dashboard.spec.md (issue 544, PR 563)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| USAGE-DASH-01 | Package placement and exports | Present | - | `packages/operational-dashboard-ui/src/index.ts`, fixtures, pages, widgets | - |
+| USAGE-DASH-02 | Hexagonal application boundary | Present | - | `application/dashboard-{types,operations,probes}.ts`, `pages/get-usage-metrics-data.ts` | - |
+| USAGE-DASH-03 | Authenticated access and server-side scope | Present | - | `routes/dashboard-usage.tsx`, `features/dashboard/require-dashboard-admin.tsx`, `bff/src/{app,authorized-gateway-metrics}.ts` | - |
+| USAGE-DASH-04 | SPA and BFF route surfaces | Present | - | `app/routes.ts`, `route-contract.json`, `dashboard-secondary-nav.tsx`, `bff/src/app.ts` | - |
+| USAGE-DASH-05 | Widgetized layout, shared controls, partial data | Present | - | `pages/usage-dashboard-page.tsx`, `dashboard/usage-dashboard-{layout-template,widgets}.tsx` | - |
+| USAGE-DASH-06 | Gateway-native request metrics | Present | - | `bff/src/metrics-usage-gateways.ts` | - |
+| USAGE-DASH-07 | Active and unused Gateway inventory | Present | - | `bff/src/metrics-usage-gateways.ts`, `bff/src/authorized-gateway-metrics.ts` | - |
+| USAGE-DASH-08 | Sandbox utilization and lifetime metrics | Present | - | `control-plane/internal/{otel,reconciler,gateway}`, `bff/src/metrics-usage-{sandboxes,sandbox-lifetime}.ts` | - |
+| USAGE-DASH-09 | Data source documentation | Present | - | `packages/operational-dashboard-ui/DATA_SOURCES.md` | - |
+| USAGE-DASH-10 | Localization and accessibility | Present | - | `packages/operational-dashboard-ui/src/messages.ts`, `components/web-console/locales/en.json`, production story | - |
+| USAGE-DASH-11 | Tests and verification | Present | UI visual parity skipped by required capability path | package, web-console, BFF, adapter, route, widget, page, and control-plane tests; UI gate record below | - |
+
+**Scoped coverage:** 11 of 11 requirements present.
+
+**Direction checks:**
+
+- Spec to code: the authenticated route, admin and authorized scopes, three independent BFF sources, six widgets, 7/30-day trends, partial refresh semantics, sandbox gauges, and lifetime histogram are implemented.
+- Code to spec: the shared `DashboardControlPlane` interface keeps `getUsageMetrics` optional for hosts that do not mount the usage page, while `DashboardOperations.getUsageMetrics` is required and the web-console adapter implements the host method.
+- OpenAPI to spec: no public API schema changes are required; non-admin scope is derived from the existing authorized Gateway list contract.
+- UI gate: screenshot capture and comparison are intentionally skipped under the repository UI build gate's complete-without-visual-review path because this agent runtime cannot create or inspect snapshots. Storybook, fixture, source, and non-parity checks remain required.
+
 ### registered-users.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
