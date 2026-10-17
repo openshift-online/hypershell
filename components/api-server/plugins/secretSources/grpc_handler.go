@@ -51,15 +51,20 @@ func (h *secretSourceGRPCHandler) CreateSecretSource(ctx context.Context, req *p
 	if err := grpcutil.ValidateStringField("backend", req.Backend, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("path", req.Path, true); err != nil {
-		return nil, err
+	// path is optional: a reference-only SecretSource (for example one declared in a
+	// .hypershell import) MAY omit it, in which case the server derives the stable
+	// convention location from the submission identity, matching the REST create path
+	// (agent-secret-late-binding.spec.md "Reference-Only SecretSource Submission").
+	path := req.Path
+	if path == "" {
+		path = deterministicSecretLocation(req.AgentRuntimeId, req.Name)
 	}
 	item := &SecretSource{
 		Name:           req.Name,
 		AgentRuntimeId: req.AgentRuntimeId,
 		Purpose:        req.Purpose,
 		Backend:        req.Backend,
-		Path:           req.Path,
+		Path:           path,
 		KeyMappings:    req.KeyMappings,
 		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}

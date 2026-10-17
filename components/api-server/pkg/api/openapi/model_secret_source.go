@@ -33,8 +33,8 @@ type SecretSource struct {
 	Purpose string `json:"purpose"`
 	// Secret backend type (vault, aws-secrets-manager, kubernetes)
 	Backend string `json:"backend"`
-	// Path to the secret in the backend
-	Path string `json:"path"`
+	// Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to.
+	Path *string `json:"path,omitempty"`
 	// JSON-encoded mapping of backend secret keys to environment variable names
 	KeyMappings *string `json:"key_mappings,omitempty"`
 	// Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list.
@@ -49,13 +49,12 @@ type _SecretSource SecretSource
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSecretSource(name string, agentRuntimeId string, purpose string, backend string, path string) *SecretSource {
+func NewSecretSource(name string, agentRuntimeId string, purpose string, backend string) *SecretSource {
 	this := SecretSource{}
 	this.Name = name
 	this.AgentRuntimeId = agentRuntimeId
 	this.Purpose = purpose
 	this.Backend = backend
-	this.Path = path
 	return &this
 }
 
@@ -323,28 +322,36 @@ func (o *SecretSource) SetBackend(v string) {
 	o.Backend = v
 }
 
-// GetPath returns the Path field value
+// GetPath returns the Path field value if set, zero value otherwise.
 func (o *SecretSource) GetPath() string {
-	if o == nil {
+	if o == nil || IsNil(o.Path) {
 		var ret string
 		return ret
 	}
-
-	return o.Path
+	return *o.Path
 }
 
-// GetPathOk returns a tuple with the Path field value
+// GetPathOk returns a tuple with the Path field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SecretSource) GetPathOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Path) {
 		return nil, false
 	}
-	return &o.Path, true
+	return o.Path, true
 }
 
-// SetPath sets field value
+// HasPath returns a boolean if a field has been set.
+func (o *SecretSource) HasPath() bool {
+	if o != nil && !IsNil(o.Path) {
+		return true
+	}
+
+	return false
+}
+
+// SetPath gets a reference to the given string and assigns it to the Path field.
 func (o *SecretSource) SetPath(v string) {
-	o.Path = v
+	o.Path = &v
 }
 
 // GetKeyMappings returns the KeyMappings field value if set, zero value otherwise.
@@ -472,7 +479,9 @@ func (o SecretSource) ToMap() (map[string]interface{}, error) {
 	toSerialize["agent_runtime_id"] = o.AgentRuntimeId
 	toSerialize["purpose"] = o.Purpose
 	toSerialize["backend"] = o.Backend
-	toSerialize["path"] = o.Path
+	if !IsNil(o.Path) {
+		toSerialize["path"] = o.Path
+	}
 	if !IsNil(o.KeyMappings) {
 		toSerialize["key_mappings"] = o.KeyMappings
 	}
@@ -494,7 +503,6 @@ func (o *SecretSource) UnmarshalJSON(data []byte) (err error) {
 		"agent_runtime_id",
 		"purpose",
 		"backend",
-		"path",
 	}
 
 	allProperties := make(map[string]interface{})

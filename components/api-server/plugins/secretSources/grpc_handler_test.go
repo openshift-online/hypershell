@@ -84,17 +84,33 @@ func TestSecretSourceToProto(t *testing.T) {
 
 func TestCreateSecretSource_ValidatesRequiredFields(t *testing.T) {
 	h := &secretSourceGRPCHandler{service: &stubSecretSourceService{}}
+	// path is intentionally omitted from the required set: a reference-only
+	// SecretSource MAY omit it and the server derives the convention location
+	// (agent-secret-late-binding.spec.md "Reference-Only SecretSource Submission").
+	// name, agent_runtime_id, purpose, and backend remain required.
 	cases := []*pb.CreateSecretSourceRequest{
 		{AgentRuntimeId: "ar-1", Purpose: "gateway-identity", Backend: "vault", Path: "secret/gw"},
 		{Name: "n", Purpose: "gateway-identity", Backend: "vault", Path: "secret/gw"},
 		{Name: "n", AgentRuntimeId: "ar-1", Backend: "vault", Path: "secret/gw"},
 		{Name: "n", AgentRuntimeId: "ar-1", Purpose: "gateway-identity", Path: "secret/gw"},
-		{Name: "n", AgentRuntimeId: "ar-1", Purpose: "gateway-identity", Backend: "vault"},
 	}
 	for i, req := range cases {
 		if _, err := h.CreateSecretSource(context.Background(), req); status.Code(err) != codes.InvalidArgument {
 			t.Fatalf("case %d: code = %s, want InvalidArgument", i, status.Code(err))
 		}
+	}
+}
+
+func TestCreateSecretSource_OmittedPathDerivesConventionLocation(t *testing.T) {
+	stub := &stubSecretSourceService{ret: &SecretSource{}}
+	h := &secretSourceGRPCHandler{service: stub}
+	req := &pb.CreateSecretSourceRequest{Name: "gateway-oidc", AgentRuntimeId: "ar-1", Purpose: "gateway-identity", Backend: "vault"}
+	if _, err := h.CreateSecretSource(context.Background(), req); err != nil {
+		t.Fatalf("CreateSecretSource with omitted path: unexpected error %v", err)
+	}
+	want := deterministicSecretLocation("ar-1", "gateway-oidc")
+	if stub.got == nil || stub.got.Path != want {
+		t.Fatalf("derived path = %+v, want %s", stub.got, want)
 	}
 }
 

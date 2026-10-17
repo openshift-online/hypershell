@@ -810,7 +810,7 @@ import (
 )
 
 func main() {
-	secretSource := *openapiclient.NewSecretSource("Name_example", "AgentRuntimeId_example", "Purpose_example", "Backend_example", "Path_example") // SecretSource | SecretSource data
+	secretSource := *openapiclient.NewSecretSource("Name_example", "AgentRuntimeId_example", "Purpose_example", "Backend_example") // SecretSource | SecretSource data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)

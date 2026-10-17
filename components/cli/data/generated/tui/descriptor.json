@@ -4200,8 +4200,8 @@
           {
             "name": "path",
             "type": "string",
-            "required": true,
-            "description": "Path to the secret in the backend"
+            "required": false,
+            "description": "Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to."
           },
           {
             "name": "purpose",

@@ -32,8 +32,10 @@ func newTestReconciler(seed map[string]string) (*AgentRuntimeReconciler, *[]stat
 	kube := fake.NewSimpleClientset()
 	writes := &[]statusWrite{}
 	r := &AgentRuntimeReconciler{
-		kube:    kube,
-		secrets: secretstore.NewMemoryReader(seed),
+		kube:             kube,
+		secrets:          secretstore.NewMemoryReader(seed),
+		clusterID:        "cluster-x",
+		secretStoreMount: "secret",
 		statusWriter: func(_ context.Context, id, status string, message *string) error {
 			*writes = append(*writes, statusWrite{id: id, status: status, message: message})
 			return nil
@@ -161,21 +163,101 @@ func TestAgentRuntimeReconcile_CreatesClusterResources(t *testing.T) {
 // When a SecretSource value cannot be read from the store the runtime is degraded
 // and the failing SecretSource is named (control-plane.spec.md "SecretSource read
 // or placement failure degrades the AgentRuntime").
-func TestAgentRuntimeReconcile_DegradedOnSecretReadFailure(t *testing.T) {
+func TestAgentRuntimeReconcile_SecretPendingWhenValueNotUploaded(t *testing.T) {
 	ar := testAgentRuntime()
-	// Seed only the second source so the first read fails.
+	// Seed only the second source so the first value is absent from a REACHABLE store.
+	// This is the late-binding SecretPending case: a benign waiting state, not a
+	// failure (agent-secret-late-binding.spec.md "SecretPending Condition and
+	// Self-Healing Retry").
 	r, writes := newTestReconciler(map[string]string{"secret/github": "pem"})
 
 	err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
 		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
 	})
 	if err == nil {
-		t.Fatalf("expected a retryable error when a SecretSource value cannot be read")
+		t.Fatalf("expected a retryable error so the reconcile converges when the value appears")
 	}
 
 	last := (*writes)[len(*writes)-1]
+	// Hold at Provisioning, NOT Degraded, and NOT Running.
+	if last.status != agentRuntimeStatusProvisioning {
+		t.Fatalf("final status = %q, want Provisioning (SecretPending holds here)", last.status)
+	}
+	if last.message == nil {
+		t.Fatalf("SecretPending must carry an actionable status message")
+	}
+	msg := *last.message
+	// Actionable instruction: names the pending source, the resolved cluster, and the
+	// exact mount/path to upload to.
+	for _, want := range []string{"SecretPending", "gateway-id", "cluster-x", "secret/data/secret/gateway"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("SecretPending message %q missing %q", msg, want)
+		}
+	}
+	// No empty credential placed for the pending source.
+	secrets, lerr := r.kube.CoreV1().Secrets(agentRuntimeNamespace(ar)).List(context.Background(), metav1.ListOptions{})
+	if lerr != nil {
+		t.Fatalf("list secrets: %v", lerr)
+	}
+	for i := range secrets.Items {
+		if secrets.Items[i].GetName() == secretName(ar.GetSecretSources()[0]) {
+			t.Fatalf("a Secret must not be placed for a pending SecretSource")
+		}
+	}
+}
+
+func TestAgentRuntimeReconcile_ConvergesWhenValueAppears(t *testing.T) {
+	ar := testAgentRuntime()
+	reader := secretstore.NewMemoryReader(map[string]string{"secret/github": "pem"})
+	kube := fake.NewSimpleClientset()
+	writes := &[]statusWrite{}
+	r := &AgentRuntimeReconciler{
+		kube: kube, secrets: reader, clusterID: "cluster-x", secretStoreMount: "secret",
+		statusWriter: func(_ context.Context, id, status string, message *string) error {
+			*writes = append(*writes, statusWrite{id: id, status: status, message: message})
+			return nil
+		},
+	}
+	ev := watcher.Event[*pb.AgentRuntime]{Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar}
+
+	if err := r.Handle(context.Background(), ev); err == nil {
+		t.Fatal("expected SecretPending (retryable) while the value is absent")
+	}
+	// The value is uploaded to the reachable store; the next reconcile must converge
+	// with no manual trigger.
+	reader.Set("secret/gateway", gatewayIdentityValue)
+	if err := r.Handle(context.Background(), ev); err != nil {
+		t.Fatalf("expected convergence once the value appears, got %v", err)
+	}
+	last := (*writes)[len(*writes)-1]
+	if last.status != agentRuntimeStatusRunning {
+		t.Fatalf("final status = %q, want Running after the value appears", last.status)
+	}
+}
+
+func TestAgentRuntimeReconcile_DegradedOnStoreError(t *testing.T) {
+	ar := testAgentRuntime()
+	// An unreachable/erroring store is a genuine failure, distinct from SecretPending.
+	kube := fake.NewSimpleClientset()
+	writes := &[]statusWrite{}
+	r := &AgentRuntimeReconciler{
+		kube: kube, secrets: secretstore.NewErrorReader(context.DeadlineExceeded),
+		clusterID: "cluster-x", secretStoreMount: "secret",
+		statusWriter: func(_ context.Context, id, status string, message *string) error {
+			*writes = append(*writes, statusWrite{id: id, status: status, message: message})
+			return nil
+		},
+	}
+
+	err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
+		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
+	})
+	if err == nil {
+		t.Fatalf("expected a retryable error when the store cannot be read")
+	}
+	last := (*writes)[len(*writes)-1]
 	if last.status != agentRuntimeStatusDegraded {
-		t.Fatalf("final status = %q, want Degraded", last.status)
+		t.Fatalf("final status = %q, want Degraded on a store error", last.status)
 	}
 	if last.message == nil || !strings.Contains(*last.message, "gateway-id") {
 		t.Fatalf("degraded message must name the failing SecretSource, got %v", last.message)

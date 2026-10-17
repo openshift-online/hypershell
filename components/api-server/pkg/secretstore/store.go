@@ -92,16 +92,11 @@ func NewFromEnv() (Store, error) {
 	case "memory":
 		return NewMemoryStore(), nil
 	case "vault":
-		addr := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_ADDR")
-		token := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_TOKEN")
-		if addr == "" || token == "" {
-			return nil, fmt.Errorf("vault secret store requires HYPERSHELL_SECRET_STORE_VAULT_ADDR and HYPERSHELL_SECRET_STORE_VAULT_TOKEN")
+		cfg, err := vaultConfigFromEnv()
+		if err != nil {
+			return nil, err
 		}
-		mount := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_MOUNT")
-		if mount == "" {
-			mount = "secret"
-		}
-		return NewVaultStore(addr, token, mount), nil
+		return newVaultStoreFromConfig(cfg), nil
 	case "aws-secrets-manager", "kubernetes":
 		return nil, fmt.Errorf("secret store backend %q is not yet implemented in the api-server; configure vault or memory", backend)
 	default:

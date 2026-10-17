@@ -13,7 +13,7 @@ Name | Type | Description | Notes
 **AgentRuntimeId** | **string** |  | 
 **Purpose** | **string** | Semantic purpose driving controller-generated env var wiring | 
 **Backend** | **string** | Secret backend type (vault, aws-secrets-manager, kubernetes) | 
-**Path** | **string** | Path to the secret in the backend | 
+**Path** | Pointer to **string** | Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to. | [optional] 
 **KeyMappings** | Pointer to **string** | JSON-encoded mapping of backend secret keys to environment variable names | [optional] 
 **Value** | Pointer to **string** | Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list. | [optional] 
 **RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
@@ -22,7 +22,7 @@ Name | Type | Description | Notes
 
 ### NewSecretSource
 
-`func NewSecretSource(name string, agentRuntimeId string, purpose string, backend string, path string, ) *SecretSource`
+`func NewSecretSource(name string, agentRuntimeId string, purpose string, backend string, ) *SecretSource`
 
 NewSecretSource instantiates a new SecretSource object
 This constructor will assign default values to properties that have it defined,
@@ -261,6 +261,11 @@ and a boolean to check if the value has been set.
 
 SetPath sets Path field to given value.
 
+### HasPath
+
+`func (o *SecretSource) HasPath() bool`
+
+HasPath returns a boolean if a field has been set.
 
 ### GetKeyMappings
 

@@ -63,7 +63,9 @@ func (m *MemoryReader) Get(_ context.Context, location string) (string, error) {
 	defer m.mu.Unlock()
 	v, ok := m.data[location]
 	if !ok {
-		return "", fmt.Errorf("secret not found at location %q", location)
+		// Reachable in-memory store, no value yet: wrap ErrNotFound so callers treat
+		// this as SecretPending rather than a read failure.
+		return "", fmt.Errorf("secret not found at location %q: %w", location, ErrNotFound)
 	}
 	return v, nil
 }
@@ -101,16 +103,11 @@ func NewReaderFromEnv() (Reader, error) {
 	case "memory":
 		return NewMemoryReader(nil), nil
 	case "vault":
-		addr := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_ADDR")
-		token := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_TOKEN")
-		if addr == "" || token == "" {
-			return nil, fmt.Errorf("vault secret store requires HYPERSHELL_SECRET_STORE_VAULT_ADDR and HYPERSHELL_SECRET_STORE_VAULT_TOKEN")
+		cfg, err := vaultConfigFromEnv()
+		if err != nil {
+			return nil, err
 		}
-		mount := os.Getenv("HYPERSHELL_SECRET_STORE_VAULT_MOUNT")
-		if mount == "" {
-			mount = "secret"
-		}
-		return NewVaultReader(addr, token, mount), nil
+		return newVaultReaderFromConfig(cfg), nil
 	case "aws-secrets-manager", "kubernetes":
 		return nil, fmt.Errorf("secret store backend %q is not yet implemented in the control plane; configure vault or memory", backend)
 	default:
@@ -123,20 +120,28 @@ func NewReaderFromEnv() (Reader, error) {
 // vaultValueKey.
 type VaultReader struct {
 	addr       string
-	token      string
 	mount      string
+	tokens     tokenSource
 	httpClient *http.Client
 }
 
-// NewVaultReader returns a VaultReader for the given address, token, and KV v2
-// mount (e.g. "secret").
+// NewVaultReader returns a VaultReader for the given address, static token, and KV v2
+// mount (e.g. "secret"). It uses the system trust store; for a private-CA or
+// Kubernetes-auth Vault build the reader from the environment through
+// NewReaderFromEnv.
 func NewVaultReader(addr, token, mount string) *VaultReader {
 	return &VaultReader{
 		addr:       strings.TrimRight(addr, "/"),
-		token:      strings.TrimSpace(token),
 		mount:      strings.Trim(mount, "/"),
+		tokens:     staticTokenSource{value: strings.TrimSpace(token)},
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// newVaultReaderFromConfig builds a VaultReader from a resolved vaultConfig
+// (private-CA trust and the configured auth method).
+func newVaultReaderFromConfig(cfg vaultConfig) *VaultReader {
+	return &VaultReader{addr: cfg.addr, mount: cfg.mount, tokens: cfg.tokens, httpClient: cfg.httpClient}
 }
 
 // vaultReadResponse is the KV v2 read envelope: the stored fields live under
@@ -159,7 +164,11 @@ func (v *VaultReader) Get(ctx context.Context, location string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("build vault request: %w", err)
 	}
-	req.Header.Set("X-Vault-Token", v.token)
+	tok, err := v.tokens.token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("vault auth: %w", err)
+	}
+	req.Header.Set("X-Vault-Token", tok)
 
 	resp, err := v.httpClient.Do(req)
 	if err != nil {
@@ -168,7 +177,9 @@ func (v *VaultReader) Get(ctx context.Context, location string) (string, error) 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("secret not found at location %q", location)
+		// Reachable store, no value yet: wrap ErrNotFound so callers can treat this
+		// as the benign SecretPending state rather than a read failure.
+		return "", fmt.Errorf("secret not found at location %q: %w", location, ErrNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
 		// Read a bounded amount of the body for context; it does not echo the

@@ -93,6 +93,27 @@ func TestSecretSubmission_RetryIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestSecretSubmission_ReferenceOnlyWithoutPathDerivesConventionPath(t *testing.T) {
+	// A reference-only create that omits both value and path must succeed and
+	// persist the derived convention location, so the value can be uploaded later
+	// to a known path (agent-secret-late-binding.spec.md "Reference-Only
+	// SecretSource Submission"). An unconfigured store proves no write occurs.
+	store := secretstore.NewErrorStore(context.DeadlineExceeded)
+	svc := &stubSecretSourceService{ret: createdSample()}
+	h := NewSecretSourceHandler(svc, nil, store)
+
+	body := `{"name":"gateway-oidc","agent_runtime_id":"ar-1","purpose":"gateway-identity","backend":"vault"}`
+	rec := postSecretSource(t, h, body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("reference-only create status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	want := deterministicSecretLocation("ar-1", "gateway-oidc")
+	if svc.got == nil || svc.got.Path != want {
+		t.Fatalf("derived path = %+v, want %s", svc.got, want)
+	}
+}
+
 func TestSecretSubmission_ReferenceOnlyCreateDoesNotTouchStore(t *testing.T) {
 	// An unconfigured store would fail any write; a reference-only create (no
 	// value) must still succeed because it never calls the store.

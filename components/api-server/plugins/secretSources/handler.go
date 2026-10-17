@@ -115,6 +115,18 @@ func (h *secretSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 				// overriding any client-supplied path.
 				item.Path = location
 			}
+			// Reference-only submission (no value) MAY omit path: derive the stable
+			// convention location from the submission identity so a value can be
+			// uploaded later to a known location (data-model.spec.md "Secret
+			// Submission and Storage"; agent-secret-late-binding.spec.md
+			// "Reference-Only SecretSource Submission"). A client-supplied path is
+			// kept as-is.
+			if item.Path == "" {
+				if item.AgentRuntimeId == "" || item.Name == "" {
+					return nil, errors.Validation("name and agent_runtime_id are required to derive a secret source path")
+				}
+				item.Path = deterministicSecretLocation(item.AgentRuntimeId, item.Name)
+			}
 			created, err := h.service.Create(ctx, item)
 			if err != nil {
 				return nil, err

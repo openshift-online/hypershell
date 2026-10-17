@@ -23,20 +23,27 @@ const vaultValueKey = "value"
 // submission to the same deterministic location does not fork the secret.
 type VaultStore struct {
 	addr       string
-	token      string
 	mount      string
+	tokens     tokenSource
 	httpClient *http.Client
 }
 
-// NewVaultStore returns a VaultStore for the given address, token, and KV v2 mount
-// (e.g. "secret").
+// NewVaultStore returns a VaultStore for the given address, static token, and KV v2
+// mount (e.g. "secret"). It uses the system trust store; for a private-CA or
+// Kubernetes-auth Vault build the store from the environment through NewFromEnv.
 func NewVaultStore(addr, token, mount string) *VaultStore {
 	return &VaultStore{
 		addr:       strings.TrimRight(addr, "/"),
-		token:      token,
 		mount:      strings.Trim(mount, "/"),
+		tokens:     staticTokenSource{value: token},
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// newVaultStoreFromConfig builds a VaultStore from a resolved vaultConfig (private-CA
+// trust and the configured auth method).
+func newVaultStoreFromConfig(cfg vaultConfig) *VaultStore {
+	return &VaultStore{addr: cfg.addr, mount: cfg.mount, tokens: cfg.tokens, httpClient: cfg.httpClient}
 }
 
 // Put writes value at location in the KV v2 engine. The value is wrapped in the
@@ -58,7 +65,11 @@ func (v *VaultStore) Put(ctx context.Context, location, value string) error {
 	if err != nil {
 		return fmt.Errorf("build vault request: %w", err)
 	}
-	req.Header.Set("X-Vault-Token", v.token)
+	tok, err := v.tokens.token(ctx)
+	if err != nil {
+		return fmt.Errorf("vault auth: %w", err)
+	}
+	req.Header.Set("X-Vault-Token", tok)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := v.httpClient.Do(req)
