@@ -35,6 +35,7 @@ func newTestReconciler(seed map[string]string) (*AgentRuntimeReconciler, *[]stat
 		kube:             kube,
 		secrets:          secretstore.NewMemoryReader(seed),
 		clusterID:        "cluster-x",
+		clusterName:      "cluster-x",
 		secretStoreMount: "secret",
 		statusWriter: func(_ context.Context, id, status string, message *string) error {
 			*writes = append(*writes, statusWrite{id: id, status: status, message: message})

@@ -175,6 +175,10 @@ func newVaultHTTPClient(caCertPath string) (*http.Client, error) {
 	}
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
+		// SystemCertPool failed (or is empty on this platform): fall back to a pool
+		// holding only the configured private CA. This is intended for a private-CA Vault
+		// where the system roots are not required; a store reachable only via a
+		// public CA would then fail its handshake and surface loudly rather than silently.
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(pem) {

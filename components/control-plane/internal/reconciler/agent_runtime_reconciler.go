@@ -75,6 +75,12 @@ type AgentRuntimeReconciler struct {
 	// the configured read client). Defaults to "secret".
 	secretStoreMount string
 
+	// clusterName is the human-facing ManagedCluster name (HYPERSHELL_MANAGED_CLUSTER_NAME)
+	// surfaced in the actionable SecretPending message so an operator knows which
+	// cluster's Vault to upload to (agent-secret-late-binding.spec.md "Discoverable
+	// Upload Target"). It falls back to clusterID when unset.
+	clusterName string
+
 	// statusWriter persists an AgentRuntime status transition. It is overridable in
 	// tests; in production it writes through the AgentRuntime gRPC service. A nil
 	// writer disables status write-back (no gRPC connection).
@@ -89,12 +95,17 @@ func NewAgentRuntimeReconciler(kube kubernetes.Interface, secrets secretstore.Re
 	if mount == "" {
 		mount = "secret"
 	}
+	clusterName := os.Getenv("HYPERSHELL_MANAGED_CLUSTER_NAME")
+	if clusterName == "" {
+		clusterName = clusterID
+	}
 	r := &AgentRuntimeReconciler{
 		kube:             kube,
 		secrets:          secrets,
 		grpcConn:         grpcConn,
 		clusterID:        clusterID,
 		secretStoreMount: mount,
+		clusterName:      clusterName,
 	}
 	if grpcConn != nil {
 		r.statusWriter = r.writeStatusViaGRPC
@@ -176,7 +187,7 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 			// appears (agent-secret-late-binding.spec.md "SecretPending Condition and
 			// Self-Healing Retry"; control-plane.spec.md "AgentRuntime Reconciliation").
 			if errors.Is(err, secretstore.ErrNotFound) {
-				msg := secretPendingMessage(r.clusterID, r.secretStoreMount, source)
+				msg := secretPendingMessage(r.clusterName, r.secretStoreMount, source)
 				r.setStatus(ctx, ar, agentRuntimeStatusProvisioning, &msg)
 				log.Printf("INFO AgentRuntime %s: SecretPending for %q: %s", ar.GetMetadata().GetId(), source.GetName(), msg)
 				return fmt.Errorf("reconcile agent runtime %s: secret %q pending upload: %w", ar.GetMetadata().GetId(), source.GetName(), err)
@@ -217,8 +228,10 @@ func (r *AgentRuntimeReconciler) placeSecret(ctx context.Context, ar *pb.AgentRu
 	if err != nil {
 		// Preserve the error chain (including a wrapped ErrNotFound) so the caller can
 		// classify a not-yet-uploaded value (SecretPending) apart from a store failure.
+		// The reason is only used for the Degraded status; the pending branch builds its
+		// own actionable message, so no reason is returned for ErrNotFound.
 		if errors.Is(err, secretstore.ErrNotFound) {
-			return "value not yet uploaded", fmt.Errorf("read value from store: %w", err)
+			return "", fmt.Errorf("read value from store: %w", err)
 		}
 		return "read from store failed", fmt.Errorf("read value from store: %w", err)
 	}
@@ -239,8 +252,8 @@ func (r *AgentRuntimeReconciler) placeSecret(ctx context.Context, ar *pb.AgentRu
 // instruction, not a bare error (agent-secret-late-binding.spec.md "Discoverable
 // Upload Target"). It carries only safe references (name, cluster, path), never any
 // bytes of the secret value.
-func secretPendingMessage(clusterID, mount string, source *pb.SecretSource) string {
-	return fmt.Sprintf("SecretPending: upload SecretSource %q value to %s/data/%s on cluster %s", source.GetName(), mount, source.GetPath(), clusterID)
+func secretPendingMessage(clusterName, mount string, source *pb.SecretSource) string {
+	return fmt.Sprintf("SecretPending: upload SecretSource %q value to %s/data/%s on cluster %s", source.GetName(), mount, source.GetPath(), clusterName)
 }
 
 // handleDelete writes Terminating (best-effort; the row may already be gone) and
