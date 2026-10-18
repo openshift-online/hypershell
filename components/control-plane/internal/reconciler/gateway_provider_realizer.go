@@ -156,6 +156,15 @@ func membershipsFor(ar *pb.AgentRuntime, anyRefresh bool) []gateway.MembershipSp
 // routeFor builds the single InferenceRoute from the payload, resolving the bound
 // provider name from the ProviderBinding the route references. It returns nil when the
 // runtime has no route.
+//
+// Naming caveat (part of the deferred per-ProviderBinding realization): providers are
+// currently realized named by their provider SecretSource (workspaceSpecFor uses
+// m.Source.GetName()), while the route provider name resolves to the ProviderBinding
+// name. These align only when the binding and its SecretSource share a name. Keying
+// provider realization by the binding's secret_source_id - the tracked follow-up that
+// needs the SecretSource id in the payload - makes the provider name authoritative and
+// removes this caveat. The gateway validates the route's provider reference in the
+// meantime.
 func routeFor(ar *pb.AgentRuntime) *gateway.InferenceRouteConfig {
 	route := ar.GetInferenceRoute()
 	if route == nil {

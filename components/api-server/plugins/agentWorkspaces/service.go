@@ -112,6 +112,14 @@ func (s *sqlAgentWorkspaceService) Replace(ctx context.Context, agentWorkspace *
 	return item, nil
 }
 
+// Delete removes the AgentWorkspace record. Cascade of the workspace sub-resources
+// (memberships, provider bindings, inference route) and the gateway-side objects is
+// driven on AgentRuntime deletion by the control plane
+// (agent-workspace-gateway-api.spec.md "Cascade Deletion Semantics", data-model.spec.md
+// "AgentRuntime Cluster Resource Provisioning"), so a direct workspace delete here is a
+// record-level delete; it does not itself cascade. Sub-rows reference a workspace id,
+// which is a unique KSUID that is never reused, so an orphaned sub-row is never resolved
+// into a later reconcile payload (ResolveView returns nil once the workspace is gone).
 func (s *sqlAgentWorkspaceService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if err := s.dao.Delete(ctx, id); err != nil {
 		return errors.GeneralError("Unable to delete agent workspace: %s", err)

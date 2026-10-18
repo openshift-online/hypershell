@@ -79,12 +79,14 @@ type ProviderRealizer interface {
 // itself; it creates no ExternalSecret, depends on no External Secrets Operator, and
 // runs no ESO-style periodic resync.
 //
-// Provider realization is gateway-side and delegated to a ProviderRealizer. That
-// client is not wired yet (issue #526) and the AgentRuntime watch payload does not
-// yet carry its ProviderBindings; until a realizer is configured, provider-material
-// SecretSources keep the transitional raw-Secret placement so the live fleet does not
-// regress. The Running transition reflects cluster-side success (and provider
-// realization when a realizer is configured).
+// Provider realization is gateway-side and delegated to a ProviderRealizer, the
+// gateway.WorkspaceProvisioner adapter wired through SetProviderRealizer when the
+// gateway provisioning endpoint is configured. The AgentRuntime watch payload now
+// carries the workspace name, ProviderBindings, memberships, and inference route
+// (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"). Until a realizer
+// is configured, provider-material SecretSources keep the transitional raw-Secret
+// placement so the live fleet does not regress. The Running transition reflects
+// cluster-side success (and provider realization when a realizer is configured).
 //
 // Handle holds no per-resource dedup state: the watch reconcile queue serializes
 // work per AgentRuntime id (a key in flight is never handed to a second worker),
