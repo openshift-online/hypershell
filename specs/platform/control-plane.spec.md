@@ -226,11 +226,15 @@ into the cluster scheduling resources and gateway-side workspace objects defined
 Provisioning", "Gateway-Side Provisioning", "WorkspaceMembership", and "AgentRuntime
 Status Lifecycle"). Reconciliation SHALL converge, not create-and-skip: re-running
 against unchanged desired state SHALL be idempotent and SHALL update mutable fields
-in place. The gateway-side provisioning API the control plane calls (its idempotent
-ensure RPCs for the workspace, memberships, providers, and inference route, its
-admin connection, enforcement, retry, and cascade deletion) is specified in
-[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md); the
-`ProviderRealizer` seam is its client.
+in place. The control plane realizes the gateway-side objects by consuming OpenShell's
+**existing** provisioning API (the operations the `openshell` CLI drives for workspaces,
+memberships, providers, provider refresh, and the inference route), NOT a bespoke
+gateway gRPC contract OpenShell must implement; the realization operations, their
+admin session, enforcement, retry, and cascade deletion are specified in
+[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md), and the
+1:1 Extension-kind to OpenShell-kind map in
+[`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md).
+The `ProviderRealizer` seam is the client of OpenShell's existing API.
 
 On reconcile the control plane SHALL, using its in-cluster credentials, create or
 update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
@@ -241,9 +245,10 @@ cluster-local), and the coordinator `CronJob`. The control plane SHALL read each
 referenced `SecretSource`'s durable material from the configured secret store through
 its read-only `pkg/secretstore` client; for provider material it SHALL NOT render the
 credential as a raw Kubernetes `Secret`, SHALL NOT create an `ExternalSecret`, and
-SHALL NOT rely on External Secrets Operator. It SHALL then provision the gateway-side
+SHALL NOT rely on External Secrets Operator. It SHALL then realize the gateway-side
 `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute`
-objects through the gateway gRPC API, the same idempotent mechanism it uses for
+objects through OpenShell's existing provisioning API (the operations the `openshell`
+CLI drives), reusing the same idempotent admin-connection discipline it uses for
 gateway database provisioning, and SHALL realize each `ProviderBinding` as an OpenShell
 **provider** on the agent's gateway/workspace from the binding's `provider_spec_id`,
 its `refresh_strategy`, and the material read cluster-local. OpenShell owns rotation of
@@ -280,35 +285,38 @@ Owned by OpenShell"). A store that is unreachable or errors SHALL still degrade 
 On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
 created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator
 `gateway-identity` wiring, and the `CronJob`) and SHALL delete the gateway-side
-`AgentWorkspace`, its OpenShell providers, and its sub-resources through the gateway
-gRPC API.
+`AgentWorkspace`, its OpenShell providers, and its sub-resources through OpenShell's
+existing provisioning API.
 
-The gateway-side provisioning seam SHALL be **live**: the `ProviderRealizer` is
-constructed against the gateway `WorkspaceProvisioningPort`
-([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) and
-the reconciler SHALL drive it on every reconcile rather than hold a transitional
-behavior. The reconcile SHALL run the gateway sequence in this order, reading its
-inputs from the embedded reconcile payload
+The realization seam SHALL be **live**: the `ProviderRealizer` is constructed as a
+client of OpenShell's existing provisioning API
+([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) - NOT a
+bespoke `AgentWorkspaceProvisioning` gRPC contract - and the reconciler SHALL drive it on
+every reconcile rather than hold a transitional behavior. The reconcile SHALL run the
+realization sequence in this order, reading its inputs from the embedded reconcile payload
 ([`data-model.spec.md`](./data-model.spec.md), "AgentRuntime Reconcile Payload
-Completeness"):
+Completeness") and realizing each step through the OpenShell operation the `openshell` CLI
+drives (see [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md)):
 
-1. `EnsureWorkspace` for the owning `agent_runtime_id` and resolved workspace name.
-2. `ReconcileMemberships` declaratively over the full membership set, so an admin
-   membership exists before any refresh-bearing provider is ensured.
-3. `EnsureProvider` for each provider the runtime realizes, from its `refresh_strategy`
-   and the durable material read cluster-local, honoring the `SecretPending` gate when
-   material is absent. The target end state is one `EnsureProvider` per `ProviderBinding`
-   keyed by the binding's `secret_source_id`; the current activation step realizes one
-   provider per resolved provider `SecretSource` keyed by its `purpose`, because the
-   embedded payload does not yet carry the `SecretSource` id needed to join material to
-   its binding. Carrying that id and realizing strictly per `ProviderBinding` (with its
-   `provider_spec_id`) is a tracked follow-up.
-4. `EnsureInferenceRoute` for the single declared route.
+1. Ensure the workspace (OpenShell `workspace create`) for the owning `agent_runtime_id`
+   and resolved workspace name.
+2. Reconcile memberships (OpenShell `workspace member add` / `member remove`) declaratively
+   over the full set, so an admin membership exists before any refresh-bearing provider is
+   realized.
+3. Ensure each provider (OpenShell `provider create` / `update` plus `provider refresh
+   configure`) the runtime realizes, from its `refresh_strategy` and the durable material
+   read cluster-local, honoring the `SecretPending` gate when material is absent. The target
+   end state is one provider per `ProviderBinding` keyed by the binding's `secret_source_id`;
+   the current activation step realizes one provider per resolved provider `SecretSource`
+   keyed by its `purpose`, because the embedded payload does not yet carry the `SecretSource`
+   id needed to join material to its binding. Carrying that id and realizing strictly per
+   `ProviderBinding` (with its `provider_spec_id`) is a tracked follow-up.
+4. Ensure the single declared inference route (OpenShell `inference set`).
 
-On `AgentRuntime` deletion the reconcile SHALL call `DeleteWorkspace`, cascading the
-workspace, its memberships, its realized providers, and its inference route; shared
-`ProviderSpec`s SHALL be preserved. The ordering, idempotency, enforcement, retry, and
-cascade semantics of these RPCs are owned by
+On `AgentRuntime` deletion the reconcile SHALL delete the OpenShell workspace (OpenShell
+`workspace delete`), cascading its memberships, its realized providers, and its inference
+route; shared `ProviderSpec`s SHALL be preserved. The ordering, idempotency, enforcement,
+retry, and cascade semantics of these operations are owned by
 [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md).
 
 At this activation the transitional raw-`Secret` placement of **provider material**
@@ -335,7 +343,7 @@ credential), and the prune SHALL NOT remove it
 
 - GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present cluster-local
 - WHEN the control plane reconciles it
-- THEN it SHALL call `EnsureWorkspace`, then `ReconcileMemberships`, then `EnsureProvider` for each realized provider, then `EnsureInferenceRoute`, through the live `ProviderRealizer`
+- THEN it SHALL ensure the workspace, then reconcile memberships, then ensure each provider, then ensure the inference route, through the live `ProviderRealizer` calling OpenShell's existing API
 - AND it SHALL render no raw credential `Secret` for the provider material
 - AND re-running the reconcile against unchanged state SHALL make no change
 
@@ -343,7 +351,7 @@ credential), and the prune SHALL NOT remove it
 
 - GIVEN an `AgentRuntime` previously reconciled by the transitional behavior that left a raw provider-material `Secret` on the cluster
 - WHEN the control plane reconciles it with the realizer live
-- THEN it SHALL realize the provider through the gateway contract and SHALL remove the straggler raw provider-material `Secret`
+- THEN it SHALL realize the provider through OpenShell's existing API and SHALL remove the straggler raw provider-material `Secret`
 - AND it SHALL leave the coordinator `gateway-identity` wiring in place
 
 #### Scenario: SecretPending holds the prune so the working credential is kept
@@ -357,7 +365,7 @@ credential), and the prune SHALL NOT remove it
 
 - GIVEN an `AgentRuntime` with a provisioned workspace, memberships, a realized provider, and an inference route
 - WHEN a delete event arrives on the watch stream
-- THEN the control plane SHALL call `DeleteWorkspace`, cascading the workspace, memberships, provider, and inference route on the gateway
+- THEN the control plane SHALL delete the OpenShell workspace through OpenShell's existing API, cascading the memberships, provider, and inference route on the gateway
 - AND it SHALL NOT delete any shared `ProviderSpec`
 
 #### Scenario: New AgentRuntime is provisioned end to end
@@ -395,7 +403,7 @@ credential), and the prune SHALL NOT remove it
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a delete event arrives on the watch stream
 - THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` from the cluster
-- AND it SHALL delete the gateway-side `AgentWorkspace`, its OpenShell providers, and its sub-resources through the gateway gRPC API
+- AND it SHALL delete the gateway-side `AgentWorkspace`, its OpenShell providers, and its sub-resources through OpenShell's existing provisioning API
 
 ### Requirement: Secret Store and Import Reconciler Enablement
 
@@ -531,7 +539,7 @@ created directly through the REST API or `hsctl apply`.
 **Bounded write exception.** The `RepositoryReconciler` is the SINGLE, clearly-bounded
 control-plane path that writes HyperShell API desired-state resources. Outside it
 the control plane remains a reader of desired state: it writes back only derived
-resource `status` and provisions gateway-side objects through the gateway gRPC API.
+resource `status` and realizes gateway-side objects through OpenShell's existing provisioning API.
 The `RepositoryReconciler` SHALL write ONLY ext resources owned by the originating
 `Repository`, SHALL perform only create / update / prune on those Repository-owned
 resources, and SHALL mark each written resource with its owning `Repository`. This
