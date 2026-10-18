@@ -107,8 +107,12 @@ func (d *sqlWorkspaceMembershipDao) CountAdmins(ctx context.Context, workspaceID
 func (d *sqlWorkspaceMembershipDao) WorkspaceRequiresAdmin(ctx context.Context, workspaceID string) (bool, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	var count int64
+	// refresh_strategy is a jsonb column, so it is cast to text before comparison
+	// (a jsonb <> text comparison is a Postgres type error). A binding "carries a
+	// non-empty refresh_strategy" when the value is present and is neither JSON null
+	// nor an empty object.
 	if err := g2.Table("provider_bindings").
-		Where("workspace_id = ? AND deleted_at IS NULL AND refresh_strategy IS NOT NULL AND refresh_strategy <> ''", workspaceID).
+		Where("workspace_id = ? AND deleted_at IS NULL AND refresh_strategy IS NOT NULL AND refresh_strategy::text NOT IN ('null', '{}')", workspaceID).
 		Count(&count).Error; err != nil {
 		return false, err
 	}

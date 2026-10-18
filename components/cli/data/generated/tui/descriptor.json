@@ -4681,7 +4681,11 @@
             "name": "role",
             "type": "string",
             "required": true,
-            "description": "Membership role, one of admin or member."
+            "description": "Membership role, one of admin or member.",
+            "enum": [
+              "admin",
+              "member"
+            ]
           },
           {
             "name": "subject",
@@ -8995,7 +8999,11 @@
           {
             "name": "role",
             "type": "string",
-            "required": false
+            "required": false,
+            "enum": [
+              "admin",
+              "member"
+            ]
           }
         ]
       },

@@ -175,6 +175,9 @@ components:
               description: OIDC subject UUID the agent uses to connect to the gateway.
             role:
               type: string
+              enum:
+                - admin
+                - member
               description: Membership role, one of admin or member.
     WorkspaceMembershipList:
       allOf:
@@ -190,6 +193,9 @@ components:
       properties:
         role:
           type: string
+          enum:
+            - admin
+            - member
   parameters:
     id:
       name: id

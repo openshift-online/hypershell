@@ -295,9 +295,14 @@ Completeness"):
 1. `EnsureWorkspace` for the owning `agent_runtime_id` and resolved workspace name.
 2. `ReconcileMemberships` declaratively over the full membership set, so an admin
    membership exists before any refresh-bearing provider is ensured.
-3. `EnsureProvider` once per `ProviderBinding`, from its `provider_spec_id`,
-   `refresh_strategy`, and the durable material read cluster-local, honoring the
-   `SecretPending` gate when material is absent.
+3. `EnsureProvider` for each provider the runtime realizes, from its `refresh_strategy`
+   and the durable material read cluster-local, honoring the `SecretPending` gate when
+   material is absent. The target end state is one `EnsureProvider` per `ProviderBinding`
+   keyed by the binding's `secret_source_id`; the current activation step realizes one
+   provider per resolved provider `SecretSource` keyed by its `purpose`, because the
+   embedded payload does not yet carry the `SecretSource` id needed to join material to
+   its binding. Carrying that id and realizing strictly per `ProviderBinding` (with its
+   `provider_spec_id`) is a tracked follow-up.
 4. `EnsureInferenceRoute` for the single declared route.
 
 On `AgentRuntime` deletion the reconcile SHALL call `DeleteWorkspace`, cascading the
@@ -330,7 +335,7 @@ credential), and the prune SHALL NOT remove it
 
 - GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present cluster-local
 - WHEN the control plane reconciles it
-- THEN it SHALL call `EnsureWorkspace`, then `ReconcileMemberships`, then `EnsureProvider` per `ProviderBinding`, then `EnsureInferenceRoute`, through the live `ProviderRealizer`
+- THEN it SHALL call `EnsureWorkspace`, then `ReconcileMemberships`, then `EnsureProvider` for each realized provider, then `EnsureInferenceRoute`, through the live `ProviderRealizer`
 - AND it SHALL render no raw credential `Secret` for the provider material
 - AND re-running the reconcile against unchanged state SHALL make no change
 

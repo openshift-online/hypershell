@@ -81,6 +81,16 @@ func TestCreate_MemberWithoutAdminWhenRefreshBearingIsUnprocessable(t *testing.T
 	}
 }
 
+func TestCreate_InvalidSubjectIsValidationError(t *testing.T) {
+	svc := NewWorkspaceMembershipService(&stubDao{}, noopEvents{})
+	for _, bad := range []string{"", "has space", "bad\tchar"} {
+		_, err := svc.Create(context.Background(), &WorkspaceMembership{WorkspaceId: "ws-1", Subject: bad, Role: RoleAdmin})
+		if err == nil || err.Code != errors.ErrorValidation {
+			t.Fatalf("subject %q: expected 400 validation, got %v", bad, err)
+		}
+	}
+}
+
 func TestCreate_AdminMembershipAlwaysAllowed(t *testing.T) {
 	dao := &stubDao{requiresAdmin: true, adminCount: 0}
 	svc := NewWorkspaceMembershipService(dao, noopEvents{})

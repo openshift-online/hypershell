@@ -2,11 +2,20 @@ package agentWorkspaces
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// workspaceNamePattern restricts an AgentWorkspace name to a lowercase DNS label
+// (RFC 1123): the name is provisioned onto the gateway as the workspace identifier, so
+// it is format-validated at the API boundary (security.spec.md "Validate All User
+// Input") rather than relying on the gateway alone.
+var workspaceNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+const workspaceNameMaxLen = 63
 
 // agentWorkspaceEventSource is the event broker Source string for AgentWorkspace
 // mutations. The gRPC watch handler filters the shared broker fan-out on this
@@ -59,6 +68,9 @@ func (s *sqlAgentWorkspaceService) Get(ctx context.Context, id string) (*AgentWo
 }
 
 func (s *sqlAgentWorkspaceService) Create(ctx context.Context, agentWorkspace *AgentWorkspace) (*AgentWorkspace, *errors.ServiceError) {
+	if svcErr := validateWorkspaceNameFormat(agentWorkspace.Name); svcErr != nil {
+		return nil, svcErr
+	}
 	if svcErr := s.validateName(ctx, agentWorkspace); svcErr != nil {
 		return nil, svcErr
 	}
@@ -80,6 +92,9 @@ func (s *sqlAgentWorkspaceService) Create(ctx context.Context, agentWorkspace *A
 }
 
 func (s *sqlAgentWorkspaceService) Replace(ctx context.Context, agentWorkspace *AgentWorkspace) (*AgentWorkspace, *errors.ServiceError) {
+	if svcErr := validateWorkspaceNameFormat(agentWorkspace.Name); svcErr != nil {
+		return nil, svcErr
+	}
 	if svcErr := s.validateName(ctx, agentWorkspace); svcErr != nil {
 		return nil, svcErr
 	}
@@ -156,6 +171,16 @@ func (s *sqlAgentWorkspaceService) ResolveView(ctx context.Context, agentRuntime
 		Memberships:      memberships,
 		Route:            route,
 	}, nil
+}
+
+// validateWorkspaceNameFormat rejects a workspace name that is not a lowercase DNS
+// label with a 400, before the collision check, because the name is provisioned onto
+// the gateway as the workspace identifier.
+func validateWorkspaceNameFormat(name string) *errors.ServiceError {
+	if len(name) == 0 || len(name) > workspaceNameMaxLen || !workspaceNamePattern.MatchString(name) {
+		return errors.Validation("agent workspace name must be a lowercase DNS label (letters, digits, and hyphens, starting and ending alphanumeric, at most %d characters)", workspaceNameMaxLen)
+	}
+	return nil
 }
 
 // validateName enforces the advisory 409 workspace-name collision: a name already

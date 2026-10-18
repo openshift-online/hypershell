@@ -2,11 +2,18 @@ package workspaceMemberships
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// subjectPattern bounds a membership subject to a log-safe token (the OIDC subject the
+// agent uses to connect to the gateway, typically a UUID). It is format-validated at the
+// API boundary (security.spec.md "Validate All User Input") so a malformed, unbounded,
+// or control-character value never reaches the gateway membership.
+var subjectPattern = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,255}$`)
 
 // workspaceMembershipEventSource is the event broker Source string for
 // WorkspaceMembership mutations. The gRPC watch handler filters the shared broker
@@ -42,6 +49,9 @@ func (s *sqlWorkspaceMembershipService) Get(ctx context.Context, id string) (*Wo
 }
 
 func (s *sqlWorkspaceMembershipService) Create(ctx context.Context, workspaceMembership *WorkspaceMembership) (*WorkspaceMembership, *errors.ServiceError) {
+	if svcErr := validateSubject(workspaceMembership.Subject); svcErr != nil {
+		return nil, svcErr
+	}
 	if svcErr := validateRole(workspaceMembership.Role); svcErr != nil {
 		return nil, svcErr
 	}
@@ -168,4 +178,13 @@ func validateRole(role string) *errors.ServiceError {
 	default:
 		return errors.UnprocessableEntity("workspace membership role must be %q or %q", RoleAdmin, RoleMember)
 	}
+}
+
+// validateSubject rejects a malformed or unbounded OIDC subject with a 400 before the
+// membership is persisted or provisioned onto the gateway.
+func validateSubject(subject string) *errors.ServiceError {
+	if !subjectPattern.MatchString(subject) {
+		return errors.Validation("workspace membership subject must be a non-empty token (letters, digits, and . _ : @ -), at most 255 characters")
+	}
+	return nil
 }

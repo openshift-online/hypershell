@@ -95,6 +95,16 @@ func TestCreate_SameRuntimeAndNameIsNotCollision(t *testing.T) {
 	}
 }
 
+func TestCreate_InvalidNameFormatIsValidationError(t *testing.T) {
+	svc := NewAgentWorkspaceService(&stubDao{byGatewayName: map[string]AgentWorkspaceList{}}, noopEvents{})
+	for _, bad := range []string{"", "Amber_Reviews", "-leading", "trailing-", "UPPER", "has space"} {
+		_, err := svc.Create(context.Background(), &AgentWorkspace{AgentRuntimeId: "r", GatewayId: "gw-1", Name: bad})
+		if err == nil || err.Code != errors.ErrorValidation {
+			t.Fatalf("name %q: expected 400 validation, got %v", bad, err)
+		}
+	}
+}
+
 func TestCreate_RuntimeAlreadyOwnsWorkspaceIsConflict(t *testing.T) {
 	owned := &AgentWorkspace{AgentRuntimeId: "r-mine", GatewayId: "gw-1", Name: "other"}
 	owned.ID = "ws-owned"

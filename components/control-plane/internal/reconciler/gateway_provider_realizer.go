@@ -142,6 +142,12 @@ func membershipsFor(ar *pb.AgentRuntime, anyRefresh bool) []gateway.MembershipSp
 		return out
 	}
 	if anyRefresh {
+		// Last-resort placeholder: the AgentRuntime id is NOT an OIDC subject, so this
+		// admin membership grants admin to no real identity; it only satisfies the
+		// gateway's "an admin must exist" precondition for a refresh-bearing provider.
+		// With the api-server 422 admin-required check and the embedded memberships in
+		// place this should not fire in practice; it is retained only so a refresh-bearing
+		// workspace is never realized with zero admins.
 		return []gateway.MembershipSpec{{Subject: ar.GetMetadata().GetId(), Admin: true}}
 	}
 	return nil

@@ -5911,6 +5911,9 @@ components:
             type: string
           role:
             description: "Membership role, one of admin or member."
+            enum:
+            - admin
+            - member
             type: string
         required:
         - role
@@ -5919,7 +5922,7 @@ components:
         type: object
       example:
         workspace_id: workspace_id
-        role: role
+        role: admin
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
         subject: subject
@@ -5946,7 +5949,7 @@ components:
         href: href
         items:
         - workspace_id: workspace_id
-          role: role
+          role: admin
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
@@ -5954,7 +5957,7 @@ components:
           id: id
           href: href
         - workspace_id: workspace_id
-          role: role
+          role: admin
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
@@ -5963,9 +5966,12 @@ components:
           href: href
     WorkspaceMembershipPatchRequest:
       example:
-        role: role
+        role: admin
       properties:
         role:
+          enum:
+          - admin
+          - member
           type: string
       type: object
     GatewayCreateRequest:
