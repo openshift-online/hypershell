@@ -1,48 +1,6 @@
 package e2e
 
-import (
-	"context"
-	"sync"
-	"testing"
-)
-
-// completionBarrier delays a disruptive parallel step until a fixed set of
-// controller-sensitive peers has completed, without serializing the rest of the
-// fan-out.
-type completionBarrier struct {
-	mu        sync.Mutex
-	remaining int
-	done      chan struct{}
-}
-
-func newCompletionBarrier(count int) *completionBarrier {
-	b := &completionBarrier{remaining: count, done: make(chan struct{})}
-	if count == 0 {
-		close(b.done)
-	}
-	return b
-}
-
-func (b *completionBarrier) Done() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.remaining == 0 {
-		return
-	}
-	b.remaining--
-	if b.remaining == 0 {
-		close(b.done)
-	}
-}
-
-func (b *completionBarrier) Wait(ctx context.Context) error {
-	select {
-	case <-b.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
+import "testing"
 
 // parallelSubtest is one independently runnable phase step. Callers order the
 // slice longest-first so work with the largest expected wall time is released to
