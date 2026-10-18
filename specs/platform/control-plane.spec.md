@@ -226,7 +226,11 @@ into the cluster scheduling resources and gateway-side workspace objects defined
 Provisioning", "Gateway-Side Provisioning", "WorkspaceMembership", and "AgentRuntime
 Status Lifecycle"). Reconciliation SHALL converge, not create-and-skip: re-running
 against unchanged desired state SHALL be idempotent and SHALL update mutable fields
-in place.
+in place. The gateway-side provisioning API the control plane calls (its idempotent
+ensure RPCs for the workspace, memberships, providers, and inference route, its
+admin connection, enforcement, retry, and cascade deletion) is specified in
+[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md); the
+`ProviderRealizer` seam is its client.
 
 On reconcile the control plane SHALL, using its in-cluster credentials, create or
 update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
