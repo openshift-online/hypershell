@@ -31,11 +31,28 @@ type agentRuntimeGRPCHandler struct {
 	service         AgentRuntimeService
 	gatewayClusters GatewayClusterLookup
 	secretSources   SecretSourceLookup
+	workspaces      WorkspaceLookup
 	brokerFunc      func() *pkgserver.EventBroker
 }
 
-func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, secretSources SecretSourceLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
-	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, secretSources: secretSources, brokerFunc: brokerFunc}
+func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, secretSources SecretSourceLookup, workspaces WorkspaceLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
+	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, secretSources: secretSources, workspaces: workspaces, brokerFunc: brokerFunc}
+}
+
+// resolveWorkspace returns the gateway-side workspace view owned by the runtime for
+// embedding in its gRPC payload. When the lookup seam is unavailable (the
+// agentWorkspaces plugin is absent) or the runtime has no workspace yet it returns
+// nil so the stream still delivers the runtime; the reconciler then provisions
+// nothing gateway-side for it rather than the watch silently breaking.
+func (h *agentRuntimeGRPCHandler) resolveWorkspace(ctx context.Context, ar *AgentRuntime) (*WorkspaceView, error) {
+	if h.workspaces == nil || ar == nil {
+		return nil, nil
+	}
+	ws, svcErr := h.workspaces(ctx, ar.ID)
+	if svcErr != nil {
+		return nil, status.Errorf(codes.Internal, "resolve workspace for agent runtime %s: %v", ar.ID, svcErr)
+	}
+	return ws, nil
 }
 
 // resolveSecretSources returns the SecretSources owned by the runtime for
@@ -169,7 +186,11 @@ func (h *agentRuntimeGRPCHandler) ListAgentRuntimes(ctx context.Context, req *pb
 		if srcErr != nil {
 			return nil, srcErr
 		}
-		resp.Items = append(resp.Items, agentRuntimeToProto(ar, sources))
+		ws, wsErr := h.resolveWorkspace(ctx, ar)
+		if wsErr != nil {
+			return nil, wsErr
+		}
+		resp.Items = append(resp.Items, agentRuntimeToProto(ar, sources, ws))
 	}
 	return resp, nil
 }
@@ -197,7 +218,11 @@ func (h *agentRuntimeGRPCHandler) UpdateAgentRuntimeStatus(ctx context.Context, 
 	if srcErr != nil {
 		return nil, srcErr
 	}
-	return agentRuntimeToProto(ar, sources), nil
+	ws, wsErr := h.resolveWorkspace(ctx, ar)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return agentRuntimeToProto(ar, sources, ws), nil
 }
 
 // CreateAgentRuntime is the declarative-import create path. The import ownership
@@ -234,7 +259,11 @@ func (h *agentRuntimeGRPCHandler) CreateAgentRuntime(ctx context.Context, req *p
 	if srcErr != nil {
 		return nil, srcErr
 	}
-	return &pb.CreateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(created, sources)}, nil
+	ws, wsErr := h.resolveWorkspace(ctx, created)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return &pb.CreateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(created, sources, ws)}, nil
 }
 
 // UpdateAgentRuntime replaces the mutable spec of an AgentRuntime. In an import
@@ -293,7 +322,11 @@ func (h *agentRuntimeGRPCHandler) UpdateAgentRuntime(ctx context.Context, req *p
 	if srcErr != nil {
 		return nil, srcErr
 	}
-	return &pb.UpdateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(updated, sources)}, nil
+	ws, wsErr := h.resolveWorkspace(ctx, updated)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return &pb.UpdateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(updated, sources, ws)}, nil
 }
 
 // DeleteAgentRuntime removes an AgentRuntime. It loads the runtime first so a
@@ -413,10 +446,15 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 				glog.Warningf("WatchAgentRuntimes: failed to resolve secret sources for agent runtime %s: %v", ar.ID, srcErr)
 				return srcErr
 			}
+			ws, wsErr := h.resolveWorkspace(ctx, ar)
+			if wsErr != nil {
+				glog.Warningf("WatchAgentRuntimes: failed to resolve workspace for agent runtime %s: %v", ar.ID, wsErr)
+				return wsErr
+			}
 			watchEvent := &pb.WatchAgentRuntimesResponse{
 				Type:         pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId:   ar.ID,
-				AgentRuntime: agentRuntimeToProto(ar, sources),
+				AgentRuntime: agentRuntimeToProto(ar, sources, ws),
 			}
 			if err := stream.Send(watchEvent); err != nil {
 				glog.V(4).Infof("WatchAgentRuntimes: send error for subscriber %s: %v", sub.ID, err)
@@ -454,10 +492,14 @@ func (h *agentRuntimeGRPCHandler) replayAgentRuntimes(ctx context.Context, strea
 		if srcErr != nil {
 			return srcErr
 		}
+		ws, wsErr := h.resolveWorkspace(ctx, ar)
+		if wsErr != nil {
+			return wsErr
+		}
 		if err := stream.Send(&pb.WatchAgentRuntimesResponse{
 			Type:         pb.EventType_EVENT_TYPE_UPDATED,
 			ResourceId:   ar.ID,
-			AgentRuntime: agentRuntimeToProto(ar, sources),
+			AgentRuntime: agentRuntimeToProto(ar, sources, ws),
 		}); err != nil {
 			return status.Errorf(codes.Unavailable, "failed to replay agent runtime %s: %v", ar.ID, err)
 		}

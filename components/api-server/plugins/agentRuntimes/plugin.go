@@ -73,6 +73,24 @@ func secretSourceLookup(s *environments.Services) SecretSourceLookup {
 	return source.SecretSourceLookup()
 }
 
+// workspaceLookup resolves the gateway-side workspace owned by an AgentRuntime
+// (name, provider bindings, memberships, inference route) through the agentWorkspaces
+// plugin's service locator, looked up per call so it follows the environment's
+// service registry. It returns nil when the agentWorkspaces plugin is absent, which
+// the gRPC handler treats as "no workspace" rather than breaking the watch. It is
+// resolved through a local interface so this package does not import agentWorkspaces
+// (which imports this one to implement the seam).
+func workspaceLookup(s *environments.Services) WorkspaceLookup {
+	if s == nil || s.GetService("AgentWorkspaces") == nil {
+		return nil
+	}
+	source, ok := s.GetService("AgentWorkspaces").(WorkspaceLookupSource)
+	if !ok {
+		return nil
+	}
+	return source.WorkspaceLookup()
+}
+
 func init() {
 	registry.RegisterService("AgentRuntimes", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
@@ -101,7 +119,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterAgentRuntimeServiceServer(grpcServer, NewAgentRuntimeGRPCHandler(svc, gatewayClusterLookup(envServices), secretSourceLookup(envServices), brokerFunc))
+		pb.RegisterAgentRuntimeServiceServer(grpcServer, NewAgentRuntimeGRPCHandler(svc, gatewayClusterLookup(envServices), secretSourceLookup(envServices), workspaceLookup(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(AgentRuntime{}, "agent_runtimes")

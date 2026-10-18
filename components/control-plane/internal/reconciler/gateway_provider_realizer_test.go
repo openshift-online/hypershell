@@ -130,3 +130,56 @@ func TestNewGatewayProviderRealizer_RequiresPort(t *testing.T) {
 		t.Fatalf("expected an error for a nil port")
 	}
 }
+
+// TestGatewayProviderRealizer_UsesEmbeddedPayload verifies the realizer builds the
+// WorkspaceSpec from the authoritative embedded payload: the resolved workspace name,
+// the WorkspaceMemberships, and the InferenceRoute (with the provider name resolved from
+// its ProviderBinding) rather than deriving them from the AgentRuntime alone.
+func TestGatewayProviderRealizer_UsesEmbeddedPayload(t *testing.T) {
+	port := &recordingPort{}
+	realizer, _ := NewGatewayProviderRealizer(port)
+	ar := &pb.AgentRuntime{
+		Metadata:      &pb.ObjectReference{Id: "ar-1"},
+		Name:          "runtime-name",
+		GatewayId:     "gw-1",
+		WorkspaceName: strPtr("amber-reviews"),
+		WorkspaceMemberships: []*pb.WorkspaceMembership{
+			{Metadata: &pb.ObjectReference{Id: "wm-1"}, Subject: "sub-admin", Role: "admin"},
+			{Metadata: &pb.ObjectReference{Id: "wm-2"}, Subject: "sub-member", Role: "member"},
+		},
+		ProviderBindings: []*pb.ProviderBinding{
+			{Metadata: &pb.ObjectReference{Id: "pb-1"}, Name: "inference"},
+		},
+		InferenceRoute: &pb.InferenceRoute{
+			Metadata:          &pb.ObjectReference{Id: "ir-1"},
+			ProviderBindingId: "pb-1",
+			Model:             "claude-sonnet-4-5",
+		},
+	}
+	materials := []ProviderMaterial{{
+		Source:   &pb.SecretSource{Name: "vertex", Purpose: "service-account-key"},
+		Material: "SA-KEY",
+	}}
+
+	if err := realizer.RealizeProviders(context.Background(), ar, materials); err != nil {
+		t.Fatalf("RealizeProviders: %v", err)
+	}
+	spec := port.realized
+	if spec.WorkspaceName != "amber-reviews" {
+		t.Fatalf("workspace name = %q, want the embedded amber-reviews", spec.WorkspaceName)
+	}
+	if len(spec.Memberships) != 2 {
+		t.Fatalf("memberships = %+v, want the two embedded memberships", spec.Memberships)
+	}
+	if spec.Memberships[0].Subject != "sub-admin" || !spec.Memberships[0].Admin {
+		t.Fatalf("first membership should be the embedded admin: %+v", spec.Memberships[0])
+	}
+	if spec.Memberships[1].Admin {
+		t.Fatalf("second membership should be a non-admin member: %+v", spec.Memberships[1])
+	}
+	if spec.Route == nil || spec.Route.ProviderName != "inference" || spec.Route.ModelAlias != "claude-sonnet-4-5" {
+		t.Fatalf("inference route not resolved from the embedded payload: %+v", spec.Route)
+	}
+}
+
+func strPtr(s string) *string { return &s }

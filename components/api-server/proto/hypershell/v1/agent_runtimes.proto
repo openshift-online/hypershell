@@ -6,6 +6,9 @@ option go_package = "github.com/openshift-online/hypershell/components/api-serve
 
 import "hypershell/v1/common.proto";
 import "hypershell/v1/secret_sources.proto";
+import "hypershell/v1/provider_bindings.proto";
+import "hypershell/v1/inference_routes.proto";
+import "hypershell/v1/workspace_memberships.proto";
 
 message AgentRuntime {
   ObjectReference metadata = 1;
@@ -37,6 +40,24 @@ message AgentRuntime {
   // gateway-side error (data-model.spec.md "AgentRuntime Status Lifecycle"). It
   // is control-plane-owned and written only through UpdateAgentRuntimeStatus.
   optional string status_message = 16;
+  // The following fields embed the gateway-side provisioning inputs in the
+  // AgentRuntime watch/list payload so the control-plane ProviderRealizer can
+  // provision the workspace, memberships, providers, and inference route from a
+  // single event without a second round trip (data-model.spec.md "AgentRuntime
+  // Reconcile Payload Completeness"). All are server-populated and ignored on
+  // inbound writes, like secret_sources. They carry only durable-material
+  // REFERENCES (secret_source_id), never secret bytes.
+  //
+  // workspace_name is the resolved AgentWorkspace.name the workspace is
+  // provisioned under on the gateway.
+  optional string workspace_name = 17;
+  // provider_bindings are the runtime's ProviderBindings (with refresh_strategy
+  // and material references) realized as OpenShell providers.
+  repeated ProviderBinding provider_bindings = 18;
+  // workspace_memberships are the workspace's memberships (subject -> role).
+  repeated WorkspaceMembership workspace_memberships = 19;
+  // inference_route is the workspace's single InferenceRoute (0..1).
+  optional InferenceRoute inference_route = 20;
 }
 
 message WatchAgentRuntimesRequest {

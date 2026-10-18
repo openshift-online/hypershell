@@ -196,6 +196,16 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
+	case "AgentWorkspaceService", "WorkspaceMembershipService":
+		// AgentWorkspace and WorkspaceMembership are not importable kinds; they are
+		// authored over HTTP by an admin and embedded in the AgentRuntime reconcile
+		// payload (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"),
+		// so the control plane does not write them over gRPC. A registered control
+		// plane may READ them; writes over gRPC stay denied.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
 	}
 	return denied()
 }
@@ -297,11 +307,12 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 		}
 		return denied()
 	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
-		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
-		// These import kinds are authored over HTTP; their gRPC read methods are
-		// unfiltered by caller, so only platform:admin (who sees them all over HTTP
-		// too) may read them. Writes over gRPC are the control-plane import
-		// reconciler's exclusive path and are denied to every user caller.
+		"ProviderBindingService", "InferenceRouteService", "SecretSourceService",
+		"AgentWorkspaceService", "WorkspaceMembershipService":
+		// These kinds are authored over HTTP; their gRPC read methods are unfiltered
+		// by caller, so only platform:admin (who sees them all over HTTP too) may read
+		// them. Writes over gRPC are the control-plane import reconciler's exclusive
+		// path and are denied to every user caller.
 		if isReadMethodName(method) {
 			return allowIf(hasPlatformAdmin(bindings))
 		}

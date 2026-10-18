@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/agentWorkspaces"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/inferenceRoutes"
@@ -28,6 +29,7 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/secretSources"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/serviceAccounts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/users"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/workspaceMemberships"
 	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )

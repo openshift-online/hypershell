@@ -44,12 +44,14 @@ type ProviderMaterial struct {
 // renders a raw Kubernetes Secret.
 //
 // It is a seam. The gateway provider client that implements it (the gateway-side
-// workspace/provider provisioning over the gateway gRPC API) is tracked separately
-// and is not wired yet (issue #526); the AgentRuntime watch payload does not yet
-// carry its ProviderBindings. Until a realizer is configured the reconciler keeps the
-// transitional raw-Secret placement so the live agent fleet does not regress; once a
-// realizer is wired, provider material is realized as providers instead of placed as
-// Secrets.
+// workspace/provider provisioning over the gateway gRPC API) is the
+// gateway.WorkspaceProvisioner adapter, activated through SetProviderRealizer when the
+// gateway provisioning endpoint is configured. The AgentRuntime watch payload now
+// embeds the workspace name, ProviderBindings, memberships, and inference route
+// (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"). Until a realizer
+// is configured the reconciler keeps the transitional raw-Secret placement so the live
+// agent fleet does not regress; once a realizer is wired, provider material is realized
+// as providers instead of placed as Secrets.
 type ProviderRealizer interface {
 	// RealizeProviders creates or updates the OpenShell providers for the runtime
 	// from the resolved provider material. It is idempotent.
@@ -155,6 +157,17 @@ func NewAgentRuntimeReconciler(kube kubernetes.Interface, secrets secretstore.Re
 	return r
 }
 
+// SetProviderRealizer activates gateway-side provider realization by wiring a live
+// ProviderRealizer (the gateway WorkspaceProvisioningPort adapter). When set, the
+// reconciler realizes provider-material SecretSources as OpenShell providers on the
+// agent's gateway and retires the transitional raw-Secret placement for provider
+// material (realize-before-prune). A nil realizer keeps the transitional behavior so
+// the live fleet does not regress until the gateway-side server is available. It is
+// set once at construction time in main.go, before any reconcile runs.
+func (r *AgentRuntimeReconciler) SetProviderRealizer(p ProviderRealizer) {
+	r.providers = p
+}
+
 func (r *AgentRuntimeReconciler) Handle(ctx context.Context, event watcher.Event[*pb.AgentRuntime]) error {
 	ar := event.Resource
 	if ar == nil {
@@ -238,6 +251,27 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 		}
 		desiredSecrets[secretName(source)] = struct{}{}
 	}
+
+	// Realize provider material as OpenShell providers BEFORE pruning stragglers, so the
+	// transitional raw-Secret placement is retired without ever leaving a window with no
+	// credential (realize-before-prune). SecretPending gates PROVIDER CREATION: material
+	// absent from a reachable store holds at Provisioning (and returns here, leaving any
+	// previously-placed raw Secret in place until realization succeeds); an unreachable
+	// store degrades; present material is realized and OpenShell owns rotation thereafter
+	// (agent-secret-late-binding.spec.md "SecretPending Condition Gates Provider
+	// Creation", "OpenShell Owns Credential Rotation").
+	if r.providers != nil && len(providerSources) > 0 {
+		if err := r.realizeProviders(ctx, ar, providerSources); err != nil {
+			return err
+		}
+	}
+
+	// Prune Secrets whose SecretSource is no longer declared OR that are now realized as
+	// providers: once the realizer is live, provider-material sources are not in
+	// desiredSecrets, so the transitional raw provider-material Secret left by the
+	// pre-activation behavior is removed here, after its provider has been realized above
+	// (control-plane.spec.md "AgentRuntime Reconciliation", cutover prune). The
+	// gateway-identity Secret stays because its source remains in desiredSecrets.
 	if err := r.pruneSecrets(ctx, ar, namespace, desiredSecrets); err != nil {
 		return r.fail(ctx, ar, fmt.Errorf("prune secrets: %w", err))
 	}
@@ -245,17 +279,6 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 	cronJob := buildCoordinatorCronJob(ar, namespace, secretSources)
 	if err := applyCronJob(ctx, r.kube, namespace, cronJob); err != nil {
 		return r.fail(ctx, ar, fmt.Errorf("apply cronjob: %w", err))
-	}
-
-	// Realize provider material as OpenShell providers. SecretPending now gates
-	// PROVIDER CREATION: material absent from a reachable store holds at Provisioning;
-	// an unreachable store degrades; present material is realized and OpenShell owns
-	// rotation thereafter (agent-secret-late-binding.spec.md "SecretPending Condition
-	// Gates Provider Creation", "OpenShell Owns Credential Rotation").
-	if r.providers != nil && len(providerSources) > 0 {
-		if err := r.realizeProviders(ctx, ar, providerSources); err != nil {
-			return err
-		}
 	}
 
 	r.setStatus(ctx, ar, agentRuntimeStatusRunning, nil)

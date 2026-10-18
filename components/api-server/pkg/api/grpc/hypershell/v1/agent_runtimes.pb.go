@@ -52,8 +52,26 @@ type AgentRuntime struct {
 	// gateway-side error (data-model.spec.md "AgentRuntime Status Lifecycle"). It
 	// is control-plane-owned and written only through UpdateAgentRuntimeStatus.
 	StatusMessage *string `protobuf:"bytes,16,opt,name=status_message,json=statusMessage,proto3,oneof" json:"status_message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The following fields embed the gateway-side provisioning inputs in the
+	// AgentRuntime watch/list payload so the control-plane ProviderRealizer can
+	// provision the workspace, memberships, providers, and inference route from a
+	// single event without a second round trip (data-model.spec.md "AgentRuntime
+	// Reconcile Payload Completeness"). All are server-populated and ignored on
+	// inbound writes, like secret_sources. They carry only durable-material
+	// REFERENCES (secret_source_id), never secret bytes.
+	//
+	// workspace_name is the resolved AgentWorkspace.name the workspace is
+	// provisioned under on the gateway.
+	WorkspaceName *string `protobuf:"bytes,17,opt,name=workspace_name,json=workspaceName,proto3,oneof" json:"workspace_name,omitempty"`
+	// provider_bindings are the runtime's ProviderBindings (with refresh_strategy
+	// and material references) realized as OpenShell providers.
+	ProviderBindings []*ProviderBinding `protobuf:"bytes,18,rep,name=provider_bindings,json=providerBindings,proto3" json:"provider_bindings,omitempty"`
+	// workspace_memberships are the workspace's memberships (subject -> role).
+	WorkspaceMemberships []*WorkspaceMembership `protobuf:"bytes,19,rep,name=workspace_memberships,json=workspaceMemberships,proto3" json:"workspace_memberships,omitempty"`
+	// inference_route is the workspace's single InferenceRoute (0..1).
+	InferenceRoute *InferenceRoute `protobuf:"bytes,20,opt,name=inference_route,json=inferenceRoute,proto3,oneof" json:"inference_route,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AgentRuntime) Reset() {
@@ -196,6 +214,34 @@ func (x *AgentRuntime) GetStatusMessage() string {
 		return *x.StatusMessage
 	}
 	return ""
+}
+
+func (x *AgentRuntime) GetWorkspaceName() string {
+	if x != nil && x.WorkspaceName != nil {
+		return *x.WorkspaceName
+	}
+	return ""
+}
+
+func (x *AgentRuntime) GetProviderBindings() []*ProviderBinding {
+	if x != nil {
+		return x.ProviderBindings
+	}
+	return nil
+}
+
+func (x *AgentRuntime) GetWorkspaceMemberships() []*WorkspaceMembership {
+	if x != nil {
+		return x.WorkspaceMemberships
+	}
+	return nil
+}
+
+func (x *AgentRuntime) GetInferenceRoute() *InferenceRoute {
+	if x != nil {
+		return x.InferenceRoute
+	}
+	return nil
 }
 
 type WatchAgentRuntimesRequest struct {
@@ -919,7 +965,7 @@ var File_hypershell_v1_agent_runtimes_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_agent_runtimes_proto_rawDesc = "" +
 	"\n" +
-	"\"hypershell/v1/agent_runtimes.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\x1a\"hypershell/v1/secret_sources.proto\"\xc2\x06\n" +
+	"\"hypershell/v1/agent_runtimes.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\x1a\"hypershell/v1/secret_sources.proto\x1a%hypershell/v1/provider_bindings.proto\x1a$hypershell/v1/inference_routes.proto\x1a)hypershell/v1/workspace_memberships.proto\"\x88\t\n" +
 	"\fAgentRuntime\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -941,7 +987,12 @@ const file_hypershell_v1_agent_runtimes_proto_rawDesc = "" +
 	"parameters\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\x0e \x01(\tH\aR\x06status\x88\x01\x01\x12B\n" +
 	"\x0esecret_sources\x18\x0f \x03(\v2\x1b.hypershell.v1.SecretSourceR\rsecretSources\x12*\n" +
-	"\x0estatus_message\x18\x10 \x01(\tH\bR\rstatusMessage\x88\x01\x01B\x10\n" +
+	"\x0estatus_message\x18\x10 \x01(\tH\bR\rstatusMessage\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_name\x18\x11 \x01(\tH\tR\rworkspaceName\x88\x01\x01\x12K\n" +
+	"\x11provider_bindings\x18\x12 \x03(\v2\x1e.hypershell.v1.ProviderBindingR\x10providerBindings\x12W\n" +
+	"\x15workspace_memberships\x18\x13 \x03(\v2\".hypershell.v1.WorkspaceMembershipR\x14workspaceMemberships\x12K\n" +
+	"\x0finference_route\x18\x14 \x01(\v2\x1d.hypershell.v1.InferenceRouteH\n" +
+	"R\x0einferenceRoute\x88\x01\x01B\x10\n" +
 	"\x0e_repository_idB\x0e\n" +
 	"\f_descriptionB\a\n" +
 	"\x05_cronB\x14\n" +
@@ -950,7 +1001,9 @@ const file_hypershell_v1_agent_runtimes_proto_rawDesc = "" +
 	"\x16_login_refresh_secondsB\r\n" +
 	"\v_parametersB\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_status_message\"N\n" +
+	"\x0f_status_messageB\x11\n" +
+	"\x0f_workspace_nameB\x12\n" +
+	"\x10_inference_route\"N\n" +
 	"\x19WatchAgentRuntimesRequest\x12\"\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tH\x00R\tclusterId\x88\x01\x01B\r\n" +
@@ -1068,33 +1121,39 @@ var file_hypershell_v1_agent_runtimes_proto_goTypes = []any{
 	(*DeleteAgentRuntimeResponse)(nil),      // 11: hypershell.v1.DeleteAgentRuntimeResponse
 	(*ObjectReference)(nil),                 // 12: hypershell.v1.ObjectReference
 	(*SecretSource)(nil),                    // 13: hypershell.v1.SecretSource
-	(EventType)(0),                          // 14: hypershell.v1.EventType
+	(*ProviderBinding)(nil),                 // 14: hypershell.v1.ProviderBinding
+	(*WorkspaceMembership)(nil),             // 15: hypershell.v1.WorkspaceMembership
+	(*InferenceRoute)(nil),                  // 16: hypershell.v1.InferenceRoute
+	(EventType)(0),                          // 17: hypershell.v1.EventType
 }
 var file_hypershell_v1_agent_runtimes_proto_depIdxs = []int32{
 	12, // 0: hypershell.v1.AgentRuntime.metadata:type_name -> hypershell.v1.ObjectReference
 	13, // 1: hypershell.v1.AgentRuntime.secret_sources:type_name -> hypershell.v1.SecretSource
-	14, // 2: hypershell.v1.WatchAgentRuntimesResponse.type:type_name -> hypershell.v1.EventType
-	0,  // 3: hypershell.v1.WatchAgentRuntimesResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
-	0,  // 4: hypershell.v1.ListAgentRuntimesResponse.items:type_name -> hypershell.v1.AgentRuntime
-	0,  // 5: hypershell.v1.CreateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
-	0,  // 6: hypershell.v1.UpdateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
-	1,  // 7: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:input_type -> hypershell.v1.WatchAgentRuntimesRequest
-	3,  // 8: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:input_type -> hypershell.v1.ListAgentRuntimesRequest
-	5,  // 9: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:input_type -> hypershell.v1.UpdateAgentRuntimeStatusRequest
-	6,  // 10: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:input_type -> hypershell.v1.CreateAgentRuntimeRequest
-	8,  // 11: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:input_type -> hypershell.v1.UpdateAgentRuntimeRequest
-	10, // 12: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:input_type -> hypershell.v1.DeleteAgentRuntimeRequest
-	2,  // 13: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:output_type -> hypershell.v1.WatchAgentRuntimesResponse
-	4,  // 14: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:output_type -> hypershell.v1.ListAgentRuntimesResponse
-	0,  // 15: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:output_type -> hypershell.v1.AgentRuntime
-	7,  // 16: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:output_type -> hypershell.v1.CreateAgentRuntimeResponse
-	9,  // 17: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:output_type -> hypershell.v1.UpdateAgentRuntimeResponse
-	11, // 18: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:output_type -> hypershell.v1.DeleteAgentRuntimeResponse
-	13, // [13:19] is the sub-list for method output_type
-	7,  // [7:13] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	14, // 2: hypershell.v1.AgentRuntime.provider_bindings:type_name -> hypershell.v1.ProviderBinding
+	15, // 3: hypershell.v1.AgentRuntime.workspace_memberships:type_name -> hypershell.v1.WorkspaceMembership
+	16, // 4: hypershell.v1.AgentRuntime.inference_route:type_name -> hypershell.v1.InferenceRoute
+	17, // 5: hypershell.v1.WatchAgentRuntimesResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 6: hypershell.v1.WatchAgentRuntimesResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	0,  // 7: hypershell.v1.ListAgentRuntimesResponse.items:type_name -> hypershell.v1.AgentRuntime
+	0,  // 8: hypershell.v1.CreateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	0,  // 9: hypershell.v1.UpdateAgentRuntimeResponse.agent_runtime:type_name -> hypershell.v1.AgentRuntime
+	1,  // 10: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:input_type -> hypershell.v1.WatchAgentRuntimesRequest
+	3,  // 11: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:input_type -> hypershell.v1.ListAgentRuntimesRequest
+	5,  // 12: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:input_type -> hypershell.v1.UpdateAgentRuntimeStatusRequest
+	6,  // 13: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:input_type -> hypershell.v1.CreateAgentRuntimeRequest
+	8,  // 14: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:input_type -> hypershell.v1.UpdateAgentRuntimeRequest
+	10, // 15: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:input_type -> hypershell.v1.DeleteAgentRuntimeRequest
+	2,  // 16: hypershell.v1.AgentRuntimeService.WatchAgentRuntimes:output_type -> hypershell.v1.WatchAgentRuntimesResponse
+	4,  // 17: hypershell.v1.AgentRuntimeService.ListAgentRuntimes:output_type -> hypershell.v1.ListAgentRuntimesResponse
+	0,  // 18: hypershell.v1.AgentRuntimeService.UpdateAgentRuntimeStatus:output_type -> hypershell.v1.AgentRuntime
+	7,  // 19: hypershell.v1.AgentRuntimeService.CreateAgentRuntime:output_type -> hypershell.v1.CreateAgentRuntimeResponse
+	9,  // 20: hypershell.v1.AgentRuntimeService.UpdateAgentRuntime:output_type -> hypershell.v1.UpdateAgentRuntimeResponse
+	11, // 21: hypershell.v1.AgentRuntimeService.DeleteAgentRuntime:output_type -> hypershell.v1.DeleteAgentRuntimeResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_agent_runtimes_proto_init() }
@@ -1104,6 +1163,9 @@ func file_hypershell_v1_agent_runtimes_proto_init() {
 	}
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_secret_sources_proto_init()
+	file_hypershell_v1_provider_bindings_proto_init()
+	file_hypershell_v1_inference_routes_proto_init()
+	file_hypershell_v1_workspace_memberships_proto_init()
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[1].OneofWrappers = []any{}
 	file_hypershell_v1_agent_runtimes_proto_msgTypes[3].OneofWrappers = []any{}

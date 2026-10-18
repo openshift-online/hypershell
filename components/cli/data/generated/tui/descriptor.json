@@ -142,6 +142,82 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/ext/agent_workspaces:#/schemas/AgentWorkspace",
+      "kind": "collection",
+      "schemaRef": "#/schemas/AgentWorkspace",
+      "label": "AgentWorkspace",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "agent_runtime_id",
+          "label": "AGENT RUNTIME ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "createAgentWorkspace",
+        "listAgentWorkspaces"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listAgentWorkspaces",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/ext/inference_routes:#/schemas/InferenceRoute",
       "kind": "collection",
       "schemaRef": "#/schemas/InferenceRoute",
@@ -673,6 +749,76 @@
         "list"
       ],
       "listOperationId": "listSecretSources",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/workspace_memberships:#/schemas/WorkspaceMembership",
+      "kind": "collection",
+      "schemaRef": "#/schemas/WorkspaceMembership",
+      "label": "WorkspaceMembership",
+      "identityProperty": "id",
+      "defaultSort": "created_at",
+      "columns": [
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "workspace_id",
+          "label": "WORKSPACE ID",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "createWorkspaceMembership",
+        "listWorkspaceMemberships"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listWorkspaceMemberships",
       "source": {}
     },
     {
@@ -1768,6 +1914,84 @@
       "source": {}
     },
     {
+      "id": "item:/api/hypershell/ext/agent_workspaces/{id}:#/schemas/AgentWorkspace",
+      "kind": "item",
+      "schemaRef": "#/schemas/AgentWorkspace",
+      "label": "AgentWorkspace",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "agent_runtime_id",
+          "label": "AGENT RUNTIME ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "deleteAgentWorkspace",
+        "getAgentWorkspace",
+        "updateAgentWorkspace"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getAgentWorkspace",
+      "source": {}
+    },
+    {
       "id": "item:/api/hypershell/ext/inference_routes/{id}:#/schemas/InferenceRoute",
       "kind": "item",
       "schemaRef": "#/schemas/InferenceRoute",
@@ -2309,6 +2533,78 @@
         "update"
       ],
       "getOperationId": "getSecretSource",
+      "source": {}
+    },
+    {
+      "id": "item:/api/hypershell/ext/workspace_memberships/{id}:#/schemas/WorkspaceMembership",
+      "kind": "item",
+      "schemaRef": "#/schemas/WorkspaceMembership",
+      "label": "WorkspaceMembership",
+      "identityProperty": "id",
+      "defaultSort": "created_at",
+      "columns": [
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "workspace_id",
+          "label": "WORKSPACE ID",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "deleteWorkspaceMembership",
+        "getWorkspaceMembership",
+        "updateWorkspaceMembership"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getWorkspaceMembership",
       "source": {}
     },
     {
@@ -3249,6 +3545,100 @@
         "create"
       ],
       "summary": "Create a new agent runtime",
+      "presentation": {}
+    },
+    {
+      "id": "createAgentWorkspace",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/agent_workspaces"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "agent_runtime_id",
+            "type": "string",
+            "required": true,
+            "description": "The AgentRuntime that owns this workspace. Exactly one workspace per runtime."
+          },
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "gateway_id",
+            "type": "string",
+            "required": true,
+            "description": "The Gateway this workspace is provisioned on."
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Workspace name, unique on the gateway."
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Create a new agent workspace",
       "presentation": {}
     },
     {
@@ -4255,6 +4645,94 @@
       "presentation": {}
     },
     {
+      "id": "createWorkspaceMembership",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/workspace_memberships"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "description": "Membership role, one of admin or member."
+          },
+          {
+            "name": "subject",
+            "type": "string",
+            "required": true,
+            "description": "OIDC subject UUID the agent uses to connect to the gateway."
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "workspace_id",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Create a new workspace membership",
+      "presentation": {}
+    },
+    {
       "id": "deleteAgentRuntime",
       "method": "DELETE",
       "pathParts": [
@@ -4306,6 +4784,62 @@
         "confirmation": {
           "title": "Delete",
           "message": "Delete an agent runtime?",
+          "destructive": true
+        }
+      }
+    },
+    {
+      "id": "deleteAgentWorkspace",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/agent_workspaces/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete an agent workspace",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete an agent workspace?",
           "destructive": true
         }
       }
@@ -4889,6 +5423,62 @@
       }
     },
     {
+      "id": "deleteWorkspaceMembership",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/workspace_memberships/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a workspace membership",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a workspace membership?",
+          "destructive": true
+        }
+      }
+    },
+    {
       "id": "getAgentRuntime",
       "method": "GET",
       "pathParts": [
@@ -4938,6 +5528,58 @@
         "get"
       ],
       "summary": "Get an agent runtime by ID",
+      "presentation": {}
+    },
+    {
+      "id": "getAgentWorkspace",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/agent_workspaces/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get an agent workspace by ID",
       "presentation": {}
     },
     {
@@ -5667,6 +6309,58 @@
       "presentation": {}
     },
     {
+      "id": "getWorkspaceMembership",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/workspace_memberships/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a workspace membership by ID",
+      "presentation": {}
+    },
+    {
       "id": "grantGatewayAccess",
       "method": "POST",
       "pathParts": [
@@ -5834,6 +6528,94 @@
         "list"
       ],
       "summary": "Returns a list of agent runtimes",
+      "presentation": {}
+    },
+    {
+      "id": "listAgentWorkspaces",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/agent_workspaces"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of agent workspaces",
       "presentation": {}
     },
     {
@@ -7060,6 +7842,94 @@
       "presentation": {}
     },
     {
+      "id": "listWorkspaceMemberships",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/workspace_memberships"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of workspace memberships",
+      "presentation": {}
+    },
+    {
       "id": "registerManagedCluster",
       "method": "POST",
       "pathParts": [
@@ -7430,6 +8300,74 @@
         "update"
       ],
       "summary": "Update an agent runtime",
+      "presentation": {}
+    },
+    {
+      "id": "updateAgentWorkspace",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/agent_workspaces/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update an agent workspace",
       "presentation": {}
     },
     {
@@ -8027,6 +8965,69 @@
       ],
       "summary": "Update a secret source",
       "presentation": {}
+    },
+    {
+      "id": "updateWorkspaceMembership",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/workspace_memberships/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a workspace membership",
+      "presentation": {}
     }
   ],
   "edges": [
@@ -8037,6 +9038,23 @@
       "targetViewId": "item:/api/hypershell/ext/agent_runtimes/{id}:#/schemas/AgentRuntime",
       "sourceOperationId": "listAgentRuntimes",
       "targetOperationId": "getAgentRuntime",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "collection:/api/hypershell/ext/agent_workspaces:#/schemas/AgentWorkspace-\u003eitem:/api/hypershell/ext/agent_workspaces/{id}:#/schemas/AgentWorkspace:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/agent_workspaces:#/schemas/AgentWorkspace",
+      "targetViewId": "item:/api/hypershell/ext/agent_workspaces/{id}:#/schemas/AgentWorkspace",
+      "sourceOperationId": "listAgentWorkspaces",
+      "targetOperationId": "getAgentWorkspace",
       "provenance": "collection-item",
       "bindings": [
         {
@@ -8139,6 +9157,23 @@
       "targetViewId": "item:/api/hypershell/ext/secret_sources/{id}:#/schemas/SecretSource",
       "sourceOperationId": "listSecretSources",
       "targetOperationId": "getSecretSource",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "collection:/api/hypershell/ext/workspace_memberships:#/schemas/WorkspaceMembership-\u003eitem:/api/hypershell/ext/workspace_memberships/{id}:#/schemas/WorkspaceMembership:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/workspace_memberships:#/schemas/WorkspaceMembership",
+      "targetViewId": "item:/api/hypershell/ext/workspace_memberships/{id}:#/schemas/WorkspaceMembership",
+      "sourceOperationId": "listWorkspaceMemberships",
+      "targetOperationId": "getWorkspaceMembership",
       "provenance": "collection-item",
       "bindings": [
         {

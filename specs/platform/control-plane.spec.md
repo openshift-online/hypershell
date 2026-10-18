@@ -310,10 +310,19 @@ At this activation the transitional raw-`Secret` placement of **provider materia
 SHALL be retired: the control plane SHALL NOT place a raw credential `Secret` for any
 provider-material `SecretSource`, and the reconcile prune path SHALL REMOVE any
 previously-placed raw provider-material `Secret` left by the transitional behavior, so
-no straggler credential `Secret` remains on the cluster after cutover. The coordinator
-`gateway-identity` carve-out SHALL remain unchanged: the `gateway-identity` material is
-still read cluster-local and wired as coordinator environment (it is NOT a provider and
-is NOT a rendered provider credential), and the prune SHALL NOT remove it
+no straggler credential `Secret` remains on the cluster after cutover. The retirement
+SHALL be **realize-before-prune**: the reconcile SHALL realize the provider through the
+gateway contract FIRST and prune the previously-placed raw provider-material `Secret`
+only AFTER realization succeeds, so the cutover never leaves a window in which neither a
+realized provider nor its raw `Secret` is present. When provider material is not yet
+present and the runtime holds under `SecretPending` (see below and
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "SecretPending
+Condition Gates Provider Creation"), the reconcile SHALL NOT prune the previously-placed
+raw `Secret` for that provider, so a partially-uploaded fleet keeps its working credential
+until its replacement provider is realized. The coordinator `gateway-identity` carve-out
+SHALL remain unchanged: the `gateway-identity` material is still read cluster-local and
+wired as coordinator environment (it is NOT a provider and is NOT a rendered provider
+credential), and the prune SHALL NOT remove it
 ([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md),
 "Credentials Realized as OpenShell Providers, Not Rendered Secrets").
 
@@ -331,6 +340,13 @@ is NOT a rendered provider credential), and the prune SHALL NOT remove it
 - WHEN the control plane reconciles it with the realizer live
 - THEN it SHALL realize the provider through the gateway contract and SHALL remove the straggler raw provider-material `Secret`
 - AND it SHALL leave the coordinator `gateway-identity` wiring in place
+
+#### Scenario: SecretPending holds the prune so the working credential is kept
+
+- GIVEN an `AgentRuntime` previously reconciled by the transitional behavior whose raw provider-material `Secret` is still in place, and whose provider material is not yet present in the assigned cluster's reachable store
+- WHEN the control plane reconciles it with the realizer live
+- THEN it SHALL hold under `SecretPending` without realizing the provider
+- AND it SHALL NOT prune the previously-placed raw provider-material `Secret`, so the agent keeps a working credential until the provider is realized
 
 #### Scenario: AgentRuntime deletion cascades the gateway workspace
 

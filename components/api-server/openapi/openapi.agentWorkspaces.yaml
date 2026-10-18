@@ -1,0 +1,238 @@
+paths:
+  /api/hypershell/ext/agent_workspaces:
+    get:
+      operationId: listAgentWorkspaces
+      summary: Returns a list of agent workspaces
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of agent workspace objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentWorkspaceList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createAgentWorkspace
+      summary: Create a new agent workspace
+      security:
+        - Bearer: []
+      requestBody:
+        description: AgentWorkspace data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentWorkspace'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentWorkspace'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: Workspace name already in use on the gateway, or the runtime already owns a workspace
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/agent_workspaces/{id}:
+    get:
+      operationId: getAgentWorkspace
+      summary: Get an agent workspace by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: AgentWorkspace found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentWorkspace'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent workspace with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateAgentWorkspace
+      summary: Update an agent workspace
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated agent workspace data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentWorkspacePatchRequest'
+      responses:
+        '200':
+          description: AgentWorkspace updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentWorkspace'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: Workspace name already in use on the gateway
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent workspace with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteAgentWorkspace
+      summary: Delete an agent workspace
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: AgentWorkspace deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent workspace with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    AgentWorkspace:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - agent_runtime_id
+            - gateway_id
+            - name
+          properties:
+            agent_runtime_id:
+              type: string
+              description: The AgentRuntime that owns this workspace. Exactly one workspace per runtime.
+            gateway_id:
+              type: string
+              description: The Gateway this workspace is provisioned on.
+            name:
+              type: string
+              description: Workspace name, unique on the gateway.
+            status:
+              type: string
+    AgentWorkspaceList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentWorkspace'
+    AgentWorkspacePatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

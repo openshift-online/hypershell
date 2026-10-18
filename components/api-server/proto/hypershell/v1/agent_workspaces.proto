@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// AgentWorkspace is the desired state of the gateway-side workspace an AgentRuntime
+// owns (exactly one per AgentRuntime, bound to agent_runtime_id, placed on
+// gateway_id). The name is unique on a gateway (data-model.spec.md "Gateway-Side
+// Provisioning"). The control plane reconciles it onto the gateway through the
+// gateway provisioning contract (agent-workspace-gateway-api.spec.md).
+message AgentWorkspace {
+  ObjectReference metadata = 1;
+  string agent_runtime_id = 2;
+  string gateway_id = 3;
+  string name = 4;
+  optional string status = 5;
+}
+
+message GetAgentWorkspaceRequest {
+  string id = 1;
+}
+
+message GetAgentWorkspaceResponse {
+  AgentWorkspace agent_workspace = 1;
+}
+
+message CreateAgentWorkspaceRequest {
+  string agent_runtime_id = 1;
+  string gateway_id = 2;
+  string name = 3;
+  optional string status = 4;
+}
+
+message CreateAgentWorkspaceResponse {
+  AgentWorkspace agent_workspace = 1;
+}
+
+message UpdateAgentWorkspaceRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string status = 3;
+}
+
+message UpdateAgentWorkspaceResponse {
+  AgentWorkspace agent_workspace = 1;
+}
+
+message DeleteAgentWorkspaceRequest {
+  string id = 1;
+}
+
+message DeleteAgentWorkspaceResponse {}
+
+message ListAgentWorkspacesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListAgentWorkspacesResponse {
+  repeated AgentWorkspace items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchAgentWorkspacesRequest {}
+
+message WatchAgentWorkspacesResponse {
+  EventType type = 1;
+  AgentWorkspace agent_workspace = 2;
+  string resource_id = 3;
+}
+
+service AgentWorkspaceService {
+  rpc GetAgentWorkspace(GetAgentWorkspaceRequest) returns (GetAgentWorkspaceResponse);
+  rpc CreateAgentWorkspace(CreateAgentWorkspaceRequest) returns (CreateAgentWorkspaceResponse);
+  rpc UpdateAgentWorkspace(UpdateAgentWorkspaceRequest) returns (UpdateAgentWorkspaceResponse);
+  rpc DeleteAgentWorkspace(DeleteAgentWorkspaceRequest) returns (DeleteAgentWorkspaceResponse);
+  rpc ListAgentWorkspaces(ListAgentWorkspacesRequest) returns (ListAgentWorkspacesResponse);
+  rpc WatchAgentWorkspaces(WatchAgentWorkspacesRequest) returns (stream WatchAgentWorkspacesResponse);
+}

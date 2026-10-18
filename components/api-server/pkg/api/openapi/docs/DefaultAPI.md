@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**ChangeGatewayAccessRole**](DefaultAPI.md#ChangeGatewayAccessRole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 [**CreateAgentRuntime**](DefaultAPI.md#CreateAgentRuntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
+[**CreateAgentWorkspace**](DefaultAPI.md#CreateAgentWorkspace) | **Post** /api/hypershell/ext/agent_workspaces | Create a new agent workspace
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 [**CreateInferenceRoute**](DefaultAPI.md#CreateInferenceRoute) | **Post** /api/hypershell/ext/inference_routes | Create a new inference route
@@ -16,7 +17,9 @@ Method | HTTP request | Description
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 [**CreateSandboxTemplate**](DefaultAPI.md#CreateSandboxTemplate) | **Post** /api/hypershell/ext/sandbox_templates | Create a new sandbox template
 [**CreateSecretSource**](DefaultAPI.md#CreateSecretSource) | **Post** /api/hypershell/ext/secret_sources | Create a new secret source
+[**CreateWorkspaceMembership**](DefaultAPI.md#CreateWorkspaceMembership) | **Post** /api/hypershell/ext/workspace_memberships | Create a new workspace membership
 [**DeleteAgentRuntime**](DefaultAPI.md#DeleteAgentRuntime) | **Delete** /api/hypershell/ext/agent_runtimes/{id} | Delete an agent runtime
+[**DeleteAgentWorkspace**](DefaultAPI.md#DeleteAgentWorkspace) | **Delete** /api/hypershell/ext/agent_workspaces/{id} | Delete an agent workspace
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 [**DeleteInferenceRoute**](DefaultAPI.md#DeleteInferenceRoute) | **Delete** /api/hypershell/ext/inference_routes/{id} | Delete an inference route
@@ -27,7 +30,9 @@ Method | HTTP request | Description
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 [**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
+[**DeleteWorkspaceMembership**](DefaultAPI.md#DeleteWorkspaceMembership) | **Delete** /api/hypershell/ext/workspace_memberships/{id} | Delete a workspace membership
 [**GetAgentRuntime**](DefaultAPI.md#GetAgentRuntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
+[**GetAgentWorkspace**](DefaultAPI.md#GetAgentWorkspace) | **Get** /api/hypershell/ext/agent_workspaces/{id} | Get an agent workspace by ID
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayPlacementAvailability**](DefaultAPI.md#GetGatewayPlacementAvailability) | **Post** /api/hypershell/v1/gateways/placement-availability | Returns current placement eligibility for a batch of selectors
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
@@ -42,8 +47,10 @@ Method | HTTP request | Description
 [**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
 [**GetSecretSource**](DefaultAPI.md#GetSecretSource) | **Get** /api/hypershell/ext/secret_sources/{id} | Get a secret source by ID
 [**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+[**GetWorkspaceMembership**](DefaultAPI.md#GetWorkspaceMembership) | **Get** /api/hypershell/ext/workspace_memberships/{id} | Get a workspace membership by ID
 [**GrantGatewayAccess**](DefaultAPI.md#GrantGatewayAccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
 [**ListAgentRuntimes**](DefaultAPI.md#ListAgentRuntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
+[**ListAgentWorkspaces**](DefaultAPI.md#ListAgentWorkspaces) | **Get** /api/hypershell/ext/agent_workspaces | Returns a list of agent workspaces
 [**ListGatewayAccess**](DefaultAPI.md#ListGatewayAccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
@@ -57,11 +64,13 @@ Method | HTTP request | Description
 [**ListSandboxTemplates**](DefaultAPI.md#ListSandboxTemplates) | **Get** /api/hypershell/ext/sandbox_templates | Returns a list of sandbox templates
 [**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
+[**ListWorkspaceMemberships**](DefaultAPI.md#ListWorkspaceMemberships) | **Get** /api/hypershell/ext/workspace_memberships | Returns a list of workspace memberships
 [**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
 [**RevokeGatewayAccess**](DefaultAPI.md#RevokeGatewayAccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 [**SearchGatewayDirectory**](DefaultAPI.md#SearchGatewayDirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 [**UpdateAgentRuntime**](DefaultAPI.md#UpdateAgentRuntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
+[**UpdateAgentWorkspace**](DefaultAPI.md#UpdateAgentWorkspace) | **Patch** /api/hypershell/ext/agent_workspaces/{id} | Update an agent workspace
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
@@ -69,6 +78,7 @@ Method | HTTP request | Description
 [**UpdateRepository**](DefaultAPI.md#UpdateRepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
 [**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 [**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
+[**UpdateWorkspaceMembership**](DefaultAPI.md#UpdateWorkspaceMembership) | **Patch** /api/hypershell/ext/workspace_memberships/{id} | Update a workspace membership
 
 
 
@@ -194,6 +204,70 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntime**](AgentRuntime.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreateAgentWorkspace
+
+> AgentWorkspace CreateAgentWorkspace(ctx).AgentWorkspace(agentWorkspace).Execute()
+
+Create a new agent workspace
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	agentWorkspace := *openapiclient.NewAgentWorkspace("AgentRuntimeId_example", "GatewayId_example", "Name_example") // AgentWorkspace | AgentWorkspace data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateAgentWorkspace(context.Background()).AgentWorkspace(agentWorkspace).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateAgentWorkspace``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateAgentWorkspace`: AgentWorkspace
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateAgentWorkspace`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateAgentWorkspaceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **agentWorkspace** | [**AgentWorkspace**](AgentWorkspace.md) | AgentWorkspace data | 
+
+### Return type
+
+[**AgentWorkspace**](AgentWorkspace.md)
 
 ### Authorization
 
@@ -855,6 +929,70 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## CreateWorkspaceMembership
+
+> WorkspaceMembership CreateWorkspaceMembership(ctx).WorkspaceMembership(workspaceMembership).Execute()
+
+Create a new workspace membership
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	workspaceMembership := *openapiclient.NewWorkspaceMembership("WorkspaceId_example", "Subject_example", "Role_example") // WorkspaceMembership | WorkspaceMembership data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateWorkspaceMembership(context.Background()).WorkspaceMembership(workspaceMembership).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateWorkspaceMembership``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateWorkspaceMembership`: WorkspaceMembership
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateWorkspaceMembership`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateWorkspaceMembershipRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **workspaceMembership** | [**WorkspaceMembership**](WorkspaceMembership.md) | WorkspaceMembership data | 
+
+### Return type
+
+[**WorkspaceMembership**](WorkspaceMembership.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## DeleteAgentRuntime
 
 > DeleteAgentRuntime(ctx, id).Execute()
@@ -897,6 +1035,72 @@ Name | Type | Description  | Notes
 ### Other Parameters
 
 Other parameters are passed through a pointer to a apiDeleteAgentRuntimeRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## DeleteAgentWorkspace
+
+> DeleteAgentWorkspace(ctx, id).Execute()
+
+Delete an agent workspace
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeleteAgentWorkspace(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteAgentWorkspace``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteAgentWorkspaceRequest struct via the builder pattern
 
 
 Name | Type | Description  | Notes
@@ -1586,6 +1790,72 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## DeleteWorkspaceMembership
+
+> DeleteWorkspaceMembership(ctx, id).Execute()
+
+Delete a workspace membership
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeleteWorkspaceMembership(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteWorkspaceMembership``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteWorkspaceMembershipRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## GetAgentRuntime
 
 > AgentRuntime GetAgentRuntime(ctx, id).Execute()
@@ -1639,6 +1909,74 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntime**](AgentRuntime.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetAgentWorkspace
+
+> AgentWorkspace GetAgentWorkspace(ctx, id).Execute()
+
+Get an agent workspace by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetAgentWorkspace(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetAgentWorkspace``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetAgentWorkspace`: AgentWorkspace
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetAgentWorkspace`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetAgentWorkspaceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**AgentWorkspace**](AgentWorkspace.md)
 
 ### Authorization
 
@@ -2596,6 +2934,74 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GetWorkspaceMembership
+
+> WorkspaceMembership GetWorkspaceMembership(ctx, id).Execute()
+
+Get a workspace membership by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetWorkspaceMembership(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetWorkspaceMembership``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetWorkspaceMembership`: WorkspaceMembership
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetWorkspaceMembership`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetWorkspaceMembershipRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**WorkspaceMembership**](WorkspaceMembership.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## GrantGatewayAccess
 
 > GatewayAccessGrantResponse GrantGatewayAccess(ctx, gatewayId).GatewayAccessGrantRequest(gatewayAccessGrantRequest).Execute()
@@ -2723,6 +3129,78 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntimeList**](AgentRuntimeList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListAgentWorkspaces
+
+> AgentWorkspaceList ListAgentWorkspaces(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of agent workspaces
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListAgentWorkspaces(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListAgentWorkspaces``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListAgentWorkspaces`: AgentWorkspaceList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListAgentWorkspaces`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListAgentWorkspacesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**AgentWorkspaceList**](AgentWorkspaceList.md)
 
 ### Authorization
 
@@ -3690,6 +4168,78 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListWorkspaceMemberships
+
+> WorkspaceMembershipList ListWorkspaceMemberships(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of workspace memberships
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListWorkspaceMemberships(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListWorkspaceMemberships``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListWorkspaceMemberships`: WorkspaceMembershipList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListWorkspaceMemberships`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListWorkspaceMembershipsRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**WorkspaceMembershipList**](WorkspaceMembershipList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## RegisterManagedCluster
 
 > ManagedClusterRegistrationResponse RegisterManagedCluster(ctx).ManagedClusterRegistrationRequest(managedClusterRegistrationRequest).Execute()
@@ -4021,6 +4571,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntime**](AgentRuntime.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateAgentWorkspace
+
+> AgentWorkspace UpdateAgentWorkspace(ctx, id).AgentWorkspacePatchRequest(agentWorkspacePatchRequest).Execute()
+
+Update an agent workspace
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	agentWorkspacePatchRequest := *openapiclient.NewAgentWorkspacePatchRequest() // AgentWorkspacePatchRequest | Updated agent workspace data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateAgentWorkspace(context.Background(), id).AgentWorkspacePatchRequest(agentWorkspacePatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateAgentWorkspace``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateAgentWorkspace`: AgentWorkspace
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateAgentWorkspace`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateAgentWorkspaceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **agentWorkspacePatchRequest** | [**AgentWorkspacePatchRequest**](AgentWorkspacePatchRequest.md) | Updated agent workspace data | 
+
+### Return type
+
+[**AgentWorkspace**](AgentWorkspace.md)
 
 ### Authorization
 
@@ -4511,6 +5131,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**SecretSource**](SecretSource.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateWorkspaceMembership
+
+> WorkspaceMembership UpdateWorkspaceMembership(ctx, id).WorkspaceMembershipPatchRequest(workspaceMembershipPatchRequest).Execute()
+
+Update a workspace membership
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	workspaceMembershipPatchRequest := *openapiclient.NewWorkspaceMembershipPatchRequest() // WorkspaceMembershipPatchRequest | Updated workspace membership data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateWorkspaceMembership(context.Background(), id).WorkspaceMembershipPatchRequest(workspaceMembershipPatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateWorkspaceMembership``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateWorkspaceMembership`: WorkspaceMembership
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateWorkspaceMembership`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateWorkspaceMembershipRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **workspaceMembershipPatchRequest** | [**WorkspaceMembershipPatchRequest**](WorkspaceMembershipPatchRequest.md) | Updated workspace membership data | 
+
+### Return type
+
+[**WorkspaceMembership**](WorkspaceMembership.md)
 
 ### Authorization
 

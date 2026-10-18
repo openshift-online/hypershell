@@ -27,17 +27,20 @@ type WorkspaceProvisioningPort interface {
 // WorkspaceProvisioningPort. It is the adapter from the reconciler's ProviderRealizer
 // seam (#603) to the gateway-side provisioning contract (#526).
 //
-// Material mapping fidelity: the AgentRuntime watch payload currently embeds its
-// SecretSources but NOT its ProviderBindings, workspace name, memberships, or inference
-// route (see agent_runtimes.proto). This adapter therefore derives the workspace name
-// from the AgentRuntime and realizes one provider per resolved provider SecretSource,
-// keyed by the SecretSource purpose. Realizing providers at full ProviderBinding fidelity
-// (binding name, ProviderSpec capability, refresh strategy, memberships, and the
-// inference route) requires extending the AgentRuntime watch payload to embed those
-// objects; that payload extension is the prerequisite for activating this realizer in
-// production and is tracked as follow-up work. Until then the realizer is constructible
-// and unit-tested but not wired into the production reconciler (the reconciler keeps the
-// transitional raw-Secret placement, guarded by a nil realizer).
+// The AgentRuntime watch payload embeds the resolved workspace name, the
+// WorkspaceMemberships, the ProviderBindings, and the InferenceRoute
+// (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"), so this adapter
+// builds the WorkspaceSpec from those authoritative fields: the workspace name and
+// memberships come from the payload, and the inference route is bound to its
+// ProviderBinding's provider name. Provider material is read cluster-local by the
+// reconciler and passed in as ProviderMaterial; each provider carries durable material
+// plus a refresh strategy only, and OpenShell owns rotation.
+//
+// Remaining fidelity (follow-up): realizing one provider per ProviderBinding keyed by the
+// binding's secret_source_id (rather than one per resolved provider SecretSource keyed by
+// purpose) needs the SecretSource id carried in the payload so material joins to its
+// binding; it is tracked separately. End-to-end runtime activation additionally depends on
+// the gateway-side provisioning server (OpenShell upstream, a declared non-goal of #606).
 type gatewayProviderRealizer struct {
 	port WorkspaceProvisioningPort
 }
@@ -102,28 +105,72 @@ func workspaceSpecFor(ar *pb.AgentRuntime, materials []ProviderMaterial) (gatewa
 		AgentRuntimeID: ar.GetMetadata().GetId(),
 		WorkspaceName:  workspaceNameFor(ar),
 		Providers:      providers,
-	}
-	if anyRefresh {
-		// A refresh-bearing provider requires a workspace admin. The admin subject is
-		// the agent's own gateway identity; its subject claim is carried with the
-		// gateway-identity SecretSource and is embedded in the watch payload alongside
-		// the ProviderBindings in the follow-up payload extension. Until then the
-		// membership subject is derived from the AgentRuntime id so an admin membership
-		// is always present for a refresh-bearing workspace.
-		spec.Memberships = []gateway.MembershipSpec{{Subject: ar.GetMetadata().GetId(), Admin: true}}
+		Memberships:    membershipsFor(ar, anyRefresh),
+		Route:          routeFor(ar),
 	}
 	return spec, nil
 }
 
-// workspaceNameFor derives the workspace name from the AgentRuntime. The authoritative
-// name is AgentWorkspace.name once that kind is embedded in the watch payload; until then
-// the AgentRuntime name is used, which is stable per runtime.
+// workspaceNameFor returns the authoritative AgentWorkspace.name embedded in the watch
+// payload (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"), falling
+// back to the AgentRuntime name and then its id so a workspace name is always present.
 func workspaceNameFor(ar *pb.AgentRuntime) string {
-	name := strings.TrimSpace(ar.GetName())
-	if name == "" {
-		return ar.GetMetadata().GetId()
+	if name := strings.TrimSpace(ar.GetWorkspaceName()); name != "" {
+		return name
 	}
-	return name
+	if name := strings.TrimSpace(ar.GetName()); name != "" {
+		return name
+	}
+	return ar.GetMetadata().GetId()
+}
+
+// membershipsFor builds the declarative membership set from the payload's embedded
+// WorkspaceMemberships. When the payload carries none but a provider refreshes, it falls
+// back to a single admin membership derived from the AgentRuntime id so a refresh-bearing
+// workspace always has the admin the gateway requires (agent-workspace-gateway-api.spec.md
+// "Admin-Membership-Required Enforcement").
+func membershipsFor(ar *pb.AgentRuntime, anyRefresh bool) []gateway.MembershipSpec {
+	embedded := ar.GetWorkspaceMemberships()
+	if len(embedded) > 0 {
+		out := make([]gateway.MembershipSpec, 0, len(embedded))
+		for _, m := range embedded {
+			out = append(out, gateway.MembershipSpec{
+				Subject: m.GetSubject(),
+				Admin:   m.GetRole() == "admin",
+			})
+		}
+		return out
+	}
+	if anyRefresh {
+		return []gateway.MembershipSpec{{Subject: ar.GetMetadata().GetId(), Admin: true}}
+	}
+	return nil
+}
+
+// routeFor builds the single InferenceRoute from the payload, resolving the bound
+// provider name from the ProviderBinding the route references. It returns nil when the
+// runtime has no route.
+func routeFor(ar *pb.AgentRuntime) *gateway.InferenceRouteConfig {
+	route := ar.GetInferenceRoute()
+	if route == nil {
+		return nil
+	}
+	return &gateway.InferenceRouteConfig{
+		ProviderName: providerNameForBinding(ar, route.GetProviderBindingId()),
+		ModelAlias:   route.GetModel(),
+	}
+}
+
+// providerNameForBinding resolves a ProviderBinding id to its name from the payload's
+// embedded ProviderBindings. It falls back to the id when the binding is not present so
+// the route still carries a stable reference for the gateway to validate.
+func providerNameForBinding(ar *pb.AgentRuntime, bindingID string) string {
+	for _, b := range ar.GetProviderBindings() {
+		if b.GetMetadata().GetId() == bindingID {
+			return b.GetName()
+		}
+	}
+	return bindingID
 }
 
 // refreshTypeForPurpose maps a SecretSource purpose to the OpenShell refresh strategy

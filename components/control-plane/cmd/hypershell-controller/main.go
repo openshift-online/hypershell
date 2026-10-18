@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	gatewaypb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/gateway/v1"
 	provisionerpb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
@@ -423,17 +424,16 @@ func main() {
 	// plane without cluster access, in which case the reconciler skips cluster-side
 	// provisioning.
 	//
-	// Gateway-side workspace provisioning (#4) is now designed
-	// (specs/platform/agent-workspace-gateway-api.spec.md, #526): the gateway
-	// provisioning gRPC contract and its control-plane client
-	// (internal/gateway.WorkspaceProvisioner) plus the ProviderRealizer adapter
-	// (reconciler.NewGatewayProviderRealizer over the WorkspaceProvisioningPort) are
-	// implemented and unit-tested. The realizer is NOT yet activated here: production
-	// activation needs the AgentRuntime watch payload extended to embed the workspace
-	// name, ProviderBindings (with refresh strategy and ProviderSpec capability),
-	// memberships, and inference route, plus the gateway endpoint/admin dialer. Until
-	// then the realizer stays nil and the reconciler keeps the transitional
-	// raw-Secret placement so the live fleet does not regress.
+	// Gateway-side workspace provisioning (#4): the gateway provisioning gRPC contract
+	// and its control-plane client (internal/gateway.WorkspaceProvisioner) plus the
+	// ProviderRealizer adapter (reconciler.NewGatewayProviderRealizer over the
+	// WorkspaceProvisioningPort) are implemented. The AgentRuntime watch payload now
+	// embeds the workspace name, ProviderBindings, memberships, and inference route
+	// (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"), so the realizer
+	// can provision from a single event. It is activated below through SetProviderRealizer
+	// when a gateway provisioning endpoint is configured; otherwise it stays nil and the
+	// reconciler keeps the transitional raw-Secret placement so the live fleet does not
+	// regress.
 	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
 	// reconciler's nil check works (a nil pointer in an interface is not == nil).
 	var agentRuntimeKube kubernetes.Interface
@@ -451,6 +451,40 @@ func main() {
 		secretReader = secretstore.NewErrorReader(secretReaderErr)
 	}
 	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, secretReader, conn, clusterID)
+
+	// Activate gateway-side provider realization when a gateway provisioning endpoint is
+	// configured (separate configuration from code). When set, the reconciler realizes
+	// provider-material SecretSources as OpenShell providers over the gateway gRPC
+	// contract and retires the transitional raw-Secret placement (realize-before-prune);
+	// when unset it keeps the transitional behavior so the live fleet does not regress.
+	// The dialer opens a short-lived connection per operation (the WorkspaceProvisioner
+	// never caches one). Per-gateway endpoint discovery from the Gateway resource and the
+	// gateway admin identity remain a wiring concern tracked with the gateway-side
+	// provisioning server (OpenShell upstream, a declared non-goal of HYPERSHELL-411): a
+	// single configured endpoint activates realization in an environment where that server
+	// exists at a known address.
+	if endpoint := strings.TrimSpace(os.Getenv("HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT")); endpoint != "" {
+		dialer := func(dialCtx context.Context, gatewayID string) (gatewaypb.AgentWorkspaceProvisioningClient, func() error, error) {
+			gconn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(grpctransport.Credentials(endpoint)))
+			if err != nil {
+				return nil, nil, fmt.Errorf("dial gateway provisioning endpoint %q for gateway %s: %w", endpoint, gatewayID, err)
+			}
+			return gatewaypb.NewAgentWorkspaceProvisioningClient(gconn), gconn.Close, nil
+		}
+		provisioner, provErr := gateway.NewWorkspaceProvisioner(dialer)
+		if provErr != nil {
+			log.Fatalf("FATAL build gateway workspace provisioner: %v", provErr)
+		}
+		realizer, realizeErr := reconciler.NewGatewayProviderRealizer(provisioner)
+		if realizeErr != nil {
+			log.Fatalf("FATAL build gateway provider realizer: %v", realizeErr)
+		}
+		agentRuntimeReconciler.SetProviderRealizer(realizer)
+		log.Printf("INFO gateway-side provider realization enabled (endpoint %s)", endpoint)
+	} else {
+		log.Printf("INFO gateway-side provider realization disabled (HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT unset); using transitional raw-Secret placement")
+	}
+
 	supervise("AgentRuntime watch", func(ctx context.Context) error {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})
