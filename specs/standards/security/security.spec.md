@@ -99,12 +99,19 @@ gateway-provider Vault plane.
 - THEN the material SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
 - AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read provider material or write the gateway-provider Vault plane
 
-#### Scenario: Rotation is owned by OpenShell, not the control plane
+#### Scenario: OpenShell-native strategy rotation is owned by OpenShell
 
-- GIVEN an agent credential realized as an OpenShell provider from stored durable material
+- GIVEN an agent credential realized as an OpenShell provider from stored durable material with an OpenShell-native refresh strategy (`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, or `static-token`)
 - WHEN the short-lived usable credential expires
 - THEN OpenShell SHALL mint and rotate it under the provider `refresh_strategy`
 - AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT render or re-place a raw credential `Secret`
+
+#### Scenario: GitHub App credential rotation is owned by the control-plane rotator
+
+- GIVEN an agent GitHub provider realized from a stored GitHub App PEM (the `app-installation-token` / `app-private-key` intent), which the installed OpenShell CLI does not refresh
+- WHEN the short-lived installation token approaches expiry
+- THEN the bounded control-plane GitHub rotator SHALL mint a fresh installation token from the PEM and set it on the OpenShell provider through `provider update --credential`
+- AND OpenShell SHALL NOT rotate it and the control plane SHALL NOT render or re-place a raw credential `Secret`
 
 ### Input Validation
 
