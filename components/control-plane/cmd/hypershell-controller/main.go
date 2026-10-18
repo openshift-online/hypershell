@@ -419,10 +419,21 @@ func main() {
 	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
 	// (Namespace, ServiceAccount, NetworkPolicy, one Kubernetes Secret per
 	// SecretSource placed directly from the read-only secret store, coordinator
-	// CronJob) and drives the status lifecycle. Gateway-side workspace provisioning
-	// (#4) is deferred, blocked on the gateway workspace API design (#526). clientset
-	// may be nil on a control plane without cluster access, in which case the
-	// reconciler skips cluster-side provisioning.
+	// CronJob) and drives the status lifecycle. clientset may be nil on a control
+	// plane without cluster access, in which case the reconciler skips cluster-side
+	// provisioning.
+	//
+	// Gateway-side workspace provisioning (#4) is now designed
+	// (specs/platform/agent-workspace-gateway-api.spec.md, #526): the gateway
+	// provisioning gRPC contract and its control-plane client
+	// (internal/gateway.WorkspaceProvisioner) plus the ProviderRealizer adapter
+	// (reconciler.NewGatewayProviderRealizer over the WorkspaceProvisioningPort) are
+	// implemented and unit-tested. The realizer is NOT yet activated here: production
+	// activation needs the AgentRuntime watch payload extended to embed the workspace
+	// name, ProviderBindings (with refresh strategy and ProviderSpec capability),
+	// memberships, and inference route, plus the gateway endpoint/admin dialer. Until
+	// then the realizer stays nil and the reconciler keeps the transitional
+	// raw-Secret placement so the live fleet does not regress.
 	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
 	// reconciler's nil check works (a nil pointer in an interface is not == nil).
 	var agentRuntimeKube kubernetes.Interface
