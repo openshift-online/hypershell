@@ -761,6 +761,60 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 
 ---
 
+### Requirement: AgentRuntime Reconcile Payload Completeness
+
+The `AgentRuntime` delivered on the watch and list streams SHALL carry, embedded in
+the same payload, everything the control-plane reconciler needs to provision the
+gateway-side workspace in one reconcile pass, without a second round trip to the API
+server. Today the payload embeds only the owned `SecretSource`s; it SHALL additionally
+embed, server-populated and resolved for the owning `AgentRuntime`:
+
+1. The resolved `AgentWorkspace` **name** (the name the workspace is provisioned under
+   on the gateway).
+2. The `AgentRuntime`'s `ProviderBinding`s, each carrying its `name`,
+   `provider_spec_id`, and `refresh_strategy` (the `type`, the non-secret `material`
+   parameters, and the `secret_material` **references** - the `{key, secret_source_id}`
+   pairs - that point at the durable material).
+3. The workspace's `WorkspaceMembership`s, each carrying its `subject` and `role`.
+4. The workspace's `InferenceRoute` (at most one), carrying the referenced
+   `ProviderBinding` and the `model` alias.
+
+These embedded fields SHALL be server-populated and SHALL be ignored on inbound writes,
+exactly as `secret_sources` is (the control plane never writes them back through this
+payload; it writes only status through `UpdateAgentRuntimeStatus`). They SHALL be
+delivered on the same cluster-filtered watch and list streams and seeded on reconnect,
+with no change to the watch-stream caller binding
+([`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Watch Stream").
+
+The payload SHALL carry only durable-material **references** (the `secret_source_id` /
+convention path of each `SecretSource`), NEVER secret bytes: a `refresh_strategy`'s
+`secret_material` is a reference the control plane resolves cluster-local through its
+read-only `pkg/secretstore` client, consistent with
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md). No secret
+value SHALL be embedded in the watch or list payload.
+
+This payload completeness is the prerequisite for activating the gateway-side
+provisioning sequence in "Gateway-Side Provisioning" below: the reconciler reads the
+workspace name, memberships, provider bindings, and inference route directly from the
+delivered `AgentRuntime` and realizes them on the gateway.
+
+#### Scenario: Watch payload carries the workspace provisioning inputs
+
+- GIVEN an `AgentRuntime` whose `AgentWorkspace` has two memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and one `InferenceRoute`
+- WHEN the control plane receives the `AgentRuntime` on its watch stream or seeds it from `ListAgentRuntimes`
+- THEN the delivered `AgentRuntime` SHALL embed the resolved workspace name, the two memberships, the `ProviderBinding` with its `refresh_strategy` and `secret_material` references, and the `InferenceRoute`
+- AND the control plane SHALL provision the gateway-side workspace from that single payload without another read against the API server
+
+#### Scenario: No secret bytes are embedded in the payload
+
+- GIVEN a `ProviderBinding` whose `refresh_strategy.secret_material` references a `SecretSource` holding a GitHub App PEM
+- WHEN the `AgentRuntime` is delivered on the watch stream
+- THEN the payload SHALL carry only the `secret_source_id` reference for that secret material
+- AND it SHALL NOT carry the PEM or any other secret value
+- AND the control plane SHALL read the material cluster-local to realize the provider
+
+---
+
 ### Requirement: Gateway-Side Provisioning
 
 The controller SHALL provision gateway-side objects (AgentWorkspace, WorkspaceMemberships, ProviderBindings, and InferenceRoute) via the gateway gRPC API as part of its normal reconcile loop. This is idempotent and uses the same mechanism as gateway database provisioning. Re-running when objects already exist SHALL succeed without error and SHALL update mutable fields (e.g., credential refresh strategy, model alias). The gateway-side provisioning API, its idempotent ensure RPCs, enforcement, and cascade deletion are specified in [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md).

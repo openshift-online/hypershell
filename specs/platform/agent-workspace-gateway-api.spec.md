@@ -91,8 +91,15 @@ reconciler.
 The `AgentRuntimeReconciler` (`control-plane.spec.md`, "AgentRuntime Reconciliation")
 applies the cluster-side scheduling resources, then invokes the `ProviderRealizer` seam
 to provision the gateway-side workspace objects. The client that implements
-`ProviderRealizer` against this contract is what this spec enables; until it is wired the
-reconciler holds its transitional behavior. The code/reconcile phase implements the
+`ProviderRealizer` against this contract is what this spec enables. When the realizer is
+live ([`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation")
+the reconciler drives the ensure sequence over this contract and retires the transitional
+raw-`Secret` placement of provider material; before it is wired the reconciler holds that
+transitional behavior. The gateway-side provisioning inputs the realizer needs (the
+resolved workspace name, the `ProviderBinding`s with their `refresh_strategy` and material
+references, the `WorkspaceMembership`s, and the `InferenceRoute`) are delivered embedded
+in the `AgentRuntime` reconcile payload ([`data-model.spec.md`](./data-model.spec.md),
+"AgentRuntime Reconcile Payload Completeness"). The code/reconcile phase implements the
 client and the gateway RPCs; this spec is design-only and defines no Go, proto, or
 OpenAPI code.
 
