@@ -251,10 +251,14 @@ objects through OpenShell's existing provisioning API (the operations the `opens
 CLI drives), reusing the same idempotent admin-connection discipline it uses for
 gateway database provisioning, and SHALL realize each `ProviderBinding` as an OpenShell
 **provider** on the agent's gateway/workspace from the binding's `provider_spec_id`,
-its `refresh_strategy`, and the material read cluster-local. OpenShell owns rotation of
-the realized credential through the provider `refresh_strategy` (`app-installation-token`,
-`google-service-account-jwt`, `static-token`); the control plane SHALL NOT mint,
-refresh, or rotate the usable credential and SHALL NOT place or rotate a raw `Secret`.
+its `refresh_strategy`, and the material read cluster-local. Rotation of the realized
+credential is owned by OpenShell for its native strategies (`google-service-account-jwt`,
+`oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`,
+`static-token`) and by a bounded control-plane GitHub rotator for the
+`app-installation-token` (GitHub App) strategy, which the installed OpenShell CLI does not
+refresh (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md));
+for OpenShell-refreshed strategies the control plane SHALL NOT mint, refresh, or rotate the
+usable credential, and in all cases it SHALL NOT place or rotate a raw `Secret`.
 
 The control plane SHALL drive `AgentRuntime.status` through
 `Pending -> Provisioning -> Running -> Degraded -> Terminating` as the data-model
@@ -277,10 +281,11 @@ no manual trigger. The `SecretPending` condition SHALL name the resolved `Manage
 and the exact store mount and path to upload the material to, phrased as an actionable
 instruction rather than a bare error. Once the material appears the control plane
 realizes the provider and updates it in place on subsequent reconciles; keeping the
-usable credential current (rotation) is owned by OpenShell, not the control plane (see
+usable credential current (rotation) is owned by OpenShell for its native strategies and
+by the bounded control-plane GitHub rotator for GitHub App credentials (see
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "Rotation
-Owned by OpenShell"). A store that is unreachable or errors SHALL still degrade the
-`AgentRuntime` as above.
+Ownership by Refresh Strategy"). A store that is unreachable or errors SHALL still degrade
+the `AgentRuntime` as above.
 
 On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
 created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator

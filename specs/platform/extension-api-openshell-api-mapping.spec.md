@@ -3,7 +3,7 @@
 **Date:** 2026-10-18
 **Status:** Active
 **Jira:** HYPERSHELL-412
-**Related:** [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (how the control plane realizes an AgentRuntime through OpenShell's existing API), [`data-model.spec.md`](./data-model.spec.md) (the HyperShell Extension API kinds this maps), [`control-plane.spec.md`](./control-plane.spec.md) (the reconciler and the `ProviderRealizer` seam), [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (credentials realized as OpenShell providers, OpenShell owns rotation), [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) (the `inference.local` router the inference route configures)
+**Related:** [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (how the control plane realizes an AgentRuntime through OpenShell's existing API), [`data-model.spec.md`](./data-model.spec.md) (the HyperShell Extension API kinds this maps), [`control-plane.spec.md`](./control-plane.spec.md) (the reconciler and the `ProviderRealizer` seam), [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (credentials realized as OpenShell providers; rotation ownership split by strategy - OpenShell native vs control-plane GitHub rotator), [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) (the `inference.local` router the inference route configures)
 
 ## Purpose
 
@@ -156,30 +156,33 @@ The HyperShell credential model names refresh strategies `app-installation-token
 ([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). The installed
 `openshell` CLI `provider refresh configure --strategy` enumerates
 `oauth2-refresh-token`, `oauth2-client-credentials`, `google-service-account-jwt`, and
-`aws-sts-assume-role`. The mapping SHALL record this correspondence and SHALL mark every
-HyperShell strategy whose OpenShell support is not confirmed from the installed CLI as
-CONFIRM-AGAINST-UPSTREAM rather than assume it.
+`aws-sts-assume-role`. The mapping SHALL record which strategies OpenShell refreshes and
+which the control plane rotates, grounded in the installed CLI. The decided model (see
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "Rotation
+Ownership by Refresh Strategy") is: OpenShell owns rotation for the strategies it supports
+natively; the control plane owns rotation for GitHub App credentials, because the installed
+CLI has no `app-installation-token` refresh strategy.
 
-| HyperShell `refresh_strategy.type` | OpenShell realization | Grounding / gap |
+| HyperShell `refresh_strategy.type` | OpenShell realization | Rotation owner / grounding |
 |---|---|---|
-| `google-service-account-jwt` | `provider refresh configure --strategy google-service-account-jwt --material client_email=... --secret-material-env private_key=...` then `provider refresh rotate` | **Confirmed**: enumerated by the installed CLI and used verbatim by `provision_workspace_providers` for the Claude/Vertex provider |
-| `static-token` | `provider create --type <t> --credential KEY=<token>`; no `provider refresh configure` | **Confirmed pattern**: a static credential provider has no refresh metadata. `static-token` is not a CLI `--strategy` value because it means "no OpenShell-owned refresh" |
-| `app-installation-token` (GitHub App) | desired: OpenShell mints and rotates the ~1h installation token from the stored PEM | **CONFIRM-AGAINST-UPSTREAM**: `app-installation-token` is NOT enumerated by the installed CLI `--strategy`. Production `provision_workspace_providers` currently realizes the GitHub provider by the coordinator minting the installation token and calling `provider create/update --credential GH_TOKEN`, NOT an OpenShell refresh strategy. Whether OpenShell exposes a native `app-installation-token` refresh strategy MUST be confirmed upstream; until it does, GitHub token minting is a residual coordinator step (see Fully Declarative Model gap G-4) |
-| `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role` | native OpenShell strategies | **Confirmed available** in the CLI; not currently used by any HyperShell `ProviderBinding` (reserved for future providers) |
+| `google-service-account-jwt` | `provider refresh configure --strategy google-service-account-jwt --material client_email=... --secret-material-env private_key=...` then `provider refresh rotate` | **OpenShell** (confirmed): enumerated by the installed CLI and used verbatim by `provision_workspace_providers` for the Claude/Vertex provider |
+| `static-token` | `provider create --type <t> --credential KEY=<token>`; no `provider refresh configure` | **No rotation** (confirmed pattern): a static credential provider has no refresh metadata. `static-token` is not a CLI `--strategy` value because it means "no refresh" |
+| `app-installation-token` (GitHub App) | `provider create --type github --credential GH_TOKEN` / `provider update --credential GH_TOKEN`, where the control plane mints `GH_TOKEN` from the stored PEM and re-mints before expiry | **Control plane** (decided, HYPERSHELL-412): `app-installation-token` is NOT a CLI `--strategy`, so a bounded control-plane GitHub rotator mints the ~1h installation token from the PEM and sets it on the provider through `provider update --credential`, matching the production `provision_workspace_providers` GitHub path. OpenShell does NOT own GitHub rotation |
+| `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role` | native OpenShell strategies | **OpenShell** (confirmed available) in the CLI; not currently used by any HyperShell `ProviderBinding` (reserved for future providers) |
 
-#### Scenario: Vertex provider uses the confirmed OpenShell refresh strategy
+#### Scenario: Vertex provider uses the OpenShell-owned refresh strategy
 
 - GIVEN a Claude `ProviderBinding` with `refresh_strategy.type = google-service-account-jwt`
 - WHEN the control plane realizes it
 - THEN it SHALL configure the provider refresh with the `google-service-account-jwt` strategy, the `client_email` material, and the private key as secret material, matching the production coordinator sequence
 - AND OpenShell SHALL own minting and rotation of the usable Vertex access token
 
-#### Scenario: GitHub App strategy is flagged pending upstream confirmation
+#### Scenario: GitHub provider is rotated by the control plane
 
-- GIVEN a GitHub `ProviderBinding` with `refresh_strategy.type = app-installation-token`
-- WHEN the mapping is reviewed
-- THEN the row SHALL be marked CONFIRM-AGAINST-UPSTREAM because the installed CLI does not enumerate that strategy
-- AND the spec SHALL NOT assert an OpenShell endpoint for it that cannot be confirmed from this repository
+- GIVEN a GitHub `ProviderBinding` with `refresh_strategy.type = app-installation-token` whose `SecretSource` holds the GitHub App PEM
+- WHEN the control plane realizes and maintains it
+- THEN the bounded control-plane GitHub rotator SHALL mint the installation token from the PEM and set it through `provider create/update --credential`, re-minting before expiry
+- AND OpenShell SHALL NOT own GitHub rotation and no raw Kubernetes `Secret` SHALL be placed
 
 ---
 
@@ -202,7 +205,7 @@ Extension kind SHALL be classified against an OpenShell resource, each labeled *
 | `sandbox` (per-run instance) | none | intentionally-not-mapped: an ephemeral per-work-item instance created by the coordinator at runtime from the `SandboxTemplate`, not a desired-state resource |
 | `sandbox template` | `SandboxTemplate` (partial) | follow-up: `SandboxTemplate` holds image, name prefix, and policy but is consumed by the coordinator via `sandbox create --from`; a declarative mapping to OpenShell `sandbox template` is not yet established (CONFIRM-AGAINST-UPSTREAM) |
 | `policy` / `sandbox policy` | `SandboxTemplate.policy` | follow-up: enforced through the sandbox template, not a standalone declarative kind |
-| `settings` (e.g. `providers_v2_enabled`) | none | follow-up: set imperatively by the coordinator today; see gap G-4 |
+| `settings` (e.g. `providers_v2_enabled`) | none | follow-up: set imperatively by the coordinator today; see gap G-5 |
 | `service`, `forward`, `logs`, `ssh-proxy`, `doctor`, `term` | none | intentionally-not-mapped: operational and interactive CLI surfaces, not provisioned desired state |
 
 **Direction 2 - HyperShell Extension kinds without an OpenShell counterpart**
@@ -240,32 +243,39 @@ The sequence the coordinator runs today maps to the declarative model as follows
 | `provider refresh configure --strategy google-service-account-jwt ...` + `rotate` | realize that binding's `refresh_strategy` |
 | `inference set --provider --model` | realize `InferenceRoute` |
 | `provider profile import` | realize `ProviderSpec.profile` |
-| `provider create/update --type github --credential GH_TOKEN` | realize GitHub `ProviderBinding` (subject to gap G-4) |
+| `provider create/update --type github --credential GH_TOKEN` | realize GitHub `ProviderBinding`; the control-plane GitHub rotator mints `GH_TOKEN` from the stored PEM (G-4, resolved) |
 
-Residual imperative steps that are NOT yet inside the declarative model SHALL be enumerated as
-explicit gaps so the "fully declarative" assertion is honest and auditable:
+The declarative `ProviderBinding` expresses the GitHub credential **intent** (the stored PEM
+plus the `app-installation-token` strategy); the control-plane GitHub rotator realizes it by
+minting the token and setting it through `provider update --credential`. The GitHub credential
+value is therefore control-plane-supplied and control-plane-rotated, while the declarative model
+still fully expresses the binding. The remaining imperative step SHALL be enumerated so the
+"fully declarative" assertion is honest and auditable:
 
-- **G-4 (GitHub App token minting).** The coordinator mints the GitHub App installation token
-  and the Vertex access token (`mint_github_app_token`, `mint_google_token`). For Vertex this
-  is subsumed by the `google-service-account-jwt` refresh strategy (OpenShell owns rotation).
-  For GitHub, OpenShell-owned `app-installation-token` refresh is NOT confirmed from the
-  installed CLI (see Refresh Strategy Mapping); until it is, GitHub token minting remains a
-  residual imperative step - a tracked follow-up, not part of the declarative model.
+- **G-4 (GitHub App token minting) - RESOLVED (HYPERSHELL-412): control-plane-owned GitHub
+  rotator.** The coordinator mints the GitHub App installation token and the Vertex access token
+  today (`mint_github_app_token`, `mint_google_token`). For Vertex this is subsumed by the
+  `google-service-account-jwt` refresh strategy (OpenShell owns rotation). For GitHub, because
+  the installed CLI has no `app-installation-token` refresh strategy, the decided model moves
+  the minting out of the coordinator and into a bounded control-plane GitHub rotator that mints
+  the token from the stored PEM and sets it through `provider update --credential`. This is part
+  of the declarative realization, not a residual coordinator step: the declarative
+  `ProviderBinding` is the intent and the control-plane rotator is the realizer.
 - **G-5 (global settings).** `settings set --global --key providers_v2_enabled` is a one-time
-  gateway enablement toggle the coordinator sets imperatively. It is a follow-up to fold into
-  declarative gateway configuration rather than a per-agent reconcile step.
+  gateway enablement toggle the coordinator sets imperatively. It remains a follow-up to fold
+  into declarative gateway configuration rather than a per-agent reconcile step.
 
-With G-4 and G-5 tracked, the agent workspace graph - workspace, memberships, providers with
-their refresh strategies, and the inference route - SHALL be fully realizable from the
-declarative HyperShell Extension kinds through OpenShell's existing API, which is the declarative
-model over OpenShell kinds this issue requires.
+With G-4 resolved (control-plane-owned GitHub rotator) and G-5 tracked, the agent workspace
+graph - workspace, memberships, providers with their refresh strategies, and the inference
+route - SHALL be fully realizable from the declarative HyperShell Extension kinds; the GitHub
+credential value is control-plane-supplied and rotated, which is the decided model.
 
 #### Scenario: Coordinator self-provisioning is replaced by declarative realization
 
 - GIVEN an `AgentRuntime` whose `AgentWorkspace`, memberships, provider bindings, and inference route are declared in HyperShell
 - WHEN the control plane reconciles it against OpenShell's existing API
 - THEN the complete OpenShell workspace graph SHALL be provisioned without the coordinator running `provision_workspace_providers`
-- AND the only residual imperative steps SHALL be the enumerated gaps G-4 and G-5
+- AND the GitHub credential value SHALL be minted and set by the control-plane GitHub rotator, and the only residual imperative step SHALL be the enumerated gap G-5
 
 #### Scenario: Declarative re-apply is idempotent against the OpenShell graph
 
@@ -280,8 +290,8 @@ model over OpenShell kinds this issue requires.
 |----------|-----------|
 | Map Extension kinds to OpenShell's existing API, not a new OpenShell contract | OpenShell already provides workspaces, members, providers, refresh, and the inference route and exposes them to the `openshell` CLI. HyperShell is a convenience layer; it consumes that API rather than asking OpenShell to implement a bespoke HyperShell contract |
 | Ground the mapping in the installed CLI and the production coordinator sequence | These are the two reachable sources of OpenShell's real surface from this repository; grounding in them keeps the mapping real and lets unconfirmed wire details be flagged honestly |
-| Mark unconfirmed OpenShell capability CONFIRM-AGAINST-UPSTREAM rather than invent it | The `app-installation-token` strategy, role-name equivalence, and the wire protocol behind each CLI command cannot be confirmed from here; fabricating them would make the declarative assertion false |
-| Enumerate residual imperative steps (G-4, G-5) instead of hiding them | The "fully declarative" claim is only credible if the steps still outside the model are named as tracked follow-ups |
+| Mark unconfirmed OpenShell capability CONFIRM-AGAINST-UPSTREAM rather than invent it | Role-name equivalence and the wire protocol behind each CLI command cannot be confirmed from here; fabricating them would make the declarative assertion false. The GitHub `app-installation-token` gap is resolved to a control-plane rotator (a decision, not a fabricated OpenShell capability) rather than left open |
+| Resolve G-4 to a control-plane GitHub rotator; enumerate the residual G-5 | The GitHub minting that the installed OpenShell CLI cannot do is moved into a bounded control-plane rotator inside the declarative realization, not left as an open gap. The "fully declarative" claim stays credible because the one remaining imperative step (G-5) is named as a tracked follow-up |
 | `ProviderSpec` -> OpenShell provider profile; `ProviderBinding` -> OpenShell provider | Matches the reuse model: a shared profile/capability definition referenced by many per-workspace provider instances, mirroring `provider profile import` + per-workspace `provider create` |
 
 ## References
@@ -289,6 +299,6 @@ model over OpenShell kinds this issue requires.
 - [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) - how the control plane realizes the Extension kinds through OpenShell's existing API (the `ProviderRealizer` seam, admin session, idempotency, retry, cascade delete)
 - [`data-model.spec.md`](./data-model.spec.md) - the HyperShell Extension API kinds and their fields
 - [`control-plane.spec.md`](./control-plane.spec.md) - the `AgentRuntimeReconciler` and the realization sequence
-- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - the refresh-strategy credential model; OpenShell owns rotation
+- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - the refresh-strategy credential model; rotation ownership split by strategy (OpenShell native vs control-plane GitHub rotator)
 - [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) - the `inference.local` router the `InferenceRoute` configures
 - `scripts/install-openshell.sh`, `scripts/rh-trex-ai.ref` - the pinned OpenShell CLI and ref this mapping is grounded against

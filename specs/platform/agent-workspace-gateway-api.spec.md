@@ -4,7 +4,7 @@
 **Status:** Active
 **Jira:** HYPERSHELL-412
 **Supersedes the mechanism of:** HYPERSHELL-410 (#604) and its activation (#606/#607) - the bespoke `AgentWorkspaceProvisioning` gateway gRPC contract
-**Related:** [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md) (the 1:1 Extension-API to OpenShell-API map), [`data-model.spec.md`](./data-model.spec.md) (AgentRuntime, AgentWorkspace, WorkspaceMembership, ProviderBinding, InferenceRoute kinds; "Gateway-Side Provisioning"), [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation", the `ProviderRealizer` seam), [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (credentials realized as OpenShell providers, OpenShell owns rotation), [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) (the per-gateway admin-connection provisioning channel this reuses the discipline of), [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) (the gateway-provider Vault plane), [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) (the `inference.local` route this configures)
+**Related:** [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md) (the 1:1 Extension-API to OpenShell-API map), [`data-model.spec.md`](./data-model.spec.md) (AgentRuntime, AgentWorkspace, WorkspaceMembership, ProviderBinding, InferenceRoute kinds; "Gateway-Side Provisioning"), [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation", the `ProviderRealizer` seam), [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (credentials realized as OpenShell providers; rotation ownership split by strategy - OpenShell for native strategies, a bounded control-plane rotator for GitHub), [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) (the per-gateway admin-connection provisioning channel this reuses the discipline of), [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) (the gateway-provider Vault plane), [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) (the `inference.local` route this configures)
 
 ## Purpose
 
@@ -235,13 +235,18 @@ material cluster-local from the assigned cluster's local store through its read-
 The control plane SHALL NOT render the provider credential as a raw Kubernetes `Secret`, SHALL
 NOT create an `ExternalSecret`, and SHALL NOT depend on External Secrets Operator. It SHALL send
 only the durable material (for example a GitHub App PEM plus `app_id` / `installation_id`, or a
-Vertex service-account key) and the `refresh_strategy` type; OpenShell SHALL mint and rotate the
-usable credential. The control plane SHALL NOT mint, refresh, or rotate the usable credential and
-SHALL NOT run any control-plane token rotator. Where a HyperShell `refresh_strategy` type is not
-confirmed as a native OpenShell refresh strategy from the installed CLI (notably
-`app-installation-token`), its realization is tracked in
+Vertex service-account key) and, for the OpenShell-refreshed strategies, the `refresh_strategy`
+type. Rotation ownership follows the strategy: for the strategies OpenShell supports natively
+(`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`,
+`aws-sts-assume-role`, `static-token`) OpenShell SHALL mint and rotate the usable credential and
+the control plane SHALL NOT mint, refresh, or rotate it; for GitHub App credentials (the
+`app-installation-token` intent, which the installed OpenShell CLI does not refresh) a bounded
+control-plane GitHub rotator SHALL mint the installation token from the PEM and set it on the
+OpenShell provider through `provider update --credential`, re-minting before expiry. The control
+plane SHALL NOT run a control-plane rotator for the OpenShell-refreshed strategies. This split is
+mapped field-by-field in
 [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md)
-(Refresh Strategy Mapping) as CONFIRM-AGAINST-UPSTREAM.
+(Refresh Strategy Mapping).
 
 When referenced `SecretSource` material is not yet present in the assigned cluster's reachable
 local store, provider realization SHALL hold under a `SecretPending` condition rather than fail:
@@ -269,10 +274,12 @@ Condition Gates Provider Creation").
 
 ### Requirement: Admin-Membership-Required Enforcement
 
-OpenShell restricts provider credential rotation to workspace administrators, and OpenShell
-performs that rotation. The control plane SHALL reconcile memberships before realizing a provider
-whose `refresh_strategy` is non-empty, so a `role = admin` membership exists on the workspace
-before the refresh-bearing provider is created. When no admin membership is present, OpenShell's
+OpenShell restricts provider credential updates and rotation to workspace administrators.
+Rotation itself is owned by OpenShell for its native strategies and by the bounded control-plane
+GitHub rotator for GitHub App credentials (which updates the provider credential as a workspace
+admin). The control plane SHALL reconcile memberships before realizing a provider whose
+`refresh_strategy` is non-empty, so a `role = admin` membership exists on the workspace before the
+refresh-bearing provider is created. When no admin membership is present, OpenShell's
 existing API SHALL reject the provider operation; the HyperShell API server surfaces this as HTTP
 `422` on the create or update path ([`data-model.spec.md`](./data-model.spec.md),
 "WorkspaceMembership").
@@ -295,7 +302,7 @@ authoritative enforcement at the provisioning boundary.
 - GIVEN a workspace with at least one `role = admin` membership
 - WHEN a provider with a non-empty `refresh_strategy` is realized on it
 - THEN OpenShell SHALL accept the operation and realize the provider
-- AND OpenShell SHALL own rotation of the usable credential
+- AND the usable credential SHALL be kept current by its rotation owner (OpenShell for its native strategies, the bounded control-plane GitHub rotator for GitHub App credentials)
 
 ---
 
@@ -423,21 +430,33 @@ itself.
 
 ### Requirement: No Raw-Secret Placement Through This Realization
 
-This realization SHALL carry only durable provider **material** plus a **refresh strategy** to
-OpenShell and SHALL NOT be used to place, render, or rotate a raw, usable credential. It SHALL NOT
-reintroduce the superseded raw-`Secret` credential-materialization model
-([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), Supersedes). No
-operation SHALL return a usable, minted credential to the control plane, and no field SHALL carry
-a control-plane-minted token for OpenShell to store inertly. OpenShell holds the usable credential
-and owns its rotation.
+This realization SHALL NOT place, render, or rotate a raw Kubernetes `Secret` for any provider
+credential, and SHALL NOT reintroduce the superseded raw-`Secret` credential-materialization
+model ([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), Supersedes).
+No OpenShell operation SHALL return a usable, minted credential to the control plane.
 
-#### Scenario: No minted credential crosses the boundary
+For the strategies OpenShell refreshes, the realization SHALL carry only durable **material** plus
+the **refresh strategy**, and no field SHALL carry a control-plane-minted token: OpenShell holds
+and rotates the usable credential. For GitHub App credentials the control plane DOES set a
+short-lived installation token it minted from the stored PEM, through the OpenShell provider API
+(`provider update --credential`), and re-mints it before expiry; this SHALL remain a live provider
+credential set through OpenShell's own API, NOT a raw Kubernetes `Secret` the control plane places,
+and the durable PEM SHALL remain the only stored GitHub material.
 
-- GIVEN a provider realized through OpenShell's existing provider operations
+#### Scenario: No minted credential crosses the boundary for an OpenShell-refreshed strategy
+
+- GIVEN a provider realized with a `google-service-account-jwt` strategy through OpenShell's existing provider operations
 - WHEN the control plane inspects what it sent and received
 - THEN it SHALL have sent durable material and a refresh strategy only
 - AND it SHALL NOT have received or stored a minted, rotatable credential
 - AND no raw credential `Secret` SHALL have been placed by the control plane
+
+#### Scenario: GitHub minted token is set through the provider API, not a raw Secret
+
+- GIVEN a GitHub provider whose durable material is a stored GitHub App PEM
+- WHEN the control-plane GitHub rotator mints an installation token and sets it
+- THEN it SHALL set the token through the OpenShell provider API (`provider update --credential`)
+- AND it SHALL NOT place a raw Kubernetes `Secret` and SHALL keep only the PEM stored
 
 ---
 
@@ -466,14 +485,14 @@ This spec SHALL remain consistent with that mapping.
 | Gateway admin OIDC identity, short-lived session per operation | Matches how the coordinator authenticates to the gateway and keeps one operational and failure/retry discipline, reusing the per-operation admin-connection pattern of the database channel without reusing a bespoke contract |
 | Use the `openshell` CLI operation surface as the authoritative API, wire details CONFIRM-AGAINST-UPSTREAM | OpenShell's server source is not reachable from this repository; grounding in the CLI operations keeps the spec real and defers exact endpoints/field names to OpenShell upstream without fabricating them |
 | Retire the bespoke proto, client, and `HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT` gate | Leaving them would preserve the superseded "OpenShell must implement our contract" mechanism; removing them makes the OpenShell-API-consumption model the only path |
-| Carry durable material plus refresh strategy, never a minted credential | Keeps the realization consistent with `agent-secret-late-binding.spec.md`: OpenShell holds and rotates the usable credential, so the control plane never places or rotates a raw `Secret` |
+| Carry durable material; mint only the GitHub token, through the provider API | Keeps the realization consistent with `agent-secret-late-binding.spec.md`: for OpenShell-refreshed strategies OpenShell holds and rotates the usable credential; for GitHub the control plane mints the installation token from the PEM and sets it through `provider update --credential`. In no case does the control plane place or rotate a raw Kubernetes `Secret` |
 
 ## References
 
 - [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md) - the 1:1 Extension-API to OpenShell-API field and lifecycle map, two-direction gap analysis, and fully-declarative assertion
 - [`data-model.spec.md`](./data-model.spec.md) - AgentRuntime, AgentWorkspace, WorkspaceMembership, ProviderSpec, ProviderBinding, InferenceRoute kinds; "Gateway-Side Provisioning"; the `409` and `422` request-time validations
 - [`control-plane.spec.md`](./control-plane.spec.md) - the `AgentRuntimeReconciler`, the `ProviderRealizer` seam, status lifecycle and retry
-- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - credentials realized as OpenShell providers, OpenShell owns rotation, the `SecretPending` gate, cluster-local material read
+- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - credentials realized as OpenShell providers; rotation ownership split by strategy (OpenShell native vs control-plane GitHub rotator); the `SecretPending` gate; cluster-local material read
 - [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - the per-gateway admin-connection provisioning channel whose discipline this reuses
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) - the gateway-provider Vault plane and credential revocation on deletion
 - [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) - the `inference.local` route the inference route configures

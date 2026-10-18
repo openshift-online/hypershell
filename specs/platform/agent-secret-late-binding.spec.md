@@ -16,16 +16,29 @@ removes that ordering constraint, and it fixes the materialization target of tha
 model.
 
 HyperShell SHALL realize an agent's credentials as OpenShell **Providers** carrying a
-**refresh strategy**, and OpenShell SHALL own credential rotation. The control plane
-SHALL NOT render a raw Kubernetes `Secret` for the credential and SHALL NOT mint,
-refresh, or rotate the usable credential itself. A raw `Secret` is inert, so whoever
-renders it must rotate it; an OpenShell Provider is live. Given the durable
-**material** (the GitHub App PEM, the Vertex service-account key, the gateway
-identity) plus a **refresh strategy** (`app-installation-token`,
-`google-service-account-jwt`, `static-token`), OpenShell mints and rotates the usable
-credential. This is already the declared model: each `.hypershell` `ProviderBinding`
-carries these `refresh_strategy` values, and it is the provider-provisioning pattern
-the control plane already uses on the gateway gRPC API.
+**refresh strategy**. The control plane SHALL NOT render a raw Kubernetes `Secret` for
+the credential. A raw `Secret` is inert, so whoever renders it must rotate it; an
+OpenShell Provider is live. Given the durable **material** (the GitHub App PEM, the
+Vertex service-account key, the gateway identity), rotation ownership depends on the
+refresh strategy:
+
+- For the strategies OpenShell supports natively (`google-service-account-jwt`,
+  `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, and the
+  no-refresh `static-token`), **OpenShell owns rotation**: the control plane supplies
+  the material and the refresh strategy, and OpenShell mints and rotates the usable
+  credential.
+- For **GitHub App credentials** (the HyperShell `app-installation-token` intent), the
+  installed OpenShell CLI has no `app-installation-token` refresh strategy, so a bounded,
+  GitHub-specific **control-plane rotator** owns rotation: the control plane mints the
+  short-lived (approximately one hour) installation token from the stored PEM (plus
+  `app_id` / `installation_id`) and sets it on the OpenShell provider credential through
+  `provider update --credential`, re-minting before expiry. OpenShell does NOT own GitHub
+  rotation.
+
+Each `.hypershell` `ProviderBinding` carries these `refresh_strategy` values, and the
+control plane realizes each as an OpenShell provider through OpenShell's existing provider
+API (the operations the `openshell` CLI drives;
+[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)).
 
 Late binding is preserved: a `SecretSource` is declared by name as a value-less
 reference at import time, the durable material is supplied later directly into the
@@ -48,8 +61,8 @@ On reconcile, the control plane SHALL realize each of an `AgentRuntime`'s declar
 `ProviderBinding`s as an OpenShell **provider** on the agent's gateway/workspace,
 from the binding's `provider_spec_id`, its `refresh_strategy`, and the durable
 material referenced through its `SecretSource`s. The control plane SHALL provision
-and update these providers through the gateway gRPC API, idempotently, the same
-mechanism it uses for the rest of the gateway-side workspace objects.
+and update these providers through OpenShell's existing provider API, idempotently, the
+same mechanism it uses for the rest of the gateway-side workspace objects.
 
 The control plane SHALL NOT render the agent credential as a raw Kubernetes `Secret`
 and SHALL NOT depend on an `ExternalSecret` or External Secrets Operator to
@@ -71,22 +84,42 @@ and is NOT a rendered agent credential `Secret` for provider material.
 - THEN it SHALL create or update one OpenShell provider per `ProviderBinding` on the agent's gateway/workspace with the declared refresh strategy
 - AND it SHALL NOT render a raw Kubernetes `Secret` for the credential and SHALL NOT create an `ExternalSecret`
 
-### Requirement: OpenShell Owns Credential Rotation
+### Requirement: Rotation Ownership by Refresh Strategy
 
-The provider `refresh_strategy` (`app-installation-token`,
-`google-service-account-jwt`, `static-token`) SHALL drive credential minting and
-rotation inside OpenShell. The control plane SHALL NOT mint, refresh, or rotate the
-usable credential, SHALL NOT place or rotate a raw `Secret`, and SHALL NOT run any
-control-plane token rotator or stale-token handling. Once a provider is realized with
-its material and refresh strategy, OpenShell SHALL keep the usable credential current
-with no external rotation.
+Rotation ownership SHALL be determined by the provider `refresh_strategy`:
 
-#### Scenario: Provider credential keeps working past its token lifetime with no external rotation
+- For the strategies OpenShell supports natively (`google-service-account-jwt`,
+  `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, and the
+  no-refresh `static-token`), OpenShell SHALL own credential minting and rotation. The
+  control plane SHALL supply the durable material and the refresh strategy and SHALL NOT
+  mint, refresh, or rotate the usable credential for these strategies, SHALL NOT place or
+  rotate a raw `Secret`, and SHALL NOT run a control-plane rotator for them. Once such a
+  provider is realized, OpenShell SHALL keep the usable credential current with no
+  external rotation.
+- For GitHub App credentials (the `app-installation-token` intent), a bounded,
+  GitHub-specific control-plane rotator SHALL own rotation, because the installed OpenShell
+  CLI has no `app-installation-token` refresh strategy. The control plane SHALL mint the
+  installation token from the stored PEM and set it on the OpenShell provider through
+  `provider update --credential`, re-minting before expiry. This control-plane rotator is
+  permitted and required for GitHub and is scoped to GitHub App credentials only.
 
-- GIVEN an OpenShell provider realized from stored material with an `app-installation-token` refresh strategy
-- WHEN more than one installation-token lifetime (approximately one hour) elapses
+The control plane SHALL NOT render or rotate a raw Kubernetes `Secret` for any provider
+credential; the usable credential lives inside OpenShell, set either by OpenShell's own
+refresh or by the GitHub control-plane rotator's `provider update`.
+
+#### Scenario: OpenShell-supported provider keeps working with no external rotation
+
+- GIVEN an OpenShell provider realized from stored material with a `google-service-account-jwt` refresh strategy
+- WHEN more than one minted-token lifetime elapses
 - THEN the provider SHALL continue to authenticate because OpenShell refreshes the token
 - AND no control-plane component SHALL mint or rotate the credential
+
+#### Scenario: GitHub provider token is re-minted by the control-plane rotator
+
+- GIVEN an OpenShell GitHub provider realized from a stored GitHub App PEM
+- WHEN the installation token approaches its approximately one-hour expiry
+- THEN the control-plane GitHub rotator SHALL mint a fresh installation token from the PEM and set it through `provider update --credential`
+- AND no raw credential `Secret` SHALL be rendered
 
 ### Requirement: Two Material Resolution Paths
 
@@ -244,9 +277,10 @@ continue to degrade the `AgentRuntime` as [`data-model.spec.md`](./data-model.sp
 
 Provider creation is self-healing and idempotent: once the material appears the
 control plane realizes the provider; re-running reconcile against an already-realized
-provider SHALL update it in place without error. OpenShell owns rotation of the
-realized credential thereafter (see "OpenShell Owns Credential Rotation"); the control
-plane does not resync or re-place a credential value.
+provider SHALL update it in place without error. Rotation of the realized credential
+thereafter is owned by OpenShell for its native strategies and by the bounded
+control-plane GitHub rotator for GitHub App credentials (see "Rotation Ownership by
+Refresh Strategy"); the control plane does not re-place a raw credential `Secret`.
 
 #### Scenario: Missing material sets SecretPending and holds, not Ready
 
@@ -311,15 +345,18 @@ agent-secret writer path is a distinct, separately-scoped grant.
 
 GitHub credentials - BOTH the agent GitHub providers AND the `Repository` import
 credential the `RepositoryReconciler` uses to read a private `.hypershell` subtree -
-SHALL store only the durable GitHub App **PEM** (plus `app_id` / `installation_id`)
-and SHALL be realized through the `app-installation-token` refresh strategy, so the
-short-lived (approximately one hour) installation token is minted and rotated from the
-PEM rather than stored. No static installation token SHALL be stored, and no
-control-plane token rotator SHALL be built.
+SHALL store only the durable GitHub App **PEM** (plus `app_id` / `installation_id`),
+NOT a static installation token. The short-lived (approximately one hour) installation
+token SHALL be minted from the PEM on demand by the **control plane**, not stored. The
+`app-installation-token` value is a HyperShell refresh-strategy intent; the installed
+OpenShell CLI has no matching refresh strategy, so the control plane owns GitHub token
+minting and rotation.
 
-- For an agent GitHub provider, the control plane SHALL realize an
-  `app-installation-token` OpenShell provider from the stored PEM so OpenShell mints
-  and rotates the installation token.
+- For an agent GitHub provider, the control plane SHALL mint the installation token from
+  the stored PEM and set it on the OpenShell provider credential through
+  `provider create --credential` / `provider update --credential`, and a bounded
+  GitHub-specific control-plane rotator SHALL re-mint and update the credential before
+  expiry. OpenShell does NOT own GitHub rotation; the control plane does.
 - For the `Repository` import credential, the `RepositoryReconciler` SHALL mint the
   installation token from the stored PEM (plus `app_id` / `installation_id`) when it
   reads the subtree, rather than reading a pre-stored static installation token. This
@@ -330,8 +367,9 @@ control-plane token rotator SHALL be built.
 
 - GIVEN an `AgentRuntime` with a GitHub `ProviderBinding` whose `refresh_strategy.type = app-installation-token` and whose referenced `SecretSource` holds the GitHub App PEM
 - WHEN the control plane reconciles it with the PEM present in the assigned cluster's Vault
-- THEN it SHALL realize an `app-installation-token` OpenShell provider configured with the PEM, `app_id`, and `installation_id`
+- THEN it SHALL mint an installation token from the PEM, `app_id`, and `installation_id` and set it on the OpenShell provider through `provider create/update --credential`
 - AND no static installation token SHALL be stored and no raw credential `Secret` SHALL be rendered
+- AND the control-plane GitHub rotator SHALL re-mint and update the credential before expiry
 
 #### Scenario: Repository import mints its token from the PEM
 
@@ -340,22 +378,35 @@ control-plane token rotator SHALL be built.
 - THEN it SHALL mint a short-lived installation token from the PEM and use it to authenticate to GitHub
 - AND it SHALL NOT read a pre-stored static installation token
 
-### Requirement: Rotation Owned by OpenShell
+### Requirement: Rotation Ownership Split Between OpenShell and the Control Plane
 
-Keeping the realized credential current SHALL be OpenShell's responsibility through
-the provider `refresh_strategy`, not a control-plane concern. The control plane
-realizes the provider when the material first appears and updates the provider
-configuration in place when the `ProviderBinding` or its material changes; it SHALL
-NOT mint, refresh, or rotate the usable credential and SHALL NOT re-place a rendered
-`Secret`. There SHALL be no control-plane periodic resync or rotation of a credential
-value; there is no rendered credential value to resync.
+For the strategies OpenShell supports natively, keeping the realized credential current
+SHALL be OpenShell's responsibility through the provider `refresh_strategy`, not a
+control-plane concern. For those strategies the control plane realizes the provider when
+the material first appears and updates the provider configuration in place when the
+`ProviderBinding` or its material changes; it SHALL NOT mint, refresh, or rotate the
+usable credential and SHALL NOT re-place a rendered `Secret`. There SHALL be no
+control-plane periodic resync of an OpenShell-rotated credential value.
 
-#### Scenario: Rotation happens inside OpenShell, not the control plane
+For GitHub App credentials, keeping the realized credential current SHALL be the bounded
+control-plane GitHub rotator's responsibility: it re-mints the installation token from the
+stored PEM before expiry and sets it on the OpenShell provider through
+`provider update --credential`. In all cases the control plane SHALL NOT re-place a raw
+Kubernetes `Secret`.
 
-- GIVEN an `AgentRuntime` whose GitHub provider was realized from stored material
+#### Scenario: OpenShell-supported credential rotation happens inside OpenShell
+
+- GIVEN an `AgentRuntime` whose Vertex provider was realized from stored material with a `google-service-account-jwt` strategy
 - WHEN the short-lived credential OpenShell mints expires
 - THEN OpenShell SHALL refresh it under the provider `refresh_strategy`
 - AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT re-place any `Secret`
+
+#### Scenario: GitHub credential rotation happens in the control-plane rotator
+
+- GIVEN an `AgentRuntime` whose GitHub provider was realized from a stored PEM
+- WHEN the installation token approaches expiry
+- THEN the control-plane GitHub rotator SHALL re-mint the token from the PEM and set it through `provider update --credential`
+- AND it SHALL NOT re-place any raw `Secret`
 
 ### Requirement: Import Reconciler Enablement
 
@@ -457,12 +508,12 @@ read clients.)
 | Decision | Rationale |
 |----------|-----------|
 | Realize credentials as OpenShell providers, not rendered raw Secrets | A rendered raw `Secret` is inert, so whoever rendered it must rotate it - the root cause of the GitHub-App stale-token problem in the superseded model. An OpenShell provider is live: given durable material plus a refresh strategy, OpenShell mints and rotates the usable credential, removing any need for a control-plane rotator. It is already the declared model (`ProviderBinding.refresh_strategy`) and the control plane's existing gateway provider-provisioning pattern. |
-| OpenShell owns rotation | Rotation belongs where the live credential is minted. Keeping the control plane out of minting and rotation eliminates stale-token handling and a bespoke rotator component, and keeps the control plane a configurator of providers rather than a credential issuer. |
+| Rotation ownership split by strategy | Rotation belongs where the live credential can be minted. For strategies OpenShell supports natively, OpenShell mints and rotates, keeping the control plane a configurator rather than a credential issuer. For GitHub App credentials the installed OpenShell CLI has no `app-installation-token` refresh strategy, so a bounded control-plane GitHub rotator mints the installation token from the PEM and updates the provider credential. Splitting ownership this way matches what OpenShell can actually do rather than asserting an OpenShell capability that is not confirmed. |
 | SecretSource holds durable material, not a usable credential | The durable material (GitHub App PEM, Vertex SA key, gateway identity) is long-lived and rotation-free; the usable, short-lived credential is derived from it inside OpenShell. Storing only the material, never the usable credential, is what lets OpenShell own rotation and keeps no rotatable secret at rest in a control-plane-placed `Secret`. |
 | Late-binding reference model over hub staging | The destination Vault is unknown at import time because cluster assignment happens only at Gateway provisioning. Declaring a value-less reference and supplying the material later into the assigned cluster's Vault removes all ordering constraints (eventually correct) with no central material store. |
 | Distributed per-cluster read, no global runtime store | A single global store every control plane reads from at runtime is a central trust sink with fleet-wide blast radius and cross-boundary auth. Cluster-local reads keep the material on the cluster that consumes it. |
 | Two explicit resolution paths, coinciding only when co-located | The hub-side write-then-record path (Repository import credential, co-located single-cluster deployment) and the distributed AgentRuntime late-binding path are different stores with different writers. Stating them separately prevents an implementer from collapsing both onto one shared store address, which would reintroduce the forbidden global reader. The paths coincide only in the co-located case, and only because the hub and cluster are the same cluster. |
-| GitHub App via app-installation-token for both agent providers and the Repository import credential | Storing only the durable PEM (plus `app_id` / `installation_id`) and minting the ~1h installation token on demand means there is no static installation token to go stale and no rotator to build. Unifying the agent providers and the `RepositoryReconciler` import credential on this one model supersedes the static-token resolver and closes the import-credential rotation gap. |
+| GitHub App via app-installation-token for both agent providers and the Repository import credential | Storing only the durable PEM (plus `app_id` / `installation_id`) and minting the ~1h installation token on demand means there is no static installation token to go stale. The control plane mints the token and sets it on the OpenShell provider (agent providers) or uses it directly (the `RepositoryReconciler` import credential). Unifying both on this one PEM model supersedes the static-token resolver and closes the import-credential rotation gap; the token minting is a bounded, GitHub-specific control-plane rotator. |
 | `SecretPending` is a benign waiting condition that gates provider creation, not `Degraded` | A reference whose material is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent realize its providers automatically once the material appears. |
 | Actionable upload target on status | Surfacing the resolved cluster and exact Vault mount and path turns a chicken-and-egg ordering problem into a guided user experience. |
 | Agent-secret Vault plane separate from gateway-provider and application planes | Conflating planes would widen each identity's blast radius and couple unrelated rotation and policy lifecycles. A dedicated `secret/data/hypershell/secret-sources/*` path with its own least-privilege writer keeps the three planes isolated. |
