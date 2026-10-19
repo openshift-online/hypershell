@@ -473,7 +473,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": its own
-cluster's gateways, fleet-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
+cluster's gateways, platform-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
 registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
 allowlisted account that is registered is scoped as a control plane.
 
