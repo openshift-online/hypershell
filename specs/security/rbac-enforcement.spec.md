@@ -464,7 +464,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - Platform-wide ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
   `ProviderBindingService`, `InferenceRouteService`, `SecretSourceService`): list, watch,
   and get for `platform:admin`; all writes (create/update/delete) denied for user callers.
-  These kinds are fleet-wide, so a user caller never writes them over gRPC. For the
+  These kinds are platform-wide, so a user caller never writes them over gRPC. For the
   import-write kinds among them (all except `RepositoryService`), declarative-import writes
   are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
   on the import-write path because the import never upserts `Repository` resources.
