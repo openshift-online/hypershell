@@ -253,6 +253,8 @@ function DashboardCard() {
 }
 
 function GatewayHealthCard({ state }: { state: HomepageState }) {
+  const healthyGateways =
+    state === "noAttention" || state === "announcement" ? 5 : 3;
   const status =
     state === "noAttention" || state === "announcement"
       ? {
@@ -282,39 +284,15 @@ function GatewayHealthCard({ state }: { state: HomepageState }) {
         ) : (
           <>
             <StackItem>
-              <Grid hasGutter>
-                {state === "noAttention" ? (
-                  <GridItem span={12}>
-                    <Title headingLevel="h3" size="4xl">
-                      5
-                    </Title>
-                    <Content>gateways</Content>
-                  </GridItem>
-                ) : (
-                  <>
-                    <GridItem md={4}>
-                      <Title headingLevel="h3" size="4xl">
-                        5
-                      </Title>
-                      <Content>gateways</Content>
-                    </GridItem>
-                    <GridItem md={4}>
-                      <Title headingLevel="h3" size="2xl">
-                        3
-                      </Title>
-                      <Content>healthy</Content>
-                    </GridItem>
-                    <GridItem md={4}>
-                      <Title headingLevel="h3" size="2xl">
-                        2
-                      </Title>
-                      <Content>need attention</Content>
-                    </GridItem>
-                  </>
-                )}
-              </Grid>
+              <Progress
+                label={`${healthyGateways} of 5 gateways healthy`}
+                max={5}
+                measureLocation={ProgressMeasureLocation.outside}
+                value={healthyGateways}
+                variant={status.tone}
+              />
             </StackItem>
-            {state === "noAttention" ? null : (
+            {state === "noAttention" || state === "announcement" ? null : (
               <StackItem>
                 <List>
                   <ListItem>
