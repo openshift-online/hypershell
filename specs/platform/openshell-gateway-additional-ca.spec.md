@@ -337,8 +337,8 @@ Resolved during spec review (2026-08-25):
 ## Work-item checklist
 
 - [ ] Phase 0: upstream merge + fork tag (BLOCKED; re-diff before Phase 1)
-- [ ] Phase 2: API field + validation + migration (pre-merge safe)
-- [ ] Phase 2: control-plane materialization + values plumbing + roll-on-change + tests (pre-merge safe)
+- [x] Phase 2: API field + validation + migration (pre-merge safe; landed)
+- [x] Phase 2: control-plane materialization + values plumbing + roll-on-change + tests (pre-merge safe; landed)
 - [ ] Phase 1: `OPENSHELL_TAG` bump, `vendor-openshell-chart`, chart diff review, chart-render test
 - [ ] Phase 3: kind validation, ROKS e2e scenario
 - [ ] Phase 4: rotation runbook; console form exposure (follow-up)
