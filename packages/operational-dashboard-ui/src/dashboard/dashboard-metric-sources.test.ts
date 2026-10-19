@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { OperationalDashboardMetrics } from "../application/dashboard-types";
+import type {
+  OperationalDashboardMetrics,
+  UsageDashboardMetrics,
+} from "../application/dashboard-types";
 import {
   mergeOperationalDashboardMetrics,
   mergeReliabilityDashboardMetrics,
+  mergeUsageDashboardMetrics,
 } from "./dashboard-metric-sources";
 
 const previousMetrics: OperationalDashboardMetrics = {
@@ -96,5 +100,57 @@ describe("mergeReliabilityDashboardMetrics", () => {
     expect(mergeReliabilityDashboardMetrics(previousReliability, next)).toEqual(
       next,
     );
+  });
+});
+
+describe("mergeUsageDashboardMetrics", () => {
+  const previousUsage: UsageDashboardMetrics = {
+    lastSuccessfulRefresh: new Date("2026-10-15T10:00:00.000Z"),
+    metrics: [
+      { id: "gateway-request-volume", unit: "requests", value: "100" },
+      { id: "gateway-error-rate", unit: "%", value: "1.00" },
+      { id: "sandbox-utilization", total: "20", unit: "sandboxes", value: "8" },
+    ],
+  };
+
+  it("preserves only stale metrics from the failed usage source", () => {
+    const next: UsageDashboardMetrics = {
+      failedSources: ["usage-gateways"],
+      lastSuccessfulRefresh: new Date("2026-10-15T11:00:00.000Z"),
+      metrics: [
+        {
+          id: "sandbox-utilization",
+          total: "24",
+          unit: "sandboxes",
+          value: "10",
+        },
+      ],
+    };
+
+    expect(mergeUsageDashboardMetrics(previousUsage, next)).toEqual({
+      failedSources: ["usage-gateways"],
+      lastSuccessfulRefresh: next.lastSuccessfulRefresh,
+      metrics: [
+        {
+          id: "sandbox-utilization",
+          total: "24",
+          unit: "sandboxes",
+          value: "10",
+        },
+        { id: "gateway-request-volume", unit: "requests", value: "100" },
+        { id: "gateway-error-rate", unit: "%", value: "1.00" },
+      ],
+    });
+  });
+
+  it("returns the next payload when every usage source succeeds", () => {
+    const next: UsageDashboardMetrics = {
+      lastSuccessfulRefresh: new Date("2026-10-15T11:00:00.000Z"),
+      metrics: [
+        { id: "gateway-request-volume", unit: "requests", value: "120" },
+      ],
+    };
+
+    expect(mergeUsageDashboardMetrics(previousUsage, next)).toEqual(next);
   });
 });

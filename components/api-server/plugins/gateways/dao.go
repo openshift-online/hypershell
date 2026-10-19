@@ -60,7 +60,8 @@ type GatewayDao interface {
 	// across live gateways grouped by resolved ManagedCluster Name (NULL counts
 	// treated as zero, unresolved references under managedClusterUnknown). It
 	// powers the per-managed-cluster attribution of
-	// hypershell_gateways_active_sandboxes_total.
+	// hypershell_gateways_active_sandboxes_total and keeps the Gateway namespace
+	// available for authorized usage-dashboard scoping.
 	SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error)
 }
 
@@ -78,9 +79,11 @@ type ClusterPhaseCount struct {
 	Count       int64
 }
 
-// ClusterSandboxCount is one managed cluster's active-sandbox sum.
+// ClusterSandboxCount is one managed cluster and Gateway namespace's
+// active-sandbox sum.
 type ClusterSandboxCount struct {
 	ClusterName string
+	Namespace   string
 	Count       int64
 }
 
@@ -370,9 +373,9 @@ func (d *sqlGatewayDao) SumActiveSandboxCountByCluster(ctx context.Context) ([]C
 	g2 := (*d.sessionFactory).New(ctx)
 	out := make([]ClusterSandboxCount, 0)
 	if err := g2.Model(&Gateway{}).
-		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, COALESCE(SUM(COALESCE(gateways.active_sandbox_count, 0)), 0) as count").
+		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, gateways.namespace as namespace, COALESCE(SUM(COALESCE(gateways.active_sandbox_count, 0)), 0) as count").
 		Joins(gatewayClusterJoin).
-		Group("cluster_name").
+		Group("cluster_name, gateways.namespace").
 		Scan(&out).Error; err != nil {
 		return nil, err
 	}

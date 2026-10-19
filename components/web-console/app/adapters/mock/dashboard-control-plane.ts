@@ -5,6 +5,7 @@ import type {
 import {
   mockOperationalDashboardMetrics,
   mockReliabilityDashboardMetrics,
+  mockUsageDashboardMetrics,
 } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
 
 export function createMockDashboardControlPlane(): DashboardControlPlane {
@@ -27,6 +28,17 @@ export function createMockDashboardControlPlane(): DashboardControlPlane {
 
       return {
         ...mockReliabilityDashboardMetrics,
+        lastSuccessfulRefresh: new Date(),
+      };
+    },
+
+    async getUsageMetrics(context: DashboardInvocationContext) {
+      context.signal?.throwIfAborted();
+
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // This is just for demos for now
+
+      return {
+        ...mockUsageDashboardMetrics,
         lastSuccessfulRefresh: new Date(),
       };
     },

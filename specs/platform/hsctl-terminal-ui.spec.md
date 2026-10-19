@@ -25,7 +25,9 @@ obtains and renews credentials.
 
 Not in scope: the appearance and key bindings of generated screens, which belong
 to the rh-trex-ai runtime, and the `hsctl` resource commands (`get`, `list`,
-`create`, `update`, `delete`, `apply`), which remain the scripting interface.
+`create`, `update`, `delete`, `apply`), which remain the scripting interface. The
+resource commands for the Extension API kinds are codified in
+[`hsctl-extension-commands.spec.md`](hsctl-extension-commands.spec.md).
 
 ## Requirements
 

@@ -1,0 +1,20 @@
+.hypershell-usage-widget {
+  min-width: 0;
+}
+
+.hypershell-usage-widget .pf-v6-widget-grid-tile__title {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.hypershell-usage-widget--system .pf-v6-widget-grid-tile__title::after {
+  background: #f4c145;
+  border-radius: var(--pf-t--global--border--radius--pill);
+  color: var(--pf-t--global--color--text--regular);
+  content: var(--hypershell-system-label, "System");
+  font-size: var(--pf-t--global--font--size--body--sm);
+  font-weight: var(--pf-t--global--font--weight--body--regular);
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+  padding: var(--pf-t--global--spacer--xs) var(--pf-t--global--spacer--sm);
+}
