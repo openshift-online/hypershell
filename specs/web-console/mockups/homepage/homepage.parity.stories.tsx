@@ -24,6 +24,7 @@ function makeStory(state: HomepageState): Story {
 }
 
 export const Loaded: Story = makeStory("loaded");
+export const Announcement: Story = makeStory("announcement");
 export const PartialData: Story = makeStory("partial");
 export const ClusterError: Story = makeStory("clusterError");
 export const ClusterWarning: Story = makeStory("clusterWarning");

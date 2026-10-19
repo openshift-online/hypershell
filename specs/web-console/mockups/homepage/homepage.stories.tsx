@@ -17,6 +17,10 @@ export const Loaded: Story = {
   args: { state: "loaded" },
 };
 
+export const Announcement: Story = {
+  args: { state: "announcement" },
+};
+
 export const PartialData: Story = {
   args: { state: "partial" },
 };

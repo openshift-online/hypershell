@@ -19,6 +19,11 @@ import {
   Label,
   List,
   ListItem,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  ModalVariant,
   PageSection,
   Progress,
   ProgressMeasureLocation,
@@ -31,6 +36,7 @@ import {
 import {
   ArrowRightIcon,
   BookOpenIcon,
+  BoltIcon,
   ChartLineIcon,
   CheckCircleIcon,
   CodeIcon,
@@ -38,14 +44,19 @@ import {
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
   HashtagIcon,
+  InfoCircleIcon,
+  OutlinedClockIcon,
   RocketIcon,
   SearchIcon,
   ServerAltIcon,
 } from "@patternfly/react-icons";
 
+import { useId, useState } from "react";
+
 import { MockupTemplate } from "../shell/mockup-template";
 
 export type HomepageState =
+  | "announcement"
   | "loaded"
   | "partial"
   | "clusterError"
@@ -120,72 +131,106 @@ function HomepageCard({
 }
 
 function WelcomeCard() {
+  const quickCreateTitleId = useId();
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+
   return (
-    <Card>
-      <CardBody>
-        <Split hasGutter>
-          <SplitItem isFilled>
-            <Content>
-              <Title headingLevel="h2" size="xl">
-                Pick a gateway. Ship your sandboxes.
-              </Title>
-              <p className="pf-v6-u-pt-lg pf-v6-u-pb-lg">
-                HyperShell runs OpenShell gateways across clusters and clouds
-                for you. Choose where your workload belongs and get to a running
-                gateway in just a few steps.
-              </p>
-            </Content>
-            <Flex gap={{ default: "gapMd" }}>
-              <FlexItem>
-                <Button
-                  component="a"
-                  href="/gateways/new"
-                  icon={<RocketIcon />}
-                  size="lg"
-                  variant="primary"
-                >
-                  Provision my gateway
-                </Button>
-              </FlexItem>
-              <FlexItem>
-                <Button
-                  component="a"
-                  href="/gateways"
-                  icon={<ArrowRightIcon />}
-                  size="lg"
-                  variant="secondary"
-                >
-                  View my gateways
-                </Button>
-              </FlexItem>
-            </Flex>
-          </SplitItem>
-          <SplitItem>
-            <Flex
-              alignItems={{ default: "alignItemsCenter" }}
-              direction={{ default: "column" }}
-              gap={{ default: "gapLg" }}
-            >
-              <FlexItem>
-                <Icon size="2xl">
-                  <RocketIcon aria-hidden />
-                </Icon>
-              </FlexItem>
-              <FlexItem>
-                <Icon size="xl">
-                  <CubesIcon aria-hidden />
-                </Icon>
-              </FlexItem>
-              <FlexItem>
-                <Icon size="lg">
-                  <ChartLineIcon aria-hidden />
-                </Icon>
-              </FlexItem>
-            </Flex>
-          </SplitItem>
-        </Split>
-      </CardBody>
-    </Card>
+    <>
+      <Card>
+        <CardBody>
+          <Split hasGutter>
+            <SplitItem isFilled>
+              <Content>
+                <Title headingLevel="h2" size="xl">
+                  Pick a gateway. Ship your sandboxes.
+                </Title>
+                <p className="pf-v6-u-pt-lg pf-v6-u-pb-lg">
+                  HyperShell runs OpenShell gateways across clusters and clouds
+                  for you. Choose where your workload belongs and get to a
+                  running gateway in just a few steps.
+                </p>
+              </Content>
+              <Flex gap={{ default: "gapMd" }}>
+                <FlexItem>
+                  <Button
+                    component="a"
+                    href="/gateways/new"
+                    icon={<RocketIcon />}
+                    size="lg"
+                    variant="primary"
+                  >
+                    Create a gateway
+                  </Button>
+                </FlexItem>
+                <FlexItem>
+                  <Button
+                    component="a"
+                    href="/gateways"
+                    icon={<ArrowRightIcon />}
+                    size="lg"
+                    variant="secondary"
+                  >
+                    View gateways
+                  </Button>
+                </FlexItem>
+                <FlexItem>
+                  <Button
+                    icon={<BoltIcon />}
+                    onClick={() => setQuickCreateOpen(true)}
+                    variant="link"
+                  >
+                    Quick create
+                  </Button>
+                </FlexItem>
+              </Flex>
+            </SplitItem>
+            <SplitItem>
+              <Flex
+                alignItems={{ default: "alignItemsCenter" }}
+                direction={{ default: "column" }}
+                gap={{ default: "gapLg" }}
+              >
+                <FlexItem>
+                  <Icon size="2xl">
+                    <RocketIcon aria-hidden />
+                  </Icon>
+                </FlexItem>
+                <FlexItem>
+                  <Icon size="xl">
+                    <CubesIcon aria-hidden />
+                  </Icon>
+                </FlexItem>
+              </Flex>
+            </SplitItem>
+          </Split>
+        </CardBody>
+      </Card>
+      <Modal
+        aria-labelledby={quickCreateTitleId}
+        isOpen={quickCreateOpen}
+        onClose={() => setQuickCreateOpen(false)}
+        variant={ModalVariant.small}
+      >
+        <ModalHeader
+          labelId={quickCreateTitleId}
+          title="Quick create a gateway"
+        />
+        <ModalBody>
+          <Content>
+            Quick create makes a gateway on IBM Cloud public with a generated
+            name. You can rename it after it starts.
+          </Content>
+        </ModalBody>
+        <ModalFooter>
+          <Button onClick={() => setQuickCreateOpen(false)} variant="primary">
+            Create gateway
+          </Button>
+          <Button onClick={() => setQuickCreateOpen(false)} variant="link">
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+    </>
   );
 }
 
@@ -209,7 +254,7 @@ function DashboardCard() {
 
 function GatewayHealthCard({ state }: { state: HomepageState }) {
   const status =
-    state === "noAttention"
+    state === "noAttention" || state === "announcement"
       ? {
           title: "All 5 gateways are healthy",
           tone: "success" as const,
@@ -225,7 +270,7 @@ function GatewayHealthCard({ state }: { state: HomepageState }) {
           };
 
   return (
-    <HomepageCard icon={<CubesIcon />} title="Your gateways">
+    <HomepageCard icon={<CubesIcon />} title="Gateway health">
       <Stack hasGutter>
         <StackItem>
           <Alert isInline title={status.title} variant={status.tone} />
@@ -523,6 +568,42 @@ function PlatformOverviewCard({ state }: { state: HomepageState }) {
   );
 }
 
+function PlatformPulseCard() {
+  return (
+    <HomepageCard icon={<InfoCircleIcon />} title="Platform pulse">
+      <Grid hasGutter>
+        {[
+          {
+            description: "IBM public",
+            icon: <CubesIcon />,
+            title: "OpenShell 4.1.2",
+          },
+          {
+            description: "Released Oct 12",
+            icon: <OutlinedClockIcon />,
+            title: "HyperShell 2.7.0",
+          },
+        ].map((item) => (
+          <GridItem key={item.title} md={6}>
+            <Flex
+              alignItems={{ default: "alignItemsFlexStart" }}
+              gap={{ default: "gapMd" }}
+            >
+              <FlexItem>{item.icon}</FlexItem>
+              <FlexItem flex={{ default: "flex_1" }}>
+                <Title headingLevel="h3" size="lg">
+                  {item.title}
+                </Title>
+                <Content component="small">{item.description}</Content>
+              </FlexItem>
+            </Flex>
+          </GridItem>
+        ))}
+      </Grid>
+    </HomepageCard>
+  );
+}
+
 function LearnMoreCard() {
   const resources = [
     {
@@ -628,6 +709,16 @@ export function HomepagePageSurface({
         }}
         variant="secondary"
       >
+        {state === "announcement" ? (
+          <Alert
+            className="pf-v6-u-mb-lg"
+            title="Scheduled downtime"
+            variant="info"
+          >
+            HyperShell will be unavailable on Oct 24 from 02:00 to 03:00 CT
+            while we upgrade the platform.
+          </Alert>
+        ) : null}
         <Grid hasGutter>
           <GridItem xl={8}>
             <WelcomeCard />
@@ -644,6 +735,9 @@ export function HomepagePageSurface({
           </GridItem>
           <GridItem xl={4}>
             <ClusterAvailabilityCard state={state} />
+          </GridItem>
+          <GridItem xl={6}>
+            <PlatformPulseCard />
           </GridItem>
           <GridItem xl={6}>
             <LearnMoreCard />
