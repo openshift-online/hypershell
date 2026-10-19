@@ -184,6 +184,49 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 	return nil
 }
 
+// resolveGatewayPlacement validates and resolves a late-bound placement intent for
+// a gateway being created, mutating the model in place. It persists the placement
+// selector so the API server can re-evaluate it, assigns a resolved cluster_id when
+// an eligible cluster matches, and otherwise leaves the gateway unplaced in the
+// Pending phase with an awaiting-placement status so it binds when a matching
+// cluster appears (gateway-provision-placement.spec.md GP-07).
+func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent, model *Gateway) *errors.ServiceError {
+	if placementErr := validatePlacementIntent(intent); placementErr != nil {
+		return placementErr
+	}
+	if h.placement == nil {
+		return errors.GeneralError("gateway placement resolver is unavailable")
+	}
+	placementJSON, marshalErr := marshalPlacement(intent)
+	if marshalErr != nil {
+		return errors.GeneralError("failed to persist gateway placement: %s", marshalErr)
+	}
+	model.Placement = placementJSON
+	clusterID, resolved, placementErr := h.placement(ctx, intent)
+	if placementErr != nil {
+		return placementErr
+	}
+	if resolved {
+		model.ClusterId = clusterID
+		return nil
+	}
+	applyAwaitingPlacement(model)
+	return nil
+}
+
+// applyAwaitingPlacement marks a late-bound gateway that currently matches no
+// eligible cluster as unplaced: empty cluster_id, the canonical Pending phase, and
+// a human-readable awaiting-placement status. The API server assigns a cluster_id
+// when a matching ManagedCluster becomes available (data-model.spec.md, "Gateway
+// Placement and Late Binding").
+func applyAwaitingPlacement(model *Gateway) {
+	model.ClusterId = ""
+	pending := string(gatewayhealth.PhasePending)
+	model.Phase = &pending
+	status := awaitingPlacementStatus
+	model.Status = &status
+}
+
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, clusterVersions ClusterProvisioningVersionLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
 		gateway:            gateway,
@@ -210,23 +253,30 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
-			placement := gateway.GetPlacement()
-			if placementErr := validatePlacementIntent(placement); placementErr != nil {
-				return nil, placementErr
-			}
-			if h.placement == nil {
-				return nil, errors.GeneralError("gateway placement resolver is unavailable")
-			}
-			clusterID, placementErr := h.placement(ctx, placement)
-			if placementErr != nil {
-				return nil, placementErr
-			}
-			gatewayModel.ClusterId = clusterID
 			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
 				return nil, phaseErr
 			}
-			if clusterErr := validateClusterReference(ctx, h.clusters, gatewayModel.ClusterId); clusterErr != nil {
-				return nil, clusterErr
+			// cluster_id is optional: a gateway is either pinned to a cluster
+			// (cluster_id) or late-bound by a placement selector. Exactly one must be
+			// supplied. See data-model.spec.md, "Gateway Placement and Late Binding".
+			pinnedCluster := strings.TrimSpace(gateway.GetClusterId())
+			hasCluster := pinnedCluster != ""
+			hasPlacement := gateway.HasPlacement()
+			if hasCluster && hasPlacement {
+				return nil, errors.Validation("provide exactly one of cluster_id or placement, not both")
+			}
+			if !hasCluster && !hasPlacement {
+				return nil, errors.Validation("a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
+			}
+			if hasCluster {
+				if clusterErr := validateClusterReference(ctx, h.clusters, pinnedCluster); clusterErr != nil {
+					return nil, clusterErr
+				}
+				gatewayModel.ClusterId = pinnedCluster
+			} else {
+				if clusterErr := h.resolveGatewayPlacement(ctx, gateway.GetPlacement(), gatewayModel); clusterErr != nil {
+					return nil, clusterErr
+				}
 			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {

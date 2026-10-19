@@ -18,6 +18,11 @@ type GatewayDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, error)
 	All(ctx context.Context) (GatewayList, error)
+	// FindUnplaced returns live gateways that are late-bound but not yet placed:
+	// they carry a persisted placement selector and have an empty cluster_id. The
+	// API server re-resolves these when a matching ManagedCluster appears
+	// (data-model.spec.md, "Gateway Placement and Late Binding").
+	FindUnplaced(ctx context.Context) (GatewayList, error)
 	// ClusterIDByNamespace returns the cluster_id of the live gateway in
 	// namespace, or gorm.ErrRecordNotFound when no live gateway backs it.
 	ClusterIDByNamespace(ctx context.Context, namespace string) (string, error)
@@ -170,6 +175,15 @@ func (d *sqlGatewayDao) All(ctx context.Context) (GatewayList, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	gateways := GatewayList{}
 	if err := g2.Find(&gateways).Error; err != nil {
+		return nil, err
+	}
+	return gateways, nil
+}
+
+func (d *sqlGatewayDao) FindUnplaced(ctx context.Context) (GatewayList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	gateways := GatewayList{}
+	if err := g2.Where("(cluster_id = '' OR cluster_id IS NULL) AND placement IS NOT NULL").Find(&gateways).Error; err != nil {
 		return nil, err
 	}
 	return gateways, nil

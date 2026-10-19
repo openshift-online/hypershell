@@ -9,7 +9,14 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
-type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (string, *errors.ServiceError)
+// PlacementResolver resolves a placement intent to a concrete managed-cluster id.
+// It returns resolved=true with the selected cluster id when an eligible cluster
+// matches. For a capability-label selector that matches no eligible cluster it
+// returns resolved=false with a nil error, so the caller can late-bind the gateway
+// (create it Pending and awaiting placement) rather than fail. A local-kind intent
+// that cannot be satisfied, and any validation or lookup failure, return a non-nil
+// ServiceError (see gateway-provision-placement.spec.md GP-07 and GP-08).
+type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (clusterID string, resolved bool, svcErr *errors.ServiceError)
 type PlacementAvailabilityResolver func(context.Context, [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
 
 func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.ServiceError {

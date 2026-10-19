@@ -61,6 +61,16 @@ func (d *gatewayDaoMock) All(ctx context.Context) (GatewayList, error) {
 	return d.gateways, nil
 }
 
+func (d *gatewayDaoMock) FindUnplaced(ctx context.Context) (GatewayList, error) {
+	unplaced := GatewayList{}
+	for _, gw := range d.gateways {
+		if gw.ClusterId == "" && gw.Placement != nil {
+			unplaced = append(unplaced, gw)
+		}
+	}
+	return unplaced, nil
+}
+
 func (d *gatewayDaoMock) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, error) {
 	gw := d.findByNamespace(namespace)
 	if gw == nil {

@@ -15,9 +15,16 @@ const gatewayNamespacePrefix = "openshell-"
 type Gateway struct {
 	api.Meta
 	hypershellapi.TraceMeta
-	Name                   string  `json:"name"`
-	ClusterId              string  `json:"cluster_id"`
-	Namespace              string  `json:"namespace"`
+	Name      string `json:"name"`
+	ClusterId string `json:"cluster_id"`
+	Namespace string `json:"namespace"`
+	// Placement is the persisted capability-label placement selector for a
+	// late-bound gateway, stored as a JSON-encoded GatewayPlacementIntent
+	// ({"selector":[...]} or {"mode":"local-kind"}). NULL for a gateway pinned with
+	// an explicit ClusterId. The API server resolves it to a concrete ClusterId at
+	// create time and re-evaluates it for late binding. See data-model.spec.md,
+	// "Requirement: Gateway Placement and Late Binding".
+	Placement              *string `json:"placement" gorm:"type:jsonb"`
 	ExternalDns            *string `json:"external_dns"`
 	TlsMode                *string `json:"tls_mode"`
 	ServiceType            *string `json:"service_type"`

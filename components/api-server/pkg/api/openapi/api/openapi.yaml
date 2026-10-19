@@ -4049,6 +4049,10 @@ components:
           name:
             type: string
           cluster_id:
+            description: Managed cluster this gateway is assigned to. Empty while
+              a late-bound gateway (one created with a placement selector) is awaiting
+              placement; the API server assigns it when a matching ManagedCluster
+              is available.
             type: string
           namespace:
             description: API-assigned Kubernetes namespace derived from the Gateway
@@ -5975,6 +5979,11 @@ components:
           type: string
       type: object
     GatewayCreateRequest:
+      description: A gateway is created either pinned to a cluster (set cluster_id)
+        or late-bound by placement (set placement). Exactly one of cluster_id or placement
+        must be supplied. The web-console provision form submits only the placement
+        shape; the pinned shape is available to hsctl apply and the declarative .hypershell
+        import.
       example:
         phase: phase
         image: image
@@ -5984,6 +5993,7 @@ components:
         credential_driver: credential_driver
         oidc: oidc
         supervisor_image: supervisor_image
+        cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
         route: route
@@ -5997,6 +6007,10 @@ components:
         status: status
       properties:
         name:
+          type: string
+        cluster_id:
+          description: Pin the gateway to this managed cluster. Mutually exclusive
+            with placement.
           type: string
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
@@ -6032,7 +6046,6 @@ components:
           type: string
       required:
       - name
-      - placement
       type: object
     GatewayPlacementSelector:
       items:

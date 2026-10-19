@@ -203,34 +203,42 @@ func managedPlacementAvailable(snapshot placementSnapshot, selector []string) bo
 	return false
 }
 
-func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, *errors.ServiceError) {
+// Resolve implements PlacementResolver. A local-kind intent that cannot be
+// satisfied is a hard error (GP-08), while a capability-label selector that
+// matches no eligible cluster yields resolved=false with a nil error so the
+// gateway is late-bound (created Pending, awaiting placement) rather than rejected
+// (GP-07).
+func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *errors.ServiceError) {
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {
-		return "", svcErr
+		return "", false, svcErr
 	}
 	if intent.Mode != nil && *intent.Mode == "local-kind" {
 		if os.Getenv("HYPERSHELL_PLATFORM_KIND") != "true" {
-			return "", errors.Validation("local-kind placement is only available in the Kind development environment")
+			return "", false, errors.Validation("local-kind placement is only available in the Kind development environment")
 		}
 		if snapshot.localID == "" {
-			return "", errors.Validation("local-kind placement is unavailable")
+			return "", false, errors.Validation("local-kind placement is unavailable")
 		}
-		return snapshot.localID, nil
+		return snapshot.localID, true, nil
 	}
 	selector := intent.Selector
 	selector, validationErr := managedClusters.NormalizeSelector(selector)
 	if validationErr != nil {
-		return "", validationErr
+		return "", false, validationErr
 	}
 	selected, err := p.selectManaged(snapshot, selector)
 	if err != nil {
 		if stderrors.Is(err, errNoEligiblePlacement) {
-			return "", errors.Validation("no eligible managed cluster is available for the requested placement")
+			// No connected cluster matches the selector yet. Late-bind: the caller
+			// creates the gateway Pending and awaiting placement, and the API server
+			// assigns a cluster when a matching ManagedCluster becomes available.
+			return "", false, nil
 		}
 		glog.Errorf("failed to resolve managed cluster placement selector=%v: %v", selector, err)
-		return "", errors.GeneralError("failed to resolve managed cluster placement")
+		return "", false, errors.GeneralError("failed to resolve managed cluster placement")
 	}
-	return selected, nil
+	return selected, true, nil
 }
 
 func (p *registeredPlacementService) Availability(ctx context.Context, selectors [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError) {
@@ -319,6 +327,27 @@ func init() {
 		})
 	})
 
+	// Late binding: when a ManagedCluster registers (or is restored), re-resolve
+	// every gateway that is still awaiting placement and assign a cluster_id to any
+	// whose selector now matches. ManagedCluster heartbeats do NOT emit broker
+	// events (only new registration / restore do), so this fires on "a matching
+	// cluster appears" rather than on every heartbeat. See data-model.spec.md,
+	// "Gateway Placement and Late Binding", and control-plane.spec.md.
+	pkgserver.RegisterController("GatewayPlacementRebinder", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		gatewayService := Service(envServices)
+		placement := newRegisteredPlacementService(envServices)
+		rebind := func(ctx context.Context, _ string) error {
+			return resolvePendingPlacements(ctx, gatewayService, placement.Resolve)
+		}
+		manager.Add(&controllers.ControllerConfig{
+			Source: "ManagedClusters",
+			Handlers: map[api.EventType][]controllers.ControllerHandlerFunc{
+				api.CreateEventType: {rebind},
+			},
+		})
+	})
+
 	pkgserver.RegisterGRPCService("gateways", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		gatewayService := Service(envServices)
@@ -357,4 +386,5 @@ func init() {
 	db.RegisterMigration(migrationDropGatewayReleasesTable())
 	db.RegisterMigration(migrationDropGatewayNetworksTable())
 	db.RegisterMigration(migrationAddRepositoryOwnership())
+	db.RegisterMigration(migrationAddPlacement())
 }
