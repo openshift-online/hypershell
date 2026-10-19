@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v4"
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 func TestProvisionServiceAccountCreatesLeastPrivilegeClientAndVerifiesToken(t *testing.T) {

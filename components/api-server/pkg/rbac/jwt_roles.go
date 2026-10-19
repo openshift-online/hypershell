@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
