@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { AdoptionDashboardMockup } from "./adoption-dashboard";
+import { AdoptionDashboardMockup } from "./adoption-dashboard-mockup";
 const meta = {
   title: "Mockups/Dashboards/Adoption dashboard",
   component: AdoptionDashboardMockup,

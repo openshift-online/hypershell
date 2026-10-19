@@ -25,6 +25,8 @@ function renderNavigation(updatedMinutesAgo?: number) {
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
       getReliabilityMetrics: () =>
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     },
   });
 

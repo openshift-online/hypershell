@@ -302,7 +302,7 @@ import (
 )
 
 func main() {
-	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "TODO") // GatewayCreateRequest | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -692,7 +692,7 @@ import (
 )
 
 func main() {
-	repository := *openapiclient.NewRepository("Name_example", "Url_example", "Provider_example", "SecretSourceId_example") // Repository | Repository data
+	repository := *openapiclient.NewRepository("Name_example", "Url_example", "Provider_example") // Repository | Repository data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)

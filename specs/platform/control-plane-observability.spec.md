@@ -68,7 +68,7 @@ The SDK initialization SHALL be called from `main()` before launching any gorout
 
 ### Requirement: CP-OBS-02 -- Reconcile Spans
 
-The control plane SHALL create one span per resource reconciliation, wrapping each `Handle()` invocation on an event-driven reconciler. The span SHALL be named by the resource kind and event type (for example `reconcile Gateway`, `delete Gateway`, `reconcile Fleet`) so Jaeger groups spans by reconciler. A resource identifier SHALL NOT appear in the span name to keep cardinality bounded per `CP-OBS-06`.
+The control plane SHALL create one span per resource reconciliation, wrapping each `Handle()` invocation on an event-driven reconciler. The span SHALL be named by the resource kind and event type (for example `reconcile Gateway`, `delete Gateway`, `reconcile ManagedCluster`) so Jaeger groups spans by reconciler. A resource identifier SHALL NOT appear in the span name to keep cardinality bounded per `CP-OBS-06`.
 
 Each reconcile span SHALL record at least the resource kind and event type as span attributes. The span status SHALL reflect the reconcile outcome: OK on success, Error with a description on failure. When a reconcile is skipped because of the phase gate or deduplication, no span SHALL be created for the skipped event.
 

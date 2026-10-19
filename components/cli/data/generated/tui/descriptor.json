@@ -3654,6 +3654,12 @@
         "contentType": "application/json",
         "fields": [
           {
+            "name": "cluster_id",
+            "type": "string",
+            "required": false,
+            "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement."
+          },
+          {
             "name": "credential_driver",
             "type": "string",
             "required": false,
@@ -3689,7 +3695,7 @@
           {
             "name": "placement",
             "type": "object",
-            "required": true,
+            "required": false,
             "description": "Exactly one of selector or mode must be supplied."
           },
           {
@@ -4296,8 +4302,8 @@
           {
             "name": "secret_source_id",
             "type": "string",
-            "required": true,
-            "description": "References a SecretSource holding the provider credential"
+            "required": false,
+            "description": "Optional reference to a SecretSource holding the provider credential. Omit for a public repository, which is read anonymously."
           },
           {
             "name": "updated_at",

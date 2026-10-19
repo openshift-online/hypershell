@@ -15,7 +15,7 @@ func ConvertRepository(r openapi.Repository) *Repository {
 		Name:           r.Name,
 		Url:            r.Url,
 		Provider:       r.Provider,
-		SecretSourceId: r.SecretSourceId,
+		SecretSourceId: util.NilToEmptyString(r.SecretSourceId),
 		DefaultBranch:  r.DefaultBranch,
 		ImportPath:     r.ImportPath,
 	}
@@ -28,6 +28,12 @@ func ConvertRepository(r openapi.Repository) *Repository {
 
 func PresentRepository(r *Repository) openapi.Repository {
 	reference := presenters.PresentReference(r.ID, r)
+	// secret_source_id is optional: present it only when set so a public repository
+	// (no credential) serializes without the field.
+	var secretSourceID *string
+	if r.SecretSourceId != "" {
+		secretSourceID = openapi.PtrString(r.SecretSourceId)
+	}
 	return openapi.Repository{
 		Id:             reference.Id,
 		Kind:           reference.Kind,
@@ -37,7 +43,7 @@ func PresentRepository(r *Repository) openapi.Repository {
 		Name:           r.Name,
 		Url:            r.Url,
 		Provider:       r.Provider,
-		SecretSourceId: r.SecretSourceId,
+		SecretSourceId: secretSourceID,
 		DefaultBranch:  r.DefaultBranch,
 		ImportPath:     r.ImportPath,
 		Status:         r.Status,

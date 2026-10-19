@@ -17,12 +17,6 @@ HyperShell REST List APIs remain available for other consumers:
 
 This specification defines aggregation rules, dashboard-operator authorization, operational dashboard metric IDs, Prometheus collectors, the BFF proxy route, and the **Inventory summary** presentation. It does **not** add usage trend graphs.
 
-### Fleet and database resource exclusion
-
-HyperShell removed the top-level Fleet resource and `fleet_id` scoping from all kinds (`platform/data-model.spec.md`). There is no `GET /api/hypershell/v1/fleets` endpoint. Fleet totals and fleet creation windows from HYPERSHELL-278 are **out of scope** for this specification.
-
-HyperShell also removed the ManagedDatabase resource: the gateway database server is deployment configuration of the control plane (`platform/openshell-gateway-database.spec.md`), not an API resource, so there is no database inventory. The former `managed-databases` metric, `hypershell_managed_databases_*` series, `managed-databases` and `managed-database-status` widgets, and the **Databases** summary row SHALL NOT be emitted or rendered.
-
 ### Relationship to other specifications
 
 | Concern                      | Platform inventory (this spec)                                                          | Operational dashboard                                                                |
@@ -245,7 +239,7 @@ The widget catalog SHALL add these types:
 | `managed-cluster-providers` | `managed-clusters` | Yes            | Provider donut from `inventoryProviders`; legend ordered by descending count (PI-05)                               |
 | `managed-cluster-regions`   | `managed-clusters` | Yes            | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
 
-The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, `managed-databases`, or `managed-database-status` widget types: the ManagedDatabase resource no longer exists (see `platform/openshell-gateway-database.spec.md`), and a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (PI-06); dimension breakdowns SHALL use the default-layout provider and region donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-22, OP-DASH-21). No inventory status donut widget SHALL exist.
+The widget catalog SHALL NOT register standalone `managed-clusters` or `managed-cluster-status` widget types: a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (PI-06); dimension breakdowns SHALL use the default-layout provider and region donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-22, OP-DASH-21). No inventory status donut widget SHALL exist.
 
 Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
 

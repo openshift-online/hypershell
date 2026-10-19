@@ -190,6 +190,22 @@ export function alignDailySeriesPreservingGaps(
   }));
 }
 
+export function alignDailyNumericSeriesPreservingGaps(
+  samples: Map<number, number>,
+  days = dailyRangeLookbackDays,
+): { date: string; value: number | null }[] {
+  const valuesByDate = new Map<string, number>();
+
+  for (const [timestamp, value] of samples) {
+    valuesByDate.set(formatUtcCalendarDate(timestamp), value);
+  }
+
+  return utcCalendarDatesInclusive(days).map((date) => ({
+    date,
+    value: valuesByDate.get(date) ?? null,
+  }));
+}
+
 export function mapHourlyIntegerSeries(
   samples: Map<number, number>,
 ): { count: number; hour: string }[] {

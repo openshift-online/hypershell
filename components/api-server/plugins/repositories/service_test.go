@@ -95,11 +95,44 @@ func TestCreate_UnsupportedProvider(t *testing.T) {
 	}
 }
 
-func TestCreate_MissingSecretSource(t *testing.T) {
+// A set-but-nonexistent secret_source_id SHALL still be rejected with a validation
+// error (the FK check runs for a non-empty value).
+func TestCreate_NonexistentSecretSource(t *testing.T) {
 	svc := repositories.NewRepositoryService(&fakeRepositoryDao{secretSourceExists: false}, &fakeEventService{})
 	_, err := svc.Create(context.Background(), validRepo())
 	if err == nil || err.Code != errors.ErrorValidation {
-		t.Fatalf("expected validation error for missing secret source, got %v", err)
+		t.Fatalf("expected validation error for nonexistent secret source, got %v", err)
+	}
+}
+
+// An empty secret_source_id SHALL be accepted (public repository, anonymous read):
+// it must NOT be FK-validated and must NOT produce the "does not reference an
+// existing SecretSource" error.
+func TestCreate_EmptySecretSource_Accepted(t *testing.T) {
+	// secretSourceExists is false to prove the FK check is skipped for an empty value.
+	dao := &fakeRepositoryDao{secretSourceExists: false}
+	svc := repositories.NewRepositoryService(dao, &fakeEventService{})
+	repo := validRepo()
+	repo.SecretSourceId = ""
+	created, err := svc.Create(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("expected empty secret_source_id to be accepted, got %v", err)
+	}
+	if created.SecretSourceId != "" {
+		t.Fatalf("expected empty secret_source_id to be preserved, got %q", created.SecretSourceId)
+	}
+}
+
+// A set secret_source_id that references an existing SecretSource SHALL be accepted.
+func TestCreate_ValidSecretSource_Accepted(t *testing.T) {
+	dao := &fakeRepositoryDao{secretSourceExists: true}
+	svc := repositories.NewRepositoryService(dao, &fakeEventService{})
+	created, err := svc.Create(context.Background(), validRepo())
+	if err != nil {
+		t.Fatalf("expected valid secret_source_id to be accepted, got %v", err)
+	}
+	if created.SecretSourceId != "ss-1" {
+		t.Fatalf("expected secret_source_id ss-1 to be preserved, got %q", created.SecretSourceId)
 	}
 }
 

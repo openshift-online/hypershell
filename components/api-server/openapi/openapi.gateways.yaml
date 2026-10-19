@@ -270,6 +270,10 @@ components:
               type: string
             cluster_id:
               type: string
+              description: >-
+                Managed cluster this gateway is assigned to. Empty while a late-bound
+                gateway (one created with a placement selector) is awaiting placement;
+                the API server assigns it when a matching ManagedCluster is available.
             namespace:
               type: string
               readOnly: true
@@ -386,13 +390,25 @@ components:
               description: Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
     GatewayCreateRequest:
       type: object
+      description: >-
+        A gateway is created either pinned to a cluster (set cluster_id) or
+        late-bound by placement (set placement). Exactly one of cluster_id or
+        placement must be supplied. The web-console provision form submits only the
+        placement shape; the pinned shape is available to hsctl apply and the
+        declarative .hypershell import.
       required:
         - name
-        - placement
       properties:
         name:
           type: string
+        cluster_id:
+          type: string
+          description: >-
+            Pin the gateway to this managed cluster. Mutually exclusive with placement.
         placement:
+          description: >-
+            Late-bind the gateway by capability-label selector. Mutually exclusive
+            with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
         external_dns:
           type: string

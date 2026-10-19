@@ -461,10 +461,10 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   Deregistration").
 - `RoleBindingService`: denied. Its list and watch are not filtered by user or gateway;
   users manage bindings over HTTP.
-- Fleet-wide ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
+- Platform-wide ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
   `ProviderBindingService`, `InferenceRouteService`, `SecretSourceService`): list, watch,
   and get for `platform:admin`; all writes (create/update/delete) denied for user callers.
-  These kinds are fleet-wide, so a user caller never writes them over gRPC. For the
+  These kinds are platform-wide, so a user caller never writes them over gRPC. For the
   import-write kinds among them (all except `RepositoryService`), declarative-import writes
   are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
   on the import-write path because the import never upserts `Repository` resources.
@@ -473,7 +473,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": its own
-cluster's gateways, fleet-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
+cluster's gateways, platform-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
 registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
 allowlisted account that is registered is scoped as a control plane.
 
@@ -823,7 +823,6 @@ gRPC writes (`components/api-server/test/authz`).
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` assigned exclusively via Keycloak in production | Production deployments set `RBAC_DEFAULT_ROLES=` so only Keycloak-assigned roles apply. `RBAC_DEFAULT_ROLES=gateway:creator` exists as a local-dev escape hatch only. The role cannot be self-assigned via the API. |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
-| No resource grouping as a security boundary | The Sector/Fleet grouping was removed. RBAC operates at platform level (creator) and gateway level (owner/viewer); there is no fleet-scoped isolation. |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
 | OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |

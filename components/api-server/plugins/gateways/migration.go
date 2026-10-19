@@ -218,6 +218,24 @@ func migrationAddRepositoryOwnership() *gormigrate.Migration {
 	}
 }
 
+// migrationAddPlacement adds the nullable placement column that persists a
+// late-bound gateway's capability-label placement selector (JSON-encoded
+// GatewayPlacementIntent). It is NULL for a gateway pinned with an explicit
+// cluster_id. Raw idempotent ALTER TABLE is used instead of AutoMigrate because
+// AutoMigrate's add-column introspection breaks under the test session's lib/pq
+// driver with PreferSimpleProtocol (see migrationAddProvisioningFields).
+func migrationAddPlacement() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026101900000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS placement JSONB").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS placement").Error
+		},
+	}
+}
+
 func migrationAddGatewayVersion() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026082712000001",

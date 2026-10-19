@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -68,35 +69,69 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
-	clusterID := req.ClusterId
+	// cluster_id is optional: a gateway is either pinned to a cluster (cluster_id)
+	// or late-bound by a placement selector. Exactly one must be supplied. See
+	// data-model.spec.md, "Gateway Placement and Late Binding".
+	clusterID := strings.TrimSpace(req.ClusterId)
+	hasCluster := clusterID != ""
+	intent := openapi.GatewayPlacementIntent{}
+	hasPlacement := false
 	if req.Placement != nil {
-		if h.placement == nil {
-			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
-		}
-		intent := openapi.GatewayPlacementIntent{}
 		if selector := req.Placement.GetCapabilitySelector(); selector != nil {
 			intent.Selector = selector.Selector
+			hasPlacement = true
 		} else if req.Placement.GetLocalKind() != nil {
 			mode := "local-kind"
 			intent.Mode = &mode
+			hasPlacement = true
 		} else {
 			return nil, status.Error(codes.InvalidArgument, "placement intent is empty")
+		}
+	}
+	if hasCluster && hasPlacement {
+		return nil, status.Error(codes.InvalidArgument, "provide exactly one of cluster_id or placement, not both")
+	}
+	if !hasCluster && !hasPlacement {
+		return nil, status.Error(codes.InvalidArgument, "a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
+	}
+
+	phase := req.Phase
+	statusField := req.Status
+	var placementJSON *string
+	if hasPlacement {
+		if h.placement == nil {
+			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
 		}
 		if svcErr := validatePlacementIntent(intent); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}
-		resolved, svcErr := h.placement(ctx, intent)
+		marshaled, marshalErr := marshalPlacement(intent)
+		if marshalErr != nil {
+			return nil, status.Errorf(codes.Internal, "persist gateway placement: %v", marshalErr)
+		}
+		placementJSON = marshaled
+		resolved, didResolve, svcErr := h.placement(ctx, intent)
 		if svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}
-		clusterID = resolved
+		if didResolve {
+			clusterID = resolved
+		} else {
+			// No eligible cluster yet: create the gateway unplaced (Pending,
+			// awaiting placement) rather than fail, and bind it when a matching
+			// cluster appears (gateway-provision-placement.spec.md GP-07).
+			clusterID = ""
+			pending := string(gatewayhealth.PhasePending)
+			phase = &pending
+			awaiting := awaitingPlacementStatus
+			statusField = &awaiting
+		}
+	} else {
+		if svcErr := validateClusterReference(ctx, h.clusters, clusterID); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
 	}
-	if err := grpcutil.ValidateStringField("cluster_id", clusterID, true); err != nil {
-		return nil, err
-	}
-	if svcErr := validateClusterReference(ctx, h.clusters, clusterID); svcErr != nil {
-		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
-	}
+
 	var serverDnsNamesJSON *string
 	if len(req.ServerDnsNames) > 0 {
 		data, _ := json.Marshal(req.ServerDnsNames)
@@ -107,11 +142,12 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	gateway := &Gateway{
 		Name:           req.Name,
 		ClusterId:      clusterID,
+		Placement:      placementJSON,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,
-		Status:         req.Status,
-		Phase:          req.Phase,
+		Status:         statusField,
+		Phase:          phase,
 		Image:          req.Image,
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,

@@ -57,6 +57,70 @@ describe("mapControlPlaneReconciliationResponse", () => {
   });
 });
 
+describe("adoption metrics adapter", () => {
+  it("maps the adoption response and propagates a 30-day range", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      expect(url).toBe("/api/metrics/adoption?range=30");
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            registered_users: 450,
+            created_last_7_days: 48,
+            created_last_30_days: 123,
+            unique_logins_last_7_days: 312,
+            unique_logins_last_30_days: 398,
+            inactive_users_last_30_days: 52,
+            users_with_gateway: 306,
+            gateway_conversion_percent: 68,
+            daily_created_users: [{ date: "2026-10-15", count: 18 }],
+            daily_unique_logins: [{ date: "2026-10-15", count: 42 }],
+            retention_7_days_percent: 78,
+          }),
+        ok: true,
+      });
+    });
+
+    const metrics = await adapter.getAdoptionMetrics({
+      ...context,
+      timeRange: 30,
+    });
+
+    expect(metrics.metrics).toEqual([
+      {
+        createdLast30Days: "123",
+        createdLast7Days: "48",
+        createdTrend: {
+          points: [{ label: "2026-10-15", value: 18 }],
+        },
+        dailyActiveUsers: "42",
+        gatewayConversionPercent: "68.0",
+        id: "adoption",
+        inactiveUsersLast30Days: "52",
+        retention7DaysPercent: "78.0",
+        trend: {
+          points: [{ label: "2026-10-15", value: 42 }],
+        },
+        uniqueLoginsLast7Days: "312",
+        uniqueLoginsLast30Days: "398",
+        usersWithGateway: "306",
+        value: "450",
+      },
+    ]);
+    expect(metrics.timeRange).toBe(30);
+  });
+
+  it("maps omitted optional fields without inventing values", async () => {
+    fetchMock.mockResolvedValue({
+      json: () => Promise.resolve({ registered_users: 42 }),
+      ok: true,
+    });
+
+    const metrics = await adapter.getAdoptionMetrics(context);
+
+    expect(metrics.metrics).toEqual([{ id: "adoption", value: "42" }]);
+  });
+});
+
 const mockClusterPodsResponse = {
   available_pods: 1452,
   capacity_pods: 2000,

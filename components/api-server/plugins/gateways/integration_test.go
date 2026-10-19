@@ -93,8 +93,10 @@ func TestGatewayPostMinimalFields(t *testing.T) {
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 }
 
-// Gateway creation accepts placement intent only. A legacy direct cluster_id
-// is rejected as an unknown request field even when valid placement is present.
+// Gateway creation takes exactly one of cluster_id (pinned) or placement
+// (late-bound). Supplying BOTH is rejected (data-model.spec.md, "Gateway Placement
+// and Late Binding"). The pinned-only and placement-only shapes are accepted; see
+// TestGatewayPostAcceptsPinnedClusterID and TestGatewayPostLateBindsWhenNoClusterMatches.
 func TestGatewayPostRejectsDirectClusterID(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 

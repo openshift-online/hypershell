@@ -2,6 +2,7 @@ package roleBindings
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm/clause"
 
@@ -22,6 +23,7 @@ type RoleBindingDao interface {
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, error)
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
 	All(ctx context.Context) (RoleBindingList, error)
+	CountGatewayOwnerUsers(ctx context.Context) (int64, error)
 }
 
 var _ RoleBindingDao = &sqlRoleBindingDao{}
@@ -154,4 +156,20 @@ func (d *sqlRoleBindingDao) All(ctx context.Context) (RoleBindingList, error) {
 		return nil, err
 	}
 	return bindings, nil
+}
+
+func (d *sqlRoleBindingDao) CountGatewayOwnerUsers(ctx context.Context) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	err := g2.Raw(`
+		SELECT COUNT(DISTINCT bindings.user_id)
+		FROM role_bindings bindings
+		JOIN roles role ON role.id = bindings.role_id
+		JOIN users owner ON owner.id = bindings.user_id
+		WHERE role.name = ? AND owner.deleted_at IS NULL
+	`, roles.RoleGatewayOwner).Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count gateway owner users: %w", err)
+	}
+	return count, nil
 }

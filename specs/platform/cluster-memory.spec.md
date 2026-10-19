@@ -36,7 +36,7 @@ Cluster memory metrics SHALL aggregate **schedulable nodes** on the hub Kubernet
 
 The metric SHALL include memory from nodes that can accept workload pods. Control-plane nodes MAY be included when they are schedulable in the target environment (for example, single-node Kind clusters).
 
-The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or managed clusters registered in a Fleet.
+The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or registered managed clusters.
 
 #### Scenario: Kind hub cluster reports node memory
 

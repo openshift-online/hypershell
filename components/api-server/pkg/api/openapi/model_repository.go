@@ -33,8 +33,8 @@ type Repository struct {
 	Url string `json:"url"`
 	// Provider type the credential targets: github (extensible)
 	Provider string `json:"provider"`
-	// References a SecretSource holding the provider credential
-	SecretSourceId string `json:"secret_source_id"`
+	// Optional reference to a SecretSource holding the provider credential. Omit for a public repository, which is read anonymously.
+	SecretSourceId *string `json:"secret_source_id,omitempty"`
 	// Branch the import process reads when none is otherwise specified
 	DefaultBranch *string `json:"default_branch,omitempty"`
 	// Directory within the repository to import (default .hypershell)
@@ -49,12 +49,11 @@ type _Repository Repository
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRepository(name string, url string, provider string, secretSourceId string) *Repository {
+func NewRepository(name string, url string, provider string) *Repository {
 	this := Repository{}
 	this.Name = name
 	this.Url = url
 	this.Provider = provider
-	this.SecretSourceId = secretSourceId
 	return &this
 }
 
@@ -298,28 +297,36 @@ func (o *Repository) SetProvider(v string) {
 	o.Provider = v
 }
 
-// GetSecretSourceId returns the SecretSourceId field value
+// GetSecretSourceId returns the SecretSourceId field value if set, zero value otherwise.
 func (o *Repository) GetSecretSourceId() string {
-	if o == nil {
+	if o == nil || IsNil(o.SecretSourceId) {
 		var ret string
 		return ret
 	}
-
-	return o.SecretSourceId
+	return *o.SecretSourceId
 }
 
-// GetSecretSourceIdOk returns a tuple with the SecretSourceId field value
+// GetSecretSourceIdOk returns a tuple with the SecretSourceId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *Repository) GetSecretSourceIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.SecretSourceId) {
 		return nil, false
 	}
-	return &o.SecretSourceId, true
+	return o.SecretSourceId, true
 }
 
-// SetSecretSourceId sets field value
+// HasSecretSourceId returns a boolean if a field has been set.
+func (o *Repository) HasSecretSourceId() bool {
+	if o != nil && !IsNil(o.SecretSourceId) {
+		return true
+	}
+
+	return false
+}
+
+// SetSecretSourceId gets a reference to the given string and assigns it to the SecretSourceId field.
 func (o *Repository) SetSecretSourceId(v string) {
-	o.SecretSourceId = v
+	o.SecretSourceId = &v
 }
 
 // GetDefaultBranch returns the DefaultBranch field value if set, zero value otherwise.
@@ -446,7 +453,9 @@ func (o Repository) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["url"] = o.Url
 	toSerialize["provider"] = o.Provider
-	toSerialize["secret_source_id"] = o.SecretSourceId
+	if !IsNil(o.SecretSourceId) {
+		toSerialize["secret_source_id"] = o.SecretSourceId
+	}
 	if !IsNil(o.DefaultBranch) {
 		toSerialize["default_branch"] = o.DefaultBranch
 	}
@@ -467,7 +476,6 @@ func (o *Repository) UnmarshalJSON(data []byte) (err error) {
 		"name",
 		"url",
 		"provider",
-		"secret_source_id",
 	}
 
 	allProperties := make(map[string]interface{})

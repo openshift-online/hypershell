@@ -48,6 +48,19 @@ export const messages = defineMessages({
     description:
       "Browser metadata description for the reliability dashboard page.",
   },
+  dashboardAdoptionNav: {
+    id: "app.nav.dashboardAdoption",
+    defaultMessage: "Adoption dashboard",
+    description:
+      "Page and navigation label for the HyperShell adoption dashboard.",
+  },
+  dashboardAdoptionPageDescription: {
+    id: "app.page.dashboardAdoption.description",
+    defaultMessage:
+      "Adoption metrics dashboard for HyperShell registrations, activity, conversion, and retention.",
+    description:
+      "Browser metadata description for the adoption dashboard page.",
+  },
   dashboardAccessDeniedBody: {
     id: "app.page.dashboard.accessDenied.body",
     defaultMessage:

@@ -65,7 +65,7 @@ Else:
   Phase 6 step 3, or `make lint`) and require it green to avoid format/gofmt/SDK
   drift CI ping-pong.
 - Address any merge conflicts found in Step 2.
-- Commit (if not already) and push code to `$LINKED_PULL_REQUEST`.
+- Commit (if not already) and push code to `$LINKED_PULL_REQUEST`, ensuring the body & title are updated to reflect the current state of the PR.
 - Remove label `agent/review-code-rejected` from `$GITHUB_ISSUE_URL` if present.
 - Write label `agent/reviewable-code` to `$GITHUB_ISSUE_URL`.
 

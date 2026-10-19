@@ -10,7 +10,6 @@ import {
   DashboardSparkline,
   DashboardWidget,
 } from "../common/dashboard-widget";
-import { MockupShell } from "../shell/mockup-template";
 
 const Row = ({ label, value }: { label: string; value: string }) => (
   <div
@@ -24,7 +23,11 @@ const Row = ({ label, value }: { label: string; value: string }) => (
 export function AdoptionDashboardPageSurface() {
   return (
     <>
-      <PageSection data-page-region="header" hasBodyWrapper={false}>
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
         <Content>
           <Title headingLevel="h1" size="2xl">
             Adoption dashboard
@@ -57,7 +60,7 @@ export function AdoptionDashboardPageSurface() {
           style={{
             display: "grid",
             gap: 8,
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
             gridTemplateRows: "260px 330px",
           }}
         >
@@ -75,6 +78,8 @@ export function AdoptionDashboardPageSurface() {
               <Row label="Weekly active users" value="312" />
               <Row label="Monthly active users" value="398" />
               <Row label="Inactive users (30+ days)" value="52" />
+              <Row label="7-day retention" value="78%" />
+              <Row label="30-day retention" value="-" />
               <Divider />
               <Content component="small">
                 Active users are counted when they perform a qualifying
@@ -95,53 +100,28 @@ export function AdoptionDashboardPageSurface() {
             <Row label="First sandbox" value="61%" />
             <Row label="Median time to first resource" value="2h 14m" />
           </DashboardWidget>
-          <DashboardWidget adminOnly title="Organizations and fleets">
-            <DashboardDonut
-              label="Organizations"
-              value="24"
-              segments={[
-                { label: "Organizations", value: 24, color: "#63993d" },
-                { label: "New (30 days)", value: 6, color: "#0066cc" },
-              ]}
-            />
-            <Row label="Fleets" value="38" />
-            <Row label="New fleets (30 days)" value="9" />
-          </DashboardWidget>
           <DashboardWidget
             adminOnly
             title="Adoption trends"
             style={{ gridColumn: "1 / span 3" }}
           >
-            <Content style={{ fontSize: 12 }}>
-              Registrations and active users over time
-            </Content>
+            <Title headingLevel="h4" size="md">
+              New registrations
+            </Title>
             <DashboardSparkline
               data={[18, 23, 27, 32, 31, 39, 44, 48, 55, 61, 67, 74]}
               caption="Last 30 days · daily bucket · UTC"
             />
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                gridTemplateColumns: "repeat(3, 1fr)",
-                marginTop: 20,
-              }}
-            >
-              <Row label="New registrations" value="48" />
-              <Row label="Weekly active users" value="312" />
-              <Row label="Retention" value="78%" />
-            </div>
+            <Title headingLevel="h4" size="md">
+              Active users
+            </Title>
+            <DashboardSparkline
+              data={[12, 15, 18, 24, 29, 33, 36, 41, 47, 52, 58, 64]}
+              caption="Last 30 days · daily bucket · UTC"
+            />
           </DashboardWidget>
         </div>
       </PageSection>
     </>
-  );
-}
-
-export function AdoptionDashboardMockup() {
-  return (
-    <MockupShell>
-      <AdoptionDashboardPageSurface />
-    </MockupShell>
   );
 }

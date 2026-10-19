@@ -7,12 +7,12 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-Gateways and clusters are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
+Gateways and clusters are **top-level resources**. There is no organizational grouping layer: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`). See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
 
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -44,7 +44,8 @@ erDiagram
     Gateway {
         string ID PK
         string name
-        string cluster_id FK
+        string cluster_id FK "nullable; late-bound by placement when absent"
+        jsonb placement "capability-label selectors or local-kind mode; used when cluster_id is absent"
         string namespace
         string image
         string supervisor_image
@@ -111,7 +112,7 @@ erDiagram
         string name
         string url
         string provider
-        string secret_source_id FK
+        string secret_source_id FK "nullable; empty = anonymous public read"
         string default_branch
         string import_path
         string status
@@ -206,7 +207,7 @@ erDiagram
     Gateway ||--o{ AgentRuntime : "connects_to"
     SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
     Repository ||--o{ AgentRuntime : "scanned_by"
-    SecretSource ||--o{ Repository : "authenticates"
+    SecretSource |o--o{ Repository : "authenticates"
     AgentRuntime ||--|| AgentWorkspace : "owns"
     AgentRuntime ||--o{ SecretSource : "declares"
     Gateway ||--o{ AgentWorkspace : "hosts"
@@ -222,14 +223,7 @@ erDiagram
 
 ### Requirement: Top-Level Resources
 
-ManagedCluster and Gateway SHALL be top-level resources. They SHALL NOT be scoped by a fleet or sector grouping, and their create and update contracts SHALL NOT include a `fleet_id` field.
-
-#### Scenario: Create Gateway Without a Fleet Reference
-- GIVEN a valid cluster_id
-- WHEN a POST request is made to `/api/hypershell/v1/gateways`
-- THEN a new Gateway is created as a top-level resource
-- AND the Gateway references a valid cluster resource
-- AND the request SHALL NOT require or accept a `fleet_id`
+ManagedCluster and Gateway SHALL be top-level resources, scoped by no grouping other than the platform itself.
 
 #### Scenario: Create Gateway With a Direct Image Reference
 
@@ -239,6 +233,89 @@ ManagedCluster and Gateway SHALL be top-level resources. They SHALL NOT be scope
 - THEN a new Gateway is created
 - AND the control plane reconciler provisions the gateway workload from the
   given `image` and `supervisor_image`
+
+### Requirement: Gateway Placement and Late Binding
+
+A Gateway's target cluster SHALL be expressed in one of two ways, and `cluster_id`
+SHALL be OPTIONAL on create:
+
+- **Pinned.** When `cluster_id` is set, the Gateway is pinned to that cluster.
+  This is the existing contract and is UNCHANGED: a set `cluster_id` (on create or
+  on a `PATCH` that sets it) SHALL reference a registered `ManagedCluster` with a
+  non-empty `oidc_subject`, and an empty-string `cluster_id` SHALL still be
+  rejected (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+  "Requirement: Gateways Reference a Registered Cluster").
+- **Late-bound by placement.** When `cluster_id` is ABSENT, the Gateway SHALL
+  instead carry a `placement` selector that declares the TYPE of placement it
+  wants as ManagedCluster capability-label selectors (for example
+  `network/public`, `provider/ibm`) or a `local-kind` mode, exactly as the
+  declarative `.hypershell` Gateway manifest uses. The API server SHALL resolve
+  the selector to a concrete `ManagedCluster` and assign `cluster_id` server-side;
+  this keeps the watch-stream caller binding authoritative, consistent with the
+  server-side placement resolution used for `AgentRuntime`
+  ([`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime effective
+  cluster resolved server-side"). The selector vocabulary, validation, and
+  random-selection-among-eligible-clusters rules are defined canonically in
+  [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
+  (GP-01, GP-07). The resolved `cluster_id` is exposed on read exactly as a pinned
+  one.
+
+A create request SHALL provide exactly one of the two: `cluster_id`, or a
+`placement` selector. A request that supplies NEITHER SHALL be rejected, and a
+request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spec
+field persisted on the Gateway (not merely request-scoped), because it is
+re-evaluated for late binding after create.
+
+**Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
+matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
+SHALL be persisted with an empty `cluster_id`, SHALL hold in the `Pending` phase
+with a clear awaiting-placement `status`, and SHALL NOT be returned as an error.
+The API server SHALL re-resolve placement for such unplaced Gateways when the
+eligible-cluster set changes (for example when a matching `ManagedCluster`
+registers or updates its capabilities), and SHALL assign `cluster_id` as soon as a
+matching cluster appears. This is the same late-binding model used for agent
+secrets (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)):
+a resource is declarable before the thing it binds to exists, and binds when that
+thing appears. An unplaced Gateway (empty `cluster_id`) SHALL NOT be delivered to
+any `cluster_id`-filtered watch or list stream, because no control plane is
+responsible for it until it is placed.
+
+#### Scenario: Create a Gateway pinned to a cluster
+
+- GIVEN a create request with a `cluster_id` that references a registered cluster
+- WHEN the API server validates the request
+- THEN it SHALL accept the request and persist the Gateway on that cluster
+- AND the behavior SHALL be unchanged from the pre-existing pinned contract
+
+#### Scenario: Create a late-bound Gateway that resolves immediately
+
+- GIVEN a create request with NO `cluster_id` and `placement.selector = ["network/public", "provider/ibm"]`
+- AND at least one registered connected `ManagedCluster` carries both labels
+- WHEN the API server resolves placement
+- THEN it SHALL assign a matching cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL proceed through its normal provisioning lifecycle
+
+#### Scenario: Create a late-bound Gateway that has no eligible cluster yet
+
+- GIVEN a create request with NO `cluster_id` and a `placement.selector` that no registered cluster matches
+- WHEN the API server processes the request
+- THEN it SHALL create the Gateway with an empty `cluster_id` and `phase` `Pending`
+- AND it SHALL NOT return an error
+- AND the Gateway SHALL report an awaiting-placement `status`
+
+#### Scenario: Unplaced Gateway binds when a matching cluster appears
+
+- GIVEN a `Pending` Gateway with an empty `cluster_id` whose `placement.selector` matched no cluster
+- WHEN a `ManagedCluster` that carries every selected label registers
+- THEN the API server SHALL assign that cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL become eligible for reconciliation on that cluster
+
+#### Scenario: Create request with neither cluster_id nor placement is rejected
+
+- GIVEN a create request with NO `cluster_id` and NO `placement`
+- WHEN the API server validates the request
+- THEN it SHALL reject the request with a validation error
+- AND no Gateway SHALL be created
 
 ### Requirement: Gateway Namespace Ownership
 
@@ -306,7 +383,8 @@ from a redundant reconciliation event.
 The API server SHALL increment `generation` whenever any field of the Gateway's
 desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
 `oidc`, `route`, `credential_driver`, `external_dns`, `tls_mode`,
-`service_type`, and `cluster_id`. It SHALL NOT
+`service_type`, `placement`, and `cluster_id` (including the first time the API
+server assigns a `cluster_id` to a late-bound Gateway). It SHALL NOT
 increment `generation` for changes to control-plane-owned observed fields
 (`status`, `phase`, `route_address`, `observed_generation`).
 
@@ -494,20 +572,51 @@ Fields:
 | `name` | string | Human-readable identifier for the repository registration |
 | `url` | string | Git remote URL (e.g. `https://github.com/openshift-online/hypershell`) |
 | `provider` | string | Provider type the credential targets: `github` (extensible) |
-| `secret_source_id` | string (FK) | References a `SecretSource` holding the durable import credential material. For a GitHub `Repository` this is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
+| `secret_source_id` | string (FK, OPTIONAL) | OPTIONAL reference to a `SecretSource` holding the durable import credential material. A `Repository` MAY be registered with NO `secret_source_id`: a PUBLIC repository needs no credential and is read anonymously. When set, for a GitHub `Repository` the referenced material is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
 | `default_branch` | string | Branch the import process reads when none is otherwise specified |
 | `import_path` | string | Directory within the repository to import (default `.hypershell`) |
 | `status` | string | Registration/import health |
 
 `provider` SHALL be validated against the supported provider set. `secret_source_id`
-SHALL reference an existing `SecretSource`.
+is OPTIONAL. When `secret_source_id` is set it SHALL reference an existing
+`SecretSource`, and the create or update SHALL be rejected when it does not. When
+`secret_source_id` is empty or absent it SHALL NOT be foreign-key validated: an empty
+value SHALL NOT be rejected and SHALL NOT produce the "does not reference an existing
+SecretSource" error. A `Repository` with no `secret_source_id` declares a PUBLIC
+repository, which the `RepositoryReconciler` reads anonymously (see
+[`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
+Reconciliation", and the resolver note in "Requirement: Declarative `.hypershell`
+Import" below).
 
-#### Scenario: Register a Repository
+`SecretSource` ownership is UNCHANGED by this optionality: a `SecretSource` stays
+owned by its `agent_runtime_id` and `agent_runtime_id` stays required (see
+"Requirement: SecretSource"). With late binding the cluster-local Vault is not known
+until the owning `AgentRuntime`'s gateway is assigned a `ManagedCluster`, so the
+`AgentRuntime` owner is what resolves to a Vault; a `Repository`- or platform-scoped
+`SecretSource` would have no cluster to bind to. Making the `Repository` credential
+optional - rather than loosening `SecretSource` ownership - is therefore the correct
+way to support an anonymous public read.
+
+#### Scenario: Register a Repository with a credential
 
 - GIVEN a valid `url`, `provider = github`, and a `secret_source_id` referencing an existing `SecretSource`
 - WHEN a POST request is made to `/api/hypershell/ext/repositories`
 - THEN a new `Repository` is created
 - AND a server-side process can authenticate to the repository with the referenced credential
+
+#### Scenario: Register a public Repository with no credential
+
+- GIVEN a valid `url` and `provider = github` and NO `secret_source_id`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN a new `Repository` is created without a 400 and without a foreign-key error
+- AND the `RepositoryReconciler` reads the repository anonymously (no `Authorization` header) when no platform credential is configured
+
+#### Scenario: Reject a Repository that names a nonexistent SecretSource
+
+- GIVEN a `secret_source_id` that does not reference any existing `SecretSource`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN the API server SHALL reject the request with a validation error
+- AND the error SHALL state that the `secret_source_id` does not reference an existing `SecretSource`
 
 #### Scenario: Repository Deletion Blocked by Referencing AgentRuntime
 
@@ -515,6 +624,25 @@ SHALL reference an existing `SecretSource`.
 - WHEN a DELETE request is made for the `Repository`
 - THEN the API server SHALL reject the request with 409
 - AND the response SHALL identify the blocking `AgentRuntime`
+
+**Anonymous-read rate limit.** The unauthenticated GitHub REST API is rate limited
+to roughly 60 requests per hour. A public-repository import loop that re-reads the
+subtree on every reconcile tick can exhaust this budget. The mitigation is a
+configured platform GitHub token (`cfg.GitHubTokenFile`, already present in the
+control plane), which authenticates the read without any per-`Repository`
+`SecretSource`. The implementation SHALL call out the import cadence against the
+unauthenticated limit.
+
+**Open follow-up: private repositories (NOT solved here).** A PRIVATE repository
+needs a read credential. That credential is `Repository`-scoped and has no
+`AgentRuntime` consumer, so it does not fit the AgentRuntime-owned `SecretSource`
+model, which this change deliberately does NOT loosen. This is a recorded ownership
+gap to be decided separately, among: (a) a platform-scoped credential store for the
+`RepositoryReconciler`; (b) a configured platform GitHub token
+(`cfg.GitHubTokenFile`) that covers the private repositories the platform App can
+reach; or (c) a narrow `Repository`-owned-credential exception. This change resolves
+only the PUBLIC (anonymous) case; private-repository credential sourcing remains
+open.
 
 ---
 
@@ -571,6 +699,13 @@ binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
    read-only secret-store client (`pkg/secretstore`). This is the same read-only
    store access the control plane uses to place `AgentRuntime` secrets; it does NOT
    create an `ExternalSecret` and does NOT depend on External Secrets Operator.
+   When the `Repository` declares NO `secret_source_id` AND no platform credential
+   is configured, the resolver yields an empty token and the import reads the
+   subtree ANONYMOUSLY: the GitHub fetcher SHALL omit the `Authorization` header
+   when the token is empty. Anonymous read works for a PUBLIC repository. The
+   resolver already implements this: it returns the (possibly empty) platform token
+   when `secret_source_id` is empty, and the fetcher sends no `Authorization` header
+   for an empty token.
 2. Read ONLY the `import_path` subtree through the GitHub API at the `Repository`'s
    `default_branch` (or the branch otherwise specified), authenticating with the
    credential resolved in step 1 - the per-`Repository` `secret_source_id` credential
@@ -1178,6 +1313,11 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `PATCH /api/hypershell/ext/repositories/{id}` | `hsctl update repository <id> [--secret-source-id <s>] [--default-branch <b>] [--import-path <path>]` | 🔲 planned |
 | `DELETE /api/hypershell/ext/repositories/{id}` | `hsctl delete repository <id>` | 🔲 planned |
 
+The Extension kind resource commands above (including `hsctl list repositories`
+and `hsctl get repository <id>`, where `get` renders the read-only `status`) are
+hand-written and registered through `extgroup`, not produced by the CLI generator;
+their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-commands.spec.md).
+
 #### Auth & Context
 
 | Operation | `hsctl` Command | Status |
@@ -1198,7 +1338,7 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `cluster_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
+| `Gateway` | `name`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector) | ✅ implemented |
 | `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
@@ -1383,7 +1523,6 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | Decision | Rationale |
 |----------|-----------|
 | KSUID for all IDs | Sortable, globally unique, no coordination required |
-| Resources are top-level | Sector/Fleet grouping was removed; tenancy is enforced by RBAC (platform + per-gateway), not by a resource grouping |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |
 | Gateway-agnostic capability model | Provider driver names and credential env var conventions are implementation details of the gateway backend. Keeping them out of the API allows the controller to support multiple gateway implementations without API changes. |
 | ProviderSpec as a reusable top-level resource | The same GitHub App or Vertex AI project configuration is shared by multiple agent types. Centralizing it avoids duplication and makes rotation (e.g., new App installation ID) a single change. |
@@ -1397,10 +1536,8 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller realizes gateway-side objects via OpenShell's existing API | Gateway-side workspace, members, and provider objects are realized by the controller through OpenShell's existing provisioning API (the operations the `openshell` CLI drives) in its normal reconcile loop, co-located with existing gateway database provisioning logic, rather than a bespoke gateway gRPC contract. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
-| Repository credential via SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. |
+| Repository credential via OPTIONAL SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. The FK is OPTIONAL: a public repository needs no credential and is read anonymously, so requiring a `secret_source_id` would block registering a public repository. `SecretSource` ownership stays with `AgentRuntime` (a `Repository`-scoped `SecretSource` would have no cluster to late-bind a Vault to), so the public case is solved by making the `Repository` credential optional, not by loosening `SecretSource`. Private-repository credential sourcing is a separate open follow-up (platform-scoped store, a configured platform token, or a narrow Repository-owned exception). |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and read the `import_path` subtree over the GitHub API. The control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential; the api-server has no store read access and no repository read access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |
 | Import reads the subtree over the GitHub API and renders in-memory; one shared kustomize library | The control-plane runtime image ships no `git` / `kustomize` / `hsctl` binary and no writable disk, so the `RepositoryReconciler` reads only the `import_path` subtree over the GitHub API (no clone, no checkout, no PVC) and renders it in memory. Rendering SHALL use the shared `pkg/kustomize` `Build` in `components/cli` (desired state, to be built), consumed by exactly two callers, `hsctl` and the `RepositoryReconciler`, so there is exactly one kustomize implementation and CLI and server render identically. The `GatewayReconciler` is not a consumer: it renders the gateway workload through Helm. `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this same package. The accepted trade-off is admitting the kustomize Go library (a library, not a binary or `Job`) into the control-plane module - a deliberate reversal of the earlier "no kustomize in control plane" decision. |
-| Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
-| Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

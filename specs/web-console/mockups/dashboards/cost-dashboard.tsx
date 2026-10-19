@@ -119,14 +119,14 @@ export function CostDashboardPageSurface() {
             <Row label="Staging" value="$4,810" />
             <Row label="Development" value="$2,370" />
           </DashboardWidget>
-          <DashboardWidget adminOnly title="By fleet">
+          <DashboardWidget adminOnly title="By cluster">
             <Content style={{ fontSize: 12 }}>Estimated monthly cost</Content>
             <DashboardSparkline
               data={[18, 22, 25, 24, 31, 30, 34, 36, 41, 39, 44, 48]}
-              caption="Top fleets · selected period"
+              caption="Top clusters · selected period"
             />
-            <Row label="Fleet alpha" value="$8,420" />
-            <Row label="Fleet beta" value="$5,180" />
+            <Row label="Cluster alpha" value="$8,420" />
+            <Row label="Cluster beta" value="$5,180" />
           </DashboardWidget>
           <DashboardWidget adminOnly title="By resource class">
             <Content style={{ fontSize: 12 }}>Estimated monthly cost</Content>

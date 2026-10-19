@@ -352,7 +352,7 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 
 Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response - whether because the metric is not yet connected or because its data source failed (OP-DASH-19) - the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
 
-Summary rows (`usage-summary`, `system-summary`) that reference a missing metric SHALL render the same localized metric-unavailable message in place of the value instead of omitting the row or showing a blank cell.
+Summary rows that reference a missing metric SHALL render a dash in place of the value instead of omitting the row or showing a blank cell. Whole-widget unavailable states SHALL continue to render the localized metric-unavailable empty state.
 
 Historical trend data SHALL use UTC calendar days. The Provisioning dashboard SHALL load daily trend data for Memory, CPU, Provision time, and Provision reliability for the selected 7-day or 30-day range. The Provisioning dashboard SHALL omit a trend point when the source has no sample for that day and SHALL render a visible gap. The Provisioning dashboard SHALL NOT render a Pods trend.
 
@@ -486,7 +486,7 @@ The page SHALL expose a manual refresh control that calls `refetch()` on the que
 - WHEN at least one metric source succeeds and at least one metric source fails
 - THEN a warning `Alert` with localized title and body SHALL be shown indicating that some metrics could not be loaded and the dashboard may be incomplete
 - AND the widget grid SHALL render with every successfully loaded metric
-- AND widgets and summary rows for omitted metrics SHALL render the localized metric-unavailable state (OP-DASH-08)
+- AND widgets for omitted metrics SHALL render the localized metric-unavailable state while summary rows render a dash (OP-DASH-08)
 
 #### Scenario: Refresh with partial failure preserves last data for failed sources
 
@@ -561,7 +561,7 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - AND `GET /api/metrics/platform-inventory` fails
 - WHEN the operator opens `/dashboard`
 - THEN gateway, sandbox, registered-user, and cluster metric widgets SHALL display loaded values
-- AND inventory widgets and summary rows SHALL render the localized metric-unavailable state
+- AND inventory widgets SHALL render the localized metric-unavailable state and summary rows shall render a dash
 - AND a warning `Alert` SHALL explain that some metrics could not be loaded
 
 #### Scenario: No qualifying provision-time samples omit only provision time
@@ -653,7 +653,7 @@ Each default-layout change that would leave saved positions incompatible with th
 | `v39` | Taller `usage-summary`, `gateway-status`, `memory`, `cpu`, and `pods` widgets for HYPERSHELL-281 trend sparklines (GFT-06, GSAT-07, HCUT-08)                               |
 | `v40` | Combined v38 inventory layout and v39 trend sparkline widget heights                                                                                                       |
 | `v41` | Hub utilization widgets render through `UtilizationCard` with sparklines; widget mapping defaults use `UTILIZATION_WIDGET_HEIGHT` / `POD_CAPACITY_WIDGET_HEIGHT` (HCUT-08) |
-| `v42` | Remove the `managed-database-status` widget and widen `managed-cluster-regions` back across columns 2-3; the ManagedDatabase resource no longer exists (OP-DASH-22)        |
+| `v42` | Retire the inventory status donut widget and widen `managed-cluster-regions` back across columns 2-3 (OP-DASH-22)                                                          |
 | `v43` | Taller `sandbox-status` for Attention required labels (SSA-09)                                                                                                             |
 | `v44` | Align `gateway-releases` height with `sandbox-status` on adoption row 2                                                                                                    |
 | `v46` | Replace the legacy multi-section dashboard with the seven-widget operational overview while preserving widgetized customization                                            |
@@ -935,7 +935,7 @@ The implementation retains optional inventory detail renderers defined in `platf
 - `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-22)
 - `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-22)
 
-The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, `managed-databases`, or `managed-database-status` widget types: the ManagedDatabase resource no longer exists (see `platform/openshell-gateway-database.spec.md`), and a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (OP-DASH-22); dimension breakdowns SHALL use the default-layout provider and region donut widgets above. No inventory status donut widget SHALL exist.
+The widget catalog SHALL NOT register standalone `managed-clusters` or `managed-cluster-status` widget types: a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (OP-DASH-22); dimension breakdowns SHALL use the default-layout provider and region donut widgets above. No inventory status donut widget SHALL exist.
 
 These widget types SHALL not be offered in the current overview add-widgets drawer or default layout. Existing saved entries may render until removed by the normal retired-widget sanitization path.
 

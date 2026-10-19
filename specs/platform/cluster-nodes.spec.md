@@ -7,7 +7,7 @@
 
 Expose **hub cluster node inventory** for the Kubernetes cluster that hosts the HyperShell platform on the operational dashboard so dashboard operators can see how many nodes exist and how many are Ready.
 
-This is **cluster infrastructure telemetry**, not HyperShell application state. It reflects Kubernetes `Node` objects on the hub cluster where the API server, control plane, Prometheus, gateway namespaces, and related platform workloads run. It is **not** per-gateway sandbox placement, ManagedCluster registration counts, or node inventory on remote clusters registered in a Fleet.
+This is **cluster infrastructure telemetry**, not HyperShell application state. It reflects Kubernetes `Node` objects on the hub cluster where the API server, control plane, Prometheus, gateway namespaces, and related platform workloads run. It is **not** per-gateway sandbox placement, ManagedCluster registration counts, or node inventory on registered remote clusters.
 
 Node semantics for version 1:
 
@@ -38,7 +38,7 @@ Cluster node metrics SHALL count **all Kubernetes Node objects** on the hub clus
 
 The count SHALL include control-plane nodes, worker nodes, and any other node roles present in the hub cluster API (for example, a single-node Kind control-plane node).
 
-The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or managed clusters registered in a Fleet.
+The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or registered managed clusters.
 
 #### Scenario: Kind hub cluster reports one node
 

@@ -22,6 +22,16 @@ type UserDao interface {
 	All(ctx context.Context) (UserList, error)
 	CountRegistered(ctx context.Context) (int64, error)
 	CountCreatedSince(ctx context.Context, since time.Time) (int64, error)
+	CountCreatedBetweenByDay(
+		ctx context.Context,
+		startDate time.Time,
+		endDate time.Time,
+	) (map[string]int64, error)
+	CountInactiveSinceWithoutActivityAfter(
+		ctx context.Context,
+		createdBefore time.Time,
+		activityAfter time.Time,
+	) (int64, error)
 }
 
 var _ UserDao = &sqlUserDao{}
@@ -130,7 +140,7 @@ func (d *sqlUserDao) CountRegistered(ctx context.Context) (int64, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	var count int64
 	if err := g2.Model(&User{}).Count(&count).Error; err != nil {
-		return 0, err
+		return 0, fmt.Errorf("count registered users: %w", err)
 	}
 	return count, nil
 }
@@ -140,6 +150,53 @@ func (d *sqlUserDao) CountCreatedSince(ctx context.Context, since time.Time) (in
 	var count int64
 	if err := g2.Model(&User{}).Where("created_at >= ?", since.UTC()).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("count users created since: %w", err)
+	}
+	return count, nil
+}
+
+func (d *sqlUserDao) CountCreatedBetweenByDay(
+	ctx context.Context,
+	startDate time.Time,
+	endDate time.Time,
+) (map[string]int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type dailyCountRow struct {
+		CreatedDate string
+		Count       int64
+	}
+	rows := []dailyCountRow{}
+	err := g2.Model(&User{}).
+		Select("TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS created_date, COUNT(*) AS count").
+		Where("created_at >= ? AND created_at < ?", utcDayStart(startDate), utcDayStart(endDate).AddDate(0, 0, 1)).
+		Group("TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("count users created by day: %w", err)
+	}
+
+	counts := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		counts[row.CreatedDate] = row.Count
+	}
+	return counts, nil
+}
+
+func (d *sqlUserDao) CountInactiveSinceWithoutActivityAfter(
+	ctx context.Context,
+	createdBefore time.Time,
+	activityAfter time.Time,
+) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	err := g2.Model(&User{}).
+		Where("created_at < ?", createdBefore.UTC()).
+		Where(
+			"NOT EXISTS (SELECT 1 FROM user_daily_activities activity WHERE activity.user_id = users.id AND activity.activity_date >= ?)",
+			utcDayStart(activityAfter),
+		).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count inactive users: %w", err)
 	}
 	return count, nil
 }

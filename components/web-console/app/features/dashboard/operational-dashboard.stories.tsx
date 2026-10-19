@@ -31,6 +31,13 @@ const stubDashboard = createDashboardOperations({
       context.signal?.throwIfAborted();
       return Promise.resolve(mockOperationalDashboardMetrics);
     },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve(stubReliabilityMetrics);
@@ -49,6 +56,13 @@ const initialLoadFailedDashboard = createDashboardOperations({
       return Promise.reject(
         new Error("Unable to reach the operational metrics service."),
       );
+    },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
@@ -77,6 +91,13 @@ const partialLoadDashboard = createDashboardOperations({
             "provision-time",
           ].includes(metric.id),
         ),
+      });
+    },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
       });
     },
     getReliabilityMetrics: (context) => {

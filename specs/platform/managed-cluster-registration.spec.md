@@ -344,14 +344,39 @@ capabilities without changing those gateway assignments.
 
 ### Requirement: Gateways Reference a Registered Cluster
 
-`POST /api/hypershell/v1/gateways` and any `PATCH` that sets `cluster_id` SHALL reject (400 Bad Request) an empty `cluster_id` and a `cluster_id` that does not reference a `ManagedCluster` with a non-empty `oidc_subject`. Because every control plane is registered and filters by its own id, a gateway without a registered cluster would never be reconciled by anyone. Callers that want "the local cluster" discover it by name from `GET /managed_clusters`; on any running environment the co-located control plane's record always exists.
+`cluster_id` is OPTIONAL on `POST /api/hypershell/v1/gateways`: a Gateway MAY be
+pinned to a cluster through `cluster_id`, or left late-bound through a capability-label
+`placement` selector that the API server resolves to a concrete cluster
+(see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement
+and Late Binding", and [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)).
 
-#### Scenario: Empty cluster_id rejected
+Referential integrity for a PINNED `cluster_id` is UNCHANGED. `POST /api/hypershell/v1/gateways`
+and any `PATCH` that SETS a non-empty `cluster_id` SHALL reject (400 Bad Request)
+a `cluster_id` that does not reference a `ManagedCluster` with a non-empty
+`oidc_subject`. An empty-string `cluster_id` SUBMITTED ALONGSIDE no `placement`
+SHALL still be rejected, so a caller cannot pin a Gateway to "nowhere": omitting
+`cluster_id` requires a `placement` selector instead. Because every control plane
+is registered and filters by its own id, a gateway pinned to an unregistered
+cluster would never be reconciled by anyone. Callers that want "the local cluster"
+discover it by name from `GET /managed_clusters`; on any running environment the
+co-located control plane's record always exists. A late-bound Gateway whose
+selector matches no eligible cluster holds in `Pending` with an awaiting-placement
+status rather than being rejected, and the API server assigns `cluster_id` when a
+matching cluster appears (late binding).
 
-- GIVEN a gateway create request with `cluster_id: ""`
+#### Scenario: Empty cluster_id with no placement rejected
+
+- GIVEN a gateway create request with `cluster_id: ""` and no `placement`
 - WHEN it is submitted
 - THEN the response is 400 Bad Request naming `cluster_id`
 - AND no Gateway is created
+
+#### Scenario: Omitted cluster_id with a placement selector accepted
+
+- GIVEN a gateway create request with no `cluster_id` and a valid `placement.selector`
+- WHEN it is submitted
+- THEN the request SHALL NOT be rejected for a missing `cluster_id`
+- AND the API server SHALL resolve or late-bind the cluster from the selector
 
 #### Scenario: Unregistered cluster rejected
 
@@ -365,6 +390,8 @@ capabilities without changing those gateway assignments.
 The four gRPC watch RPCs (`WatchGateways`, `WatchManagedClusters`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
 For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+
+For `WatchGateways` and `ListGateways` the scoping key is the gateway's assigned `cluster_id`. A late-bound gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") matches no `cluster_id` filter and SHALL NOT be delivered to any filtered stream until the API server assigns it a `cluster_id`; at that point it is delivered to the owning cluster's stream like any pinned gateway.
 
 For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_id` of the binding's gateway: under a `cluster_id` filter the api-server SHALL deliver (in the watch replay, in live watch events, and in list results) only bindings whose gateway is assigned to that cluster, and SHALL NOT deliver global bindings (no `gateway_id`). A binding delete is attributed through its gateway even when that gateway is already soft-deleted, so the delete still reaches the owning cluster; a binding whose gateway cannot be found at all is not delivered to any filtered stream.
 

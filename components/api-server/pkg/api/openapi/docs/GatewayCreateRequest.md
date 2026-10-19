@@ -5,7 +5,8 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  | 
-**Placement** | [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | 
+**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional] 
+**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -22,7 +23,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayCreateRequest
 
-`func NewGatewayCreateRequest(name string, placement NullableGatewayPlacementIntent, ) *GatewayCreateRequest`
+`func NewGatewayCreateRequest(name string, ) *GatewayCreateRequest`
 
 NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 This constructor will assign default values to properties that have it defined,
@@ -57,6 +58,31 @@ and a boolean to check if the value has been set.
 SetName sets Name field to given value.
 
 
+### GetClusterId
+
+`func (o *GatewayCreateRequest) GetClusterId() string`
+
+GetClusterId returns the ClusterId field if non-nil, zero value otherwise.
+
+### GetClusterIdOk
+
+`func (o *GatewayCreateRequest) GetClusterIdOk() (*string, bool)`
+
+GetClusterIdOk returns a tuple with the ClusterId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetClusterId
+
+`func (o *GatewayCreateRequest) SetClusterId(v string)`
+
+SetClusterId sets ClusterId field to given value.
+
+### HasClusterId
+
+`func (o *GatewayCreateRequest) HasClusterId() bool`
+
+HasClusterId returns a boolean if a field has been set.
+
 ### GetPlacement
 
 `func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent`
@@ -76,6 +102,11 @@ and a boolean to check if the value has been set.
 
 SetPlacement sets Placement field to given value.
 
+### HasPlacement
+
+`func (o *GatewayCreateRequest) HasPlacement() bool`
+
+HasPlacement returns a boolean if a field has been set.
 
 ### SetPlacementNil
 

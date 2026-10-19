@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (GP-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
 
 The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
@@ -125,7 +125,7 @@ Placement availability SHALL NOT depend on CPU, memory, pod usage, or other capa
 
 The form SHALL load placement availability automatically when it opens. The form SHALL refresh placement availability after a placement-related submission error. The form SHALL NOT require a separate manual refresh or Retry control.
 
-A placement pair that becomes unavailable before submission SHALL be rejected by the backend. The form SHALL present the rejection as a recoverable provisioning error.
+A placement pair that becomes unavailable before submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a matching cluster appears (GP-07). The form MAY surface the resulting awaiting-placement status so the user understands the Gateway is waiting for a matching cluster.
 
 #### Scenario: AWS is unavailable for Public
 
@@ -229,9 +229,9 @@ When one eligible cluster matches, the backend SHALL select that cluster. When m
 
 The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage, or other capacity data. The client SHALL neither calculate nor submit the selected cluster.
 
-If no eligible cluster matches the selector, the backend SHALL return a placement-unavailable error. The backend SHALL NOT drop selector labels or fall back to another selector or local-kind.
+If no eligible cluster matches the selector, the backend SHALL NOT reject the create: the Gateway is LATE-BOUND. The backend SHALL create the Gateway with an empty `cluster_id`, hold it in the `Pending` phase with a clear awaiting-placement `status`, and bind it when a matching cluster appears, per [`data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway Placement and Late Binding"). The backend SHALL NOT drop selector labels or fall back to another selector or local-kind. This late-binding model lets a declarative `.hypershell` Gateway (which declares a selector and no `cluster_id`) import successfully even when no matching cluster is connected yet.
 
-The backend SHALL persist the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted identifier.
+The backend SHALL persist BOTH the `placement` selector (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
 
 #### Scenario: Backend randomly selects a matching cluster
 
@@ -253,7 +253,15 @@ The backend SHALL persist the selected cluster identifier on the Gateway record.
 - AND the cluster available when the form rendered is no longer eligible
 - WHEN the backend resolves placement
 - THEN the backend SHALL select another eligible matching cluster
-- OR the backend SHALL return a placement-unavailable error
+- OR the backend SHALL create the Gateway unplaced in the `Pending` phase, awaiting late binding
+
+#### Scenario: Selector with no eligible cluster creates an unplaced Gateway
+
+- GIVEN a valid placement selector that no connected cluster matches
+- WHEN the backend creates the gateway
+- THEN the Gateway SHALL be created with an empty `cluster_id` and `phase` `Pending`
+- AND the create SHALL NOT return a placement-unavailable error
+- AND the backend SHALL assign `cluster_id` when a matching cluster later becomes eligible
 
 ### Requirement: GP-08 -- Local-kind Placement Resolution
 
@@ -270,9 +278,9 @@ The backend SHALL reject local-kind placement with a typed client-visible error 
 
 ### Requirement: GP-09 -- API and Persistence Compatibility
 
-The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. Gateway creation SHALL require selector-based placement and SHALL NOT accept the former provider/network request shape.
+The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. `cluster_id` SHALL be OPTIONAL (nullable) on Gateway create: a create SHALL supply EITHER an explicit `cluster_id` (pinned) OR a `placement` selector (late-bound), and SHALL NOT accept the former provider/network request shape. The web-console provision form submits only the selector shape; the pinned shape remains available to `hsctl apply` and the declarative `.hypershell` import.
 
-The Gateway table SHALL NOT require a migration unless the implementation introduces persisted placement-intent fields. Placement intent MAY remain request-scoped after the backend resolves `cluster_id`.
+The Gateway schema SHALL carry a persisted `placement` field. The placement selector is NO LONGER merely request-scoped: it SHALL be persisted on the Gateway record so the backend can re-resolve it for late binding after create (GP-07). A late-bound Gateway's `cluster_id` is nullable until placement resolves.
 
 #### Scenario: Existing gateway placement remains readable
 
@@ -286,7 +294,7 @@ The provision form SHALL present a provisioning-version choice for managed place
 
 The version choice SHALL default to "Any version". Changing the network or provider SHALL re-derive the available versions from availability data and SHALL reset the version choice to "Any version" when the previously selected version is no longer advertised for the new network and provider. The version choice SHALL have no effect on, and SHALL NOT be shown for, `local-kind` placement.
 
-When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version that becomes unavailable before submission SHALL be rejected by the backend and surfaced as a recoverable provisioning error, consistent with GP-04.
+When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version-bearing selector that matches no eligible cluster at submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a cluster advertising that version becomes eligible, consistent with GP-04 and GP-07.
 
 Because the single batched placement-availability request (GP-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
 

@@ -10,7 +10,7 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**ClusterId** | **string** |  | 
+**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 

@@ -9,7 +9,7 @@
 
 Expose **fleet-wide gateway version adoption** on the operational dashboard so administrators can see how many gateways run each OpenShell version.
 
-The word "release" in the widget, metric, and source identifiers predates the removal of the `GatewayRelease` kind (PR #452). The distribution is now computed from each gateway's **observed running version** -- the `gateway_version` the gateway reports on its `/health` endpoint, stored on the gateway row (`platform/openshell-gateway-health.spec.md`). There is no `GatewayRelease` catalog and no `release_id`.
+The distribution is computed from each gateway's **observed running version** -- the `gateway_version` the gateway reports on its `/health` endpoint, stored on the gateway row (`platform/openshell-gateway-health.spec.md`).
 
 Version 1 aggregates the distribution from a single existing paginated List API:
 

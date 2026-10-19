@@ -61,6 +61,16 @@ func (d *gatewayDaoMock) All(ctx context.Context) (GatewayList, error) {
 	return d.gateways, nil
 }
 
+func (d *gatewayDaoMock) FindUnplaced(ctx context.Context) (GatewayList, error) {
+	unplaced := GatewayList{}
+	for _, gw := range d.gateways {
+		if gw.ClusterId == "" && gw.Placement != nil {
+			unplaced = append(unplaced, gw)
+		}
+	}
+	return unplaced, nil
+}
+
 func (d *gatewayDaoMock) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, error) {
 	gw := d.findByNamespace(namespace)
 	if gw == nil {
@@ -139,17 +149,17 @@ func (d *gatewayDaoMock) CountByClusterAndPhase(ctx context.Context) ([]ClusterP
 }
 
 func (d *gatewayDaoMock) SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error) {
-	byCluster := map[string]int64{}
+	byClusterNamespace := map[[2]string]int64{}
 	for _, gw := range d.gateways {
 		cluster := gw.ClusterId
 		if cluster == "" {
 			cluster = managedClusterUnknown
 		}
-		byCluster[cluster] += int64(derefCount(gw.ActiveSandboxCount))
+		byClusterNamespace[[2]string{cluster, gw.Namespace}] += int64(derefCount(gw.ActiveSandboxCount))
 	}
-	var out []ClusterSandboxCount
-	for cluster, count := range byCluster {
-		out = append(out, ClusterSandboxCount{ClusterName: cluster, Count: count})
+	out := make([]ClusterSandboxCount, 0, len(byClusterNamespace))
+	for key, count := range byClusterNamespace {
+		out = append(out, ClusterSandboxCount{ClusterName: key[0], Namespace: key[1], Count: count})
 	}
 	return out, nil
 }

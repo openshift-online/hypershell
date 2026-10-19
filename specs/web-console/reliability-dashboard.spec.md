@@ -317,7 +317,7 @@ The repository SHALL include:
 
 - Unit tests for secondary nav selection and route targets on both dashboard pages
 - Unit tests for adapter mapping (covered jointly with ARM-07)
-- Unit or component tests for reliability summary and trend widgets (present value; sparkline when trend exists; unavailable when metric omitted)
+- Unit or component tests for reliability summary and trend widgets (present value; sparkline when trend exists; a dash in summary rows and a metric-unavailable empty state in whole widgets when metric omitted)
 - Storybook stories for default, loading, partial-load-warning, and total-initial-load-error states using a mock reliability control plane
 
 BFF and SPA access-control tests SHALL cover `/dashboard/reliability` and `GET /api/metrics/api-reliability` alongside existing operational dashboard admin tests.

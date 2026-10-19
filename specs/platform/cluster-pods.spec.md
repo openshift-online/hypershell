@@ -7,7 +7,7 @@
 
 Expose **cluster pod utilization** for the Kubernetes cluster that hosts the HyperShell platform (the **hub cluster**) on the operational dashboard so dashboard operators can see how many pod slots are in use and how many remain available.
 
-This is **cluster infrastructure telemetry**, not HyperShell application state. It reflects pod scheduling pressure on the hub cluster where the API server, control plane, Prometheus, gateway namespaces, and related platform workloads run. It is **not** per-gateway sandbox counts (`provisioned-sandboxes`), per-tenant namespace quotas, or pod inventory on managed clusters registered in a Fleet.
+This is **cluster infrastructure telemetry**, not HyperShell application state. It reflects pod scheduling pressure on the hub cluster where the API server, control plane, Prometheus, gateway namespaces, and related platform workloads run. It is **not** per-gateway sandbox counts (`provisioned-sandboxes`), per-tenant namespace quotas, or pod inventory on registered managed clusters.
 
 Pod semantics for version 1:
 
@@ -39,7 +39,7 @@ The metric SHALL include pods scheduled on nodes that can accept workload pods. 
 
 The metric SHALL count platform, system, gateway, and tenant-namespace pods on the hub cluster as a single aggregate.
 
-The metric SHALL NOT be scoped to a single gateway namespace, a single HyperShell microservice Deployment, or managed clusters registered in a Fleet.
+The metric SHALL NOT be scoped to a single gateway namespace, a single HyperShell microservice Deployment, or registered managed clusters.
 
 #### Scenario: Kind hub cluster reports pod utilization
 

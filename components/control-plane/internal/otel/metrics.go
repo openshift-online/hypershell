@@ -22,6 +22,8 @@ var (
 	gatewaySandboxExpiring     metric.Int64Gauge
 	gatewaySandboxIdle         metric.Int64Gauge
 	gatewayVaultUnreachable    metric.Int64Counter
+	gatewaySandboxTotal        metric.Int64Gauge
+	gatewaySandboxLifetime     metric.Float64Histogram
 	reconcileErrors            metric.Int64Counter
 	reconciliationFailures     metric.Int64Counter
 	reconciliationRetries      metric.Int64Counter
@@ -144,6 +146,28 @@ func registerMetrics() error {
 		"gateway.vault.unreachable",
 		metric.WithUnit("{observation}"),
 		metric.WithDescription("Count of health observations where a vault-backed gateway's provider Vault was unreachable"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewaySandboxTotal, err = meter.Int64Gauge(
+		"gateway.sandbox.total",
+		metric.WithUnit("{sandbox}"),
+		metric.WithDescription("Total provisioned Sandbox custom resources"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewaySandboxLifetime, err = meter.Float64Histogram(
+		"gateway.sandbox.lifetime",
+		metric.WithUnit("s"),
+		metric.WithDescription("Lifetime of a sandbox when it leaves the active set"),
+		metric.WithExplicitBucketBoundaries(
+			60, 300, 900, 1800, 3600, 7200, 14400, 28800, 43200,
+			86400, 172800, 259200, 604800, 1209600, 2592000,
+		),
 	)
 	if err != nil {
 		return err
@@ -326,6 +350,29 @@ func RecordSandboxAttentionCounts(ctx context.Context, clusterID string, orphane
 	if gatewaySandboxIdle != nil {
 		gatewaySandboxIdle.Record(ctx, int64(max(0, idle)), attrs)
 	}
+}
+
+// RecordSandboxTotal exports the total provisioned Sandbox count for one
+// namespace. The gauge is cluster-local and includes inactive sandboxes.
+func RecordSandboxTotal(ctx context.Context, clusterID, namespace string, count int) {
+	if gatewaySandboxTotal == nil {
+		return
+	}
+	gatewaySandboxTotal.Record(ctx, int64(max(0, count)), metric.WithAttributes(
+		attribute.String("namespace", namespace),
+		attribute.String("hypershell.cluster_id", AttentionClusterID(clusterID)),
+	))
+}
+
+// RecordSandboxLifetime exports one observed sandbox lifetime in seconds.
+func RecordSandboxLifetime(ctx context.Context, clusterID, namespace string, lifetime time.Duration) {
+	if gatewaySandboxLifetime == nil || lifetime < 0 {
+		return
+	}
+	gatewaySandboxLifetime.Record(ctx, lifetime.Seconds(), metric.WithAttributes(
+		attribute.String("namespace", namespace),
+		attribute.String("hypershell.cluster_id", AttentionClusterID(clusterID)),
+	))
 }
 
 // RecordReconcileError increments the reconcile error counter.
