@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Card,
   CardBody,
@@ -19,18 +20,26 @@ import {
   List,
   ListItem,
   PageSection,
+  Progress,
+  ProgressMeasureLocation,
+  Split,
+  SplitItem,
   Stack,
   StackItem,
   Title,
 } from "@patternfly/react-core";
 import {
   ArrowRightIcon,
+  BookOpenIcon,
+  ChartLineIcon,
   CheckCircleIcon,
+  CodeIcon,
   CubesIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
-  ExternalLinkAltIcon,
   HashtagIcon,
+  RocketIcon,
+  SearchIcon,
   ServerAltIcon,
 } from "@patternfly/react-icons";
 
@@ -62,7 +71,10 @@ function StatusHeading({
   const StatusIcon = statusIcon[tone];
 
   return (
-    <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }}>
+    <Flex
+      alignItems={{ default: "alignItemsCenter" }}
+      gap={{ default: "gapSm" }}
+    >
       <FlexItem>
         <Icon status={tone} title={tone}>
           <StatusIcon aria-hidden />
@@ -91,7 +103,10 @@ function HomepageCard({
   return (
     <Card>
       <CardHeader>
-        <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapSm" }}>
+        <Flex
+          alignItems={{ default: "alignItemsCenter" }}
+          gap={{ default: "gapSm" }}
+        >
           <FlexItem>{icon}</FlexItem>
           <FlexItem>
             <CardTitle>{title}</CardTitle>
@@ -108,113 +123,227 @@ function WelcomeCard() {
   return (
     <Card>
       <CardBody>
-        <Content>
-          <Title headingLevel="h2" size="xl">
-            Pick a gateway. Ship your sandboxes.
-          </Title>
-          <p className="pf-v6-u-pt-lg pf-v6-u-pb-lg">
-            HyperShell runs OpenShell gateways across clusters and clouds for you. Choose where your workload belongs and get to a running gateway in just a few steps.
-          </p>
-        </Content>
-        <Button component="a" href="/gateways/new" variant="primary">
-          Provision gateway
-        </Button>
+        <Split hasGutter>
+          <SplitItem isFilled>
+            <Content>
+              <Title headingLevel="h2" size="xl">
+                Pick a gateway. Ship your sandboxes.
+              </Title>
+              <p className="pf-v6-u-pt-lg pf-v6-u-pb-lg">
+                HyperShell runs OpenShell gateways across clusters and clouds
+                for you. Choose where your workload belongs and get to a running
+                gateway in just a few steps.
+              </p>
+            </Content>
+            <Flex gap={{ default: "gapMd" }}>
+              <FlexItem>
+                <Button
+                  component="a"
+                  href="/gateways/new"
+                  icon={<RocketIcon />}
+                  size="lg"
+                  variant="primary"
+                >
+                  Provision my gateway
+                </Button>
+              </FlexItem>
+              <FlexItem>
+                <Button
+                  component="a"
+                  href="/gateways"
+                  icon={<ArrowRightIcon />}
+                  size="lg"
+                  variant="secondary"
+                >
+                  View my gateways
+                </Button>
+              </FlexItem>
+            </Flex>
+          </SplitItem>
+          <SplitItem>
+            <Flex
+              alignItems={{ default: "alignItemsCenter" }}
+              direction={{ default: "column" }}
+              gap={{ default: "gapLg" }}
+            >
+              <FlexItem>
+                <Icon size="2xl">
+                  <RocketIcon aria-hidden />
+                </Icon>
+              </FlexItem>
+              <FlexItem>
+                <Icon size="xl">
+                  <CubesIcon aria-hidden />
+                </Icon>
+              </FlexItem>
+              <FlexItem>
+                <Icon size="lg">
+                  <ChartLineIcon aria-hidden />
+                </Icon>
+              </FlexItem>
+            </Flex>
+          </SplitItem>
+        </Split>
       </CardBody>
     </Card>
   );
 }
 
-function YourGatewaysCard() {
+function DashboardCard() {
   return (
-    <HomepageCard icon={<CubesIcon />} title="Your gateways">
-      <Flex alignItems={{ default: "alignItemsBaseline" }} gap={{ default: "gapMd" }}>
-        <FlexItem>
-          <Title headingLevel="h3" size="2xl">
-            5
-          </Title>
-        </FlexItem>
-        <FlexItem>gateways owned by you</FlexItem>
-      </Flex>
+    <HomepageCard icon={<ChartLineIcon />} title="Your dashboard">
+      <Content>
+        Track your gateways, sandbox activity, and reliability in one place.
+      </Content>
       <Button
         component="a"
-        href="/gateways"
+        href="/dashboard"
         icon={<ArrowRightIcon />}
         variant="link"
       >
-        View my gateways
+        Go to your dashboard
       </Button>
     </HomepageCard>
   );
 }
 
-function NeedsAttentionCard({ state }: { state: HomepageState }) {
-  if (state === "partial") {
-    return (
-      <HomepageCard
-        icon={<ExclamationCircleIcon color="var(--pf-t--global--color--status--danger--default)" />}
-        title="Needs attention"
-      >
-        <Label color="red">Gateway data unavailable</Label>
-        <p>Gateway attention details could not be loaded.</p>
-      </HomepageCard>
-    );
-  }
-
-  if (state === "noAttention") {
-    return (
-      <HomepageCard
-        icon={<CheckCircleIcon color="var(--pf-t--global--color--status--success--default)" />}
-        showBody={false}
-        title="All gateways are healthy"
-      >
-        {null}
-      </HomepageCard>
-    );
-  }
+function GatewayHealthCard({ state }: { state: HomepageState }) {
+  const status =
+    state === "noAttention"
+      ? {
+          title: "All 5 gateways are healthy",
+          tone: "success" as const,
+        }
+      : state === "partial"
+        ? {
+            title: "Gateway status is unavailable",
+            tone: "warning" as const,
+          }
+        : {
+            title: "2 gateways need attention",
+            tone: "danger" as const,
+          };
 
   return (
-    <HomepageCard
-      icon={<ExclamationCircleIcon color="var(--pf-t--global--color--status--danger--default)" />}
-      title="Needs attention"
-    >
-      <List>
-        <ListItem>
-          <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
-            <FlexItem>
-              <Button component="a" href="/gateways/research-gateway" variant="link">
-                research-gateway
-              </Button>
-              <Content component="small">Connection health is degraded</Content>
-            </FlexItem>
-            <FlexItem>
-              <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapXs" }}>
-                <Icon status="warning" title="Degraded">
-                  <ExclamationTriangleIcon aria-hidden />
-                </Icon>
-                <span>Degraded</span>
-              </Flex>
-            </FlexItem>
-          </Flex>
-        </ListItem>
-        <ListItem>
-          <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
-            <FlexItem>
-              <Button component="a" href="/gateways/team-gateway" variant="link">
-                team-gateway
-              </Button>
-              <Content component="small">Provisioning failed</Content>
-            </FlexItem>
-            <FlexItem>
-              <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapXs" }}>
-                <Icon status="danger" title="Failed">
-                  <ExclamationCircleIcon aria-hidden />
-                </Icon>
-                <span>Failed</span>
-              </Flex>
-            </FlexItem>
-          </Flex>
-        </ListItem>
-      </List>
+    <HomepageCard icon={<CubesIcon />} title="Your gateways">
+      <Stack hasGutter>
+        <StackItem>
+          <Alert isInline title={status.title} variant={status.tone} />
+        </StackItem>
+        {state === "partial" ? (
+          <StackItem>
+            <Content>Gateway details could not be loaded.</Content>
+          </StackItem>
+        ) : (
+          <>
+            <StackItem>
+              <Grid hasGutter>
+                {state === "noAttention" ? (
+                  <GridItem span={12}>
+                    <Title headingLevel="h3" size="4xl">
+                      5
+                    </Title>
+                    <Content>gateways</Content>
+                  </GridItem>
+                ) : (
+                  <>
+                    <GridItem md={4}>
+                      <Title headingLevel="h3" size="4xl">
+                        5
+                      </Title>
+                      <Content>gateways</Content>
+                    </GridItem>
+                    <GridItem md={4}>
+                      <Title headingLevel="h3" size="2xl">
+                        3
+                      </Title>
+                      <Content>healthy</Content>
+                    </GridItem>
+                    <GridItem md={4}>
+                      <Title headingLevel="h3" size="2xl">
+                        2
+                      </Title>
+                      <Content>need attention</Content>
+                    </GridItem>
+                  </>
+                )}
+              </Grid>
+            </StackItem>
+            {state === "noAttention" ? null : (
+              <StackItem>
+                <List>
+                  <ListItem>
+                    <Flex
+                      justifyContent={{ default: "justifyContentSpaceBetween" }}
+                    >
+                      <FlexItem>
+                        <Button
+                          component="a"
+                          href="/gateways/research-gateway"
+                          variant="link"
+                        >
+                          research-gateway
+                        </Button>
+                        <Content component="small">
+                          Connection health is degraded
+                        </Content>
+                      </FlexItem>
+                      <FlexItem>
+                        <Flex
+                          alignItems={{ default: "alignItemsCenter" }}
+                          gap={{ default: "gapXs" }}
+                        >
+                          <Icon status="warning" title="Degraded">
+                            <ExclamationTriangleIcon aria-hidden />
+                          </Icon>
+                          <span>Degraded</span>
+                        </Flex>
+                      </FlexItem>
+                    </Flex>
+                  </ListItem>
+                  <ListItem>
+                    <Flex
+                      justifyContent={{ default: "justifyContentSpaceBetween" }}
+                    >
+                      <FlexItem>
+                        <Button
+                          component="a"
+                          href="/gateways/team-gateway"
+                          variant="link"
+                        >
+                          team-gateway
+                        </Button>
+                        <Content component="small">Provisioning failed</Content>
+                      </FlexItem>
+                      <FlexItem>
+                        <Flex
+                          alignItems={{ default: "alignItemsCenter" }}
+                          gap={{ default: "gapXs" }}
+                        >
+                          <Icon status="danger" title="Failed">
+                            <ExclamationCircleIcon aria-hidden />
+                          </Icon>
+                          <span>Failed</span>
+                        </Flex>
+                      </FlexItem>
+                    </Flex>
+                  </ListItem>
+                </List>
+              </StackItem>
+            )}
+          </>
+        )}
+        <StackItem>
+          <Button
+            component="a"
+            href="/gateways"
+            icon={<ArrowRightIcon />}
+            variant="link"
+          >
+            View my gateways
+          </Button>
+        </StackItem>
+      </Stack>
     </HomepageCard>
   );
 }
@@ -248,54 +377,82 @@ function ClusterAvailabilityCard({ state }: { state: HomepageState }) {
       }
       title="Cluster availability"
     >
-      {state === "partial" ? (
-        <>
-          <StatusHeading tone="warning">Cluster data unavailable</StatusHeading>
-          <p>Cluster availability could not be loaded.</p>
-        </>
-      ) : clusterState ? (
-        <Stack hasGutter>
+      <Stack hasGutter>
+        <StackItem>
+          <Alert
+            isInline
+            title={
+              state === "partial"
+                ? "Cluster status is unavailable"
+                : clusterState
+                  ? `${clusterState.name} is unavailable`
+                  : "All 6 clusters are healthy"
+            }
+            variant={
+              state === "partial"
+                ? "warning"
+                : (clusterState?.tone ?? "success")
+            }
+          />
+        </StackItem>
+        {state === "partial" ? (
           <StackItem>
-            <List>
-              <ListItem>
-                <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
-                  <FlexItem>{clusterState.name}</FlexItem>
-                <FlexItem>
-                  <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapXs" }}>
-                    <Icon
-                      status={clusterState.tone}
-                      title="Unavailable"
-                    >
-                      {clusterState.tone === "danger" ? (
-                        <ExclamationCircleIcon aria-hidden />
-                      ) : (
-                        <ExclamationTriangleIcon aria-hidden />
-                      )}
-                    </Icon>
-                    <span>Unavailable</span>
-                  </Flex>
-                </FlexItem>
-                </Flex>
-                <Content component="small">{clusterState.reason}</Content>
-              </ListItem>
-            </List>
+            <Content>Cluster availability could not be loaded.</Content>
           </StackItem>
+        ) : (
+          <StackItem>
+            <Progress
+              label={`${clusterState ? 5 : 6} of 6 clusters healthy`}
+              max={6}
+              measureLocation={ProgressMeasureLocation.outside}
+              value={clusterState ? 5 : 6}
+              variant={clusterState?.tone ?? "success"}
+            />
+          </StackItem>
+        )}
+        {clusterState ? (
+          <>
+            <StackItem>
+              <List>
+                <ListItem>
+                  <Flex
+                    justifyContent={{ default: "justifyContentSpaceBetween" }}
+                  >
+                    <FlexItem>{clusterState.name}</FlexItem>
+                    <FlexItem>
+                      <Flex
+                        alignItems={{ default: "alignItemsCenter" }}
+                        gap={{ default: "gapXs" }}
+                      >
+                        <Icon status={clusterState.tone} title="Unavailable">
+                          {clusterState.tone === "danger" ? (
+                            <ExclamationCircleIcon aria-hidden />
+                          ) : (
+                            <ExclamationTriangleIcon aria-hidden />
+                          )}
+                        </Icon>
+                        <span>Unavailable</span>
+                      </Flex>
+                    </FlexItem>
+                  </Flex>
+                  <Content component="small">{clusterState.reason}</Content>
+                </ListItem>
+              </List>
+            </StackItem>
+            <StackItem>
+              <Content component="small">
+                These clusters may impact your gateways and sandboxes
+              </Content>
+            </StackItem>
+          </>
+        ) : (
           <StackItem>
             <Content component="small">
-              These clusters may impact your gateways and sandboxes
+              Your gateways are running on healthy clusters.
             </Content>
           </StackItem>
-        </Stack>
-      ) : (
-        <Stack hasGutter>
-          <StackItem>
-            <p>All 6 clusters are up and running</p>
-          </StackItem>
-          <StackItem>
-            <Content component="small">Your gateways are running on healthy clusters.</Content>
-          </StackItem>
-        </Stack>
-      )}
+        )}
+      </Stack>
     </HomepageCard>
   );
 }
@@ -304,18 +461,14 @@ function PlatformOverviewCard({ state }: { state: HomepageState }) {
   return (
     <HomepageCard
       footer={
-        <Flex gap={{ default: "gapLg" }}>
-          <FlexItem>
-            <Button component="a" href="/dashboard" icon={<ExternalLinkAltIcon />} variant="link">
-              Operational dashboard
-            </Button>
-          </FlexItem>
-          <FlexItem>
-            <Button component="a" href="/dashboard/reliability" icon={<ExternalLinkAltIcon />} variant="link">
-              Reliability dashboard
-            </Button>
-          </FlexItem>
-        </Flex>
+        <Button
+          component="a"
+          href="/dashboard"
+          icon={<ArrowRightIcon />}
+          variant="link"
+        >
+          Dashboard
+        </Button>
       }
       icon={<ServerAltIcon />}
       title="Platform overview"
@@ -328,7 +481,9 @@ function PlatformOverviewCard({ state }: { state: HomepageState }) {
             <DescriptionList columnModifier={{ default: "3Col", md: "3Col" }}>
               <DescriptionListGroup>
                 <DescriptionListTerm>42</DescriptionListTerm>
-                <DescriptionListDescription>gateways</DescriptionListDescription>
+                <DescriptionListDescription>
+                  gateways
+                </DescriptionListDescription>
               </DescriptionListGroup>
               <DescriptionListGroup>
                 <DescriptionListTerm>5</DescriptionListTerm>
@@ -356,25 +511,66 @@ function PlatformOverviewCard({ state }: { state: HomepageState }) {
               </DescriptionListGroup>
               <DescriptionListGroup>
                 <DescriptionListTerm>128</DescriptionListTerm>
-                <DescriptionListDescription>active sandboxes</DescriptionListDescription>
+                <DescriptionListDescription>
+                  active sandboxes
+                </DescriptionListDescription>
               </DescriptionListGroup>
             </DescriptionList>
           )}
         </StackItem>
-        <StackItem>
-          <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapXs" }}>
-            <Icon
-              status={state === "partial" ? "danger" : "danger"}
-              title={state === "partial" ? "Unavailable" : "Clusters healthy"}
-            >
-              <ExclamationCircleIcon aria-hidden />
-            </Icon>
-            <span>
-              {state === "partial" ? "Cluster health unavailable" : "5 of 6 clusters healthy"}
-            </span>
-          </Flex>
-        </StackItem>
       </Stack>
+    </HomepageCard>
+  );
+}
+
+function LearnMoreCard() {
+  const resources = [
+    {
+      description: "Get oriented with gateway concepts and workflows.",
+      href: "/docs/openshell",
+      icon: <BookOpenIcon />,
+      title: "OpenShell docs",
+    },
+    {
+      description: "Learn how HyperShell fits your platform.",
+      href: "/docs/hypershell",
+      icon: <RocketIcon />,
+      title: "HyperShell overview",
+    },
+    {
+      description: "Browse ready-to-run gateway examples.",
+      href: "/examples",
+      icon: <CodeIcon />,
+      title: "Examples",
+    },
+    {
+      description: "Find answers, patterns, and community discussion.",
+      href: "/community",
+      icon: <SearchIcon />,
+      title: "Community",
+    },
+  ];
+
+  return (
+    <HomepageCard icon={<BookOpenIcon />} title="Learn and explore">
+      <Grid hasGutter>
+        {resources.map((resource) => (
+          <GridItem key={resource.title} md={6}>
+            <Flex
+              alignItems={{ default: "alignItemsFlexStart" }}
+              gap={{ default: "gapMd" }}
+            >
+              <FlexItem>{resource.icon}</FlexItem>
+              <FlexItem flex={{ default: "flex_1" }}>
+                <Button component="a" href={resource.href} variant="link">
+                  {resource.title}
+                </Button>
+                <Content component="small">{resource.description}</Content>
+              </FlexItem>
+            </Flex>
+          </GridItem>
+        ))}
+      </Grid>
     </HomepageCard>
   );
 }
@@ -383,7 +579,11 @@ function SlackCard() {
   return (
     <Card>
       <CardBody>
-        <Flex alignItems={{ default: "alignItemsCenter" }} gap={{ default: "gapLg" }} justifyContent={{ default: "justifyContentSpaceBetween" }}>
+        <Flex
+          alignItems={{ default: "alignItemsCenter" }}
+          gap={{ default: "gapLg" }}
+          justifyContent={{ default: "justifyContentSpaceBetween" }}
+        >
           <FlexItem>
             <HashtagIcon />
           </FlexItem>
@@ -391,7 +591,10 @@ function SlackCard() {
             <Title headingLevel="h2" size="lg">
               Talk to the team in #forum-hypershell
             </Title>
-            <Content>Onboarding, access to a gateway, questions, or something broken. We answer in the channel.</Content>
+            <Content>
+              Onboarding, access to a gateway, questions, or something broken.
+              We answer in the channel.
+            </Content>
           </FlexItem>
           <FlexItem>
             <Button
@@ -409,12 +612,13 @@ function SlackCard() {
   );
 }
 
-export function HomepagePageSurface({ state = "loaded" }: { state?: HomepageState }) {
-  return <>
-    <PageSection hasBodyWrapper={false}>
-      <Title headingLevel="h1">Welcome to HyperShell</Title>
-      <Content>A friendly starting point for your HyperShell work.</Content>
-    </PageSection>
+export function HomepagePageSurface({
+  state = "loaded",
+}: {
+  state?: HomepageState;
+}) {
+  return (
+    <>
       <PageSection
         hasBodyWrapper={false}
         isFilled
@@ -425,32 +629,39 @@ export function HomepagePageSurface({ state = "loaded" }: { state?: HomepageStat
         variant="secondary"
       >
         <Grid hasGutter>
-          <GridItem span={12}>
+          <GridItem xl={8}>
             <WelcomeCard />
           </GridItem>
-          <GridItem md={6} span={12}>
-            <YourGatewaysCard />
+          <GridItem xl={4}>
+            {state === "platformRestricted" ? (
+              <DashboardCard />
+            ) : (
+              <PlatformOverviewCard state={state} />
+            )}
           </GridItem>
-          <GridItem md={6} span={12}>
-            <NeedsAttentionCard state={state} />
+          <GridItem xl={8}>
+            <GatewayHealthCard state={state} />
           </GridItem>
-          <GridItem md={6} span={12}>
+          <GridItem xl={4}>
             <ClusterAvailabilityCard state={state} />
           </GridItem>
-          {state !== "platformRestricted" ? (
-            <GridItem md={6} span={12}>
-              <PlatformOverviewCard state={state} />
-            </GridItem>
-          ) : null}
-          <GridItem span={12}>
+          <GridItem xl={6}>
+            <LearnMoreCard />
+          </GridItem>
+          <GridItem xl={6}>
             <SlackCard />
           </GridItem>
         </Grid>
       </PageSection>
-  </>;
+    </>
+  );
 }
 
-export function HomepageMockup({ state = "loaded" }: { state?: HomepageState }) {
+export function HomepageMockup({
+  state = "loaded",
+}: {
+  state?: HomepageState;
+}) {
   return (
     <MockupTemplate
       contentVariant="secondary"
