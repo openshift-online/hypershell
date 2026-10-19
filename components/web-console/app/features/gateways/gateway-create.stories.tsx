@@ -100,7 +100,7 @@ function GatewayCreatePreview({
     ...gatewayOperations,
     getGatewayPlacementAvailability:
       availability === placementAvailability
-        ? gatewayOperations.getGatewayPlacementAvailability
+        ? (...args) => gatewayOperations.getGatewayPlacementAvailability(...args)
         : () => Promise.resolve(availability),
   } as GatewayOperations;
   return (
