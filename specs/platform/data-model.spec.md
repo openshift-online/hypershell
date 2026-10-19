@@ -1235,6 +1235,11 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `PATCH /api/hypershell/ext/repositories/{id}` | `hsctl update repository <id> [--secret-source-id <s>] [--default-branch <b>] [--import-path <path>]` | 🔲 planned |
 | `DELETE /api/hypershell/ext/repositories/{id}` | `hsctl delete repository <id>` | 🔲 planned |
 
+The Extension kind resource commands above (including `hsctl list repositories`
+and `hsctl get repository <id>`, where `get` renders the read-only `status`) are
+hand-written and registered through `extgroup`, not produced by the CLI generator;
+their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-commands.spec.md).
+
 #### Auth & Context
 
 | Operation | `hsctl` Command | Status |
