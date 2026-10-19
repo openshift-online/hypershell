@@ -111,7 +111,7 @@ erDiagram
         string name
         string url
         string provider
-        string secret_source_id FK
+        string secret_source_id FK "nullable; empty = anonymous public read"
         string default_branch
         string import_path
         string status
@@ -206,7 +206,7 @@ erDiagram
     Gateway ||--o{ AgentRuntime : "connects_to"
     SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
     Repository ||--o{ AgentRuntime : "scanned_by"
-    SecretSource ||--o{ Repository : "authenticates"
+    SecretSource |o--o{ Repository : "authenticates"
     AgentRuntime ||--|| AgentWorkspace : "owns"
     AgentRuntime ||--o{ SecretSource : "declares"
     Gateway ||--o{ AgentWorkspace : "hosts"
@@ -494,20 +494,51 @@ Fields:
 | `name` | string | Human-readable identifier for the repository registration |
 | `url` | string | Git remote URL (e.g. `https://github.com/openshift-online/hypershell`) |
 | `provider` | string | Provider type the credential targets: `github` (extensible) |
-| `secret_source_id` | string (FK) | References a `SecretSource` holding the durable import credential material. For a GitHub `Repository` this is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
+| `secret_source_id` | string (FK, OPTIONAL) | OPTIONAL reference to a `SecretSource` holding the durable import credential material. A `Repository` MAY be registered with NO `secret_source_id`: a PUBLIC repository needs no credential and is read anonymously. When set, for a GitHub `Repository` the referenced material is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
 | `default_branch` | string | Branch the import process reads when none is otherwise specified |
 | `import_path` | string | Directory within the repository to import (default `.hypershell`) |
 | `status` | string | Registration/import health |
 
 `provider` SHALL be validated against the supported provider set. `secret_source_id`
-SHALL reference an existing `SecretSource`.
+is OPTIONAL. When `secret_source_id` is set it SHALL reference an existing
+`SecretSource`, and the create or update SHALL be rejected when it does not. When
+`secret_source_id` is empty or absent it SHALL NOT be foreign-key validated: an empty
+value SHALL NOT be rejected and SHALL NOT produce the "does not reference an existing
+SecretSource" error. A `Repository` with no `secret_source_id` declares a PUBLIC
+repository, which the `RepositoryReconciler` reads anonymously (see
+[`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
+Reconciliation", and the resolver note in "Requirement: Declarative `.hypershell`
+Import" below).
 
-#### Scenario: Register a Repository
+`SecretSource` ownership is UNCHANGED by this optionality: a `SecretSource` stays
+owned by its `agent_runtime_id` and `agent_runtime_id` stays required (see
+"Requirement: SecretSource"). With late binding the cluster-local Vault is not known
+until the owning `AgentRuntime`'s gateway is assigned a `ManagedCluster`, so the
+`AgentRuntime` owner is what resolves to a Vault; a `Repository`- or platform-scoped
+`SecretSource` would have no cluster to bind to. Making the `Repository` credential
+optional - rather than loosening `SecretSource` ownership - is therefore the correct
+way to support an anonymous public read.
+
+#### Scenario: Register a Repository with a credential
 
 - GIVEN a valid `url`, `provider = github`, and a `secret_source_id` referencing an existing `SecretSource`
 - WHEN a POST request is made to `/api/hypershell/ext/repositories`
 - THEN a new `Repository` is created
 - AND a server-side process can authenticate to the repository with the referenced credential
+
+#### Scenario: Register a public Repository with no credential
+
+- GIVEN a valid `url` and `provider = github` and NO `secret_source_id`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN a new `Repository` is created without a 400 and without a foreign-key error
+- AND the `RepositoryReconciler` reads the repository anonymously (no `Authorization` header) when no platform credential is configured
+
+#### Scenario: Reject a Repository that names a nonexistent SecretSource
+
+- GIVEN a `secret_source_id` that does not reference any existing `SecretSource`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN the API server SHALL reject the request with a validation error
+- AND the error SHALL state that the `secret_source_id` does not reference an existing `SecretSource`
 
 #### Scenario: Repository Deletion Blocked by Referencing AgentRuntime
 
@@ -515,6 +546,25 @@ SHALL reference an existing `SecretSource`.
 - WHEN a DELETE request is made for the `Repository`
 - THEN the API server SHALL reject the request with 409
 - AND the response SHALL identify the blocking `AgentRuntime`
+
+**Anonymous-read rate limit.** The unauthenticated GitHub REST API is rate limited
+to roughly 60 requests per hour. A public-repository import loop that re-reads the
+subtree on every reconcile tick can exhaust this budget. The mitigation is a
+configured platform GitHub token (`cfg.GitHubTokenFile`, already present in the
+control plane), which authenticates the read without any per-`Repository`
+`SecretSource`. The implementation SHALL call out the import cadence against the
+unauthenticated limit.
+
+**Open follow-up: private repositories (NOT solved here).** A PRIVATE repository
+needs a read credential. That credential is `Repository`-scoped and has no
+`AgentRuntime` consumer, so it does not fit the AgentRuntime-owned `SecretSource`
+model, which this change deliberately does NOT loosen. This is a recorded ownership
+gap to be decided separately, among: (a) a platform-scoped credential store for the
+`RepositoryReconciler`; (b) a configured platform GitHub token
+(`cfg.GitHubTokenFile`) that covers the private repositories the platform App can
+reach; or (c) a narrow `Repository`-owned-credential exception. This change resolves
+only the PUBLIC (anonymous) case; private-repository credential sourcing remains
+open.
 
 ---
 
@@ -571,6 +621,13 @@ binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
    read-only secret-store client (`pkg/secretstore`). This is the same read-only
    store access the control plane uses to place `AgentRuntime` secrets; it does NOT
    create an `ExternalSecret` and does NOT depend on External Secrets Operator.
+   When the `Repository` declares NO `secret_source_id` AND no platform credential
+   is configured, the resolver yields an empty token and the import reads the
+   subtree ANONYMOUSLY: the GitHub fetcher SHALL omit the `Authorization` header
+   when the token is empty. Anonymous read works for a PUBLIC repository. The
+   resolver already implements this: it returns the (possibly empty) platform token
+   when `secret_source_id` is empty, and the fetcher sends no `Authorization` header
+   for an empty token.
 2. Read ONLY the `import_path` subtree through the GitHub API at the `Repository`'s
    `default_branch` (or the branch otherwise specified), authenticating with the
    credential resolved in step 1 - the per-`Repository` `secret_source_id` credential
@@ -1397,7 +1454,7 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller realizes gateway-side objects via OpenShell's existing API | Gateway-side workspace, members, and provider objects are realized by the controller through OpenShell's existing provisioning API (the operations the `openshell` CLI drives) in its normal reconcile loop, co-located with existing gateway database provisioning logic, rather than a bespoke gateway gRPC contract. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
-| Repository credential via SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. |
+| Repository credential via OPTIONAL SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. The FK is OPTIONAL: a public repository needs no credential and is read anonymously, so requiring a `secret_source_id` would block registering a public repository. `SecretSource` ownership stays with `AgentRuntime` (a `Repository`-scoped `SecretSource` would have no cluster to late-bind a Vault to), so the public case is solved by making the `Repository` credential optional, not by loosening `SecretSource`. Private-repository credential sourcing is a separate open follow-up (platform-scoped store, a configured platform token, or a narrow Repository-owned exception). |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and read the `import_path` subtree over the GitHub API. The control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential; the api-server has no store read access and no repository read access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |

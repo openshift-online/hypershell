@@ -515,13 +515,21 @@ For each registered `Repository` the control plane SHALL:
 
 1. Resolve the credential used to read the `Repository` subtree. The platform
    GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
-   repository subtree. When the `Repository` declares a `secret_source_id`, that
+   repository subtree. The `secret_source_id` is OPTIONAL (see
+   [`data-model.spec.md`](./data-model.spec.md), "Repository as a Top-Level
+   Resource"). When the `Repository` declares a `secret_source_id`, that
    per-`Repository` credential takes precedence and supplies a repository-specific
    git credential - for example a private or non-GitHub-App-covered source; the
    control plane reads its value from the secret store through its read-only
    `pkg/secretstore` client. This is the same read-only store access the control
    plane uses to place `AgentRuntime` secrets; it does not create an `ExternalSecret`
-   and does not depend on External Secrets Operator.
+   and does not depend on External Secrets Operator. When the `Repository` declares
+   NO `secret_source_id` and no platform credential is configured, the resolver
+   yields an empty token and the import reads a PUBLIC repository ANONYMOUSLY: the
+   GitHub fetcher omits the `Authorization` header for an empty token. The
+   unauthenticated GitHub API is rate limited to roughly 60 requests per hour; a
+   configured platform GitHub token (`cfg.GitHubTokenFile`) mitigates this without a
+   per-`Repository` `SecretSource`.
 2. Read ONLY the `import_path` subtree (default `.hypershell`, the Kustomize root)
    through the GitHub API at the `Repository`'s `default_branch` (or the branch
    otherwise specified), authenticating with the credential resolved in step 1 - the
@@ -633,6 +641,13 @@ The authorization contract is specified in
 - WHEN the control-plane import reconciler needs to read the `import_path` subtree
 - THEN it SHALL read the credential value through its read-only `pkg/secretstore` client
 - AND it SHALL NOT create an `ExternalSecret` or rely on External Secrets Operator
+
+#### Scenario: Public Repository is read anonymously with no SecretSource
+
+- GIVEN a public `Repository` with NO `secret_source_id` and no configured platform credential
+- WHEN the control-plane import reconciler needs to read the `import_path` subtree
+- THEN the credential resolver SHALL yield an empty token
+- AND the GitHub fetcher SHALL omit the `Authorization` header and read the subtree anonymously
 
 #### Scenario: Import renders in memory through the shared kustomize library
 
