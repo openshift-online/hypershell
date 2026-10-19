@@ -327,12 +327,14 @@ func init() {
 		})
 	})
 
-	// Late binding: when a ManagedCluster registers (or is restored), re-resolve
-	// every gateway that is still awaiting placement and assign a cluster_id to any
-	// whose selector now matches. ManagedCluster heartbeats do NOT emit broker
-	// events (only new registration / restore do), so this fires on "a matching
-	// cluster appears" rather than on every heartbeat. See data-model.spec.md,
-	// "Gateway Placement and Late Binding", and control-plane.spec.md.
+	// Late binding: when a ManagedCluster registers, is restored, or changes its
+	// capability set, re-resolve every gateway that is still awaiting placement and
+	// assign a cluster_id to any whose selector now matches. ManagedCluster
+	// heartbeats that do NOT change the capability set emit no broker event, so this
+	// fires on "a matching cluster appears or gains the capability" rather than on
+	// every heartbeat. A new registration/restore emits a Create event; a changed
+	// capability set emits an Update event (managedClusters.Register). See
+	// data-model.spec.md, "Gateway Placement and Late Binding", and control-plane.spec.md.
 	pkgserver.RegisterController("GatewayPlacementRebinder", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		gatewayService := Service(envServices)
@@ -344,6 +346,7 @@ func init() {
 			Source: "ManagedClusters",
 			Handlers: map[api.EventType][]controllers.ControllerHandlerFunc{
 				api.CreateEventType: {rebind},
+				api.UpdateEventType: {rebind},
 			},
 		})
 	})

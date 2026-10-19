@@ -2,41 +2,48 @@ package gateways
 
 import (
 	"context"
-	stderrors "errors"
 	"fmt"
 
 	"github.com/golang/glog"
 )
 
 // resolvePendingPlacements re-resolves every late-bound gateway that is still
-// awaiting placement (empty cluster_id with a persisted placement selector) and
-// assigns a cluster_id to each one whose selector now matches an eligible
+// awaiting placement (empty cluster_id with a persisted capability-label selector)
+// and assigns a cluster_id to each one whose selector now matches an eligible
 // ManagedCluster. It is the late-binding half of "Gateway Placement and Late
 // Binding" (data-model.spec.md): a declarative gateway that imported before any
-// matching cluster was connected binds as soon as one appears. It is invoked from
-// the ManagedCluster registration controller, so it runs when the eligible-cluster
-// set grows.
+// matching cluster was connected binds as soon as one appears or gains the
+// capability. It is invoked from the ManagedCluster registration controller, so it
+// runs when the eligible-cluster set grows.
 //
-// A resolution or assignment failure for one gateway is collected and does not
-// abort the sweep, so one unresolvable gateway cannot block binding the rest. A
-// selector that still matches nothing leaves the gateway Pending for a later pass.
+// A per-gateway resolution or assignment failure is logged and skipped rather than
+// returned, so one unresolvable gateway neither aborts the sweep nor gates the
+// ManagedCluster event that triggered it (which would re-run every handler on
+// requeue); the next registration or capability change retries it. Only a
+// whole-sweep lookup failure is returned, so the event requeues and the transient
+// failure is retried.
 func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve PlacementResolver) error {
 	if svc == nil || resolve == nil {
 		return nil
 	}
 	gateways, svcErr := svc.FindUnplaced(ctx)
 	if svcErr != nil {
-		return fmt.Errorf("list unplaced gateways: %s", svcErr)
+		return fmt.Errorf("list unplaced gateways: %w", svcErr)
 	}
-	var errs []error
 	for _, gateway := range gateways {
 		intent, ok := storedPlacementToIntent(gateway.Placement)
 		if !ok {
 			continue
 		}
+		// Late binding applies only to capability-label selectors. A local-kind
+		// placement resolves or hard-errors at create (GP-08) and must not be retried
+		// here, where it would error on every sweep.
+		if intent.Mode != nil {
+			continue
+		}
 		clusterID, resolved, resolveErr := resolve(ctx, intent)
 		if resolveErr != nil {
-			errs = append(errs, fmt.Errorf("resolve placement for gateway %s: %s", gateway.ID, resolveErr))
+			glog.Warningf("late-binding: resolving placement for gateway %s failed, will retry on the next cluster change: %v", gateway.ID, resolveErr)
 			continue
 		}
 		if !resolved {
@@ -49,10 +56,10 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 		// generation because cluster_id changed.
 		gateway.Status = nil
 		if _, replaceErr := svc.Replace(ctx, gateway); replaceErr != nil {
-			errs = append(errs, fmt.Errorf("assign cluster %s to gateway %s: %s", clusterID, gateway.ID, replaceErr))
+			glog.Warningf("late-binding: assigning cluster %s to gateway %s failed, will retry on the next cluster change: %v", clusterID, gateway.ID, replaceErr)
 			continue
 		}
 		glog.Infof("late-bound gateway %s placed on cluster %s", gateway.ID, clusterID)
 	}
-	return stderrors.Join(errs...)
+	return nil
 }

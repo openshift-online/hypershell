@@ -97,6 +97,51 @@ func TestLateBoundGatewayBindsWhenMatchingClusterRegisters(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond).Should(Equal(cluster.ID), "late-bound gateway should be assigned the newly registered matching cluster")
 }
 
+// An unplaced gateway also binds when an already-registered cluster gains the
+// matching capability (for example a control plane restart that publishes a new
+// GitOps capability): the capability change emits an update event that drives
+// re-resolution (data-model.spec.md; managed-cluster-registration.spec.md,
+// "Restart publishes configured capabilities").
+func TestLateBoundGatewayBindsWhenExistingClusterGainsCapability(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	grpcClient := newGRPCGatewayClient(t, h)
+
+	suffix := strings.ToLower(trexapi.NewID())
+	label := "runtime/growtest-" + suffix
+	name := "growcluster-" + suffix
+	subject := "cp-grow-" + suffix
+	clusterService := managedClusters.Service(&environments.Environment().Services)
+
+	// Register the cluster WITHOUT the label first.
+	cluster, _, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws"}, subject)
+	Expect(svcErr).To(BeNil())
+
+	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
+		Name: "grow-" + suffix,
+		Placement: &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+			CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: []string{"network/public", "provider/aws", label}},
+		}},
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(created.Gateway.ClusterId).To(BeEmpty())
+
+	// The same cluster re-registers with the label added, emitting an update event.
+	_, createdCluster, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws", label}, subject)
+	Expect(svcErr).To(BeNil())
+	Expect(createdCluster).To(BeFalse())
+
+	Eventually(func() string {
+		got, getErr := grpcClient.GetGateway(ctx, &pb.GetGatewayRequest{Id: created.Gateway.Metadata.Id})
+		if getErr != nil {
+			return ""
+		}
+		return got.Gateway.ClusterId
+	}, 10*time.Second, 200*time.Millisecond).Should(Equal(cluster.ID), "gateway should bind after the existing cluster gains the matching capability")
+}
+
 func TestGRPCCreateGatewayRejectsBothClusterAndPlacement(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

@@ -62,7 +62,7 @@ func TestResolvePendingPlacementsAssignsMatchedGatewayOnly(t *testing.T) {
 	}
 }
 
-func TestResolvePendingPlacementsCollectsErrorsButContinues(t *testing.T) {
+func TestResolvePendingPlacementsSkipsFailuresAndPlacesTheRest(t *testing.T) {
 	broken := newUnplacedGateway("gw-broken", `{"selector":["network/public"]}`)
 	good := newUnplacedGateway("gw-good", `{"selector":["provider/ibm"]}`)
 	svc := &fakeRebindService{unplaced: GatewayList{broken, good}}
@@ -74,12 +74,34 @@ func TestResolvePendingPlacementsCollectsErrorsButContinues(t *testing.T) {
 		return "cluster-y", true, nil
 	}
 
-	err := resolvePendingPlacements(context.Background(), svc, resolve)
-	if err == nil {
-		t.Fatal("expected a collected error for the failing gateway")
+	// A per-gateway failure is logged and skipped (not returned), so it does not gate
+	// the ManagedCluster event that triggered the sweep.
+	if err := resolvePendingPlacements(context.Background(), svc, resolve); err != nil {
+		t.Fatalf("expected per-gateway failures to be swallowed, got %v", err)
 	}
 	// The failure of gw-broken must not stop gw-good from being placed.
 	if len(svc.replaced) != 1 || svc.replaced[0].ID != "gw-good" {
 		t.Fatalf("expected gw-good placed despite gw-broken error, got %+v", svc.replaced)
+	}
+}
+
+func TestResolvePendingPlacementsSkipsLocalKind(t *testing.T) {
+	localKind := newUnplacedGateway("gw-local", `{"mode":"local-kind"}`)
+	svc := &fakeRebindService{unplaced: GatewayList{localKind}}
+
+	called := false
+	resolve := func(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *svcerrors.ServiceError) {
+		called = true
+		return "", false, nil
+	}
+
+	if err := resolvePendingPlacements(context.Background(), svc, resolve); err != nil {
+		t.Fatalf("resolvePendingPlacements: %v", err)
+	}
+	if called {
+		t.Fatal("expected local-kind placement to be skipped, not re-resolved")
+	}
+	if len(svc.replaced) != 0 {
+		t.Fatalf("expected no placement for local-kind, got %+v", svc.replaced)
 	}
 }

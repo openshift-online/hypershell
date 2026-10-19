@@ -274,6 +274,21 @@ func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicate
 	return result, nil
 }
 
+// equalSortedStrings reports whether two already-sorted string slices are equal.
+// Both arguments are NormalizeCapabilities output, so an ordered comparison is a
+// correct set comparison.
+func equalSortedStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *sqlManagedClusterService) Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
 	// Backward compatibility: a capability-less heartbeat is accepted as a no-op
 	// for the capability set. An older control plane that has not yet rolled to a
@@ -306,12 +321,31 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		// A capability-less heartbeat (older control plane) is a no-op for the
 		// capability set: keep the stored capabilities rather than wiping them, so
 		// a mixed-version rolling upgrade does not drop placement data.
+		capabilitiesChanged := false
 		if len(capabilities) > 0 {
+			// Both sides are NormalizeCapabilities output (sorted, deduplicated), so a
+			// plain ordered comparison detects a genuine capability change.
+			capabilitiesChanged = !equalSortedStrings(existing.Capabilities, capabilities)
 			existing.Capabilities = append([]string(nil), capabilities...)
 		}
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
+		}
+		// A changed capability set can make a previously-unplaceable gateway
+		// placeable (for example a control plane restart that publishes a new GitOps
+		// capability), so emit an update event to drive gateway late-binding
+		// re-resolution (data-model.spec.md, "Gateway Placement and Late Binding").
+		// An unchanged or capability-less heartbeat emits nothing, so the routine 60s
+		// heartbeat does not churn downstream reconcilers.
+		if capabilitiesChanged {
+			if _, evErr := s.events.Create(ctx, &api.Event{
+				Source:    "ManagedClusters",
+				SourceID:  updated.ID,
+				EventType: api.UpdateEventType,
+			}); evErr != nil {
+				return nil, false, services.HandleUpdateError("ManagedCluster", evErr)
+			}
 		}
 		return updated, false, nil
 	}
