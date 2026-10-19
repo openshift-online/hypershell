@@ -40,9 +40,11 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	// The control plane owns the platform-managed and observed gateway fields exercised
 	// here (external_dns, tls_mode, service_type, status, phase) and the control-plane-only
 	// SetGatewayVersion RPC, so this end-to-end CRUD runs as a control-plane identity
-	// (PLAT-DATA-23). A user may write only name + placement/cluster_id.
+	// (PLAT-DATA-23). A user may write only name, placement/cluster_id, and
+	// additional_ca_bundle.
 	grpcClient, clusterID := newControlPlaneGatewayClient(t, h)
 	ctx := context.Background()
+	additionalCABundle := "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"
 
 	createReq := &pb.CreateGatewayRequest{
 		Name:        "TestName",
@@ -52,11 +54,13 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
 		Status:      func() *string { s := "TestStatus"; return &s }(),
 		Phase:       func() *string { s := "Provisioning"; return &s }(),
+		AdditionalCaBundle: &additionalCABundle,
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Metadata.Id).NotTo(BeEmpty())
 	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+	Expect(created.Gateway.GetAdditionalCaBundle()).To(Equal(additionalCABundle))
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace
@@ -81,6 +85,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
 		Status:      func() *string { s := "UpdatedStatus"; return &s }(),
 		Phase:       func() *string { s := "Running"; return &s }(),
+		AdditionalCaBundle: func() *string { s := ""; return &s }(),
 	}
 	updated, err := grpcClient.UpdateGateway(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -91,6 +96,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	// A whole-row update must not overwrite the independently reconciled version.
 	Expect(retrieved.Gateway.GetGatewayVersion()).To(Equal("v0.0.109-rh9a8f8"))
+	Expect(retrieved.Gateway.GetAdditionalCaBundle()).To(BeEmpty(), "an empty update removes the bundle")
 
 	listReq := &pb.ListGatewaysRequest{
 		Page: 1,

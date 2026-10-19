@@ -5,6 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional]
+**AdditionalCaBundle** | Pointer to **string** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception) | [optional]
 
 ## Methods
 
@@ -49,6 +50,31 @@ SetName sets Name field to given value.
 `func (o *GatewayPatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
+
+### GetAdditionalCaBundle
+
+`func (o *GatewayPatchRequest) GetAdditionalCaBundle() string`
+
+GetAdditionalCaBundle returns the AdditionalCaBundle field if non-nil, zero value otherwise.
+
+### GetAdditionalCaBundleOk
+
+`func (o *GatewayPatchRequest) GetAdditionalCaBundleOk() (*string, bool)`
+
+GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetAdditionalCaBundle
+
+`func (o *GatewayPatchRequest) SetAdditionalCaBundle(v string)`
+
+SetAdditionalCaBundle sets AdditionalCaBundle field to given value.
+
+### HasAdditionalCaBundle
+
+`func (o *GatewayPatchRequest) HasAdditionalCaBundle() bool`
+
+HasAdditionalCaBundle returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

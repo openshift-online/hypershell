@@ -17,9 +17,11 @@ import (
 // checks if the GatewayPatchRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &GatewayPatchRequest{}
 
-// GatewayPatchRequest The only user-writable gateway field on update is name (rename). Every other gateway field is platform-managed and control-plane-only; it is not part of the update contract and is rejected if a user or import caller changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).
+// GatewayPatchRequest The only user-writable gateway fields on update are name (rename) and additional_ca_bundle (user-authored trust material, PLAT-DATA-23 allowlist exception). Every other gateway field is platform-managed and control-plane-only; it is not part of the update contract and is rejected if a user or import caller changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).
 type GatewayPatchRequest struct {
 	Name *string `json:"name,omitempty"`
+	// User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception)
+	AdditionalCaBundle *string `json:"additional_ca_bundle,omitempty"`
 }
 
 // NewGatewayPatchRequest instantiates a new GatewayPatchRequest object
@@ -71,6 +73,38 @@ func (o *GatewayPatchRequest) SetName(v string) {
 	o.Name = &v
 }
 
+// GetAdditionalCaBundle returns the AdditionalCaBundle field value if set, zero value otherwise.
+func (o *GatewayPatchRequest) GetAdditionalCaBundle() string {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		var ret string
+		return ret
+	}
+	return *o.AdditionalCaBundle
+}
+
+// GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayPatchRequest) GetAdditionalCaBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		return nil, false
+	}
+	return o.AdditionalCaBundle, true
+}
+
+// HasAdditionalCaBundle returns a boolean if a field has been set.
+func (o *GatewayPatchRequest) HasAdditionalCaBundle() bool {
+	if o != nil && !IsNil(o.AdditionalCaBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetAdditionalCaBundle gets a reference to the given string and assigns it to the AdditionalCaBundle field.
+func (o *GatewayPatchRequest) SetAdditionalCaBundle(v string) {
+	o.AdditionalCaBundle = &v
+}
+
 func (o GatewayPatchRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -83,6 +117,9 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
+	}
+	if !IsNil(o.AdditionalCaBundle) {
+		toSerialize["additional_ca_bundle"] = o.AdditionalCaBundle
 	}
 	return toSerialize, nil
 }

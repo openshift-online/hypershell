@@ -486,7 +486,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
-		needsTrustUpdate, err := gateway.DestinationCATrustNeedsUpdate(ctx, r.clientset, r.controlPlaneNamespace, gw.GetNamespace())
+		needsTrustUpdate, err := gateway.DestinationCATrustNeedsUpdate(ctx, r.clientset, r.controlPlaneNamespace, gw.GetNamespace(), gw.GetAdditionalCaBundle())
 		if err != nil {
 			outcome = cpotel.OutcomeRetryable
 			reason = cpotel.ReasonDependencyNotReady
@@ -543,6 +543,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 	gwConfig.SupervisorImage = supervisorImage
+	if gw.AdditionalCaBundle != nil && *gw.AdditionalCaBundle != "" {
+		gwConfig.AdditionalCABundle = *gw.AdditionalCaBundle
+	}
 	gwConfig.SandboxRuntimeImage = (gateway.StaticImageDefaults{}).DefaultSandboxRuntimeImage()
 
 	if gw.Oidc != nil && *gw.Oidc != "" {

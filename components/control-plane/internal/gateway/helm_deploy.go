@@ -121,6 +121,7 @@ func deployGatewayViaHelm(
 	return nil
 }
 
+
 // effectiveCredentialDriver resolves an unspecified credential_driver to the flat
 // default, vault. An explicit driver (non-empty Type) is returned
 // unchanged, so a user who asks for a specific backend (kek-db / kubernetes-secrets)

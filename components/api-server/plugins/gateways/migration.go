@@ -197,6 +197,18 @@ func migrationAddSupervisorImage() *gormigrate.Migration {
 	}
 }
 
+func migrationAddAdditionalCABundle() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026100700000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS additional_ca_bundle TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS additional_ca_bundle").Error
+		},
+	}
+}
+
 func migrationAddConsoleAddress() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026081112000006",

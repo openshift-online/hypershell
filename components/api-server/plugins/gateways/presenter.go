@@ -13,7 +13,10 @@ import (
 // by the handler before persistence (PLAT-DATA-23). Every other gateway field is
 // platform-managed and set only by the control plane, so none is copied here.
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute}
+	// additional_ca_bundle is the one workload-relevant field on the create
+	// allowlist besides name/placement/dedicated_route (PLAT-DATA-23):
+	// user-authored trust material, validated by the handler before persistence.
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute, AdditionalCABundle: gateway.AdditionalCaBundle}
 }
 
 // PresentGateway converts a Gateway model to its REST representation.
@@ -37,6 +40,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		Phase:              gateway.Phase,
 		Image:              gateway.Image,
 		SupervisorImage:    gateway.SupervisorImage,
+		AdditionalCaBundle: gateway.AdditionalCABundle,
 		RouteAddress:       gateway.RouteAddress,
 		ConsoleAddress:     gateway.ConsoleAddress,
 		GatewayVersion:     gateway.GatewayVersion,

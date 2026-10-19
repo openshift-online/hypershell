@@ -4661,6 +4661,12 @@ components:
               \ control-plane-only (PLAT-DATA-23)"
             readOnly: true
             type: string
+          additional_ca_bundle:
+            description: User-supplied PEM bundle of additional destination CA certificates
+              for sandbox egress to private-PKI destinations; empty means default
+              trust roots. User-writable on create and update (PLAT-DATA-23 allowlist
+              exception)
+            type: string
           server_dns_names:
             description: "DNS names for TLS certificate SANs; platform-managed, control-plane-only\
               \ (PLAT-DATA-23)"
@@ -4777,6 +4783,7 @@ components:
         - server_dns_names
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
+        additional_ca_bundle: additional_ca_bundle
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         can_delete: true
@@ -4847,6 +4854,7 @@ components:
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
+          additional_ca_bundle: additional_ca_bundle
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
@@ -4887,6 +4895,7 @@ components:
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
+          additional_ca_bundle: additional_ca_bundle
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
@@ -4924,15 +4933,23 @@ components:
           status: status
         has_other_owned_gateways: true
     GatewayPatchRequest:
-      description: "The only user-writable gateway field on update is name (rename).\
-        \ Every other gateway field is platform-managed and control-plane-only; it\
-        \ is not part of the update contract and is rejected if a user or import caller\
-        \ changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and\
-        \ Write Policy\", PLAT-DATA-23)."
+      description: "The only user-writable gateway fields on update are name (rename)\
+        \ and additional_ca_bundle (user-authored trust material, PLAT-DATA-23 allowlist\
+        \ exception). Every other gateway field is platform-managed and control-plane-only;\
+        \ it is not part of the update contract and is rejected if a user or import\
+        \ caller changes it (data-model.spec.md \"Requirement: Gateway Field Ownership\
+        \ and Write Policy\", PLAT-DATA-23)."
       example:
+        additional_ca_bundle: additional_ca_bundle
         name: name
       properties:
         name:
+          type: string
+        additional_ca_bundle:
+          description: User-supplied PEM bundle of additional destination CA certificates
+            for sandbox egress to private-PKI destinations; empty means default trust
+            roots. Set to null or empty string to clear the bundle. User-writable
+            on update (PLAT-DATA-23 allowlist exception)
           type: string
       type: object
     GatewayPlacementIntent:
@@ -6702,6 +6719,7 @@ components:
         \ .hypershell import. dedicated_route is rejected on update: it cannot be\
         \ added, removed, or changed after creation."
       example:
+        additional_ca_bundle: additional_ca_bundle
         cluster_id: cluster_id
         name: name
         placement:
@@ -6727,6 +6745,11 @@ components:
           type: boolean
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
+        additional_ca_bundle:
+          description: User-supplied PEM bundle of additional destination CA certificates
+            for sandbox egress to private-PKI destinations; empty means default trust
+            roots. User-writable on create (PLAT-DATA-23 allowlist exception)
+          type: string
       required:
       - name
       type: object

@@ -46,6 +46,8 @@ type Gateway struct {
 	Image *string `json:"image,omitempty"`
 	// Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
 	SupervisorImage *string `json:"supervisor_image,omitempty"`
+	// User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception)
+	AdditionalCaBundle *string `json:"additional_ca_bundle,omitempty"`
 	// DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23)
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
@@ -558,6 +560,38 @@ func (o *Gateway) HasSupervisorImage() bool {
 // SetSupervisorImage gets a reference to the given string and assigns it to the SupervisorImage field.
 func (o *Gateway) SetSupervisorImage(v string) {
 	o.SupervisorImage = &v
+}
+
+// GetAdditionalCaBundle returns the AdditionalCaBundle field value if set, zero value otherwise.
+func (o *Gateway) GetAdditionalCaBundle() string {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		var ret string
+		return ret
+	}
+	return *o.AdditionalCaBundle
+}
+
+// GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetAdditionalCaBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		return nil, false
+	}
+	return o.AdditionalCaBundle, true
+}
+
+// HasAdditionalCaBundle returns a boolean if a field has been set.
+func (o *Gateway) HasAdditionalCaBundle() bool {
+	if o != nil && !IsNil(o.AdditionalCaBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetAdditionalCaBundle gets a reference to the given string and assigns it to the AdditionalCaBundle field.
+func (o *Gateway) SetAdditionalCaBundle(v string) {
+	o.AdditionalCaBundle = &v
 }
 
 // GetServerDnsNames returns the ServerDnsNames field value if set, zero value otherwise.
@@ -1152,6 +1186,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.SupervisorImage) {
 		toSerialize["supervisor_image"] = o.SupervisorImage
+	}
+	if !IsNil(o.AdditionalCaBundle) {
+		toSerialize["additional_ca_bundle"] = o.AdditionalCaBundle
 	}
 	if !IsNil(o.ServerDnsNames) {
 		toSerialize["server_dns_names"] = o.ServerDnsNames

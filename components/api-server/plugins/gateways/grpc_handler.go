@@ -145,6 +145,11 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
+	// additional_ca_bundle is user-writable at create (PLAT-DATA-23 allowlist);
+	// validate the PEM framing before anything else.
+	if svcErr := validateAdditionalCABundle(req.AdditionalCaBundle); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
 	// dedicated_route is a create-only, user-writable request flag, but only for a
 	// caller holding the platform-wide gateway:dedicated-route-creator entitlement
 	// (or platform:admin). The check is body-dependent, so it is enforced here at
@@ -238,6 +243,9 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		DedicatedRoute: req.DedicatedRoute,
 		WorkspaceMode:  req.WorkspaceMode,                // platform-managed; the service funnel defaults it to managed
 		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
+		// User-writable at create (PLAT-DATA-23 allowlist): user-authored trust
+		// material, validated above.
+		AdditionalCABundle: req.AdditionalCaBundle,
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
 	if svcErr != nil {
@@ -292,6 +300,9 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
+	if svcErr := validateAdditionalCABundle(req.AdditionalCaBundle); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
 
 	gateway, svcErr := h.service.Get(ctx, req.Id)
 	if svcErr != nil {
@@ -331,6 +342,17 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Image != nil {
 		gateway.Image = req.Image
+	}
+	if req.SupervisorImage != nil {
+		gateway.SupervisorImage = req.SupervisorImage
+	}
+	if req.AdditionalCaBundle != nil {
+		// User-writable on update (PLAT-DATA-23 allowlist). nil = not provided;
+		// an empty string clears the bundle (follow-source removal).
+		if svcErr := validateAdditionalCABundle(req.AdditionalCaBundle); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+		gateway.AdditionalCABundle = req.AdditionalCaBundle
 	}
 	if len(req.ServerDnsNames) > 0 {
 		data, _ := json.Marshal(req.ServerDnsNames)

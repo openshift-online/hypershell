@@ -27,6 +27,8 @@ type GatewayCreateRequest struct {
 	// Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided.
 	DedicatedRoute *bool                   `json:"dedicated_route,omitempty"`
 	Placement      *GatewayPlacementIntent `json:"placement,omitempty"`
+	// User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception)
+	AdditionalCaBundle *string `json:"additional_ca_bundle,omitempty"`
 }
 
 type _GatewayCreateRequest GatewayCreateRequest
@@ -169,6 +171,38 @@ func (o *GatewayCreateRequest) SetPlacement(v GatewayPlacementIntent) {
 	o.Placement = &v
 }
 
+// GetAdditionalCaBundle returns the AdditionalCaBundle field value if set, zero value otherwise.
+func (o *GatewayCreateRequest) GetAdditionalCaBundle() string {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		var ret string
+		return ret
+	}
+	return *o.AdditionalCaBundle
+}
+
+// GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayCreateRequest) GetAdditionalCaBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.AdditionalCaBundle) {
+		return nil, false
+	}
+	return o.AdditionalCaBundle, true
+}
+
+// HasAdditionalCaBundle returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasAdditionalCaBundle() bool {
+	if o != nil && !IsNil(o.AdditionalCaBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetAdditionalCaBundle gets a reference to the given string and assigns it to the AdditionalCaBundle field.
+func (o *GatewayCreateRequest) SetAdditionalCaBundle(v string) {
+	o.AdditionalCaBundle = &v
+}
+
 func (o GatewayCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -188,6 +222,9 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Placement) {
 		toSerialize["placement"] = o.Placement
+	}
+	if !IsNil(o.AdditionalCaBundle) {
+		toSerialize["additional_ca_bundle"] = o.AdditionalCaBundle
 	}
 	return toSerialize, nil
 }

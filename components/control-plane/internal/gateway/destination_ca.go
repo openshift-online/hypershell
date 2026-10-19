@@ -16,21 +16,37 @@ import (
 
 // destinationCABundle reads operator-controlled roots, independently of OIDC,
 // Vault and gateway mTLS trust. A configured but unavailable bundle fails closed.
-func destinationCABundle(ctx context.Context, client kubernetes.Interface, namespace string) (string, string, error) {
-	source := destinationCASourceName()
-	if source == "" {
+// userBundle is the gateway's API-validated additional_ca_bundle (empty when the
+// gateway declares no user trust). The two tiers compose per the merge policy
+// (destinationCAMergeMode): by default the effective bundle concatenates the user
+// and operator PEMs, so fleet-wide operator trust keeps applying alongside
+// user-authored trust; "user-only" makes a user bundle replace the operator tier
+// for that gateway. Gateways without a user bundle always take the operator tier.
+func destinationCABundle(ctx context.Context, client kubernetes.Interface, namespace, userBundle string) (string, string, error) {
+	operatorBundle, err := operatorDestinationCABundle(ctx, client, namespace)
+	if err != nil {
+		return "", "", err
+	}
+	// Validate the user tier on its own, before composition: a valid operator
+	// bundle must not mask invalid user material inside the merged PEM (the API
+	// boundary already rejects it; this is defense in depth for direct writes).
+	if userBundle != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(userBundle)) {
+		return "", "", fmt.Errorf("gateway user destination CA bundle has no PEM certificates")
+	}
+	bundle := operatorBundle
+	switch {
+	case userBundle == "":
+		// operator tier only (or nothing)
+	case operatorBundle == "" || destinationCAMergeMode() == "user-only":
+		bundle = userBundle
+	default:
+		bundle = userBundle + "\n" + operatorBundle
+	}
+	if bundle == "" {
 		return "", "", nil
 	}
-	cm, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, source, metav1.GetOptions{})
-	if err != nil {
-		return "", "", fmt.Errorf("read destination CA ConfigMap %s/%s: %w", namespace, source, err)
-	}
-	bundle := cm.Data["ca.crt"]
-	if bundle == "" {
-		bundle = cm.Data["ca-bundle.crt"]
-	}
 	if !x509.NewCertPool().AppendCertsFromPEM([]byte(bundle)) {
-		return "", "", fmt.Errorf("destination CA ConfigMap %s/%s has no PEM certificates in ca.crt or ca-bundle.crt", namespace, source)
+		return "", "", fmt.Errorf("destination CA bundle for %s has no PEM certificates", namespace)
 	}
 	// A new name changes the Deployment volume and triggers a gateway rollout.
 	// Retain old generations until namespace cleanup so existing pods can mount them.
@@ -38,8 +54,41 @@ func destinationCABundle(ctx context.Context, client kubernetes.Interface, names
 	return fmt.Sprintf("openshell-destination-ca-%x", digest[:8]), bundle, nil
 }
 
-func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace string) (string, error) {
-	name, bundle, err := destinationCABundle(ctx, client, sourceNamespace)
+// operatorDestinationCABundle reads the operator-configured hub-wide trust
+// source. Empty name means the operator tier is not configured (or the cluster
+// lacks the required capability), in which case no operator roots apply.
+func operatorDestinationCABundle(ctx context.Context, client kubernetes.Interface, namespace string) (string, error) {
+	source := destinationCASourceName()
+	if source == "" {
+		return "", nil
+	}
+	cm, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, source, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("read destination CA ConfigMap %s/%s: %w", namespace, source, err)
+	}
+	bundle := cm.Data["ca.crt"]
+	if bundle == "" {
+		bundle = cm.Data["ca-bundle.crt"]
+	}
+	if !x509.NewCertPool().AppendCertsFromPEM([]byte(bundle)) {
+		return "", fmt.Errorf("destination CA ConfigMap %s/%s has no PEM certificates in ca.crt or ca-bundle.crt", namespace, source)
+	}
+	return bundle, nil
+}
+
+// destinationCAMergeMode is the hub-wide composition policy for the user and
+// operator destination-CA tiers: "merge" (default) concatenates both bundles
+// when a gateway declares user trust; "user-only" makes the user bundle replace
+// the operator tier for that gateway.
+func destinationCAMergeMode() string {
+	if mode := strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_MERGE_MODE")); mode != "" {
+		return mode
+	}
+	return "merge"
+}
+
+func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace, userBundle string) (string, error) {
+	name, bundle, err := destinationCABundle(ctx, client, sourceNamespace, userBundle)
 	if err != nil || name == "" {
 		return name, err
 	}
@@ -61,16 +110,19 @@ func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interfa
 	return name, nil
 }
 
-// DestinationCATrustNeedsUpdate lets operator trust changes bypass the gateway
-// spec generation gate. Controller startup rechecks existing gateways.
-func DestinationCATrustNeedsUpdate(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace string) (bool, error) {
-	if destinationCASourceName() == "" {
+// DestinationCATrustNeedsUpdate lets operator or user trust changes bypass the
+// gateway spec generation gate. Controller startup rechecks existing gateways.
+// userBundle is the gateway's additional_ca_bundle; a change to it changes the
+// content-addressed ConfigMap name, which this check detects through the
+// Deployment volume comparison below.
+func DestinationCATrustNeedsUpdate(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace, userBundle string) (bool, error) {
+	if destinationCASourceName() == "" && userBundle == "" {
 		return false, nil
 	}
 	if namespace == "" {
 		return false, fmt.Errorf("gateway namespace is required for destination TLS trust")
 	}
-	name, err := reconcileDestinationCABundle(ctx, client, sourceNamespace, namespace)
+	name, err := reconcileDestinationCABundle(ctx, client, sourceNamespace, namespace, userBundle)
 	if err != nil {
 		return false, err
 	}

@@ -34,6 +34,7 @@ const longHelp = "Create a new gateway.\n\n" +
 
 type createGatewayArgs struct {
 	clusterId                string
+	additionalCaBundle       string
 	dedicatedRoute           bool
 	name                     string
 	bodyFile                 string
@@ -61,6 +62,7 @@ func newCreateGatewayCommand() *cobra.Command {
 	fs.StringVar(&args.clusterId, "cluster-id", "", "Pin the gateway to this managed cluster (discover it via 'hsctl list managedClusters'). Mutually exclusive with the placement flags.")
 	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "Request the dedicated per-gateway route and wildcard certificate at creation. Requires the gateway:dedicated-route-creator role.")
 	fs.StringVar(&args.name, "name", "", "Gateway name.")
+	fs.StringVar(&args.additionalCaBundle, "additional-ca-bundle", "", "PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations (user-writable; empty means default trust roots).")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 	fs.StringArrayVar(&args.placementSelector, "placement-selector", nil, "Capability label the gateway's cluster must advertise (e.g. network/public, provider/ibm, provider/kind, region/us-east-1). Repeat the flag to require multiple labels. Mutually exclusive with --cluster-id.")
 	fs.StringArrayVar(&args.placementExcludeSelector, "placement-exclude-selector", nil, "Capability label the gateway's cluster must not advertise. Requires at least one --placement-selector.")
@@ -124,6 +126,9 @@ func run(args *createGatewayArgs, cmd *cobra.Command, argv []string) error {
 		}
 		if args.name != "" {
 			request["name"] = args.name
+		}
+		if args.additionalCaBundle != "" {
+			request["additional_ca_bundle"] = args.additionalCaBundle
 		}
 		if intent != nil {
 			request["placement"] = intent
