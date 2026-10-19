@@ -4,11 +4,7 @@ import { Content, PageSection, Title } from "@patternfly/react-core";
 
 import { ProvisionGatewayForm } from "./provision-gateway";
 
-export function ProvisionGatewayPageSurface({
-  showValidationErrors = false,
-}: {
-  showValidationErrors?: boolean;
-}) {
+export function ProvisionGatewayPageSurface() {
   return (
     <>
       <PageSection
@@ -29,7 +25,7 @@ export function ProvisionGatewayPageSurface({
         isFilled
         variant="default"
       >
-        <ProvisionGatewayForm showValidationErrors={showValidationErrors} />
+        <ProvisionGatewayForm />
       </PageSection>
     </>
   );

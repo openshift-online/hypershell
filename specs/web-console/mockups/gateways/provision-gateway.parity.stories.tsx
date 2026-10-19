@@ -6,9 +6,9 @@ import { MockupParityFrame } from "../shell/mockup-template";
 const meta = {
   title: "Parity/Gateways/Provision gateway",
   component: ProvisionGatewayPageSurface,
-  render: (args) => (
+  render: () => (
     <MockupParityFrame>
-      <ProvisionGatewayPageSurface {...args} />
+      <ProvisionGatewayPageSurface />
     </MockupParityFrame>
   ),
   parameters: { layout: "fullscreen" },
