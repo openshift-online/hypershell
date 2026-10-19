@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
@@ -225,7 +226,11 @@ func (st *gatewayServiceAccountStore) entry(ref driver.GatewayRef) *gatewayServi
 
 // ensureAccount creates the account once. A failed create is remembered rather
 // than posted again: the request may have succeeded, and a retry would orphan an
-// account.
+// account. The one exception is a 409 gateway_not_ready: the server rejects that
+// request outright before creating anything (the gateway's Status has not yet
+// caught up to its Phase, a known control-plane health-reconciler race - see
+// requireGatewayToken), so it carries no orphan risk and is left retryable for
+// the caller.
 func (st *gatewayServiceAccountStore) ensureAccount(ctx context.Context, api gatewayServiceAccountClient, e *gatewayServiceAccountEntry) error {
 	if e.attempted {
 		return e.createErr
@@ -233,7 +238,6 @@ func (st *gatewayServiceAccountStore) ensureAccount(ctx context.Context, api gat
 	if api == nil {
 		return errors.New("no management API client to create the account")
 	}
-	e.attempted = true
 	expires := time.Now().UTC().Add(gatewayServiceAccountLifetime)
 	account, err := api.Create(ctx, e.ref.ID, &sdktypes.OpenShellGatewayServiceAccountCreateRequest{
 		Name:           "e2e-short-" + st.runID,
@@ -242,9 +246,15 @@ func (st *gatewayServiceAccountStore) ensureAccount(ctx context.Context, api gat
 		ExpiresAt:      &expires,
 	})
 	if err != nil {
-		e.createErr = fmt.Errorf("create: %w", err)
+		wrapped := fmt.Errorf("create: %w", err)
+		if apiStatus(err) == http.StatusConflict {
+			return wrapped
+		}
+		e.attempted = true
+		e.createErr = wrapped
 		return e.createErr
 	}
+	e.attempted = true
 	// Record the account before checking it, so teardown can delete a partly
 	// successful setup.
 	e.accountID, e.clientID = account.ID, account.ClientID
@@ -502,6 +512,50 @@ func (s *E2ESuite) gatewayToken(ctx context.Context, ref driver.GatewayRef) (dri
 	}
 	cred, err := s.serviceAccounts.Acquire(ctx, s.serviceAccountClient(), ref)
 	return driver.Token{AccessToken: cred.AccessToken}, err
+}
+
+// requireGatewayToken calls gatewayToken and fails the test on error. A 409
+// gateway_not_ready response means the gateway's Status has not yet caught up
+// to its Phase - a known control-plane race (health.go's
+// observedGatewayHealthUpdate deliberately preserves a stale Status alongside
+// a Phase-only update while a Keycloak-client marker is set, and the fix-up
+// that clears that marker runs on the next reconcile tick rather than
+// atomically with the Phase flip). Since waitGatewayRunning only waits for
+// Phase, a single attempt right after it returns can lose that race, so this
+// retries for a bounded window instead of failing immediately. It logs the
+// observed phase/status on every retry and dumps full gateway diagnostics
+// (status, route, conditions, controller log tail) on the final failure, so a
+// run that exhausts the window is debuggable from the CI log alone.
+func (s *E2ESuite) requireGatewayToken(t *testing.T, ctx context.Context, ref driver.GatewayRef, msgAndArgs ...any) driver.Token {
+	t.Helper()
+	var tok driver.Token
+	var lastErr error
+	var lastGW *sdktypes.Gateway
+	timeout := durationSecondsEnv("E2E_GATEWAY_READY_TIMEOUT", 30*time.Second)
+	pollErr := harness.Poll(ctx, 3*time.Second, timeout, func(ctx context.Context) (bool, error) {
+		var err error
+		tok, err = s.gatewayToken(ctx, ref)
+		if err == nil {
+			return true, nil
+		}
+		lastErr = err
+		lastGW, _ = s.admin.Gateways().Get(ctx, ref.ID)
+		if apiStatus(err) != http.StatusConflict {
+			return false, err // not the known gateway_not_ready race; fail immediately
+		}
+		phase, status := "<unknown>", "<unknown>"
+		if lastGW != nil {
+			phase, status = lastGW.Phase, lastGW.Status
+		}
+		s.Logf("gateway %s not ready for service-account provisioning yet (phase=%q status=%q); retrying", ref.ID, phase, status)
+		return false, nil
+	})
+	if lastErr != nil {
+		s.dumpGatewayDiagnostics(t, ref.ID, lastGW)
+		pollErr = lastErr
+	}
+	s.Require().NoError(pollErr, msgAndArgs...)
+	return tok
 }
 
 // renewGatewayCLIToken rewrites the CLI's oidc_token.json for local with the

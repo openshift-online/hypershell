@@ -348,8 +348,7 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	} else {
 		s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
 	}
-	tok, err := s.gatewayToken(t.Context(), s.primary)
-	s.Require().NoError(err, "acquire gateway token with openshell-admin role")
+	tok := s.requireGatewayToken(t, t.Context(), s.primary, "acquire gateway token with openshell-admin role")
 	s.Require().NotEmpty(tok.AccessToken, "gateway token")
 	s.primaryGatewayToken = tok
 	s.longOnly("device-authorization", func(t *testing.T) {
@@ -406,8 +405,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
 	s.Require().NoError(err, "discover sandbox gateway endpoint")
 
-	tok, err := s.gatewayToken(ctx, ref)
-	s.Require().NoError(err, "sandbox gateway admin token")
+	tok := s.requireGatewayToken(t, ctx, ref, "sandbox gateway admin token")
 	local := s.registerGateway(t, ref, endpoint, tok.AccessToken)
 	s.cliStatusConnected(t, local, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
 
@@ -968,11 +966,16 @@ func (s *E2ESuite) waitGatewayNamespace(t *testing.T, id string) string {
 	return namespace
 }
 
-// dumpGatewayDiagnostics logs the gateway's phase and provisioning conditions plus
-// recent controller logs, so a provisioning timeout is debuggable from the run.
+// dumpGatewayDiagnostics logs the gateway's phase, status, route state, and
+// provisioning conditions plus recent controller logs, so a provisioning
+// timeout or a gateway_not_ready service-account error is debuggable from the
+// run. Status is the field service-account creation actually gates on
+// (components/api-server/plugins/serviceAccounts/service.go readyGateway), so
+// it must be visible even when Phase already reads Running.
 func (s *E2ESuite) dumpGatewayDiagnostics(t *testing.T, id string, gw *sdktypes.Gateway) {
 	if gw != nil {
-		s.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%v", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
+		s.Logf("DIAG gateway %s phase=%q status=%q namespace=%q route=%q routeAddress=%q conditions=%v",
+			id, gw.Phase, gw.Status, gw.Namespace, gw.Route, gw.RouteAddress, gw.ProvisioningConditions)
 	}
 	if logs, err := s.podLogs(context.Background(), s.driver.PlatformNamespace(), "app=hypershell-controller", 40); err == nil {
 		s.Logf("DIAG controller logs (tail):\n%s", logs)

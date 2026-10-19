@@ -448,6 +448,49 @@ func TestGatewayServiceAccountCreateFailureIsNotRetried(t *testing.T) {
 	}
 }
 
+// flakyOnceSAAPI fails the first failFirst Create calls with a 409
+// gateway_not_ready before delegating to the wrapped fake, simulating the
+// control-plane race where Status lags Phase after a gateway reaches Running.
+type flakyOnceSAAPI struct {
+	*fakeSAAPI
+	failFirst int
+	calls     int
+}
+
+func (f *flakyOnceSAAPI) Create(ctx context.Context, gatewayID string, request *sdktypes.OpenShellGatewayServiceAccountCreateRequest) (*sdktypes.OpenShellGatewayServiceAccountCreateResponse, error) {
+	f.calls++
+	if f.calls <= f.failFirst {
+		return nil, &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "gateway_not_ready"}
+	}
+	return f.fakeSAAPI.Create(ctx, gatewayID, request)
+}
+
+// TestGatewayServiceAccountCreateConflictIsRetried proves a 409 gateway_not_ready
+// does not poison the entry the way TestGatewayServiceAccountCreateFailureIsNotRetried
+// shows other failures do: the server rejected the request before creating
+// anything, so a later Acquire call must retry the Create rather than replaying a
+// cached error.
+func TestGatewayServiceAccountCreateConflictIsRetried(t *testing.T) {
+	endpoint := newFakeTokenEndpoint(t)
+	store, api := newTestStore(t, endpoint)
+	flaky := &flakyOnceSAAPI{fakeSAAPI: api, failFirst: 1}
+
+	_, err := store.Acquire(t.Context(), flaky, testGateway)
+	if err == nil {
+		t.Fatal("first acquire succeeded despite gateway_not_ready")
+	}
+	if status := apiStatus(err); status != http.StatusConflict {
+		t.Fatalf("first acquire error status = %d, want 409 (gateway_not_ready): %v", status, err)
+	}
+
+	if _, err := store.Acquire(t.Context(), flaky, testGateway); err != nil {
+		t.Fatalf("second acquire (after gateway_not_ready clears) = %v, want success", err)
+	}
+	if flaky.calls != 2 {
+		t.Errorf("create calls = %d, want 2: a 409 must be retried, unlike other failures", flaky.calls)
+	}
+}
+
 // recordingDriver records gateway-token requests; any other driver call reaches
 // the nil embedded interface and fails the test.
 type recordingDriver struct {
