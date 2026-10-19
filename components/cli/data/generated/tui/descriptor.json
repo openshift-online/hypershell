@@ -4296,8 +4296,8 @@
           {
             "name": "secret_source_id",
             "type": "string",
-            "required": true,
-            "description": "References a SecretSource holding the provider credential"
+            "required": false,
+            "description": "Optional reference to a SecretSource holding the provider credential. Omit for a public repository, which is read anonymously."
           },
           {
             "name": "updated_at",

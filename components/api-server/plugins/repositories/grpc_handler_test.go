@@ -77,16 +77,31 @@ func TestRepositoryToProto(t *testing.T) {
 
 func TestCreateRepository_ValidatesRequiredFields(t *testing.T) {
 	h := &repositoryGRPCHandler{service: &stubRepositoryService{}}
+	// secret_source_id is NOT a required field: only name, url, and provider are.
 	cases := []*pb.CreateRepositoryRequest{
 		{Url: "u", Provider: "github", SecretSourceId: "ss-1"},
 		{Name: "n", Provider: "github", SecretSourceId: "ss-1"},
 		{Name: "n", Url: "u", SecretSourceId: "ss-1"},
-		{Name: "n", Url: "u", Provider: "github"},
 	}
 	for i, req := range cases {
 		if _, err := h.CreateRepository(context.Background(), req); status.Code(err) != codes.InvalidArgument {
 			t.Fatalf("case %d: code = %s, want InvalidArgument", i, status.Code(err))
 		}
+	}
+}
+
+// A create request with an empty secret_source_id SHALL be accepted by the handler
+// (public repository, anonymous read): secret_source_id is optional.
+func TestCreateRepository_EmptySecretSourceAccepted(t *testing.T) {
+	svc := &stubRepositoryService{ret: sampleRepository()}
+	h := &repositoryGRPCHandler{service: svc}
+	if _, err := h.CreateRepository(context.Background(), &pb.CreateRepositoryRequest{
+		Name: "n", Url: "u", Provider: "github",
+	}); err != nil {
+		t.Fatalf("expected empty secret_source_id to be accepted, got %v", err)
+	}
+	if svc.got.SecretSourceId != "" {
+		t.Fatalf("expected empty secret_source_id passed to service, got %q", svc.got.SecretSourceId)
 	}
 }
 
@@ -104,6 +119,22 @@ func TestCreateRepository_Success(t *testing.T) {
 	}
 	if svc.got.Name != "hypershell" || svc.got.SecretSourceId != "ss-1" {
 		t.Fatalf("service received wrong model: %+v", svc.got)
+	}
+}
+
+// Updating secret_source_id to empty (clearing the credential, converting a private
+// repository to public) SHALL be accepted: secret_source_id is optional.
+func TestUpdateRepository_ClearSecretSourceAccepted(t *testing.T) {
+	svc := &stubRepositoryService{ret: sampleRepository()}
+	h := &repositoryGRPCHandler{service: svc}
+	empty := ""
+	if _, err := h.UpdateRepository(context.Background(), &pb.UpdateRepositoryRequest{
+		Id: "repo-1", SecretSourceId: &empty,
+	}); err != nil {
+		t.Fatalf("expected clearing secret_source_id to be accepted, got %v", err)
+	}
+	if svc.got.SecretSourceId != "" {
+		t.Fatalf("expected secret_source_id cleared to empty, got %q", svc.got.SecretSourceId)
 	}
 }
 

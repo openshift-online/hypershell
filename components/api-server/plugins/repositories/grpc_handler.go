@@ -47,9 +47,8 @@ func (h *repositoryGRPCHandler) CreateRepository(ctx context.Context, req *pb.Cr
 	if err := grpcutil.ValidateStringField("provider", req.Provider, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("secret_source_id", req.SecretSourceId, true); err != nil {
-		return nil, err
-	}
+	// secret_source_id is optional: a public repository is registered with no
+	// credential and read anonymously. When set, the service layer FK-validates it.
 	item := &Repository{
 		Name:           req.Name,
 		Url:            req.Url,

@@ -167,7 +167,6 @@ components:
             - name
             - url
             - provider
-            - secret_source_id
           properties:
             name:
               type: string
@@ -180,7 +179,7 @@ components:
               description: 'Provider type the credential targets: github (extensible)'
             secret_source_id:
               type: string
-              description: References a SecretSource holding the provider credential
+              description: Optional reference to a SecretSource holding the provider credential. Omit for a public repository, which is read anonymously.
             default_branch:
               type: string
               description: Branch the import process reads when none is otherwise specified
