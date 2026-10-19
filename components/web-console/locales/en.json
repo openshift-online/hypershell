@@ -31,6 +31,26 @@
     "defaultMessage": "Add widgets",
     "description": "Label for the button that opens the widget drawer."
   },
+  "app.dashboard.adoption.activeUsersTrend.title": {
+    "defaultMessage": "Active users",
+    "description": "Visible title for the active-users adoption trend chart."
+  },
+  "app.dashboard.adoption.conversion.ariaDesc": {
+    "defaultMessage": "Registered users who have and have not created a first gateway.",
+    "description": "Accessible description for the adoption conversion donut."
+  },
+  "app.dashboard.adoption.conversion.chartTitle": {
+    "defaultMessage": "First-gateway conversion chart",
+    "description": "Accessible title for the adoption conversion donut."
+  },
+  "app.dashboard.adoption.conversion.rate": {
+    "defaultMessage": "{rate}%",
+    "description": "Center value for the adoption conversion donut."
+  },
+  "app.dashboard.adoption.conversion.subtitle": {
+    "defaultMessage": "Conversion",
+    "description": "Center label for the adoption conversion donut."
+  },
   "app.dashboard.adoption.dailyActiveUsers": {
     "defaultMessage": "Daily active users",
     "description": "Adoption summary label for daily active users."
@@ -75,6 +95,10 @@
     "defaultMessage": "New registrations (selected period)",
     "description": "Adoption summary label for registrations in the selected range."
   },
+  "app.dashboard.adoption.notConverted": {
+    "defaultMessage": "Not converted",
+    "description": "Legend label for registered users without a first gateway."
+  },
   "app.dashboard.adoption.organizations": {
     "defaultMessage": "Organizations",
     "description": "Unavailable organizations label."
@@ -91,9 +115,9 @@
     "defaultMessage": "{value} registered users",
     "description": "Adoption summary heading for total registered users."
   },
-  "app.dashboard.adoption.registrationTrend": {
-    "defaultMessage": "Registrations and active users over time",
-    "description": "Title for the adoption trend chart."
+  "app.dashboard.adoption.registrationsTrend.title": {
+    "defaultMessage": "New registrations",
+    "description": "Visible title for the new-registrations adoption trend chart."
   },
   "app.dashboard.adoption.retention": {
     "defaultMessage": "7-day retention",
@@ -104,7 +128,7 @@
     "description": "Adoption trend label for unavailable 30-day retention."
   },
   "app.dashboard.adoption.trendCaption": {
-    "defaultMessage": "Last 30 days - daily bucket - UTC",
+    "defaultMessage": "Last {days} days - daily bucket - UTC",
     "description": "Caption for adoption trend charts."
   },
   "app.dashboard.adoption.weeklyActiveUsers": {
@@ -1038,10 +1062,6 @@
   "app.dashboard.widget.adoptionConversion": {
     "defaultMessage": "Registration to first resource",
     "description": "Title for the adoption conversion dashboard widget."
-  },
-  "app.dashboard.widget.adoptionOrganizations": {
-    "defaultMessage": "Organizations and fleets",
-    "description": "Title for the unavailable organizations dashboard widget."
   },
   "app.dashboard.widget.adoptionSummary": {
     "defaultMessage": "Adoption summary",

@@ -416,31 +416,36 @@ non-deleted registered user on a UTC calendar day, as recorded in
 | Inactive users           | `inactive_users_last_30_days`                   | `hypershell_users_inactive_last_30_days_total`                |
 | First-gateway users      | `users_with_gateway`                            | `hypershell_role_bindings_gateway_owner_users_total`          |
 | First-gateway conversion | `gateway_conversion_percent`                    | BFF calculation from gateway-owner users and registered users |
+| Conversion donut         | `users_with_gateway` and `registered_users`     | First-gateway users versus registered users without a gateway |
 | Registrations trend      | `daily_created_users`                           | `hypershell_users_created_daily_total`                        |
 | Active-users trend       | `daily_unique_logins`                           | `hypershell_users_unique_logins_daily_total`                  |
 | 7-day retention          | `retention_7_days_percent`                      | `hypershell_users_retention_7_days_percent`                   |
 
-The selected 7- or 30-day range changes the New registrations summary value.
-Both trend arrays always contain one point per UTC calendar day for the
-trailing 30 days.
+The selected 7- or 30-day range changes the New registrations summary value and
+the number of trend points displayed by the Adoption trends widget. Both trend
+arrays always contain one point per UTC calendar day for the trailing 30 days;
+the widget displays the trailing 7 points when 7 days is selected.
 
 Inactive users are non-deleted users created more than 30 UTC days ago with no
 `user_daily_activities` row in the trailing 30 UTC calendar days inclusive of
 today. First-gateway conversion counts each distinct non-deleted user once if
 that user has ever held a `gateway-owner` role binding, including deleted
-bindings. Seven-day retention compares the current and immediately preceding
-7 UTC calendar-day active sets.
+bindings. The conversion donut uses that first-gateway-user count as its
+converted segment and derives the not-converted segment as `registered_users -
+users_with_gateway`; it does not claim to represent first sandbox use or a
+combined gateway-or-sandbox first-resource event. Seven-day retention compares
+the current and immediately preceding 7 UTC calendar-day active sets.
 
 Unavailable by design:
 
 - First-sandbox conversion: no durable, user-attributed first-sandbox event.
 - Median time to first resource: no combined gateway-or-sandbox first-resource event.
-- Organizations and fleets: HyperShell has no Organization or Fleet resources.
 - 30-day retention: the activity store retains only 30 days, but a true
   comparison needs 60 days.
 
-These fields render the localized metric-unavailable state. They are not
-replaced with zero or hidden.
+These fields render a dash in their summary rows. They are not replaced with
+zero or hidden; whole-widget and chart unavailable states continue to render the
+localized metric-unavailable treatment.
 
 ## Adding a new source
 

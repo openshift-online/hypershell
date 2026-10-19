@@ -18,6 +18,32 @@ export const messages = defineMessages({
     defaultMessage: "Admin",
     description: "Badge indicating an administrator resource scope.",
   },
+  adoptionActiveUsersTrendTitle: {
+    id: "app.dashboard.adoption.activeUsersTrend.title",
+    defaultMessage: "Active users",
+    description: "Visible title for the active-users adoption trend chart.",
+  },
+  adoptionConversionAriaDesc: {
+    id: "app.dashboard.adoption.conversion.ariaDesc",
+    defaultMessage:
+      "Registered users who have and have not created a first gateway.",
+    description: "Accessible description for the adoption conversion donut.",
+  },
+  adoptionConversionChartTitle: {
+    id: "app.dashboard.adoption.conversion.chartTitle",
+    defaultMessage: "First-gateway conversion chart",
+    description: "Accessible title for the adoption conversion donut.",
+  },
+  adoptionConversionRate: {
+    id: "app.dashboard.adoption.conversion.rate",
+    defaultMessage: "{rate}%",
+    description: "Center value for the adoption conversion donut.",
+  },
+  adoptionConversionSubtitle: {
+    id: "app.dashboard.adoption.conversion.subtitle",
+    defaultMessage: "Conversion",
+    description: "Center label for the adoption conversion donut.",
+  },
   adoptionDailyActiveUsers: {
     id: "app.dashboard.adoption.dailyActiveUsers",
     defaultMessage: "Daily active users",
@@ -76,6 +102,11 @@ export const messages = defineMessages({
     description:
       "Adoption summary label for registrations in the selected range.",
   },
+  adoptionNotConverted: {
+    id: "app.dashboard.adoption.notConverted",
+    defaultMessage: "Not converted",
+    description: "Legend label for registered users without a first gateway.",
+  },
   adoptionOrganizations: {
     id: "app.dashboard.adoption.organizations",
     defaultMessage: "Organizations",
@@ -97,10 +128,11 @@ export const messages = defineMessages({
     defaultMessage: "{value} registered users",
     description: "Adoption summary heading for total registered users.",
   },
-  adoptionRegistrationTrend: {
-    id: "app.dashboard.adoption.registrationTrend",
-    defaultMessage: "Registrations and active users over time",
-    description: "Title for the adoption trend chart.",
+  adoptionRegistrationsTrendTitle: {
+    id: "app.dashboard.adoption.registrationsTrend.title",
+    defaultMessage: "New registrations",
+    description:
+      "Visible title for the new-registrations adoption trend chart.",
   },
   adoptionRetention: {
     id: "app.dashboard.adoption.retention",
@@ -114,7 +146,7 @@ export const messages = defineMessages({
   },
   adoptionTrendCaption: {
     id: "app.dashboard.adoption.trendCaption",
-    defaultMessage: "Last 30 days - daily bucket - UTC",
+    defaultMessage: "Last {days} days - daily bucket - UTC",
     description: "Caption for adoption trend charts.",
   },
   adoptionTrendsWidget: {
@@ -131,11 +163,6 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.adoptionConversion",
     defaultMessage: "Registration to first resource",
     description: "Title for the adoption conversion dashboard widget.",
-  },
-  adoptionWidgetOrganizations: {
-    id: "app.dashboard.widget.adoptionOrganizations",
-    defaultMessage: "Organizations and fleets",
-    description: "Title for the unavailable organizations dashboard widget.",
   },
   adoptionWidgetSummary: {
     id: "app.dashboard.widget.adoptionSummary",

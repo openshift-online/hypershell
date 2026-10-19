@@ -73,6 +73,11 @@ func TestRoleBindingCreate_GatewayOwner(t *testing.T) {
 	callerID, userErr := userService.UpsertByUsername(context.Background(), strings.ToLower(account.Username), nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 	Expect(rbService.CreateGatewayOwnerBinding(context.Background(), callerID, gatewayID)).To(Succeed())
+	ownerCount, countErr := roleBindings.NewRoleBindingDao(
+		&environments.Environment().Database.SessionFactory,
+	).CountGatewayOwnerUsers(context.Background())
+	Expect(countErr).NotTo(HaveOccurred())
+	Expect(ownerCount).To(BeNumerically(">", 0))
 
 	rbInput := openapi.RoleBinding{
 		RoleId:    ownerRole.ID,

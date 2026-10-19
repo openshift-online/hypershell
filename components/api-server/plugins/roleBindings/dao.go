@@ -165,8 +165,8 @@ func (d *sqlRoleBindingDao) CountGatewayOwnerUsers(ctx context.Context) (int64, 
 		SELECT COUNT(DISTINCT bindings.user_id)
 		FROM role_bindings bindings
 		JOIN roles role ON role.id = bindings.role_id
-		JOIN users user ON user.id = bindings.user_id
-		WHERE role.name = ? AND user.deleted_at IS NULL
+		JOIN users owner ON owner.id = bindings.user_id
+		WHERE role.name = ? AND owner.deleted_at IS NULL
 	`, roles.RoleGatewayOwner).Scan(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("count gateway owner users: %w", err)

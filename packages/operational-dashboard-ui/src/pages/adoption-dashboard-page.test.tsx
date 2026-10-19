@@ -55,10 +55,10 @@ function renderPage(
 function getValue(label: string): string {
   const term = screen
     .getAllByText(label)
-    .find((element) => element.tagName === "DT")
-    ?.closest("div");
+    .find((element) => element.tagName === "SPAN")
+    ?.closest("dt");
   expect(term).not.toBeNull();
-  return (term?.querySelector("dd")?.textContent ?? "").trim();
+  return (term?.nextElementSibling?.textContent ?? "").trim();
 }
 
 describe("AdoptionDashboardPage", () => {
@@ -74,7 +74,19 @@ describe("AdoptionDashboardPage", () => {
     expect(getValue("Monthly active users")).toBe("398");
     expect(getValue("Inactive users (30+ days)")).toBe("52");
     expect(getValue("First gateway conversion")).toBe("306");
+    expect(screen.getByText("First gateway conversion: 306")).toBeTruthy();
+    expect(screen.getByText("Not converted: 144")).toBeTruthy();
+    expect(screen.getByText("68.0%")).toBeTruthy();
+    expect(screen.queryByText("Organizations and fleets")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "New registrations" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Active users" })).toBeTruthy();
+    expect(
+      screen.getAllByText("Last 7 days - daily bucket - UTC"),
+    ).toHaveLength(2);
     expect(getValue("7-day retention")).toBe("78.0");
+    expect(getValue("30-day retention")).toBe("-");
   });
 
   it("changes the selected registration window without a page reload", () => {
@@ -85,6 +97,9 @@ describe("AdoptionDashboardPage", () => {
     });
 
     expect(getValue("New registrations (selected period)")).toBe("123");
+    expect(
+      screen.getAllByText("Last 30 days - daily bucket - UTC"),
+    ).toHaveLength(2);
   });
 
   it("renders localized unavailable states for omitted fields", () => {

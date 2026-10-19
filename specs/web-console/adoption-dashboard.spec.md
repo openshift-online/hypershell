@@ -39,9 +39,9 @@ When OIDC is enabled, the BFF SHALL enforce the same role requirement for browse
 
 ### Requirement: ADO-DASH-02 -- Time Ranges
 
-The dashboard SHALL support 7-day and 30-day ranges. The selected range SHALL update registration and activity metrics without a full page reload. The browser SHALL NOT add a dashboard-specific 90-day option or workaround.
+The dashboard SHALL support 7-day and 30-day ranges. The selected range SHALL update registration and activity metrics and the displayed trend windows without a full page reload. The browser SHALL NOT add a dashboard-specific 90-day option or workaround.
 
-The trend response SHALL retain one point per UTC calendar day for the trailing 30 days. Seven-day range selection SHALL select the corresponding current-period summary values but SHALL NOT truncate the 30-point trend contract.
+The trend response SHALL retain one point per UTC calendar day for the trailing 30 days. The Adoption trends widget SHALL display only the trailing points for the selected range: 7 points for 7-day selection and 30 points for 30-day selection. Seven-day range selection SHALL also select the corresponding current-period summary values without truncating the 30-point response contract.
 
 #### Scenario: Changing the selected range
 
@@ -55,12 +55,13 @@ The trend response SHALL retain one point per UTC calendar day for the trailing 
 
 ### Requirement: ADO-DASH-03 -- Presentation and Application Boundary
 
-The `@openshift-online/hypershell-operational-dashboard-ui` package SHALL host `AdoptionDashboardPage` and export it for the web console host. The page SHALL render the four widget areas represented by the approved mockup:
+The `@openshift-online/hypershell-operational-dashboard-ui` package SHALL host `AdoptionDashboardPage` and export it for the web console host. The page SHALL render the three widget areas represented by the approved mockup:
 
 1. Adoption summary
 2. Registration to first resource
-3. Organizations and fleets
-4. Adoption trends
+3. Adoption trends
+
+The Adoption summary widget SHALL include the point-in-time registration, activity, inactive-user, and retention values. The Adoption trends widget SHALL render only two vertically stacked sparklines with visible localized titles for **New registrations** and **Active users**.
 
 Presentation code SHALL NOT call `fetch`, the SDK, or a BFF route directly. The host SHALL inject an adoption metrics workflow through the existing dashboard provider boundary. The dashboard secondary navigation SHALL include Adoption for administrators and hide it for non-administrators.
 
@@ -76,7 +77,7 @@ Presentation code SHALL NOT call `fetch`, the SDK, or a BFF route directly. The 
 
 The BFF SHALL expose an admin-only, same-origin `GET /api/metrics/adoption` route that returns snake_case JSON and supports the `range` query parameter with values `7` and `30`. The route SHALL accept only aggregate data sources and SHALL NOT return user-level records, usernames, identifiers, or personally identifiable information.
 
-`registered_users` SHALL be required. Every other field SHALL be optional. An omitted optional field SHALL mean that the metric is unavailable. The route SHALL preserve successfully computed fields if another aggregate subquery fails, so the page can render a localized unavailable state for that field without blanking the rest of the page.
+`registered_users` SHALL be required. Every other field SHALL be optional. An omitted optional field SHALL mean that the metric is unavailable. The route SHALL preserve successfully computed fields if another aggregate subquery fails, so the page can render a dash in each affected summary row or a localized unavailable state in each affected whole widget without blanking the rest of the page.
 
 The response SHALL use this contract:
 
@@ -103,7 +104,7 @@ The response SHALL use this contract:
 - WHEN the browser calls `GET /api/metrics/adoption`
 - THEN the BFF SHALL return `registered_users` and every other successfully computed field
 - AND the response SHALL omit `retention_7_days_percent`
-- AND the dashboard SHALL render localized unavailable states only for affected fields
+- AND the dashboard SHALL render dashes in affected summary rows and localized unavailable states in affected whole widgets
 
 #### Scenario: Aggregate-only response shape
 
@@ -147,7 +148,7 @@ The BFF SHALL compute **first-gateway conversion** as the count of distinct non-
 
 The BFF SHALL compute first-gateway conversion percentage as `users_with_gateway / registered_users * 100`, rounded to one decimal place. If `registered_users` is zero, the route SHALL omit `gateway_conversion_percent` and the dashboard SHALL render the localized unavailable state.
 
-First-sandbox conversion, median time to first resource, and organizations/fleets metrics are unavailable. The route SHALL omit their response fields and the page SHALL render the existing localized metric-unavailable title and body for each field.
+First-sandbox conversion and median time to first resource are unavailable. The route SHALL omit their response fields and the page SHALL render a dash for each summary-row value.
 
 #### Scenario: Gateway-owner role was later removed
 
@@ -161,16 +162,16 @@ First-sandbox conversion, median time to first resource, and organizations/fleet
 
 The BFF SHALL compute 7-day retention as `|A intersection B| / |B| * 100`, rounded to one decimal place, where `A` is the distinct users with qualifying activity in the current 7 UTC calendar days inclusive of today and `B` is the distinct users with qualifying activity in the immediately preceding 7 UTC calendar days.
 
-If `B` is empty, the route SHALL omit `retention_7_days_percent` and the dashboard SHALL render the localized unavailable state. The route SHALL NOT substitute zero.
+If `B` is empty, the route SHALL omit `retention_7_days_percent` and the dashboard SHALL render a dash in the 7-day-retention summary row. The route SHALL NOT substitute zero.
 
-Thirty-day retention is unavailable because a true previous-30-day comparison requires 60 days of activity history while the current activity store retains only 30 days. The route SHALL omit that field and the page SHALL render the localized unavailable state with the data limitation documented in `DATA_SOURCES.md`.
+Thirty-day retention is unavailable because a true previous-30-day comparison requires 60 days of activity history while the current activity store retains only 30 days. The route SHALL omit that field and the page SHALL render a dash in the 30-day-retention summary row with the data limitation documented in `DATA_SOURCES.md`.
 
 #### Scenario: Previous active set is empty
 
 - GIVEN no users had qualifying activity in the preceding 7 UTC calendar days
 - WHEN the BFF builds the adoption response
 - THEN the response SHALL omit `retention_7_days_percent`
-- AND the UI SHALL render the localized unavailable state
+- AND the UI SHALL render a dash in the corresponding summary row
 
 ---
 
@@ -178,13 +179,13 @@ Thirty-day retention is unavailable because a true previous-30-day comparison re
 
 The web console adapter SHALL map the adoption response into the existing `OperationalMetric` model and SHALL expose a distinct adoption metric source identifier for partial-failure reporting. The adapter SHALL propagate the selected 7-day or 30-day range.
 
-When an optional response field is missing, the corresponding dashboard field or widget SHALL render the existing localized unavailable states `app.dashboard.metricUnavailable.title` and `app.dashboard.metricUnavailable.body`. The UI SHALL NOT substitute zero, invent data, or silently hide a metric.
+When an optional response field is missing, its summary-row value SHALL render a dash. A missing whole-widget metric or chart SHALL render the existing localized unavailable states `app.dashboard.metricUnavailable.title` and `app.dashboard.metricUnavailable.body`. The UI SHALL NOT substitute zero, invent data, or silently hide a metric.
 
 #### Scenario: Optional field is omitted
 
 - GIVEN the adoption response omits `users_with_gateway`
 - WHEN the dashboard renders the conversion widget
-- THEN the corresponding value SHALL show the localized unavailable state
+- THEN the corresponding summary-row value SHALL show a dash
 - AND all unaffected metrics SHALL continue to render
 
 ---

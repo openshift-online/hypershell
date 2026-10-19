@@ -942,10 +942,12 @@ function SummaryUtilizationValue({
   );
 }
 
+const summaryUnavailableValue = "-";
+
 function SummaryUnavailableValue() {
   return (
     <span className="hypershell-dashboard-summary-unavailable">
-      <FormattedMessage {...messages.metricUnavailableTitle} />
+      {summaryUnavailableValue}
     </span>
   );
 }

@@ -1,15 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MockupShell } from "../shell/mockup-template";
-import { AdoptionDashboardPageSurface } from "./adoption-dashboard";
-
-function AdoptionDashboardMockup() {
-  return (
-    <MockupShell>
-      <AdoptionDashboardPageSurface />
-    </MockupShell>
-  );
-}
-
+import { AdoptionDashboardMockup } from "./adoption-dashboard-mockup";
 const meta = {
   title: "Mockups/Dashboards/Adoption dashboard",
   component: AdoptionDashboardMockup,

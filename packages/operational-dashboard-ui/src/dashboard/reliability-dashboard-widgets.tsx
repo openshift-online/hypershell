@@ -208,6 +208,7 @@ export function ReliabilitySummaryCard({
   metrics,
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {
   const intl = useIntl();
+  const summaryUnavailableValue = "-";
 
   const renderSummaryColumn = (
     metricIds: readonly ReliabilitySummaryMetricId[],
@@ -226,7 +227,7 @@ export function ReliabilitySummaryCard({
                 <ReliabilitySummaryValue metric={metric} metricId={metricId} />
               ) : (
                 <span className="hypershell-dashboard-summary-unavailable">
-                  <FormattedMessage {...messages.metricUnavailableTitle} />
+                  {summaryUnavailableValue}
                 </span>
               )}
             </DescriptionListDescription>

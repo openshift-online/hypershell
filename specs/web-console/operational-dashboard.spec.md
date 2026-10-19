@@ -352,7 +352,7 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 
 Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response - whether because the metric is not yet connected or because its data source failed (OP-DASH-19) - the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
 
-Summary rows (`usage-summary`, `system-summary`) that reference a missing metric SHALL render the same localized metric-unavailable message in place of the value instead of omitting the row or showing a blank cell.
+Summary rows that reference a missing metric SHALL render a dash in place of the value instead of omitting the row or showing a blank cell. Whole-widget unavailable states SHALL continue to render the localized metric-unavailable empty state.
 
 Historical trend data SHALL use UTC calendar days. The Provisioning dashboard SHALL load daily trend data for Memory, CPU, Provision time, and Provision reliability for the selected 7-day or 30-day range. The Provisioning dashboard SHALL omit a trend point when the source has no sample for that day and SHALL render a visible gap. The Provisioning dashboard SHALL NOT render a Pods trend.
 
@@ -486,7 +486,7 @@ The page SHALL expose a manual refresh control that calls `refetch()` on the que
 - WHEN at least one metric source succeeds and at least one metric source fails
 - THEN a warning `Alert` with localized title and body SHALL be shown indicating that some metrics could not be loaded and the dashboard may be incomplete
 - AND the widget grid SHALL render with every successfully loaded metric
-- AND widgets and summary rows for omitted metrics SHALL render the localized metric-unavailable state (OP-DASH-08)
+- AND widgets for omitted metrics SHALL render the localized metric-unavailable state while summary rows render a dash (OP-DASH-08)
 
 #### Scenario: Refresh with partial failure preserves last data for failed sources
 
@@ -561,7 +561,7 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - AND `GET /api/metrics/platform-inventory` fails
 - WHEN the operator opens `/dashboard`
 - THEN gateway, sandbox, registered-user, and cluster metric widgets SHALL display loaded values
-- AND inventory widgets and summary rows SHALL render the localized metric-unavailable state
+- AND inventory widgets SHALL render the localized metric-unavailable state and summary rows shall render a dash
 - AND a warning `Alert` SHALL explain that some metrics could not be loaded
 
 #### Scenario: No qualifying provision-time samples omit only provision time
