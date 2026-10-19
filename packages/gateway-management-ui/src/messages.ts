@@ -520,6 +520,23 @@ export const messages = defineMessages({
     defaultMessage: "Network access",
     description: "Network exposure mode for a gateway.",
   },
+  internalServicesQuestion: {
+    id: "app.page.gatewayProvision.internalServicesQuestion",
+    defaultMessage:
+      "Does the gateway need to reach GitLab or other internal Red Hat services?",
+    description:
+      "Question determining whether a gateway requires Red Hat VPN access.",
+  },
+  internalServicesNo: {
+    id: "app.page.gatewayProvision.internalServicesNo",
+    defaultMessage: "No",
+    description: "Option for a gateway that does not need internal services.",
+  },
+  internalServicesYes: {
+    id: "app.page.gatewayProvision.internalServicesYes",
+    defaultMessage: "Yes",
+    description: "Option for a gateway that needs internal Red Hat services.",
+  },
   cloudProvider: {
     id: "app.page.gatewayProvision.cloudProvider",
     defaultMessage: "Cloud provider",
@@ -1513,6 +1530,53 @@ export const messages = defineMessages({
     defaultMessage: "Any version",
     description:
       "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises.",
+  },
+  advancedOptions: {
+    id: "app.page.gatewayProvision.advancedOptions",
+    defaultMessage: "Advanced options",
+    description: "Expandable section containing advanced gateway settings.",
+  },
+  kataQuestion: {
+    id: "app.page.gatewayProvision.kataQuestion",
+    defaultMessage: "Is Kata required?",
+    description:
+      "Question asking whether the gateway needs Kata runtime isolation.",
+  },
+  kataUnavailableReason: {
+    id: "app.page.gatewayProvision.kataUnavailableReason",
+    defaultMessage: "Kata is not available for the selected placement.",
+    description: "Tooltip explaining why Kata cannot be selected.",
+  },
+  recommended: {
+    id: "app.page.gatewayProvision.recommended",
+    defaultMessage: "Recommended",
+    description: "Label for the default gateway placement recommendation.",
+  },
+  specialized: {
+    id: "app.page.gatewayProvision.specialized",
+    defaultMessage: "Specialized",
+    description:
+      "Label for a gateway placement requiring specialized runtime support.",
+  },
+  gatewaySetFeatures: {
+    id: "app.page.gatewayProvision.gatewaySetFeatures",
+    defaultMessage: "Gateway set features",
+    description: "Accessible label for recommendation card feature labels.",
+  },
+  awsProviderAlt: {
+    id: "app.page.gatewayProvision.awsProviderAlt",
+    defaultMessage: "Amazon Web Services",
+    description: "Alternative text for the AWS provider logo.",
+  },
+  ibmProviderAlt: {
+    id: "app.page.gatewayProvision.ibmProviderAlt",
+    defaultMessage: "IBM Cloud",
+    description: "Alternative text for the IBM Cloud provider logo.",
+  },
+  openShellVersion: {
+    id: "app.page.gatewayProvision.openShellVersion",
+    defaultMessage: "OpenShell version: {version}",
+    description: "Selected OpenShell version shown in the recommendation card.",
   },
   /* eslint-enable sort-keys */
 });

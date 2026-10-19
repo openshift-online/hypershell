@@ -23,7 +23,7 @@ export function ProvisionGatewayPageSurface() {
         data-page-region="body"
         hasBodyWrapper={false}
         isFilled
-        variant="default"
+        variant="secondary"
       >
         <ProvisionGatewayForm />
       </PageSection>

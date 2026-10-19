@@ -110,11 +110,17 @@ async function enterNameAndSelectPublic(
     screen.getByRole("textbox", { name: "Gateway name" }),
     "team-gateway",
   );
-  await user.click(screen.getByRole("radio", { name: "Public" }));
+  await user.click(screen.getByRole("radio", { name: "No" }));
 }
 
 function radio(name: string) {
-  return screen.getByRole<HTMLInputElement>("radio", { name });
+  const accessibleName =
+    name === "IBM Cloud"
+      ? "IBM"
+      : name === "Amazon Web Services"
+        ? "AWS"
+        : name;
+  return screen.getByRole<HTMLInputElement>("radio", { name: accessibleName });
 }
 
 describe("GatewayCreatePage", () => {
@@ -153,7 +159,7 @@ describe("GatewayCreatePage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(radio("Public").checked).toBe(true);
+      expect(radio("No").checked).toBe(true);
       expect(radio("IBM Cloud").checked).toBe(true);
     });
   });
@@ -165,7 +171,7 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "VPN" }));
+    await user.click(screen.getByRole("radio", { name: "Yes" }));
 
     expect(radio("Amazon Web Services").checked).toBe(true);
     expect(radio("IBM Cloud").disabled).toBe(true);
@@ -190,7 +196,7 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "VPN" }));
+    await user.click(screen.getByRole("radio", { name: "Yes" }));
 
     expect(radio("IBM Cloud").disabled).toBe(false);
     expect(radio("IBM Cloud").checked).toBe(true);
@@ -218,6 +224,10 @@ describe("GatewayCreatePage", () => {
         ["network/vpn", "provider/aws"],
         ["network/public", "provider/ibm"],
         ["network/vpn", "provider/ibm"],
+        ["network/public", "provider/aws", "runtime/kata"],
+        ["network/vpn", "provider/aws", "runtime/kata"],
+        ["network/public", "provider/ibm", "runtime/kata"],
+        ["network/vpn", "provider/ibm", "runtime/kata"],
       ],
       expect.any(AbortSignal),
     );
@@ -230,7 +240,7 @@ describe("GatewayCreatePage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(radio("VPN").checked).toBe(true);
+      expect(radio("Yes").checked).toBe(true);
       expect(radio("Amazon Web Services").checked).toBe(true);
     });
   });
@@ -242,7 +252,7 @@ describe("GatewayCreatePage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(radio("Public").checked).toBe(true);
+      expect(radio("No").checked).toBe(true);
       expect(radio("IBM Cloud").checked).toBe(true);
     });
   });
@@ -252,13 +262,15 @@ describe("GatewayCreatePage", () => {
     renderPage();
 
     expect(
-      screen.getByRole("radiogroup", { name: "Network access" }),
+      screen.getByRole("radiogroup", {
+        name: "Does the gateway need to reach GitLab or other internal Red Hat services?",
+      }),
     ).toBeTruthy();
-    await user.click(screen.getByRole("radio", { name: "Public" }));
-    expect(radio("Public").checked).toBe(true);
-    await user.click(screen.getByRole("radio", { name: "VPN" }));
-    expect(radio("VPN").checked).toBe(true);
-    expect(radio("Public").checked).toBe(false);
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    expect(radio("No").checked).toBe(true);
+    await user.click(screen.getByRole("radio", { name: "Yes" }));
+    expect(radio("Yes").checked).toBe(true);
+    expect(radio("No").checked).toBe(false);
   });
 
   it("shows required placement and name errors without disabling submit", async () => {
@@ -310,8 +322,8 @@ describe("GatewayCreatePage", () => {
         })
       ).checked,
     ).toBe(true);
-    expect(screen.queryByRole("radio", { name: "Public" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: "VPN" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "No" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Yes" })).toBeNull();
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
@@ -333,9 +345,9 @@ describe("GatewayCreatePage", () => {
 
     expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
     await waitFor(() => {
-      expect(radio("Public").checked).toBe(true);
+      expect(radio("No").checked).toBe(true);
     });
-    expect(radio("VPN").checked).toBe(false);
+    expect(radio("Yes").checked).toBe(false);
   });
 
   it("fails closed when placement availability cannot be loaded", async () => {
@@ -349,8 +361,8 @@ describe("GatewayCreatePage", () => {
         "Placement availability could not be loaded. Cloud placement is disabled until availability can be verified.",
       ),
     ).toBeTruthy();
-    expect(radio("Public").disabled).toBe(true);
-    expect(radio("VPN").disabled).toBe(true);
+    expect(radio("No").disabled).toBe(true);
+    expect(radio("Yes").disabled).toBe(true);
 
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
@@ -361,10 +373,10 @@ describe("GatewayCreatePage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    const vpn = radio("VPN");
+    const vpn = radio("Yes");
     expect(vpn.disabled).toBe(true);
     expect(vpn.getAttribute("aria-describedby")).toBe(
-      "placement-vpn-description",
+      "internal-services-yes-description",
     );
     expect(
       (
@@ -372,12 +384,12 @@ describe("GatewayCreatePage", () => {
           "VPN is unavailable: no eligible managed cluster is connected.",
         )
       ).id,
-    ).toBe("placement-vpn-description");
-    await user.click(screen.getByRole("radio", { name: "Public" }));
+    ).toBe("internal-services-yes-description");
+    await user.click(screen.getByRole("radio", { name: "No" }));
 
     expect(radio("IBM Cloud").disabled).toBe(true);
     expect(radio("IBM Cloud").getAttribute("aria-describedby")).toBe(
-      "provider-ibm-description",
+      "cloud-provider-ibm-description",
     );
     expect(
       screen.getByText(
@@ -417,10 +429,9 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "Public" }));
-    await user.click(
-      screen.getByRole("radio", { name: "Amazon Web Services" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole("combobox", {
       name: "Provisioning version",
@@ -452,10 +463,9 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "Public" }));
-    await user.click(
-      screen.getByRole("radio", { name: "Amazon Web Services" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole("combobox", {
       name: "Provisioning version",
@@ -521,10 +531,9 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "Public" }));
-    await user.click(
-      screen.getByRole("radio", { name: "Amazon Web Services" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", {
       name: "Provisioning version",
@@ -532,7 +541,7 @@ describe("GatewayCreatePage", () => {
     await user.selectOptions(select, "v0.1.2-rhaiv.7");
     expect(select.value).toBe("v0.1.2-rhaiv.7");
 
-    await user.click(screen.getByRole("radio", { name: "IBM Cloud" }));
+    await user.click(screen.getByRole("radio", { name: "IBM" }));
 
     await waitFor(() => {
       expect(

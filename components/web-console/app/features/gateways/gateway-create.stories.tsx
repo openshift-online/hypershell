@@ -67,7 +67,20 @@ const previewGateway: GatewayRecord = {
 };
 
 const gatewayOperations = {
-  getGatewayPlacementAvailability: () => Promise.resolve(placementAvailability),
+  getGatewayPlacementAvailability: (
+    selectors: readonly (readonly string[])[],
+  ) =>
+    Promise.resolve({
+      localKind: true,
+      placements: selectors.map((selector) => ({
+        available:
+          !selector.includes("runtime/kata") &&
+          selector.includes("network/public") &&
+          selector.includes("provider/ibm"),
+        selector: [...selector],
+      })),
+    }),
+  getGatewayProvisioningVersions: () => Promise.resolve(["1.2.3"]),
   provisionGateway: () => Promise.resolve(previewGateway),
 } as unknown as GatewayOperations;
 
@@ -85,7 +98,10 @@ function GatewayCreatePreview({
 }) {
   const operationsForStory = {
     ...gatewayOperations,
-    getGatewayPlacementAvailability: () => Promise.resolve(availability),
+    getGatewayPlacementAvailability:
+      availability === placementAvailability
+        ? gatewayOperations.getGatewayPlacementAvailability
+        : () => Promise.resolve(availability),
   } as GatewayOperations;
   return (
     <GatewayUiProvider gateways={operationsForStory} navigation={navigation}>
@@ -113,14 +129,14 @@ export const Default: Story = {
     await expect(
       canvas.queryByRole("radio", { name: "Use local-kind" }),
     ).toBeNull();
-    await expect(canvas.getByRole("radio", { name: "Public" })).toBeVisible();
-    await expect(canvas.getByRole("radio", { name: "VPN" })).toBeVisible();
+    await expect(canvas.getByRole("radio", { name: "No" })).toBeVisible();
+    await expect(canvas.getByRole("radio", { name: "Yes" })).toBeVisible();
     await expect(
       canvas.queryByRole("radio", { name: "Amazon Web Services" }),
     ).toBeNull();
     await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
 
-    await userEvent.click(canvas.getByRole("radio", { name: "Public" }));
+    await userEvent.click(canvas.getByRole("radio", { name: "No" }));
     await expect(
       canvas.getByRole("radio", { name: "Amazon Web Services" }),
     ).toBeVisible();
@@ -140,8 +156,8 @@ export const LocalDevelopmentOnly: Story = {
     await expect(
       canvas.getByRole("radio", { name: "Use local-kind" }),
     ).toBeVisible();
-    await expect(canvas.queryByRole("radio", { name: "Public" })).toBeNull();
-    await expect(canvas.queryByRole("radio", { name: "VPN" })).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "No" })).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "Yes" })).toBeNull();
     await expect(
       canvas.queryByRole("radio", { name: "Amazon Web Services" }),
     ).toBeNull();
@@ -155,8 +171,8 @@ export const VpnUnavailable: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const publicNetwork = canvas.getByRole("radio", { name: "Public" });
-    const vpnNetwork = canvas.getByRole("radio", { name: "VPN" });
+    const publicNetwork = canvas.getByRole("radio", { name: "No" });
+    const vpnNetwork = canvas.getByRole("radio", { name: "Yes" });
 
     await expect(publicNetwork).toBeEnabled();
     await expect(vpnNetwork).toBeDisabled();
