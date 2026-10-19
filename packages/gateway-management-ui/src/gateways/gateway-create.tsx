@@ -369,7 +369,9 @@ function YesNoQuestion({
       id={id}
       label={label}
       onChange={(next) => {
-        onChange(next as "yes" | "no");
+        if (next === "yes" || next === "no") {
+          onChange(next);
+        }
       }}
       options={[
         { label: "Yes", value: "yes" },
