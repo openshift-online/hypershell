@@ -66,20 +66,22 @@ const previewGateway: GatewayRecord = {
   status: "Provisioning",
 };
 
+const getGatewayPlacementAvailability = (
+  selectors: readonly (readonly string[])[],
+) =>
+  Promise.resolve({
+    localKind: true,
+    placements: selectors.map((selector) => ({
+      available:
+        !selector.includes("runtime/kata") &&
+        selector.includes("network/public") &&
+        selector.includes("provider/ibm"),
+      selector: [...selector],
+    })),
+  });
+
 const gatewayOperations = {
-  getGatewayPlacementAvailability: (
-    selectors: readonly (readonly string[])[],
-  ) =>
-    Promise.resolve({
-      localKind: true,
-      placements: selectors.map((selector) => ({
-        available:
-          !selector.includes("runtime/kata") &&
-          selector.includes("network/public") &&
-          selector.includes("provider/ibm"),
-        selector: [...selector],
-      })),
-    }),
+  getGatewayPlacementAvailability,
   getGatewayProvisioningVersions: () => Promise.resolve(["1.2.3"]),
   provisionGateway: () => Promise.resolve(previewGateway),
 } as unknown as GatewayOperations;
@@ -100,7 +102,7 @@ function GatewayCreatePreview({
     ...gatewayOperations,
     getGatewayPlacementAvailability:
       availability === placementAvailability
-        ? (...args) => gatewayOperations.getGatewayPlacementAvailability(...args)
+        ? getGatewayPlacementAvailability
         : () => Promise.resolve(availability),
   } as GatewayOperations;
   return (
