@@ -84,6 +84,7 @@ def check_tsx(path: Path, text: str) -> list[str]:
         and "@patternfly/react-core" not in text
         and "/common/" not in text
         and "../common/" not in text
+        and "../shell/" not in text
     ):
         findings.append(
             f"{path}: mockup imports neither PatternFly React nor a shared mockup component"
