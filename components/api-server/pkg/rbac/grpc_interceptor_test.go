@@ -149,7 +149,7 @@ func TestUnaryInterceptor_AllowlistScope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := RBACUnaryInterceptor(owner, fakeProvisioner{userID: "user-1"}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{sa}})
+			interceptor := RBACUnaryInterceptor(owner, fakeProvisioner{userID: "user-1"}, nil, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{sa}})
 			called := false
 			_, err := interceptor(auth.SetUsernameContext(context.Background(), tt.username), tt.req, &grpc.UnaryServerInfo{FullMethod: tt.method},
 				func(context.Context, interface{}) (interface{}, error) {
@@ -168,7 +168,7 @@ func TestUnaryInterceptor_AllowlistScope(t *testing.T) {
 
 // Under enforcement an unauthenticated call reaches no hypershell.v1 method.
 func TestUnaryInterceptor_UnauthenticatedDenied(t *testing.T) {
-	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true})
+	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{}, nil, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true})
 	handler := func(context.Context, interface{}) (interface{}, error) { return nil, nil }
 	_, err := interceptor(context.Background(), &pb.ListGatewaysRequest{}, &grpc.UnaryServerInfo{FullMethod: gatewaySvc("ListGateways")}, handler)
 	if status.Code(err) != codes.PermissionDenied {

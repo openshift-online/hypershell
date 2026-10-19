@@ -178,6 +178,24 @@ describe("ApiReliabilityTrendCard", () => {
     ).toBeTruthy();
   });
 
+  it("labels current reconciliation lag and stale resource status values", () => {
+    renderWithIntl(
+      <ApiReliabilityTrendCard
+        metric={reconciliationLagMetric}
+        title={messages.widgetReconciliationLag.defaultMessage}
+      />,
+    );
+    renderWithIntl(
+      <ApiReliabilityTrendCard
+        metric={staleResourceStatusMetric}
+        title={messages.widgetStaleResourceStatus.defaultMessage}
+      />,
+    );
+
+    expect(screen.getAllByText("Current P50 lag")).toHaveLength(1);
+    expect(screen.getAllByText("Current stale-resource count")).toHaveLength(1);
+  });
+
   it("omits the sparkline when hourly trend is absent", () => {
     renderWithIntl(
       <ApiReliabilityTrendCard

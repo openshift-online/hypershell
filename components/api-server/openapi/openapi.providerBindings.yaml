@@ -161,6 +161,10 @@ components:
             refresh_strategy:
               type: string
               description: JSON-encoded credential refresh strategy configuration
+            repository_id:
+              type: string
+              readOnly: true
+              description: Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
             status:
               type: string
               readOnly: true

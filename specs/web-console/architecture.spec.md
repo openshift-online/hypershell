@@ -89,7 +89,7 @@ The API server SHALL scope gateway visibility by per-gateway RBAC RoleBindings a
 
 The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application. The authenticated identity menu SHALL display the web console build version and the API server build version as non-interactive entries, so an operator can identify the exact deployed builds without shell or cluster access. Both versions SHALL be sourced from the allowlisted runtime configuration (see WEB-DEPLOY-02) and SHALL render an `unknown` placeholder when not stamped.
 
-Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name, ID, or fleet, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name or ID, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
 
 The gateway collection SHALL expose the Created by column as an authoritative sortable column. The console SHALL preserve this sort in URL collection state and request creator username ordering from the API. The API SHALL apply creator ordering before pagination so that each page is part of one globally ordered result set.
 
@@ -408,7 +408,7 @@ The gateway list SHALL:
 - Display all gateways visible to the authenticated user (scoped per RBAC as defined in `security/rbac-enforcement.spec.md`)
 - Default to 20 items per page
 - Allow page size selection up to 100 items per page
-- Include a search input that filters by gateway name, ID, or fleet
+- Include a search input that filters by gateway name or ID
 - Debounce search input for 300 milliseconds
 - Cancel in-flight search requests when new search input is received
 - Display total gateway count across all pages
@@ -443,7 +443,7 @@ Platform administrators (and gateway owners, for gateways they own) SHALL be abl
 - WHEN user A types "prod" in the search input
 - THEN the input is debounced for 300ms
 - AND only one API request is sent after the debounce period
-- AND only gateways matching "prod" in name, ID, or fleet are displayed
+- AND only gateways matching "prod" in name or ID are displayed
 - AND the total count reflects filtered results
 
 #### Scenario: Platform admin deletes a gateway from list
@@ -470,50 +470,31 @@ Platform administrators (and gateway owners, for gateways they own) SHALL be abl
 
 ### Requirement WEB-UI-04: Gateway Placement Selection
 
-The gateway provisioning form SHALL collect a gateway name and one placement cluster. It SHALL use the PatternFly searchable single-select pattern and populate remote placement options from the managed-cluster API. The control SHALL display each managed cluster by name, distinguish options with available provider and region context, and SHALL NOT offer cluster creation or registration.
+The gateway provisioning form SHALL collect a gateway name and a network-visibility placement intent rather than a cluster selection. The provision form's placement-intent request contract, its network-visibility choices, and the related provider, version, availability, and local-kind behavior are defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (GP-01 Placement Intent Contract and GP-02 Network Visibility Selection). The form SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`; the backend resolves and assigns the concrete cluster identifier before creating the gateway. The form SHALL NOT collect a Kubernetes namespace; the host adapter SHALL omit namespace because the API server assigns it.
 
-The gateway collection and gateway details SHALL display the managed-cluster name for every gateway with a non-empty `cluster_id`. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Managed-cluster typeahead results SHALL be bounded by the application-owned default collection page size. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback. Gateways with an empty `cluster_id` SHALL display `Hub cluster` in both experiences.
+The gateway collection and gateway details SHALL display the resolved managed-cluster name for every gateway whose backend-assigned `cluster_id` is present. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback.
 
-`Hub cluster (default)` SHALL be the initially selected placement and SHALL represent the cluster that hosts HyperShell. Selecting this option SHALL send an empty `cluster_id`. Selecting a managed cluster SHALL send that cluster's stable identifier as `cluster_id`. Typing text that does not identify a selected option SHALL NOT silently retain or submit a different placement. Pressing Escape during an uncommitted search SHALL close the popup and restore the input and form value to the last accepted placement.
+**Verification:** Inspect the composed provisioning form, its placement-intent request payload, the SDK adapter, and the managed-cluster name resolution on the gateway collection and gateway details. Confirm the form presents no cluster selector, omits namespace, and submits a placement intent rather than a user-selected `cluster_id`, consistent with `gateway-provision-placement.spec.md` GP-01 and GP-02, and that the created Gateway response contains the server-assigned namespace and backend-resolved cluster. Cold-render the gateway collection with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests; repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
 
-The form SHALL NOT collect a Kubernetes namespace, fleet identifier, release identifier, or database identifier. The host adapter SHALL omit namespace because the API server assigns it, and SHALL send empty fleet, release, and database identifiers until those values have a user-facing or reconciler-defined contract. Loading, no-match, partial-page, managed-cluster API failure, retry, and cancellation states SHALL be explicit. A managed-cluster API failure SHALL NOT prevent provisioning to the hub cluster, but the interface SHALL explain that remote placements are unavailable and provide a retry action.
-
-Managed-cluster search SHALL execute at the API through the gateway application use case and its application-owned port. Search values SHALL be normalized in the query identity, rapid input SHALL be debounced for 250 milliseconds, obsolete requests SHALL be cancelled, and the query SHALL request only the first bounded result page. Placement results SHALL remain fresh for 60 seconds. Cluster list and gateway provisioning requests SHALL retain one correlation context each and publish their required workflow and dependency probes.
-
-**Verification:** Inspect the composed provisioning form, application port, query key, freshness policy, SDK adapter, request payload, and probe recordings. Exercise keyboard and screen-reader selection, Escape from an uncommitted search, rapid and slow search input, literal `%`, `_`, apostrophe, and backslash search values, warm-cache remount, no-match, more-results, slow load, API failure and retry on both provisioning and gateway details, cancellation, hub provisioning, and managed-cluster provisioning. Confirm that one rapid typing burst produces one API search, warm placement data is reused for 60 seconds, the form contains no namespace or cluster-creation controls, the default payload uses `cluster_id: ""` and omits namespace, the response contains the server-assigned namespace, and a selected managed cluster uses its identifier without changing the other reconciler-owned identifiers.
-
-#### Scenario: Provision on the Hub Cluster
+#### Scenario: Provisioning Submits Placement Intent
 
 - GIVEN the provisioning form has loaded
-- WHEN the user keeps `Hub cluster (default)` selected and provisions a gateway
-- THEN the request SHALL contain an empty `cluster_id`
+- WHEN the user selects a network visibility and provisions a gateway
+- THEN the request SHALL contain the placement intent defined by `gateway-provision-placement.spec.md` GP-01
+- AND the request SHALL NOT contain a user-selected `cluster_id`
 - AND the request SHALL omit namespace
 - AND the created Gateway response SHALL contain the server-assigned namespace
 
-#### Scenario: Provision on a Managed Cluster
-
-- GIVEN the managed-cluster API returns an existing cluster
-- WHEN the user searches for and selects that cluster and provisions a gateway
-- THEN the request SHALL contain the selected managed cluster identifier as `cluster_id`
-- AND the interface SHALL NOT offer to create or register a cluster
-
-#### Scenario: Managed Clusters Are Unavailable
-
-- GIVEN the managed-cluster API request fails
-- WHEN the provisioning form reports the failure
-- THEN `Hub cluster (default)` SHALL remain available for selection
-- AND the user SHALL be able to retry loading managed clusters without losing valid gateway form input
-
 #### Scenario: Gateway Collection Shows Placement Names
 
-- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- GIVEN a gateway has a backend-assigned `cluster_id` for an existing managed cluster
 - WHEN the gateway collection renders that row
 - THEN the Cluster column SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
 
 #### Scenario: Gateway Details Show Placement Names
 
-- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- GIVEN a gateway has a backend-assigned `cluster_id` for an existing managed cluster
 - WHEN the gateway details render
 - THEN the Cluster value SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
@@ -530,7 +511,7 @@ Below the header, the page SHALL use PatternFly Tabs with these primary tabs in 
 
 The selected tab SHALL use the validated `tab` search parameter per `WEB-DATA-02`. Its values SHALL be `connection`, `service-accounts`, and `details`. A shared URL and browser refresh SHALL reopen the selected tab. Browser Back and Forward SHALL restore the previous selection. A missing or invalid value SHALL select `Connection`.
 
-The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, namespace, and release identifier), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
+The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, and namespace), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
 
 The `Connection` tab SHALL guide the user through three ordered steps using an accessible ordered structure with a visible label and description for each step:
 
@@ -686,7 +667,7 @@ Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint
 Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, creation timestamp, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
-- gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name, ID, or fleet), sort field and direction, and response metadata (page, size, total count);
+- gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name or ID), sort field and direction, and response metadata (page, size, total count);
 - platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings;
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
@@ -702,9 +683,9 @@ The UI SHALL NOT infer authorization solely from object visibility, guess whethe
 
 The API server scopes gateway visibility by per-gateway RoleBindings and the platform:admin global role -- the gateway list returns gateways where the authenticated user has a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if the user has the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)). The provisioning action SHALL be available in the primary gateway experience. The gateway provisioning form SHALL NOT collect OIDC configuration -- the control plane auto-provisions Keycloak OIDC clients and populates OIDC fields when a gateway is created. Gateway provisioning requires the `gateway:creator` role (from Keycloak); the creator automatically becomes `gateway:owner` on the new gateway, which provides admin-tier access via the OIDC Role Bridge (see [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md)).
 
-The gateway table SHALL identify an empty `cluster_id` as `Hub cluster` in a sortable Cluster column. The provisioning form SHALL expose the hub as `Hub cluster (default)` and list existing managed clusters as remote placement choices, without offering cluster creation or registration. Hub placement SHALL send an empty `cluster_id`; managed-cluster placement SHALL send the selected cluster identifier. The form SHALL NOT collect `fleet_id`, `release_id`, or `namespace`; it SHALL send the first two identifiers as empty strings and omit namespace because the API server owns its assignment. The gateway contract has no database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+The gateway table SHALL display each gateway's backend-resolved managed-cluster name in a sortable Cluster column. The provisioning form SHALL submit only a gateway name and a placement intent as defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (GP-01); it SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`, and the backend SHALL resolve and assign the concrete cluster identifier. The form SHALL NOT collect a Kubernetes namespace because the API server owns its assignment. The gateway provisioning contract has no fleet, release, or database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; hub placement sends an empty cluster identifier; managed placement sends the selected cluster identifier; the create request omits namespace; the response contains an API-assigned namespace; and the provisioning form does not expose fleet, release, or namespace fields.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or fleet, release, or namespace fields.
 
 ## Initial Delivery Sequence
 
@@ -735,7 +716,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 | Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                                                                                                |
 | One gateway management experience                                | A single gateway list makes connection and provisioning workflows easy to find without introducing premature audience or navigation boundaries                                                                                            |
 | Private reusable gateway management UI workspace package         | Establishes one canonical gateway experience that the standalone console hosts today and another product can embed later without coupling feature code to a shell, router, authentication implementation, or mutable global configuration |
-| Local-cluster placement first                                    | The initial form presents local placement and omits fleet and cluster values from its request without changing the API contract; remote placement can be added later                                                                      |
+| Placement intent over cluster selection                          | The provisioning form submits a network-visibility placement intent rather than a user-selected cluster; the backend resolves and assigns the concrete cluster (see `gateway-provision-placement.spec.md`)                                  |
 | No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                                                                                            |
 | No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                                                                 |
 | TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                                                                                              |

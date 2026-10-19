@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-const inventoryLookback = 30 * 24 * time.Hour
+const inventoryLookback7Days = 7 * 24 * time.Hour
+const inventoryLookback30Days = 30 * 24 * time.Hour
 
 // ClusterInventoryRow is one labeled bucket in the managed cluster inventory
 // aggregate exposed to Prometheus.
@@ -19,6 +20,7 @@ type ClusterInventoryRow struct {
 // ClusterInventorySnapshot is the fleet-wide managed cluster inventory computed
 // on each metrics scrape.
 type ClusterInventorySnapshot struct {
+	CreatedLast7Days  int64
 	CreatedLast30Days int64
 	Rows              []ClusterInventoryRow
 }
@@ -59,21 +61,19 @@ func clusterRegion(cluster *ManagedCluster) string {
 	return capabilityValue(cluster.Capabilities, regionNamespace)
 }
 
-func inventoryLookbackStart(evaluationTime time.Time) time.Time {
-	return evaluationTime.UTC().Add(-inventoryLookback)
-}
-
 func buildClusterInventorySnapshot(
 	clusters ManagedClusterList,
 	evaluationTime time.Time,
 ) *ClusterInventorySnapshot {
-	windowStart := inventoryLookbackStart(evaluationTime)
+	window7DaysStart := evaluationTime.UTC().Add(-inventoryLookback7Days)
+	window30DaysStart := evaluationTime.UTC().Add(-inventoryLookback30Days)
 	type inventoryKey struct {
 		status   string
 		provider string
 		region   string
 	}
 	counts := make(map[inventoryKey]int64)
+	var createdLast7Days int64
 	var createdLast30Days int64
 
 	for _, cluster := range clusters {
@@ -84,7 +84,10 @@ func buildClusterInventorySnapshot(
 		}
 		counts[key]++
 
-		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(windowStart) {
+		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(window7DaysStart) {
+			createdLast7Days++
+		}
+		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(window30DaysStart) {
 			createdLast30Days++
 		}
 	}
@@ -100,6 +103,7 @@ func buildClusterInventorySnapshot(
 	}
 
 	return &ClusterInventorySnapshot{
+		CreatedLast7Days:  createdLast7Days,
 		CreatedLast30Days: createdLast30Days,
 		Rows:              rows,
 	}

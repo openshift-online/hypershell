@@ -90,6 +90,14 @@ paths:
     $ref: 'openapi.repositories.yaml#/paths/~1api~1hypershell~1ext~1repositories'
   /api/hypershell/ext/repositories/{id}:
     $ref: 'openapi.repositories.yaml#/paths/~1api~1hypershell~1ext~1repositories~1{id}'
+  /api/hypershell/ext/agent_workspaces:
+    $ref: 'openapi.agentWorkspaces.yaml#/paths/~1api~1hypershell~1ext~1agent_workspaces'
+  /api/hypershell/ext/agent_workspaces/{id}:
+    $ref: 'openapi.agentWorkspaces.yaml#/paths/~1api~1hypershell~1ext~1agent_workspaces~1{id}'
+  /api/hypershell/ext/workspace_memberships:
+    $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships'
+  /api/hypershell/ext/workspace_memberships/{id}:
+    $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:
@@ -238,6 +246,18 @@ components:
       $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourceList'
     SecretSourcePatchRequest:
       $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourcePatchRequest'
+    AgentWorkspace:
+      $ref: 'openapi.agentWorkspaces.yaml#/components/schemas/AgentWorkspace'
+    AgentWorkspaceList:
+      $ref: 'openapi.agentWorkspaces.yaml#/components/schemas/AgentWorkspaceList'
+    AgentWorkspacePatchRequest:
+      $ref: 'openapi.agentWorkspaces.yaml#/components/schemas/AgentWorkspacePatchRequest'
+    WorkspaceMembership:
+      $ref: 'openapi.workspaceMemberships.yaml#/components/schemas/WorkspaceMembership'
+    WorkspaceMembershipList:
+      $ref: 'openapi.workspaceMemberships.yaml#/components/schemas/WorkspaceMembershipList'
+    WorkspaceMembershipPatchRequest:
+      $ref: 'openapi.workspaceMemberships.yaml#/components/schemas/WorkspaceMembershipPatchRequest'
     # AUTO-ADD NEW SCHEMAS
   parameters:
     id:

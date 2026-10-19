@@ -356,7 +356,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return "", false
 	}
-	ready, rollingOut, appliedRelease, reason, err := gateway.ObserveGatewayRollout(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
+	ready, rollingOut, reason, err := gateway.ObserveGatewayRollout(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return "", false
@@ -372,10 +372,10 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		// A new revision is rolling out. The provisioning path owns this
 		// transition: it holds the gateway at Provisioning and drives it to
 		// Running or, when the readiness window elapses, Degraded. Leave the phase
-		// untouched so the health loop neither flaps it nor prematurely advances
-		// the observed release, and do not report the gateway ready. The last-good
-		// workload keeps serving throughout (maxUnavailable:0), so a roll in
-		// progress is not a degradation. See gateway-release-rollout.spec.md.
+		// untouched so the health loop does not flap it, and do not report the
+		// gateway ready. The last-good workload keeps serving throughout
+		// (maxUnavailable:0), so a roll in progress is not a degradation. See
+		// openshell-gateway-health.spec.md.
 		return namespace, false
 	case !ready:
 		// The updated (current) revision's pods are unavailable and no roll is in
@@ -415,23 +415,6 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 			log.Printf("WARN gateway health: %s: provider Vault unreachable: %v", gatewayID, err)
 			cpotel.RecordGatewayVaultUnreachable(ctx, h.clusterID)
 			desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "Vault credential backend unreachable"
-		}
-	}
-
-	// When the current revision is healthy, converge the observed release to the
-	// one actually applied to the workload -- appliedRelease, read back from the
-	// Deployment's applied-release annotation, NOT the desired gw.GetReleaseId().
-	// During the window after a release_id change is committed but before the
-	// provisioning path re-renders the Deployment, the workload is still steady on
-	// the prior release; advancing to the desired release there would falsely report
-	// a release the workload has not yet rolled out (the exact failure the spec
-	// forbids). Advancing to appliedRelease is idempotent (a no-op once observed
-	// matches) and safe on a steady-state tick -- e.g. to recover a lagging
-	// observed_release_id after a control-plane restart. Failures are logged and
-	// retried on the next tick, never swallowed. See gateway-release-rollout.spec.md.
-	if desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
-		if err := advanceObservedRelease(ctx, client, gatewayID, gw.GetObservedReleaseId(), appliedRelease); err != nil {
-			log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		}
 	}
 

@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// ProviderSpec is a provider capability/profile definition. The control-plane
+// import reconciler reads it over WatchProviderSpecs and owns the gRPC write path
+// for Repository-owned specs (data-model.spec.md "ProviderSpec").
+message ProviderSpec {
+  ObjectReference metadata = 1;
+  string name = 2;
+  string category = 3;
+  optional string capability = 4;
+  optional string profile = 5;
+  // repository_id is the control-plane import ownership mark; read-only, set
+  // server-side, never by a client.
+  optional string repository_id = 6;
+  optional string status = 7;
+}
+
+message GetProviderSpecRequest {
+  string id = 1;
+}
+
+message GetProviderSpecResponse {
+  ProviderSpec provider_spec = 1;
+}
+
+message CreateProviderSpecRequest {
+  string name = 1;
+  string category = 2;
+  optional string capability = 3;
+  optional string profile = 4;
+  optional string repository_id = 5;
+}
+
+message CreateProviderSpecResponse {
+  ProviderSpec provider_spec = 1;
+}
+
+message UpdateProviderSpecRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string capability = 3;
+  optional string profile = 4;
+}
+
+message UpdateProviderSpecResponse {
+  ProviderSpec provider_spec = 1;
+}
+
+message DeleteProviderSpecRequest {
+  string id = 1;
+}
+
+message DeleteProviderSpecResponse {}
+
+message ListProviderSpecsRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListProviderSpecsResponse {
+  repeated ProviderSpec items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchProviderSpecsRequest {}
+
+message WatchProviderSpecsResponse {
+  EventType type = 1;
+  ProviderSpec provider_spec = 2;
+  string resource_id = 3;
+}
+
+service ProviderSpecService {
+  rpc GetProviderSpec(GetProviderSpecRequest) returns (GetProviderSpecResponse);
+  rpc CreateProviderSpec(CreateProviderSpecRequest) returns (CreateProviderSpecResponse);
+  rpc UpdateProviderSpec(UpdateProviderSpecRequest) returns (UpdateProviderSpecResponse);
+  rpc DeleteProviderSpec(DeleteProviderSpecRequest) returns (DeleteProviderSpecResponse);
+  rpc ListProviderSpecs(ListProviderSpecsRequest) returns (ListProviderSpecsResponse);
+  rpc WatchProviderSpecs(WatchProviderSpecsRequest) returns (stream WatchProviderSpecsResponse);
+}

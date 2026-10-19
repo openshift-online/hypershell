@@ -39,7 +39,8 @@ message Gateway {
   reserved 3;
   reserved "fleet_id";
   string cluster_id = 4;
-  string release_id = 5;
+  reserved 5;
+  reserved "release_id";
   reserved 6;
   reserved "database_id";
   string namespace = 7;
@@ -59,11 +60,8 @@ message Gateway {
   optional string console_address = 22;
   repeated ProvisioningCondition provisioning_conditions = 23;
   optional string gateway_version = 24;
-  // observed_release_id is the release the control plane has successfully rolled
-  // out and observed healthy, distinct from the desired release_id. It is
-  // control-plane-owned and advanced only after a new revision passes its
-  // health gates. See gateway-release-rollout.spec.md.
-  optional string observed_release_id = 25;
+  reserved 25;
+  reserved "observed_release_id";
   int64 generation = 26;
   optional int64 observed_generation = 27;
   // provisioning_version is the gateway version the gateway's cluster advertises
@@ -74,6 +72,11 @@ message Gateway {
   // image_pinned reports whether this gateway pins an explicit image and so need
   // not track its cluster's provisioning version. Read-only, derived from image.
   optional bool image_pinned = 29;
+  // repository_id is the control-plane import ownership mark: the Repository that
+  // owns this Gateway through the declarative .hypershell import. Null for gateways
+  // created directly through the REST API or hsctl apply. Read-only; set server-side
+  // from the x-hypershell-import-repository-id binding, never from a client body.
+  optional string repository_id = 30;
 }
 
 message CreateGatewayRequest {
@@ -81,7 +84,8 @@ message CreateGatewayRequest {
   reserved 2;
   reserved "fleet_id";
   string cluster_id = 3;
-  string release_id = 4;
+  reserved 4;
+  reserved "release_id";
   reserved 5;
   reserved "database_id";
   optional string external_dns = 6;
@@ -116,7 +120,8 @@ message UpdateGatewayRequest {
   reserved 3;
   reserved "fleet_id";
   optional string cluster_id = 4;
-  optional string release_id = 5;
+  reserved 5;
+  reserved "release_id";
   reserved 6;
   reserved "database_id";
   optional string external_dns = 7;
@@ -137,11 +142,8 @@ message UpdateGatewayRequest {
   // openshell-gateway-sandbox-count.spec.md.
   optional string console_address = 20;
   repeated ProvisioningCondition provisioning_conditions = 21;
-  // observed_release_id is control-plane-owned. It shares this whole-row write
-  // path with phase/status/route_address (the control plane advances it only
-  // after a new revision passes its health gates); it is readOnly to REST
-  // clients. See gateway-release-rollout.spec.md.
-  optional string observed_release_id = 22;
+  reserved 22;
+  reserved "observed_release_id";
   optional int64 observed_generation = 23;
 }
 
@@ -198,6 +200,14 @@ message ListGatewaysRequest {
   // so it only ever lists its cluster's gateways (managed-cluster pull model).
   // Unset preserves the prior behaviour of listing every gateway.
   optional string cluster_id = 3;
+  // repository_id, when set, restricts results to gateways owned by that Repository
+  // (the control-plane import ownership mark). It is the declarative import
+  // reconciler's cross-cluster, Repository-scoped read: a call that sets it AND
+  // carries the x-hypershell-import-repository-id import binding is exempted from
+  // the cluster caller binding so the single import reconciler can enumerate and
+  // prune a Repository's gateways across clusters. See
+  // security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+  optional string repository_id = 4;
 }
 
 message ListGatewaysResponse {

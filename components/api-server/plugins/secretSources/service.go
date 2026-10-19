@@ -3,9 +3,15 @@ package secretSources
 import (
 	"context"
 
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// secretSourceEventSource is the event broker Source string for SecretSource
+// mutations. The gRPC watch handler filters the shared broker fan-out on this
+// value, so it MUST match the Source written here on create/update/delete.
+const secretSourceEventSource = "SecretSources"
 
 type SecretSourceService interface {
 	Get(ctx context.Context, id string) (*SecretSource, *errors.ServiceError)
@@ -19,14 +25,15 @@ type SecretSourceService interface {
 	FindByAgentRuntimeID(ctx context.Context, agentRuntimeID string) (SecretSourceList, *errors.ServiceError)
 }
 
-func NewSecretSourceService(dao SecretSourceDao) SecretSourceService {
-	return &sqlSecretSourceService{dao: dao}
+func NewSecretSourceService(dao SecretSourceDao, events services.EventService) SecretSourceService {
+	return &sqlSecretSourceService{dao: dao, events: events}
 }
 
 var _ SecretSourceService = &sqlSecretSourceService{}
 
 type sqlSecretSourceService struct {
-	dao SecretSourceDao
+	dao    SecretSourceDao
+	events services.EventService
 }
 
 func (s *sqlSecretSourceService) Get(ctx context.Context, id string) (*SecretSource, *errors.ServiceError) {
@@ -42,6 +49,13 @@ func (s *sqlSecretSourceService) Create(ctx context.Context, secretSource *Secre
 	if err != nil {
 		return nil, errors.GeneralError("Unable to create secret source: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    secretSourceEventSource,
+		SourceID:  item.ID,
+		EventType: api.CreateEventType,
+	}); evErr != nil {
+		return nil, services.HandleCreateError("SecretSource", evErr)
+	}
 	return item, nil
 }
 
@@ -50,12 +64,26 @@ func (s *sqlSecretSourceService) Replace(ctx context.Context, secretSource *Secr
 	if err != nil {
 		return nil, errors.GeneralError("Unable to update secret source: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    secretSourceEventSource,
+		SourceID:  item.ID,
+		EventType: api.UpdateEventType,
+	}); evErr != nil {
+		return nil, services.HandleUpdateError("SecretSource", evErr)
+	}
 	return item, nil
 }
 
 func (s *sqlSecretSourceService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if err := s.dao.Delete(ctx, id); err != nil {
 		return errors.GeneralError("Unable to delete secret source: %s", err)
+	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    secretSourceEventSource,
+		SourceID:  id,
+		EventType: api.DeleteEventType,
+	}); evErr != nil {
+		return services.HandleDeleteError("SecretSource", evErr)
 	}
 	return nil
 }

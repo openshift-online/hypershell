@@ -76,6 +76,40 @@ and SHALL NEVER resolve a Jira item.
 
 ---
 
+## The Authorization Gate
+
+The funnel separates two independent decisions about a work item, each carried by
+its own label:
+
+- **Scope** (`agent/scope/<user>`, the funnel scope selector): selects an item
+  for a given run. It is matched against both GitHub issue labels and Jira item
+  labels so the same scope selects work from either origin.
+- **Authorization** (`agent/allowed`): a separate, human-controlled decision that
+  the item MAY be acted on by the funnel. It is the human authorization gate for
+  the ENTIRE funnel.
+
+Scope and authorization are orthogonal. An item that a human has scoped but has
+deliberately NOT authorized SHALL NOT be acted on by any funnel step that performs
+an outward-facing write. Concretely, no step SHALL create a Jira epic for it,
+create a GitHub execution record for it, project its status or any
+Jira-authoritative field, apply marker labels to it, or select it for an SDLC
+phase unless it carries `agent/allowed`.
+
+`agent/allowed` is load-bearing, not advisory. It gates every write-performing
+step of the funnel - intake, reconciliation, and work selection - not only
+triage. Because `agent/allowed` is a human act of authorization, NO agent step
+SHALL apply it: an agent that granted the gate to a record it created would defeat
+the gate. A record created by intake therefore starts UN-authorized and remains
+inert until a human grants `agent/allowed`.
+
+The gate is carried on the item in whichever system holds it before an execution
+record exists, symmetric with the scope selector: on the GitHub issue for a
+GitHub-origin item, and on the Jira item (as a Jira label) for a Jira-origin item.
+Once an execution record exists, the gate is carried on the GitHub execution
+record.
+
+---
+
 ## Phase-to-Status Mapping
 
 The GitHub label state machine is the authority for phase. Jira status is
@@ -99,6 +133,7 @@ projection uses this mapping:
 | `agent/review-code-approved` | `In Progress` |
 | `agent/blocked` | `In Progress` |
 | Pull request merged to `main` | `Done` |
+| GitHub execution record Closed (no detectable merged pull request) | `Done` |
 | `agent/duplicate` (issue closed as duplicate) | `Done` |
 
 The reconciler SHALL resolve the concrete Jira status for a mapped category by
@@ -109,6 +144,16 @@ workflow, the reconciler SHALL report an error and SHALL NOT hand-set an
 arbitrary status. A phase whose mapped category already matches the Jira item's
 current status category SHALL produce no transition (no-op). This never silently
 skips an unreachable category.
+
+The `Done` category has two independent triggers. The first is a linked pull
+request merged to `main` (which also closes the execution record - see Terminal
+Execution Record Closure). The second is the GitHub execution record being
+Closed: because GitHub is authoritative for the record's open/closed state, a
+Closed record is itself an authoritative terminal signal, so the reconciler SHALL
+project the Jira item to the `Done` category even when no merged pull request is
+detectable. Either trigger alone SHALL be sufficient. This closes the gap where a
+record closed by hand, or whose merge landed under a pull request that references
+a different issue, would otherwise strand its Jira item in `In Progress`.
 
 ---
 
@@ -128,6 +173,7 @@ system and never the reverse:
 | Execution record open/closed | GitHub |
 | Jira status | Derived from GitHub phase (see mapping) |
 | Branch, pull requests, commits, specs | GitHub |
+| Authorization to act (`agent/allowed`) | Human (granted by hand; no agent SHALL set it) |
 
 Jira status is a special case: it is a projection of the GitHub phase, so GitHub
 is its effective source even though the value lives in Jira.
@@ -136,12 +182,86 @@ is its effective source even though the value lives in Jira.
 
 ## Requirements
 
+### Requirement: Authorization Gate Is Load-Bearing
+
+`agent/allowed` SHALL be the human authorization gate for the entire funnel. No
+funnel step that performs an outward-facing write SHALL act on a work item that
+does not carry `agent/allowed`. This gate SHALL apply to intake, reconciliation,
+and work selection, not only to triage.
+
+Scope and authorization are distinct: `agent/scope/*` selects an item for a run,
+while `agent/allowed` authorizes the funnel to act on it. An in-scope item that is
+not authorized SHALL be inert across the whole funnel.
+
+- Intake SHALL restrict its in-scope set to items carrying `agent/allowed`
+  alongside the funnel scope. A GitHub-origin issue SHALL be in scope only if it
+  carries BOTH the funnel scope label AND `agent/allowed`. A Jira-origin item
+  SHALL be in scope only if the Jira item carries the `agent/allowed`
+  authorization marker (as a Jira label) in addition to the Jira scope. Intake
+  SHALL NOT create a Jira epic, a GitHub execution record, or a canonical link for
+  an item that is not authorized.
+- Reconciliation SHALL perform no Jira or GitHub write for an execution record
+  that does not carry `agent/allowed`. Such a record SHALL be reported as skipped,
+  NOT as a failure.
+- Work selection SHALL require `agent/allowed` in its candidate-set predicate,
+  alongside the scope and active-phase conditions. An un-authorized record SHALL
+  NOT be selected for any SDLC phase.
+
+Authorization SHALL be granted only by a human. NO agent step SHALL apply
+`agent/allowed`. An execution record created by intake SHALL start un-authorized
+and SHALL carry only its canonical-link marker (`agent/execution-record`) and the
+funnel scope label; it SHALL remain inert until a human grants `agent/allowed`.
+
+#### Scenario: Scoped but unauthorized item is not ingested
+
+- GIVEN a GitHub issue carrying `agent/scope/<user>` but NOT `agent/allowed`
+- WHEN intake runs
+- THEN no Jira epic is created for the issue
+- AND no canonical link is created
+- AND the issue is not treated as an in-scope execution record
+
+#### Scenario: Reconcile skips an unauthorized record
+
+- GIVEN an execution record carrying the funnel scope label but NOT `agent/allowed`
+- WHEN reconciliation runs against it
+- THEN no Jira or GitHub write is performed
+- AND the record is reported as skipped, not failed
+
+#### Scenario: Work selection excludes an unauthorized record
+
+- GIVEN an execution record carrying the funnel scope label and an active phase
+  label but NOT `agent/allowed`
+- WHEN work selection builds its candidate set
+- THEN the record is not a candidate
+- AND no SDLC phase runs against it
+
+#### Scenario: Intake does not self-authorize a created record
+
+- GIVEN an authorized, in-scope Jira item with no linked GitHub execution record
+- WHEN intake creates the GitHub execution record
+- THEN the new record carries `agent/execution-record` and the funnel scope label
+- AND the new record does NOT carry `agent/allowed`
+
+#### Scenario: Granting authorization lets the funnel proceed
+
+- GIVEN a scoped execution record that was inert because it lacked `agent/allowed`
+- WHEN a human adds `agent/allowed` to the record
+- AND the funnel runs again
+- THEN the record is reconciled and becomes selectable for its phase
+
 ### Requirement: Origin-Agnostic Intake
 
 The funnel scope selector SHALL accept a Jira source in addition to a GitHub
 label. A Jira source is a Jira label, a JQL query, an epic key, or a combination
 of these. `execute-sdlc` and `triage` SHALL discover workable items from either
 origin.
+
+The in-scope set SHALL be gated by `agent/allowed` (see Authorization Gate Is
+Load-Bearing): a GitHub-origin issue is in scope only if it carries BOTH the
+funnel scope label AND `agent/allowed`, and a Jira-origin item is in scope only if
+the Jira item carries `agent/allowed` (as a Jira label) in addition to the Jira
+scope. Intake SHALL NOT create a counterpart or canonical link for an
+un-authorized item.
 
 Intake SHALL be bidirectional and origin-agnostic. For every in-scope work item,
 regardless of origin, intake SHALL ensure BOTH counterparts exist and are
@@ -299,9 +419,11 @@ reconciliation as a Jira-origin record: Jira status projection, artifact remote
 links, attributed narrative comments, and terminal closure on merge.
 
 The set of records a scope run reconciles SHALL be every execution record
-carrying the funnel scope label, independent of how it entered the funnel. After
-intake has ensured each in-scope record has a canonical Jira counterpart, the
-reconciler SHALL converge all of them under the Per-Field Authority rule.
+carrying the funnel scope label AND `agent/allowed`, independent of how it entered
+the funnel. After intake has ensured each in-scope record has a canonical Jira
+counterpart, the reconciler SHALL converge all of them under the Per-Field
+Authority rule. A record that carries the scope label but not `agent/allowed`
+SHALL be skipped (no write), not failed (see Authorization Gate Is Load-Bearing).
 
 #### Scenario: GitHub-origin record is reconciled by a scope run
 
@@ -329,7 +451,9 @@ selecting an available transition whose target status has the mapped category.
 Jira status SHALL be derived from the GitHub phase and SHALL NEVER be hand-set by
 an agent. A phase whose mapped category matches the Jira item's current status
 category SHALL produce no transition. An unreachable category SHALL be reported as
-an error, never a hand-set arbitrary status.
+an error, never a hand-set arbitrary status. A Closed execution record projects
+to the `Done` category independently of merge detection (see Closed Execution
+Record Projects Done).
 
 #### Scenario: Spec phase moves Jira to In Progress
 
@@ -348,6 +472,52 @@ an error, never a hand-set arbitrary status.
 - GIVEN a linked work item already in the status its phase maps to
 - WHEN status projection runs
 - THEN no transition is attempted
+
+### Requirement: Closed Execution Record Projects Done
+
+GitHub is authoritative for an execution record's open/closed state, so a Closed
+record is an authoritative terminal signal in its own right. When the GitHub
+execution record is Closed, the reconciler SHALL project the linked Jira item to
+the `Done` category, regardless of whether a merged pull request is detectable.
+The concrete status SHALL be resolved from the category via an available
+transition, exactly as for every other projection; the reconciler SHALL NEVER
+hand-set an arbitrary status.
+
+This is a second, independent path to `Done` that complements the merge-based
+behavior; it SHALL NOT replace it. A merged linked pull request SHALL still close
+an open execution record and project `Done` (see Terminal Execution Record
+Closure), and the Closed-record path SHALL additionally cover a record that is
+Closed without a detectable merged pull request - for example a record closed by
+hand, or one whose merge landed under a pull request that references a different
+issue.
+
+Projection from the Closed state SHALL be idempotent and drift-correcting: a
+Closed record whose Jira item is already in the `Done` category SHALL produce no
+transition, and a re-run SHALL make no change. It SHALL be dry-run aware, and it
+SHALL honor per-field authority - it projects status only and SHALL NOT write
+assignee, priority, or intent. An open execution record with no merged pull
+request SHALL remain projected to `In Progress` and SHALL NOT be forced to `Done`.
+
+#### Scenario: Closed record with no merged pull request projects Done
+
+- GIVEN a linked execution record that is Closed
+- AND no merged pull request is detectable for it
+- WHEN reconciliation runs
+- THEN the Jira item's status is in the `Done` category
+
+#### Scenario: Open record without a merged pull request stays In Progress
+
+- GIVEN a linked execution record that is Open
+- AND has no merged pull request
+- WHEN reconciliation runs
+- THEN the Jira item's status stays in the `In Progress` category
+
+#### Scenario: Closed-record Done projection is idempotent
+
+- GIVEN a Closed execution record whose Jira item is already in the `Done`
+  category
+- WHEN reconciliation runs again
+- THEN no transition is attempted and no field is written
 
 ### Requirement: Terminal Execution Record Closure
 
@@ -459,9 +629,10 @@ restored to the authority's value, and a run with no drift SHALL make no change.
 
 All writes performed by intake, projection, artifact sync, narrative sync, and
 reconciliation SHALL respect `--dry-run` and the funnel's existing approval
-gates. Under `--dry-run`, every would-be write SHALL be reported and none SHALL
-be performed. No partial failure SHALL be silently swallowed: every failed write
-SHALL be propagated or collected and reported.
+gates, including the `agent/allowed` authorization gate (see Authorization Gate
+Is Load-Bearing). Under `--dry-run`, every would-be write SHALL be reported and
+none SHALL be performed. No partial failure SHALL be silently swallowed: every
+failed write SHALL be propagated or collected and reported.
 
 #### Scenario: Dry-run performs no writes
 
@@ -503,10 +674,13 @@ not a record of work already performed.
 `execute-sdlc` SHALL accept a Jira source as part of its scope, alongside the
 existing GitHub `$LABEL_SCOPE`. Before triage (Step 1) and work selection
 (Step 2), a new Step 0 SHALL run intake (see the new `ingest` responsibility) so
-that every in-scope Jira item has a linked GitHub execution record. Step 2 work
-selection SHALL then choose from execution records regardless of origin, using
-the existing `agent/workable` gate. A Jira-origin item that has been ingested SHALL be
-selectable exactly like a GitHub-origin item.
+that every in-scope, authorized Jira item has a linked GitHub execution record.
+Step 2 work selection SHALL then choose from execution records regardless of
+origin, requiring `agent/allowed` in its candidate-set predicate alongside the
+scope and active-phase conditions (see Authorization Gate Is Load-Bearing). A
+Jira-origin item that has been ingested SHALL be selectable exactly like a
+GitHub-origin item, and in neither case SHALL an un-authorized record be
+selected.
 
 ### `triage` discovers work from either origin
 
@@ -521,15 +695,20 @@ outside the configured Jira source.
 The `ingest` responsibility SHALL ensure a canonically linked Jira-and-GitHub
 pair for every in-scope work item, from EITHER origin. It SHALL:
 
-- Resolve the Jira source to the set of in-scope Jira items, and resolve the
-  GitHub scope to the set of in-scope GitHub issues carrying the funnel scope
-  label. An in-scope GitHub issue that already carries the
+- Resolve the Jira source to the set of in-scope Jira items carrying
+  `agent/allowed`, and resolve the GitHub scope to the set of in-scope GitHub
+  issues carrying BOTH the funnel scope label AND `agent/allowed` (symmetric with
+  the `triage` contract). An item that is scoped but not authorized SHALL NOT be
+  in scope for intake. An in-scope GitHub issue that already carries the
   `agent/execution-record` marker is an established execution record; one
-  carrying the scope label but not the marker is a GitHub-origin candidate that
-  the GitHub-first path ingests.
+  carrying the scope label and `agent/allowed` but not the marker is a
+  GitHub-origin candidate that the GitHub-first path ingests.
 - Jira-first: for each in-scope Jira item without a canonical link, create a
-  GitHub execution record carrying the funnel scope label and create the
-  bidirectional canonical link.
+  GitHub execution record carrying the funnel scope label and the
+  `agent/execution-record` marker, and create the bidirectional canonical link.
+  The created record SHALL NOT carry `agent/allowed`: authorization is a human act
+  and `ingest` SHALL NOT self-authorize a record it creates (see Authorization
+  Gate Is Load-Bearing).
 - GitHub-first: for each in-scope GitHub-origin issue with no canonically linked
   Jira item, create a Jira epic for it and create the bidirectional canonical
   link, applying the `agent/execution-record` marker to the GitHub issue as part
@@ -551,9 +730,16 @@ of the funnel operates uniformly on GitHub execution records of either origin.
 
 A scope run of `execute-sdlc` SHALL reconcile every in-scope execution record,
 not only the records intake resolved from the Jira source. After intake, the
-funnel SHALL reconcile each execution record carrying the funnel scope label,
-regardless of origin, so GitHub-origin records receive status projection,
-artifact remote links, attributed narrative, and terminal closure on merge.
+funnel SHALL reconcile each execution record carrying the funnel scope label AND
+`agent/allowed`, regardless of origin, so authorized GitHub-origin records receive
+status projection, artifact remote links, attributed narrative, and terminal
+closure on merge.
+
+`reconcile` SHALL enforce the authorization gate itself: if the resolved
+execution record does not carry `agent/allowed`, `reconcile` SHALL perform no Jira
+or GitHub write and SHALL report the record as skipped (not failed). This makes
+the gate load-bearing even when `reconcile` is invoked directly on a single
+record, not only through a scope run (see Authorization Gate Is Load-Bearing).
 
 ### Self-heal note
 
@@ -564,6 +750,14 @@ counterpart, link it canonically, project its status, and - because its pull
 request is merged - close `#537`. This is a self-healing consequence of the
 bidirectional intake and both-origins scope reconciliation defined above; no
 manual closure is required.
+
+After the Closed Execution Record Projects Done requirement ships, a scope run
+SHALL also converge `#524`, the Closed execution record whose Wave B work merged
+under pull request `#528` (which references `#521`, not `#524`), so no merged
+pull request is detectable for `#524`. Because `#524` is Closed, the reconciler
+SHALL project its linked epic `HYPERSHELL-392` to the `Done` category without
+requiring a detectable merged pull request. This is a self-healing consequence of
+the Closed-record Done path; no manual Jira edit is required.
 
 ---
 
@@ -595,6 +789,17 @@ manual closure is required.
   canonically, projects status, and closes `#537` because pull request `#538` is
   merged. Re-running changes nothing, creating no duplicate epics, records, or
   links.
+- An item carrying `agent/scope/<user>` but not `agent/allowed` is inert across
+  the whole funnel: intake creates no epic, record, or link for it; `reconcile`
+  skips it without writing; and work selection never selects it. Adding
+  `agent/allowed` by hand lets the next run ingest, reconcile, and select it.
+- No agent ever applies `agent/allowed`; an execution record intake creates starts
+  with only `agent/execution-record` and the funnel scope label and stays inert
+  until a human authorizes it.
+- A scope run projects the Jira item of a Closed execution record to the `Done`
+  category even when no merged pull request is detectable; `HYPERSHELL-392` (the
+  epic for the Closed record `#524`) reaches `Done`. An open record with no merged
+  pull request stays `In Progress`. Re-running changes nothing.
 
 #### Scenario: GitHub-first item converges on merge
 
@@ -654,3 +859,7 @@ manual closure is required.
 | Intake is bidirectional, not Jira-source-driven only | A Jira-source-only intake strands GitHub-origin records: their per-record reconcile never runs, so they get no status projection or terminal closure. Creating a Jira counterpart for a GitHub-first item and reconciling every in-scope record of either origin makes the funnel origin-symmetric. |
 | Resolution by canonical link only, never by a descriptive key mention | A GitHub issue may mention another ticket's key to describe related work. Resolving from that mention would reconcile against the wrong Jira item. Requiring the `agent/execution-record` marker plus the exact linked key makes resolution unambiguous and safe. |
 | The GitHub issue always drives execution, whichever side initiates | The label state machine, branches, and pull requests live on GitHub. Keeping GitHub as the execution substrate regardless of origin means the triage, spec, code, and review phases stay origin-blind. |
+| `agent/allowed` gates the whole funnel, not only triage | Intake, reconcile, and selection all perform outward-facing writes. Gating only triage left the gate advisory: a scoped-but-unauthorized item could still get an epic and status projection. Making every write-performing step require `agent/allowed` makes the human authorization decision load-bearing. |
+| No agent applies `agent/allowed` | Authorization is a human decision. An agent that stamped the gate onto a record it created would authorize its own work and defeat the gate, so intake leaves created records un-authorized until a human grants it. |
+| Scope and authorization are separate labels | `agent/scope/*` answers "is this item in this run's set"; `agent/allowed` answers "may the funnel act on it". Conflating them would force authorizing everything in a scope or scoping only authorized work. Keeping them orthogonal lets a human stage work into scope and authorize it independently. |
+| A Closed execution record projects Done independently of merge detection | GitHub is authoritative for the record's open/closed state. Keying Done only on a detectable merged pull request stranded records that were closed by hand or whose merge referenced a different issue. Treating the Closed state as a second, independent terminal trigger removes that gap while leaving the merge-based close-and-project behavior unchanged. |

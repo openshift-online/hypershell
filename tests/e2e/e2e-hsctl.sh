@@ -2,9 +2,9 @@
 # e2e-hsctl.sh - smoke-test the hsctl CLI against a running Kind cluster.
 #
 # Exercises login, whoami, list/get for every resource type, create/delete of a
-# transient GatewayRelease, hsctl apply -f, hsctl get gateway --show-connection,
-# and logout.  It does NOT provision a full OpenShell gateway -- for that use
-# e2e-openshell.sh.
+# transient SandboxTemplate, hsctl apply -f, hsctl get gateway --show-connection,
+# and logout.  It does NOT provision a full OpenShell gateway -- for that run the
+# Go E2ESuite (E2E_INFRA_DRIVER=openshift make e2e, tests/e2e/).
 #
 # Usage:
 #   bash tests/e2e/e2e-hsctl.sh              # auto-detects Kind cluster
@@ -117,16 +117,14 @@ _kind_curl() {
 
 # Unique suffix for resources created by this run
 _RUN_ID="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8 || date +%s | sha256sum | cut -c1-8)"
-_TEST_RELEASE="hsctl-test-${_RUN_ID}"
-_TEST_GW_NET="hsctl-net-${_RUN_ID}"
-_CREATED_RELEASE_ID=""
-_CREATED_GW_NET_ID=""
+_TEST_TEMPLATE="hsctl-test-${_RUN_ID}"
+_CREATED_TEMPLATE_ID=""
 
 # Temp dir for config and scratch files - isolated from the real ~/.hypershell.json
 WORK_DIR="$(mktemp -d)"
 HSCTL_CONFIG_FILE="${WORK_DIR}/config.json"
 TOKEN_FILE="${WORK_DIR}/token"
-APPLY_FILE="${WORK_DIR}/release.yaml"
+APPLY_FILE="${WORK_DIR}/sandbox-template.yaml"
 export HYPERSHELL_CONFIG="${HSCTL_CONFIG_FILE}"
 
 # Port-forward PID
@@ -138,13 +136,9 @@ _PF_PID=""
 _cleanup() {
   local exit_code=$?
 
-  if [[ "${HSCTL_SKIP_CLEANUP}" != "1" && -n "${_CREATED_RELEASE_ID}" && -n "${HSCTL:-}" ]]; then
-    dim "  Cleaning up test GatewayRelease ${_CREATED_RELEASE_ID}..."
-    "${HSCTL}" delete gatewayRelease "${_CREATED_RELEASE_ID}" --yes 2>/dev/null || true
-  fi
-  if [[ "${HSCTL_SKIP_CLEANUP}" != "1" && -n "${_CREATED_GW_NET_ID}" && -n "${HSCTL:-}" ]]; then
-    dim "  Cleaning up test GatewayNetwork ${_CREATED_GW_NET_ID}..."
-    "${HSCTL}" delete gatewayNetwork "${_CREATED_GW_NET_ID}" --yes 2>/dev/null || true
+  if [[ "${HSCTL_SKIP_CLEANUP}" != "1" && -n "${_CREATED_TEMPLATE_ID}" && -n "${HSCTL:-}" ]]; then
+    dim "  Cleaning up test SandboxTemplate ${_CREATED_TEMPLATE_ID}..."
+    "${HSCTL}" delete sandboxTemplate "${_CREATED_TEMPLATE_ID}" --yes 2>/dev/null || true
   fi
 
   if [[ -n "${_PF_PID}" ]]; then
@@ -315,8 +309,7 @@ _list_ok() {
 
 _list_ok gateways
 _list_ok managedClusters
-_list_ok gatewayReleases
-_list_ok gatewayNetworks
+_list_ok sandboxTemplates
 _list_ok roles
 _list_ok roleBindings
 _list_ok users
@@ -362,7 +355,6 @@ except: pass
 
 SEEDED_GW_ID=$(_get_seeded gateways dev-gateway gateway)
 SEEDED_MC_ID=$(_get_seeded managedClusters local-kind managedCluster)
-SEEDED_GR_ID=$(_get_seeded gatewayReleases dev-release gatewayRelease)
 
 # serviceAccounts are gateway-scoped
 if [[ -n "${SEEDED_GW_ID}" ]]; then
@@ -377,87 +369,61 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 8: create a GatewayRelease and a GatewayNetwork, then delete them
+# Step 8: create a SandboxTemplate, then get and delete it
 # ---------------------------------------------------------------------------
-e2e_area "8. Create / get / delete (transient resources)"
+e2e_area "8. Create / get / delete (transient resource)"
 
-dim "  Creating test GatewayRelease '${_TEST_RELEASE}'..."
-show_cmd "hsctl create gatewayRelease --name ${_TEST_RELEASE} --image quay.io/hsctl-e2e/test:v0.0.1"
-CREATE_GR_OUT=$("${HSCTL}" create gatewayRelease \
-  --name "${_TEST_RELEASE}" \
+dim "  Creating test SandboxTemplate '${_TEST_TEMPLATE}'..."
+show_cmd "hsctl create sandboxTemplate --name ${_TEST_TEMPLATE} --image quay.io/hsctl-e2e/test:v0.0.1"
+CREATE_ST_OUT=$("${HSCTL}" create sandboxTemplate \
+  --name "${_TEST_TEMPLATE}" \
   --image "quay.io/hsctl-e2e/test:v0.0.1" 2>&1)
-_CREATED_RELEASE_ID=$(echo "${CREATE_GR_OUT}" | python3 -c "
+_CREATED_TEMPLATE_ID=$(echo "${CREATE_ST_OUT}" | python3 -c "
 import json,sys
 try: print(json.load(sys.stdin).get('id',''))
 except: pass
 " 2>/dev/null || true)
 
-if [[ -n "${_CREATED_RELEASE_ID}" ]]; then
-  pass "hsctl create gatewayRelease -> ${_CREATED_RELEASE_ID}"
+if [[ -n "${_CREATED_TEMPLATE_ID}" ]]; then
+  pass "hsctl create sandboxTemplate -> ${_CREATED_TEMPLATE_ID}"
 
-  show_cmd "hsctl get gatewayRelease ${_CREATED_RELEASE_ID}"
-  if "${HSCTL}" get gatewayRelease "${_CREATED_RELEASE_ID}" >/dev/null 2>&1; then
-    pass "hsctl get gatewayRelease (created resource)"
+  show_cmd "hsctl get sandboxTemplate ${_CREATED_TEMPLATE_ID}"
+  if "${HSCTL}" get sandboxTemplate "${_CREATED_TEMPLATE_ID}" >/dev/null 2>&1; then
+    pass "hsctl get sandboxTemplate (created resource)"
   else
-    fail_test "hsctl get gatewayRelease ${_CREATED_RELEASE_ID}"
+    fail_test "hsctl get sandboxTemplate ${_CREATED_TEMPLATE_ID}"
   fi
 
-  show_cmd "hsctl delete gatewayRelease ${_CREATED_RELEASE_ID} --yes"
-  if "${HSCTL}" delete gatewayRelease "${_CREATED_RELEASE_ID}" --yes 2>&1; then
-    pass "hsctl delete gatewayRelease"
-    _CREATED_RELEASE_ID=""  # no need for cleanup
+  show_cmd "hsctl delete sandboxTemplate ${_CREATED_TEMPLATE_ID} --yes"
+  if "${HSCTL}" delete sandboxTemplate "${_CREATED_TEMPLATE_ID}" --yes 2>&1; then
+    pass "hsctl delete sandboxTemplate"
+    _CREATED_TEMPLATE_ID=""  # no need for cleanup
   else
-    fail_test "hsctl delete gatewayRelease ${_CREATED_RELEASE_ID}"
-  fi
-else
-  fail_test "hsctl create gatewayRelease did not return an id: ${CREATE_GR_OUT}"
-fi
-
-dim "  Creating test GatewayNetwork '${_TEST_GW_NET}'..."
-show_cmd "hsctl create gatewayNetwork --name ${_TEST_GW_NET} --topology mesh"
-CREATE_GN_OUT=$("${HSCTL}" create gatewayNetwork \
-  --name "${_TEST_GW_NET}" \
-  --topology "mesh" 2>&1)
-_CREATED_GW_NET_ID=$(echo "${CREATE_GN_OUT}" | python3 -c "
-import json,sys
-try: print(json.load(sys.stdin).get('id',''))
-except: pass
-" 2>/dev/null || true)
-
-if [[ -n "${_CREATED_GW_NET_ID}" ]]; then
-  pass "hsctl create gatewayNetwork -> ${_CREATED_GW_NET_ID}"
-
-  show_cmd "hsctl delete gatewayNetwork ${_CREATED_GW_NET_ID} --yes"
-  if "${HSCTL}" delete gatewayNetwork "${_CREATED_GW_NET_ID}" --yes 2>&1; then
-    pass "hsctl delete gatewayNetwork"
-    _CREATED_GW_NET_ID=""
-  else
-    fail_test "hsctl delete gatewayNetwork ${_CREATED_GW_NET_ID}"
+    fail_test "hsctl delete sandboxTemplate ${_CREATED_TEMPLATE_ID}"
   fi
 else
-  fail_test "hsctl create gatewayNetwork did not return an id: ${CREATE_GN_OUT}"
+  fail_test "hsctl create sandboxTemplate did not return an id: ${CREATE_ST_OUT}"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 9: hsctl apply -f
 # ---------------------------------------------------------------------------
-e2e_area "9. hsctl apply -f (GatewayRelease)"
+e2e_area "9. hsctl apply -f (SandboxTemplate)"
 
-_APPLY_RELEASE_NAME="hsctl-apply-${_RUN_ID}"
+_APPLY_TEMPLATE_NAME="hsctl-apply-${_RUN_ID}"
 cat >"${APPLY_FILE}" <<EOF
-apiVersion: hypershell.io/v1
-kind: GatewayRelease
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
 metadata:
-  name: ${_APPLY_RELEASE_NAME}
+  name: ${_APPLY_TEMPLATE_NAME}
 spec:
   image: quay.io/hsctl-e2e/applied:v0.0.1
-  rollout_strategy: rolling
 EOF
 
 show_cmd "hsctl apply -f ${APPLY_FILE}"
 APPLY_OUT=$("${HSCTL}" apply -f "${APPLY_FILE}" 2>&1)
 if echo "${APPLY_OUT}" | grep -qiE "created|configured"; then
-  pass "hsctl apply -f creates GatewayRelease"
+  pass "hsctl apply -f creates SandboxTemplate"
   dim "$(echo "${APPLY_OUT}" | sed 's/^/    /')"
 
   # Apply again to exercise the update (configure) path
@@ -470,18 +436,18 @@ if echo "${APPLY_OUT}" | grep -qiE "created|configured"; then
   fi
 
   # Clean up the applied resource
-  APPLIED_ID=$("${HSCTL}" list gatewayReleases 2>/dev/null | python3 -c "
+  APPLIED_ID=$("${HSCTL}" list sandboxTemplates 2>/dev/null | python3 -c "
 import json,sys
 try:
     items=json.load(sys.stdin).get('items',[])
     for item in items:
-        if item.get('name','') == '${_APPLY_RELEASE_NAME}':
+        if item.get('name','') == '${_APPLY_TEMPLATE_NAME}':
             print(item.get('id',''))
             break
 except: pass
 " 2>/dev/null || true)
   if [[ -n "${APPLIED_ID}" ]]; then
-    "${HSCTL}" delete gatewayRelease "${APPLIED_ID}" --yes >/dev/null 2>&1 || true
+    "${HSCTL}" delete sandboxTemplate "${APPLIED_ID}" --yes >/dev/null 2>&1 || true
   fi
 else
   fail_test "hsctl apply -f unexpected output: ${APPLY_OUT}"
@@ -492,12 +458,12 @@ fi
 # ---------------------------------------------------------------------------
 e2e_area "10. hsctl apply -f - (stdin)"
 
-_STDIN_RELEASE_NAME="hsctl-stdin-${_RUN_ID}"
+_STDIN_TEMPLATE_NAME="hsctl-stdin-${_RUN_ID}"
 STDIN_OUT=$(cat <<EOF | "${HSCTL}" apply -f - 2>&1
-apiVersion: hypershell.io/v1
-kind: GatewayRelease
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
 metadata:
-  name: ${_STDIN_RELEASE_NAME}
+  name: ${_STDIN_TEMPLATE_NAME}
 spec:
   image: quay.io/hsctl-e2e/stdin:v0.0.1
 EOF
@@ -505,17 +471,17 @@ EOF
 if echo "${STDIN_OUT}" | grep -qiE "created|configured"; then
   pass "hsctl apply -f - reads from stdin"
   # Clean up
-  STDIN_ID=$("${HSCTL}" list gatewayReleases 2>/dev/null | python3 -c "
+  STDIN_ID=$("${HSCTL}" list sandboxTemplates 2>/dev/null | python3 -c "
 import json,sys
 try:
     items=json.load(sys.stdin).get('items',[])
     for item in items:
-        if item.get('name','') == '${_STDIN_RELEASE_NAME}':
+        if item.get('name','') == '${_STDIN_TEMPLATE_NAME}':
             print(item.get('id',''))
             break
 except: pass
 " 2>/dev/null || true)
-  [[ -n "${STDIN_ID}" ]] && "${HSCTL}" delete gatewayRelease "${STDIN_ID}" --yes >/dev/null 2>&1 || true
+  [[ -n "${STDIN_ID}" ]] && "${HSCTL}" delete sandboxTemplate "${STDIN_ID}" --yes >/dev/null 2>&1 || true
 else
   fail_test "hsctl apply -f - unexpected output: ${STDIN_OUT}"
 fi

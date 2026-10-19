@@ -112,8 +112,7 @@ the CI YAML or the Keycloak realm export.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
-provisions one. "Environment" here means the per-pull-request namespace
+ManagedCluster) only where a scenario provisions one. "Environment" here means the per-pull-request namespace
 group (the platform namespace and its companion `-keycloak` namespace) that
 `openshift-development.spec.md` defines.
 
@@ -506,8 +505,8 @@ artifact across the stack.
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
   before the `Deploy OpenShift Environment` check succeeds
-- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` and
-  `GatewayRelease` seed resources
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` seed
+  resource
 - AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
   it or create a second Gateway named `dev-gateway`
 

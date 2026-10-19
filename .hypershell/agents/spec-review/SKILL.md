@@ -38,6 +38,21 @@ Assess the specifications according to:
 - faithfulness to the intent found in `$GITHUB_ISSUE_URL`
 - consistency with established design, architecture, and general project direction patterns.
 
+**Whole-tree coherence check (mandatory, do NOT scope to the diff).** When the
+change establishes, supersedes, or alters a cross-cutting decision (an
+architectural choice, an ownership rule, a `SHALL`/`SHALL NOT` other specs rely
+on), verify the ENTIRE `specs/` tree agrees - not only the files in the pull
+request and not only `specs/platform/`:
+
+- Grep ALL of `specs/` (every subtree, explicitly including `specs/standards/`)
+  for the decision's key terms and for the superseded phrasing it replaces.
+- Check scenario titles and bodies (GIVEN/WHEN/THEN), not only prose. A normative
+  scenario (`SHALL`/`SHALL NOT`) that still asserts the superseded contract is a
+  contradiction even if it lives in a file the pull request never touched.
+- Any single spec - anywhere in `specs/`, including a standard - that still states
+  the superseded contract is a BLOCKING contradiction: reject with the exact
+  `file:line`. Do not treat an unreconciled sibling spec as non-blocking.
+
 Output: `$REVIEW_VERDICT` - One of
 - `agent/review-spec-rejected`
 - `agent/review-spec-approved`

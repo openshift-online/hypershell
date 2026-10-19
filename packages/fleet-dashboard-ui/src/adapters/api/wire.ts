@@ -9,6 +9,33 @@
 
 import type { InstancesData } from "../../application/ports";
 import type {
+  E2eEventName,
+  E2eLogLine,
+  E2eOutcome,
+  E2ePlannedStep,
+  E2eRunDetail,
+  E2eRunEvent,
+  E2eRunsData,
+  E2eRunSummary,
+  E2eStep,
+  E2eStepState,
+  E2eStreamState,
+  E2eStreamStatus,
+  E2eVerdict,
+} from "../../domain/e2e-run";
+import type {
+  AgentSdlcBundleRow,
+  AgentSdlcCard,
+  AgentSdlcData,
+  AgentSdlcHubCluster,
+  AgentSdlcLabelEvent,
+  AgentSdlcMatrix,
+  AgentSdlcPhase,
+  AgentSdlcPullRequest,
+  AgentSdlcRework,
+  AgentSdlcShippedIssue,
+} from "../../domain/agent-sdlc";
+import type {
   ClusterHistory,
   FleetData,
   GatewayClusterBreakdown,
@@ -60,6 +87,11 @@ interface WireGate {
 }
 
 interface WirePromotionEnvironment {
+  readonly verification?: {
+    readonly revision: string;
+    readonly cluster: string;
+    readonly namespace: string;
+  } | null;
   readonly active?: WireRelease | null;
   readonly proposed?: WireRelease | null;
   readonly activeGates?: readonly WireGate[] | null;
@@ -72,6 +104,9 @@ interface WirePromotionEnvironment {
   readonly cluster?: string;
   readonly argoHealth?: string;
   readonly argoSync?: string;
+  // Argo CD sync-operation retry count. Omitted by the BFF when no operation
+  // state exists (unknown), kept distinct from a genuine 0 (synced first try).
+  readonly syncRetries?: number;
   readonly consoleUrl?: string;
   readonly grafanaUrl?: string;
   readonly argoUrl?: string;
@@ -115,6 +150,7 @@ function mapEnvironment(
 ): PromotionEnvironment {
   return {
     name,
+    verification: env.verification ?? null,
     activeRelease: env.active?.version ?? null,
     proposedRelease: env.proposed?.version ?? null,
     // The "Gates" column reflects the gates governing what is currently active.
@@ -129,6 +165,8 @@ function mapEnvironment(
     cluster: nullableString(env.cluster),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
+    // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.
+    syncRetries: env.syncRetries ?? null,
     consoleUrl: nullableString(env.consoleUrl),
     grafanaUrl: nullableString(env.grafanaUrl),
     argoUrl: nullableString(env.argoUrl),
@@ -452,5 +490,406 @@ export function mapInstances(raw: unknown): InstancesData {
       region: null,
       health: null,
     })),
+  };
+}
+
+// --- Agent SDLC plane (/api/sdlc) ---------------------------------------------
+// agent-sdlc-visibility-dashboard.spec. The BFF payload is already a small, domain
+// -shaped projection; this mapper coerces each field defensively so a partial or
+// malformed snapshot degrades to an empty board/lane/matrix rather than throwing.
+
+interface WireSdlcPhase {
+  readonly key?: string;
+  readonly sleSeconds?: number;
+}
+
+interface WireSdlcRework {
+  readonly count?: number;
+  readonly threshold?: number;
+}
+
+interface WireSdlcLabelEvent {
+  readonly label?: string;
+  readonly action?: string;
+  readonly at?: string;
+}
+
+interface WireSdlcCard {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly phase?: string;
+  readonly timeInPhaseSeconds?: number;
+  readonly scope?: string;
+  readonly escalation?: string;
+  readonly rework?: WireSdlcRework | null;
+  readonly history?: readonly WireSdlcLabelEvent[] | null;
+}
+
+interface WireSdlcHubCluster {
+  readonly key?: string;
+  readonly cluster?: string;
+  readonly env?: string;
+  readonly currentVersion?: string;
+  readonly currentDigest?: string;
+}
+
+interface WireSdlcPullRequest {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly author?: string;
+  readonly mergedAt?: string;
+}
+
+interface WireSdlcShippedIssue {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly mergedAt?: string;
+  readonly mergedBy?: string;
+  readonly prs?: readonly WireSdlcPullRequest[] | null;
+}
+
+interface WireSdlcBundleRow {
+  readonly version?: string;
+  readonly digest?: string;
+  readonly date?: string;
+  readonly unreleased?: boolean;
+  readonly hubClusters?: readonly string[] | null;
+  readonly issues?: readonly WireSdlcShippedIssue[] | null;
+  readonly otherPRs?: readonly WireSdlcPullRequest[] | null;
+}
+
+interface WireSdlcMatrix {
+  readonly hubClusters?: readonly WireSdlcHubCluster[] | null;
+  readonly rows?: readonly WireSdlcBundleRow[] | null;
+}
+
+interface WireSdlc {
+  readonly phases?: readonly WireSdlcPhase[] | null;
+  readonly cards?: readonly WireSdlcCard[] | null;
+  readonly lane?: readonly WireSdlcCard[] | null;
+  readonly matrix?: WireSdlcMatrix | null;
+}
+
+function mapSdlcLabelEvent(e: WireSdlcLabelEvent): AgentSdlcLabelEvent {
+  return { label: e.label ?? "", action: e.action ?? "", at: e.at ?? "" };
+}
+
+function mapSdlcRework(
+  r: WireSdlcRework | null | undefined,
+): AgentSdlcRework | null {
+  if (r === null || r === undefined) {
+    return null;
+  }
+  return { count: num(r.count), threshold: num(r.threshold) };
+}
+
+function mapSdlcCard(c: WireSdlcCard): AgentSdlcCard {
+  return {
+    number: num(c.number),
+    title: c.title ?? "",
+    url: c.url ?? "",
+    phase: c.phase ?? "",
+    timeInPhaseSeconds: num(c.timeInPhaseSeconds),
+    scope: nullableString(c.scope),
+    escalation: nullableString(c.escalation),
+    rework: mapSdlcRework(c.rework),
+    history: (c.history ?? []).map(mapSdlcLabelEvent),
+  };
+}
+
+function mapSdlcHubCluster(h: WireSdlcHubCluster): AgentSdlcHubCluster {
+  return {
+    key: h.key ?? "",
+    cluster: nullableString(h.cluster),
+    env: nullableString(h.env),
+    currentVersion: nullableString(h.currentVersion),
+    currentDigest: nullableString(h.currentDigest),
+  };
+}
+
+function mapSdlcPullRequest(p: WireSdlcPullRequest): AgentSdlcPullRequest {
+  return {
+    number: num(p.number),
+    title: p.title ?? "",
+    url: p.url ?? "",
+    author: nullableString(p.author),
+    mergedAt: nullableString(p.mergedAt),
+  };
+}
+
+function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
+  return {
+    number: num(i.number),
+    title: i.title ?? "",
+    url: i.url ?? "",
+    mergedAt: nullableString(i.mergedAt),
+    mergedBy: nullableString(i.mergedBy),
+    prs: (i.prs ?? []).map(mapSdlcPullRequest),
+  };
+}
+
+function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
+  return {
+    version: nullableString(r.version),
+    digest: nullableString(r.digest),
+    date: nullableString(r.date),
+    unreleased: r.unreleased === true,
+    hubClusters: (r.hubClusters ?? []).slice(),
+    issues: (r.issues ?? []).map(mapSdlcShippedIssue),
+    otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
+  };
+}
+
+function mapSdlcMatrix(m: WireSdlcMatrix | null | undefined): AgentSdlcMatrix {
+  return {
+    hubClusters: (m?.hubClusters ?? []).map(mapSdlcHubCluster),
+    rows: (m?.rows ?? []).map(mapSdlcBundleRow),
+  };
+}
+
+export function mapSdlc(raw: unknown): AgentSdlcData {
+  const wire = (raw ?? {}) as WireSdlc;
+  const phases: AgentSdlcPhase[] = (wire.phases ?? []).map((p) => ({
+    key: p.key ?? "",
+    sleSeconds: num(p.sleSeconds),
+  }));
+  return {
+    phases,
+    cards: (wire.cards ?? []).map(mapSdlcCard),
+    lane: (wire.lane ?? []).map(mapSdlcCard),
+    matrix: mapSdlcMatrix(wire.matrix),
+  };
+}
+
+// --- E2E run plane (/api/e2e/*) -----------------------------------------------
+// e2e-run-log-visibility.spec. The BFF serialises each plane's `data` in the shapes
+// defined by components/fleet-dashboard/pkg/sources/e2e.go (+ e2e_stream.go). This
+// mapper is the ONE place those wire shapes are known; it coerces each field
+// defensively so a partial/malformed payload degrades to an empty run list or detail
+// rather than throwing, and defaults missing arrays to [].
+
+interface WireE2ePlanned {
+  readonly stepId?: string;
+  readonly name?: string;
+}
+
+interface WireE2eSummary {
+  readonly bundle?: WireRelease | null;
+  readonly id?: string;
+  readonly runId?: string;
+  readonly tenant?: string;
+  readonly cluster?: string;
+  readonly bodyCluster?: string;
+  readonly namespace?: string;
+  readonly revision?: string;
+  readonly sourceRevision?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly durationMs?: number;
+  readonly verdict?: string;
+  readonly reportingComplete?: boolean;
+  readonly hasStructuredSteps?: boolean;
+  readonly stepCount?: number;
+}
+
+interface WireE2eStep {
+  readonly stepId?: string;
+  readonly name?: string;
+  readonly state?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly durationMs?: number;
+}
+
+interface WireE2eLogLine {
+  readonly sequence?: number;
+  readonly timestamp?: string;
+  readonly stepId?: string;
+  readonly message?: string;
+  readonly truncated?: boolean;
+}
+
+interface WireE2eDetail extends WireE2eSummary {
+  readonly plannedSteps?: readonly WireE2ePlanned[] | null;
+  readonly steps?: readonly WireE2eStep[] | null;
+  readonly logs?: readonly WireE2eLogLine[] | null;
+  readonly logsTruncated?: boolean;
+}
+
+interface WireE2eRuns {
+  readonly enabled?: boolean;
+  readonly runs?: readonly WireE2eSummary[] | null;
+  readonly truncated?: boolean;
+  readonly windowSeconds?: number;
+  readonly limit?: number;
+}
+
+interface WireE2eStreamEvent {
+  readonly event?: string;
+  readonly runId?: string;
+  readonly sequence?: number;
+  readonly timestamp?: string;
+  readonly stepId?: string;
+  readonly name?: string;
+  readonly outcome?: string;
+  readonly durationMs?: number;
+  readonly message?: string;
+  readonly truncated?: boolean;
+  readonly plannedSteps?: readonly WireE2ePlanned[] | null;
+}
+
+interface WireE2eStreamStatus {
+  readonly state?: string;
+  readonly droppedEntries?: number;
+}
+
+/** Coerce an optional number to a nullable number, keeping a genuine 0. */
+function nullableNum(v: number | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function mapVerdict(v: string | undefined): E2eVerdict {
+  return v === "passed" || v === "failed" ? v : "unknown";
+}
+
+function mapStepState(v: string | undefined): E2eStepState {
+  switch (v) {
+    case "passed":
+    case "failed":
+    case "skipped":
+    case "running":
+    case "not-run":
+      return v;
+    default:
+      return "not-run";
+  }
+}
+
+function mapStreamState(v: string | undefined): E2eStreamState {
+  return v === "live" || v === "gap" ? v : "disconnected";
+}
+
+function mapEventName(v: string | undefined): E2eEventName | null {
+  switch (v) {
+    case "run_started":
+    case "step_started":
+    case "step_finished":
+    case "log":
+    case "run_finished":
+      return v;
+    default:
+      return null;
+  }
+}
+
+function mapOutcome(v: string | undefined): E2eOutcome | null {
+  return v === "passed" || v === "failed" || v === "skipped" ? v : null;
+}
+
+function mapPlanned(p: WireE2ePlanned): E2ePlannedStep {
+  return { stepId: p.stepId ?? "", name: p.name ?? "" };
+}
+
+function mapE2eSummary(raw: WireE2eSummary): E2eRunSummary {
+  return {
+    bundle: raw.bundle ? mapRelease(raw.bundle) : null,
+    id: raw.id ?? "",
+    runId: raw.runId ?? "",
+    tenant: raw.tenant ?? "",
+    cluster: raw.cluster ?? "",
+    bodyCluster: nullableString(raw.bodyCluster),
+    namespace: raw.namespace ?? "",
+    revision: raw.revision ?? "",
+    sourceRevision: nullableString(raw.sourceRevision),
+    startedAt: raw.startedAt ?? "",
+    endedAt: nullableString(raw.endedAt),
+    durationMs: nullableNum(raw.durationMs),
+    verdict: mapVerdict(raw.verdict),
+    reportingComplete: raw.reportingComplete === true,
+    hasStructuredSteps: raw.hasStructuredSteps === true,
+    stepCount: num(raw.stepCount),
+  };
+}
+
+function mapE2eStep(raw: WireE2eStep): E2eStep {
+  return {
+    stepId: raw.stepId ?? "",
+    name: raw.name ?? "",
+    state: mapStepState(raw.state),
+    startedAt: nullableString(raw.startedAt),
+    endedAt: nullableString(raw.endedAt),
+    durationMs: nullableNum(raw.durationMs),
+  };
+}
+
+function mapE2eLogLine(raw: WireE2eLogLine): E2eLogLine {
+  return {
+    sequence: num(raw.sequence),
+    timestamp: raw.timestamp ?? "",
+    stepId: nullableString(raw.stepId),
+    message: raw.message ?? "",
+    truncated: raw.truncated === true,
+  };
+}
+
+/** Map the /api/e2e/runs plane data. A disabled feature arrives as `{enabled:false}`. */
+export function mapE2eRuns(raw: unknown): E2eRunsData {
+  const wire = (raw ?? {}) as WireE2eRuns;
+  return {
+    enabled: wire.enabled === true,
+    runs: (wire.runs ?? []).map(mapE2eSummary),
+    truncated: wire.truncated === true,
+    windowSeconds: num(wire.windowSeconds),
+    limit: num(wire.limit),
+  };
+}
+
+/** Map the /api/e2e/runs/{id} plane data: a summary plus steps and bounded logs. */
+export function mapE2eRunDetail(raw: unknown): E2eRunDetail {
+  const wire = (raw ?? {}) as WireE2eDetail;
+  return {
+    ...mapE2eSummary(wire),
+    plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
+    steps: (wire.steps ?? []).map(mapE2eStep),
+    logs: (wire.logs ?? []).map(mapE2eLogLine),
+    logsTruncated: wire.logsTruncated === true,
+  };
+}
+
+/**
+ * Map one forwarded stream event. Returns null for an unknown event name so the
+ * adapter skips a malformed frame without dropping the rest of the stream
+ * (E2E-LOG-07).
+ */
+export function mapE2eStreamEvent(raw: unknown): E2eRunEvent | null {
+  const wire = (raw ?? {}) as WireE2eStreamEvent;
+  const event = mapEventName(wire.event);
+  if (event === null) {
+    return null;
+  }
+  return {
+    event,
+    runId: wire.runId ?? "",
+    sequence: num(wire.sequence),
+    timestamp: wire.timestamp ?? "",
+    stepId: nullableString(wire.stepId),
+    name: nullableString(wire.name),
+    outcome: mapOutcome(wire.outcome),
+    durationMs: nullableNum(wire.durationMs),
+    message: nullableString(wire.message),
+    truncated: wire.truncated === true,
+    plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
+  };
+}
+
+/** Map one stream status frame. */
+export function mapE2eStreamStatus(raw: unknown): E2eStreamStatus {
+  const wire = (raw ?? {}) as WireE2eStreamStatus;
+  return {
+    state: mapStreamState(wire.state),
+    droppedEntries: num(wire.droppedEntries),
   };
 }

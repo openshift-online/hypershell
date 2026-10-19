@@ -26,6 +26,7 @@ function node(id: string, columnKey: string, seed: string): MapNode {
     driftsFromColumn: false,
     argoHealth: null,
     argoSync: null,
+    syncRetries: null,
     prState: null,
     gateBadge: { tone: "unknown", labelKey: "unknown" },
     gateways: {},

@@ -11,6 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "OPENSHELL_VERSION"
+CHART_VALUES_FILE = REPO_ROOT / "charts" / "openshell" / "values.yaml"
 
 # Manifests that embed OPENSHELL_TAG as an image tag in GATEWAY_IMAGE or
 # GATEWAY_SUPERVISOR_IMAGE env var values.  Each entry maps a file to the
@@ -75,6 +76,67 @@ def parse_openshell_version() -> dict[str, str]:
             key, _, value = line.partition("=")
             variables[key.strip()] = value.strip()
     return variables
+
+
+def chart_sandbox_image(path: Path) -> str:
+    """Read the chart's plain sandbox.image mapping without a YAML dependency.
+
+    Fail on schema or scalar-format changes so an upgrade cannot silently keep
+    using the previous workload image. This is deliberately not a YAML parser.
+    """
+    sandbox = re.search(
+        r"(?m)^sandbox:[ \t]*\n((?:[ \t].*\n|\n)*)", path.read_text() + "\n"
+    )
+    image = (
+        re.search(r"(?m)^  image:[ \t]*\n((?: {4}.*\n|\n)*)", sandbox[1])
+        if sandbox else None
+    )
+    if not image:
+        raise ValueError(f"{path}: expected sandbox.image mapping; review the chart schema")
+    keys = set(re.findall(r"(?m)^    ([\w-]+):", image[1]))
+    unexpected = keys - {"repository", "tag", "digest", "pullPolicy"}
+    if unexpected:
+        raise ValueError(f"{path}: unsupported sandbox.image keys {sorted(unexpected)}; review the chart schema")
+    fields: dict[str, str] = {}
+    for key in ("repository", "tag", "digest"):
+        line = re.search(rf"(?m)^    {key}:([^\n]*)$", image[1])
+        if not line:
+            continue
+        scalar = re.fullmatch(
+            r'''[ \t]*(?:"([^"\\]*)"|'([^']*)'|([^\s#'"\[\]{}&*!]+))?[ \t]*(?:#.*)?''',
+            line[1],
+        )
+        if not scalar:
+            raise ValueError(f"{path}: unsupported sandbox.image.{key}; review the chart schema")
+        value = next((value for value in scalar.groups() if value is not None), "")
+        fields[key] = "" if scalar[3] in ("null", "Null", "NULL", "~") else value
+    repository = fields.get("repository", "")
+    if not repository:
+        raise ValueError(f"{path}: sandbox.image.repository must be nonempty")
+    digest = fields.get("digest", "")
+    if digest:
+        return f"{repository}@{digest}"
+    return f"{repository}:{fields.get('tag') or 'latest'}"
+
+
+def sync_sandbox_image(
+    version_file: Path, chart_values: Path, *, check_only: bool
+) -> list[str]:
+    """Keep the explicit e2e/preload image aligned with the vendored chart."""
+    expected = f"OPENSHELL_SANDBOX_IMAGE={chart_sandbox_image(chart_values)}"
+    text = version_file.read_text()
+    pattern = re.compile(r"(?m)^OPENSHELL_SANDBOX_IMAGE=[^\n]*$")
+    current = pattern.search(text)
+    if current and current[0] == expected:
+        return []
+    if not check_only:
+        if current:
+            text = pattern.sub(lambda _: expected, text)
+        else:
+            text = text.rstrip("\n") + "\n" + expected + "\n"
+        version_file.write_text(text)
+    previous = current[0] if current else "missing sandbox image"
+    return [f"  {version_file.name}: {previous}, expected {expected}"]
 
 
 # Matches a YAML env-var value line whose image reference ends with a
@@ -245,6 +307,13 @@ def main() -> int:
         return 1
 
     all_mismatches: list[str] = []
+    try:
+        all_mismatches.extend(
+            sync_sandbox_image(VERSION_FILE, CHART_VALUES_FILE, check_only=check_only)
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     for path, env_names in MANAGED_FILES:
         if not path.exists():
             continue
@@ -274,8 +343,7 @@ def main() -> int:
     if all_mismatches:
         if check_only:
             print(
-                "Kustomize manifests out of sync with OPENSHELL_VERSION "
-                f"(expected tag {tag}):"
+                "OpenShell version pins out of sync with OPENSHELL_VERSION or the vendored chart:"
             )
             for m in all_mismatches:
                 print(m)
@@ -285,12 +353,12 @@ def main() -> int:
             )
             return 1
         else:
-            print(f"Stamped {len(all_mismatches)} image tag(s) to {tag}:")
+            print(f"Stamped {len(all_mismatches)} OpenShell version value(s):")
             for m in all_mismatches:
                 print(m.replace("has", "was").replace(", expected", " ->"))
     else:
         if not check_only:
-            print(f"All manifests already at {tag}")
+            print("All OpenShell version pins match OPENSHELL_VERSION and the vendored chart")
 
     return 0
 

@@ -19,19 +19,24 @@ interface PlaneSectionProps<T> {
   readonly titleMessage: MessageDescriptor;
   readonly query: UseQueryResult<Plane<T>>;
   readonly children: (data: T) => React.ReactNode;
+  /** Suppress the visible card title while keeping it as the Card's accessible name. */
+  readonly hideTitle?: boolean;
 }
 
 export function PlaneSection<T>({
   titleMessage,
   query,
   children,
+  hideTitle = false,
 }: PlaneSectionProps<T>): React.ReactElement {
   const intl = useIntl();
   return (
     <Card aria-label={intl.formatMessage(titleMessage)}>
-      <CardTitle>
-        <FormattedMessage {...titleMessage} />
-      </CardTitle>
+      {hideTitle ? null : (
+        <CardTitle>
+          <FormattedMessage {...titleMessage} />
+        </CardTitle>
+      )}
       <CardBody>
         <PlaneBody query={query}>{children}</PlaneBody>
       </CardBody>

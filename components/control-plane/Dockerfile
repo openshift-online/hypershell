@@ -26,6 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go install helm.sh/helm/v3/c
     fi
 
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
+COPY components/cli/go.mod components/cli/go.sum components/cli/
 COPY components/control-plane/go.mod components/control-plane/go.sum components/control-plane/
 
 RUN cd components/control-plane && GOPRIVATE=github.com/openshift-online/rh-trex-ai go mod download
@@ -35,6 +36,9 @@ COPY components/api-server/pkg/ components/api-server/pkg/
 COPY components/api-server/plugins/ components/api-server/plugins/
 COPY components/api-server/openapi/ components/api-server/openapi/
 COPY components/api-server/proto/ components/api-server/proto/
+# The control plane imports components/cli/pkg/kustomize (the shared Kustomize
+# renderer) via a `replace => ../cli`; kustomize.go imports no other cli packages.
+COPY components/cli/pkg/kustomize/ components/cli/pkg/kustomize/
 COPY components/control-plane/cmd/ components/control-plane/cmd/
 COPY components/control-plane/internal/ components/control-plane/internal/
 

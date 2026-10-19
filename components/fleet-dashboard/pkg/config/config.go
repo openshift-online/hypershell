@@ -81,6 +81,12 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// GitHubGraphQL is the GitHub GraphQL endpoint used for the authoritative
+	// work-item -> linked-PR lookup (SDLC-VIS-03). It is only called when an upstream
+	// token is configured (GraphQL rejects unauthenticated requests); unauthenticated
+	// deployments fall back to the REST issue-timeline. Separate from GitHubAPIBase so
+	// GitHub Enterprise bases can point it at their own `/api/graphql`.
+	GitHubGraphQL string
 	// UpstreamRepo is the PUBLIC product source repo (owner/repo) whose merged
 	// pull requests compose a release bundle -- the "In this bundle" list. Unlike
 	// GitHubRepo (the gitops repo, a fleet-identifying value that must arrive from
@@ -95,11 +101,84 @@ type Config struct {
 	// release-lock resolver, so it only takes effect when GitHubRepo is set.
 	ReleaseHistoryLimit int
 
+	// E2E run/log visibility (e2e-run-log-visibility.spec). All values are
+	// fleet-identifying or tuning and arrive via config; nothing is compiled in.
+	// E2ELokiURL is the internal Loki base URL (e.g.
+	// http://e2e-loki.hypershell-observability.svc:3100). EMPTY DISABLES THE
+	// FEATURE (E2E-LOG-02): the source does not run and the endpoints report the
+	// feature off rather than error. E2ELokiTenants is the allowlist of permitted
+	// Loki tenants (X-Scope-OrgID values); the browser never selects a tenant.
+	// E2ELokiTokenFile, when set, is read fresh per request for the bearer token
+	// (ESO rotation). E2ELokiInsecure opts into a self-signed in-cluster endpoint.
+	// E2ELokiSelector is the LogQL stream selector for the copied suite pods
+	// (product-level label schema; safe default). E2EHistoryWindow bounds the
+	// query_range lookback; E2ERecentRunLimit caps the recent-run list.
+	E2ELokiURL        string
+	E2ELokiTenants    []string
+	E2ELokiTokenFile  string
+	E2ELokiInsecure   bool
+	E2ELokiSelector   string
+	E2EHistoryWindow  time.Duration
+	E2ERecentRunLimit int
+
 	// Refresh intervals (§5.1)
 	RefreshFleet     time.Duration
 	RefreshPromotion time.Duration
 	RefreshTopology  time.Duration
 	RefreshInstances time.Duration
+	// RefreshSDLC is the Agent SDLC plane's own refresh cadence. The SDLC source
+	// reconstructs label-event history from the GitHub timeline, so the whole fleet is
+	// served from one cached snapshot and the GitHub request rate is bounded by this
+	// loop alone, never by viewer count (agent-sdlc-visibility-dashboard.spec
+	// SDLC-VIS-04/14). The default is 60s: per cycle the loop makes one issue listing
+	// plus one timeline read per in-scope record and the (cached) work-item -> PRs
+	// lookups, all bounded by the active funnel size, which stays well within an
+	// authenticated token budget. Raise FD_REFRESH_SDLC for an unauthenticated
+	// deployment with a large funnel to stay under GitHub's unauthenticated limit.
+	RefreshSDLC time.Duration
+	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
+	// query_range sweep of recent runs). Live updates do not use this interval;
+	// they ride the Loki tail (e2e-run-log-visibility.spec E2E-LOG-04/05).
+	RefreshE2E time.Duration
+
+	// SDLC per-phase service-level expectations (agent-sdlc-visibility-dashboard
+	// spec SDLC-VIS-13). These are policy thresholds, not fleet-identifying values,
+	// so sensible defaults are compiled in and overridable per environment through
+	// FD_SLE_* in the gitops deployment config. A card whose time-in-phase crosses its phase
+	// SLE escalates off the board into the escalation lane (SDLC-VIS-10); the dashed
+	// SLE line is drawn at this value (SDLC-VIS-08). Keyed by SDLC phase key.
+	SDLCPhaseSLE map[string]time.Duration
+}
+
+// SDLCPhaseKeys are the aging-board phase columns in funnel order, excluding the
+// terminal Shipped column (which is rendered as the release-by-hub-cluster matrix,
+// not a timed column). Each has a per-phase SLE (SDLCPhaseSLE) and an FD_SLE_*
+// override. Kept here so config and the SDLC source agree on the canonical set.
+var SDLCPhaseKeys = []string{
+	"intake",
+	"workable",
+	"spec",
+	"spec-approved",
+	"code",
+	"code-approved",
+}
+
+// sdlcSLEDefaults are the built-in per-phase SLE defaults (SDLC-VIS-13: "sensible
+// per-phase defaults overridable per environment"). Review phases carry the
+// longest expectation because rework loops legitimately take time; approval
+// hand-off phases are expected to move quickly.
+var sdlcSLEDefaults = map[string]time.Duration{
+	"intake":        24 * time.Hour,
+	"workable":      24 * time.Hour,
+	"spec":          72 * time.Hour,
+	"spec-approved": 24 * time.Hour,
+	"code":          120 * time.Hour,
+	"code-approved": 24 * time.Hour,
+}
+
+// sdlcSLEEnvVar maps a phase key to its FD_SLE_* override variable.
+func sdlcSLEEnvVar(phase string) string {
+	return "FD_SLE_" + strings.ToUpper(strings.ReplaceAll(phase, "-", "_"))
 }
 
 // SubjectAccessReview describes the resource attributes the forwarded identity
@@ -152,6 +231,7 @@ func Load() (*Config, error) {
 		GitHubRepo:      env("FD_GITHUB_REPO", ""),
 		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
 		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+		GitHubGraphQL:   env("FD_GITHUB_GRAPHQL", "https://api.github.com/graphql"),
 		// openshift-online/hypershell is the public product source and is NOT
 		// fleet-identifying, so it is safe to compile in as the default (firewall).
 		UpstreamRepo:      env("FD_UPSTREAM_REPO", "openshift-online/hypershell"),
@@ -162,6 +242,17 @@ func Load() (*Config, error) {
 		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
+		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 60*time.Second),
+		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
+
+		E2ELokiURL:        strings.TrimRight(env("FD_E2E_LOKI_URL", ""), "/"),
+		E2ELokiTenants:    csv(env("FD_E2E_LOKI_TENANTS", "")),
+		E2ELokiTokenFile:  env("FD_E2E_LOKI_TOKEN_FILE", ""),
+		E2ELokiInsecure:   envBool("FD_E2E_LOKI_INSECURE", false),
+		E2ELokiSelector:   env("FD_E2E_LOKI_SELECTOR", `{log_type="application"}`),
+		E2EHistoryWindow:  envDuration("FD_E2E_HISTORY_WINDOW", 168*time.Hour),
+		E2ERecentRunLimit: envInt("FD_E2E_RECENT_RUN_LIMIT", 20),
+		RefreshE2E:        envDuration("FD_REFRESH_E2E", 30*time.Second),
 	}
 
 	if c.PromURL == "" {
@@ -174,6 +265,17 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("auth is enabled but no SAR attributes configured (set FD_SAR_RESOURCE/FD_SAR_GROUP, or FD_AUTH_ENABLED=false for local dev)")
 	}
 	return c, nil
+}
+
+// loadSDLCPhaseSLE resolves each aging-board phase's SLE, applying the compiled-in
+// default (sdlcSLEDefaults) unless the phase's FD_SLE_* override is set. Changing
+// an SLE is therefore a configuration change, never a code change (SDLC-VIS-13).
+func loadSDLCPhaseSLE() map[string]time.Duration {
+	out := make(map[string]time.Duration, len(SDLCPhaseKeys))
+	for _, phase := range SDLCPhaseKeys {
+		out[phase] = envDuration(sdlcSLEEnvVar(phase), sdlcSLEDefaults[phase])
+	}
+	return out
 }
 
 func env(key, def string) string {

@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
 
 ### Reconciler
 
@@ -37,10 +37,9 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
-- Configure network meshes between gateways
-- Manage release rollouts (including canary strategies)
 - Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal in-cluster gRPC service
 - Reconcile AgentRuntime resources into cluster scheduling resources and gateway-side workspace objects (see "AgentRuntime Reconciliation" below)
+- Run the `RepositoryReconciler` (the declarative `.hypershell` import reconciler): for each registered `Repository`, read only its `import_path` subtree through the GitHub API (no git clone), render that subtree in memory with the shared kustomize library, and reconcile (create/update/prune) the rendered `Repository`-owned ext resources into the API over the gRPC write path (see "Declarative `.hypershell` Import Reconciliation" below)
 - Update resource status back to the API server
 
 #### Gateway Provisioning Specifications
@@ -55,10 +54,6 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
-| [`gateway-version-selection.spec.md`](./gateway-version-selection.spec.md) | Database-backed version selection: resolving `release_id` to a GatewayRelease image and its precedence over a direct image |
-| [`gateway-release-reconciliation.spec.md`](./gateway-release-reconciliation.spec.md) | GatewayRelease reconciliation: image validation, deterministic release status, change propagation to referencing gateways |
-| [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) | Safe release rollout: last-good workload preserved until the new revision passes health gates, revision-aware readiness, observed-release and rollout-state reporting, timeout/failure handling |
-| [`gateway-network-reconciliation.spec.md`](./gateway-network-reconciliation.spec.md) | GatewayNetwork reconciliation: topology vocabulary, topology/hub coherence and hub-reference validation, deterministic network status write-back |
 
 ### Config
 
@@ -90,8 +85,7 @@ restarts. The control plane SHALL use this `cluster_id` as the cluster filter fo
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
 reconciler, the instance-label backfill, the orphaned-namespace garbage collector
-(`openshell-gateway-namespace-gc.spec.md`), the GatewayRelease change fan-out
-(`gateway-release-reconciliation.spec.md`), and the RoleBinding-to-Keycloak role sync.
+(`openshell-gateway-namespace-gc.spec.md`), and the RoleBinding-to-Keycloak role sync.
 None of these SHALL ever run without the filter. The control plane SHALL open the
 `WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;
 the api-server delivers only bindings whose gateway is assigned to that cluster, and
@@ -181,6 +175,15 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
 
+#### Scenario: Startup seeds gateways created while the control plane was down
+- GIVEN a control plane registered as `cluster_id: X` that was not running
+- AND gateways assigned to `cluster_id: X` were created while it was down
+- WHEN the control plane starts and opens `WatchGateways`
+- THEN after the watch subscription is live (the stream header has arrived), it SHALL list the gateways of `cluster_id: X` and queue each one for reconciliation
+- AND it SHALL NOT wait for a watch event before it queues them, because the watch stream does not replay existing gateways
+- AND the list SHALL NOT return gateways assigned to other clusters
+- Verification: `components/api-server/plugins/gateways/grpc_integration_test.go` covers the API contract: on each fresh connection, a control-plane caller that opens a filtered `WatchGateways` and then calls `ListGateways` receives every pre-existing gateway of its cluster and none of another cluster. A unit test in `components/control-plane/internal/watcher/` covers the startup wiring: it runs the real `WatchGateways` entry point against an in-memory fake server that never sends a watch event, and asserts that the pre-existing gateway reaches the reconcile queue handler.
+
 ### Requirement: AgentRuntime Watch Stream
 
 The control plane SHALL watch `AgentRuntime` resources over a `WatchAgentRuntimes`
@@ -232,36 +235,160 @@ into the cluster scheduling resources and gateway-side workspace objects defined
 Provisioning", "Gateway-Side Provisioning", "WorkspaceMembership", and "AgentRuntime
 Status Lifecycle"). Reconciliation SHALL converge, not create-and-skip: re-running
 against unchanged desired state SHALL be idempotent and SHALL update mutable fields
-in place.
+in place. The control plane realizes the gateway-side objects by consuming OpenShell's
+**existing** provisioning API (the operations the `openshell` CLI drives for workspaces,
+memberships, providers, provider refresh, and the inference route), NOT a bespoke
+gateway gRPC contract OpenShell must implement; the realization operations, their
+admin session, enforcement, retry, and cascade deletion are specified in
+[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md), and the
+1:1 Extension-kind to OpenShell-kind map in
+[`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md).
+The `ProviderRealizer` seam is the client of OpenShell's existing API.
 
 On reconcile the control plane SHALL, using its in-cluster credentials, create or
 update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
 (with `automountServiceAccountToken: false`), default-deny-ingress `NetworkPolicy`,
-one `ExternalSecret` per `SecretSource` (with the purpose-to-env-var wiring from the
-data-model "SecretSource" table), and the coordinator `CronJob`. It SHALL then
-provision the gateway-side `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`,
-and `InferenceRoute` objects through the gateway gRPC API, the same idempotent
-mechanism it uses for gateway database provisioning.
+the coordinator `gateway-identity` wiring (the OIDC identity the coordinator uses to
+authenticate to its gateway, from the `gateway-identity` `SecretSource` material read
+cluster-local), and the coordinator `CronJob`. The control plane SHALL read each
+referenced `SecretSource`'s durable material from the configured secret store through
+its read-only `pkg/secretstore` client; for provider material it SHALL NOT render the
+credential as a raw Kubernetes `Secret`, SHALL NOT create an `ExternalSecret`, and
+SHALL NOT rely on External Secrets Operator. It SHALL then realize the gateway-side
+`AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute`
+objects through OpenShell's existing provisioning API (the operations the `openshell`
+CLI drives), reusing the same idempotent admin-connection discipline it uses for
+gateway database provisioning, and SHALL realize each `ProviderBinding` as an OpenShell
+**provider** on the agent's gateway/workspace from the binding's `provider_spec_id`,
+its `refresh_strategy`, and the material read cluster-local. Rotation of the realized
+credential is owned by OpenShell for its native strategies (`google-service-account-jwt`,
+`oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`,
+`static-token`) and by a bounded control-plane GitHub rotator for the
+`app-installation-token` (GitHub App) strategy, which the installed OpenShell CLI does not
+refresh (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md));
+for OpenShell-refreshed strategies the control plane SHALL NOT mint, refresh, or rotate the
+usable credential, and in all cases it SHALL NOT place or rotate a raw `Secret`.
 
 The control plane SHALL drive `AgentRuntime.status` through
 `Pending -> Provisioning -> Running -> Degraded -> Terminating` as the data-model
 status lifecycle defines, and SHALL write the status back to the API server. When a
-`SecretSource` `ExternalSecret` enters a sync error, or gateway-side provisioning
-fails, the control plane SHALL set `status` to `Degraded` and SHALL surface the
-failing `SecretSource` name or the gateway-side error in the status message.
+`SecretSource` material cannot be read from the store, or gateway-side provisioning
+(including provider realization) fails, the control plane SHALL set `status`
+to `Degraded` and SHALL surface the failing `SecretSource` name or the gateway-side
+error in the status message.
+
+A reference-only `SecretSource` whose material has not yet been uploaded to the assigned
+cluster's local store is a benign waiting state, NOT a failure (the late-binding model
+in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). When
+the store is reachable and reports the material missing, the control plane SHALL set a
+durable, observable `SecretPending` condition on the `AgentRuntime`, SHALL NOT create
+the dependent OpenShell provider(s) and SHALL NOT configure a provider with empty or
+partial material, SHALL NOT mark the workspace `Ready` (the runtime holds at
+`Provisioning`, not `Running` or `Degraded`), SHALL NOT crash-loop, and SHALL retry
+idempotently on its reconcile cadence, converging the moment the material appears with
+no manual trigger. The `SecretPending` condition SHALL name the resolved `ManagedCluster`
+and the exact store mount and path to upload the material to, phrased as an actionable
+instruction rather than a bare error. Once the material appears the control plane
+realizes the provider and updates it in place on subsequent reconciles; keeping the
+usable credential current (rotation) is owned by OpenShell for its native strategies and
+by the bounded control-plane GitHub rotator for GitHub App credentials (see
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "Rotation
+Ownership by Refresh Strategy"). A store that is unreachable or errors SHALL still degrade
+the `AgentRuntime` as above.
 
 On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
-created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources,
-and the `CronJob`) and SHALL delete the gateway-side `AgentWorkspace` and its
-sub-resources through the gateway gRPC API.
+created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator
+`gateway-identity` wiring, and the `CronJob`) and SHALL delete the gateway-side
+`AgentWorkspace`, its OpenShell providers, and its sub-resources through OpenShell's
+existing provisioning API.
+
+The realization seam SHALL be **live**: the `ProviderRealizer` is constructed as a
+client of OpenShell's existing provisioning API
+([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) - NOT a
+bespoke `AgentWorkspaceProvisioning` gRPC contract - and the reconciler SHALL drive it on
+every reconcile rather than hold a transitional behavior. The reconcile SHALL run the
+realization sequence in this order, reading its inputs from the embedded reconcile payload
+([`data-model.spec.md`](./data-model.spec.md), "AgentRuntime Reconcile Payload
+Completeness") and realizing each step through the OpenShell operation the `openshell` CLI
+drives (see [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md)):
+
+1. Ensure the workspace (OpenShell `workspace create`) for the owning `agent_runtime_id`
+   and resolved workspace name.
+2. Reconcile memberships (OpenShell `workspace member add` / `member remove`) declaratively
+   over the full set, so an admin membership exists before any refresh-bearing provider is
+   realized.
+3. Ensure each provider (OpenShell `provider create` / `update` plus `provider refresh
+   configure`) the runtime realizes, from its `refresh_strategy` and the durable material
+   read cluster-local, honoring the `SecretPending` gate when material is absent. The target
+   end state is one provider per `ProviderBinding` keyed by the binding's `secret_source_id`;
+   the current activation step realizes one provider per resolved provider `SecretSource`
+   keyed by its `purpose`, because the embedded payload does not yet carry the `SecretSource`
+   id needed to join material to its binding. Carrying that id and realizing strictly per
+   `ProviderBinding` (with its `provider_spec_id`) is a tracked follow-up.
+4. Ensure the single declared inference route (OpenShell `inference set`).
+
+On `AgentRuntime` deletion the reconcile SHALL delete the OpenShell workspace (OpenShell
+`workspace delete`), cascading its memberships, its realized providers, and its inference
+route; shared `ProviderSpec`s SHALL be preserved. The ordering, idempotency, enforcement,
+retry, and cascade semantics of these operations are owned by
+[`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md).
+
+At this activation the transitional raw-`Secret` placement of **provider material**
+SHALL be retired: the control plane SHALL NOT place a raw credential `Secret` for any
+provider-material `SecretSource`, and the reconcile prune path SHALL REMOVE any
+previously-placed raw provider-material `Secret` left by the transitional behavior, so
+no straggler credential `Secret` remains on the cluster after cutover. The retirement
+SHALL be **realize-before-prune**: the reconcile SHALL realize the provider through the
+gateway contract FIRST and prune the previously-placed raw provider-material `Secret`
+only AFTER realization succeeds, so the cutover never leaves a window in which neither a
+realized provider nor its raw `Secret` is present. When provider material is not yet
+present and the runtime holds under `SecretPending` (see below and
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "SecretPending
+Condition Gates Provider Creation"), the reconcile SHALL NOT prune the previously-placed
+raw `Secret` for that provider, so a partially-uploaded fleet keeps its working credential
+until its replacement provider is realized. The coordinator `gateway-identity` carve-out
+SHALL remain unchanged: the `gateway-identity` material is still read cluster-local and
+wired as coordinator environment (it is NOT a provider and is NOT a rendered provider
+credential), and the prune SHALL NOT remove it
+([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md),
+"Credentials Realized as OpenShell Providers, Not Rendered Secrets").
+
+#### Scenario: Realizer drives the gateway sequence in order
+
+- GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present cluster-local
+- WHEN the control plane reconciles it
+- THEN it SHALL ensure the workspace, then reconcile memberships, then ensure each provider, then ensure the inference route, through the live `ProviderRealizer` calling OpenShell's existing API
+- AND it SHALL render no raw credential `Secret` for the provider material
+- AND re-running the reconcile against unchanged state SHALL make no change
+
+#### Scenario: Cutover prunes previously-placed provider-material Secrets, keeps gateway-identity
+
+- GIVEN an `AgentRuntime` previously reconciled by the transitional behavior that left a raw provider-material `Secret` on the cluster
+- WHEN the control plane reconciles it with the realizer live
+- THEN it SHALL realize the provider through OpenShell's existing API and SHALL remove the straggler raw provider-material `Secret`
+- AND it SHALL leave the coordinator `gateway-identity` wiring in place
+
+#### Scenario: SecretPending holds the prune so the working credential is kept
+
+- GIVEN an `AgentRuntime` previously reconciled by the transitional behavior whose raw provider-material `Secret` is still in place, and whose provider material is not yet present in the assigned cluster's reachable store
+- WHEN the control plane reconciles it with the realizer live
+- THEN it SHALL hold under `SecretPending` without realizing the provider
+- AND it SHALL NOT prune the previously-placed raw provider-material `Secret`, so the agent keeps a working credential until the provider is realized
+
+#### Scenario: AgentRuntime deletion cascades the gateway workspace
+
+- GIVEN an `AgentRuntime` with a provisioned workspace, memberships, a realized provider, and an inference route
+- WHEN a delete event arrives on the watch stream
+- THEN the control plane SHALL delete the OpenShell workspace through OpenShell's existing API, cascading the memberships, provider, and inference route on the gateway
+- AND it SHALL NOT delete any shared `ProviderSpec`
 
 #### Scenario: New AgentRuntime is provisioned end to end
 
 - GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
 - WHEN the control plane reconciles it
-- THEN it SHALL create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` on this cluster
+- THEN it SHALL read each `SecretSource`'s material cluster-local and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` on this cluster, rendering no raw credential `Secret`
 - AND it SHALL transition the `AgentRuntime` status to `Provisioning`
-- AND after it has provisioned the gateway-side `AgentWorkspace` and providers, it SHALL transition the status to `Running`
+- AND after it has provisioned the gateway-side `AgentWorkspace` and realized its OpenShell providers from the material, it SHALL transition the status to `Running`
 
 #### Scenario: AgentRuntime change re-applies affected resources
 
@@ -270,10 +397,18 @@ sub-resources through the gateway gRPC API.
 - THEN the control plane SHALL update the coordinator `CronJob` on the target cluster
 - AND reconciliation SHALL remain idempotent for the unchanged resources
 
-#### Scenario: SecretSource sync failure degrades the AgentRuntime
+#### Scenario: Pending SecretSource material holds, converges when uploaded
+
+- GIVEN an `AgentRuntime` whose reference-only `SecretSource` material has not yet been uploaded to the assigned cluster's reachable local store
+- WHEN the control plane reconciles the `AgentRuntime`
+- THEN it SHALL set a `SecretPending` condition naming the resolved `ManagedCluster` and the exact store mount and path to upload to
+- AND it SHALL NOT create the dependent OpenShell provider, SHALL NOT mark the workspace `Ready`, and SHALL NOT set `Degraded`
+- AND after the material is uploaded, the next reconcile SHALL realize the provider, clear `SecretPending`, and converge the `AgentRuntime` to `Running` with no manual trigger
+
+#### Scenario: SecretSource read failure degrades the AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
-- WHEN one of its `SecretSource` `ExternalSecret` resources enters a sync error
+- WHEN one of its `SecretSource` materials cannot be read from the store, or provider realization fails on the gateway
 - THEN the control plane SHALL set the `AgentRuntime` status to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 
@@ -281,8 +416,245 @@ sub-resources through the gateway gRPC API.
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a delete event arrives on the watch stream
-- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` from the cluster
-- AND it SHALL delete the gateway-side `AgentWorkspace` and its sub-resources through the gateway gRPC API
+- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` from the cluster
+- AND it SHALL delete the gateway-side `AgentWorkspace`, its OpenShell providers, and its sub-resources through OpenShell's existing provisioning API
+
+### Requirement: Secret Store and Import Reconciler Enablement
+
+The declarative import and `SecretSource` material resolution SHALL be enabled through
+configuration, not code (separate configuration from code). The control plane SHALL
+run the `RepositoryReconciler` import loop ONLY when `HYPERSHELL_REPOSITORY_IMPORT_ENABLED`
+is `true`; when it is unset or `false` the control plane SHALL log that the import
+reconciler is disabled and SHALL NOT run the loop.
+
+The control plane SHALL configure its read-only `pkg/secretstore` client from the
+`HYPERSHELL_SECRET_STORE_*` environment, following the two resolution paths defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) ("Two
+Material Resolution Paths"), NOT a single shared global store:
+
+- For an `AgentRuntime` `SecretSource` material (distributed path), each control plane's
+  read client SHALL point at its OWN cluster-local Vault, so the material it reads to
+  configure providers was uploaded directly into that cluster's Vault by the per-cluster
+  writer and never transited the hub.
+- For the `Repository` `secret_source_id` import credential (hub-side path), the hub
+  control plane SHALL read the hub-reachable store that the api-server write client
+  populates; for a GitHub `Repository` the stored material is the App PEM, from which
+  the `RepositoryReconciler` mints the short-lived installation token.
+- The api-server write client and a control plane's read client MAY share one
+  `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the same
+  cluster's store, for example `hyp0`). In the general multi-cluster fleet the
+  `AgentRuntime` `SecretSource` material SHALL NOT be resolvable through a single store
+  that the hub api-server writes and every spoke reads.
+
+The secret-store Vault client SHALL reach the per-cluster Vault as that cluster serves
+it (private-CA trust and the cluster's auth method, Kubernetes auth where the cluster
+Vault uses it), under a policy scoped to the agent-secret path, as defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)
+("Agent-Secret Vault Client Capabilities"). When the secret store is unset the control
+plane SHALL fail provider realization loudly rather than configure a provider with empty
+material.
+
+#### Scenario: Import loop runs only when enabled
+
+- GIVEN a control plane with `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false`
+- WHEN the control plane starts
+- THEN it SHALL log that the import reconciler is disabled and SHALL NOT run the import loop
+- WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true` and the secret store is wired
+- THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` import credential material through its read-only `pkg/secretstore` client, minting the installation token from the App PEM
+
+#### Scenario: AgentRuntime material is read from the control plane's own cluster-local store
+
+- GIVEN a spoke control plane not co-located with the hub api-server
+- WHEN it realizes providers for an `AgentRuntime` from its `SecretSource` material
+- THEN its read client SHALL read the material from its own cluster-local Vault
+- AND the material SHALL NOT be resolved through a store the hub api-server writes
+
+#### Scenario: Client reaches a privately-signed cluster Vault with Kubernetes auth
+
+- GIVEN a per-cluster Vault served with a private CA and configured for Kubernetes auth
+- WHEN the control plane reads `SecretSource` material from it
+- THEN the `pkg/secretstore` client SHALL trust the configured private-CA bundle and authenticate through the Vault Kubernetes auth mount
+- AND it SHALL read only under the `secret/data/hypershell/secret-sources/*`-scoped policy
+
+### Requirement: Declarative `.hypershell` Import Reconciliation
+
+The control plane SHALL host a reconciler named the `RepositoryReconciler` that
+reconciles the `Repository` Kind by performing the declarative `.hypershell` import
+process defined in [`data-model.spec.md`](./data-model.spec.md) ("Declarative
+`.hypershell` Import"). This is the system's SINGLE git-to-API sync component: it is
+the same component referred to as the declarative `.hypershell` import reconciler
+elsewhere, and there is no separate "PlatformReconciler" or second GitOps sync
+engine. The `RepositoryReconciler` does not exist in the code yet; it is desired
+state to be built. The import SHALL NOT be hosted by the API server: the API server
+has no read access to the secret store and no repository read access, whereas the
+control plane holds read-only access to the secret store (through its
+`pkg/secretstore` client) and the platform GitHub App credential used to read the
+`import_path` subtree over the GitHub API.
+
+The `RepositoryReconciler`'s job is bounded to the import: it reads the declared
+subtree, renders it, and upserts the ext resources it finds - the canonical set of
+importable Kinds defined in [`data-model.spec.md`](./data-model.spec.md)
+("Declarative `.hypershell` Import"), which includes `Gateway` - into the API. It
+does NOT provision any of those resources cluster-side. Each imported Kind is subsequently reconciled into the
+cluster by ITS OWN per-Kind reconciler - for example the `GatewayReconciler`
+reconciles `Gateway` resources into Kubernetes and the `AgentRuntimeReconciler`
+reconciles `AgentRuntime` resources into cluster scheduling and gateway-side
+objects. This division of labor is the established control-plane pattern: the
+`RepositoryReconciler` turns git into API desired state, and the per-Kind
+reconcilers turn API desired state into cluster state.
+
+The `RepositoryReconciler` SHALL run as a reconcile LOOP: it SHALL periodically
+enumerate every registered `Repository` and reconcile each one, and it SHALL be
+idempotent so repeated runs over unchanged repository state are side-effect free.
+The reconciler SHALL NOT clone the repository, SHALL NOT write any working
+directory or persistent disk (no PVC), SHALL NOT shell out to a `git`, `kustomize`,
+or `hsctl` binary, and SHALL NOT dispatch a Kubernetes `Job`. The entire read and
+render SHALL happen in-process and in-memory.
+
+For each registered `Repository` the control plane SHALL:
+
+1. Resolve the credential used to read the `Repository` subtree. The platform
+   GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
+   repository subtree. When the `Repository` declares a `secret_source_id`, that
+   per-`Repository` credential takes precedence and supplies a repository-specific
+   git credential - for example a private or non-GitHub-App-covered source; the
+   control plane reads its value from the secret store through its read-only
+   `pkg/secretstore` client. This is the same read-only store access the control
+   plane uses to place `AgentRuntime` secrets; it does not create an `ExternalSecret`
+   and does not depend on External Secrets Operator.
+2. Read ONLY the `import_path` subtree (default `.hypershell`, the Kustomize root)
+   through the GitHub API at the `Repository`'s `default_branch` (or the branch
+   otherwise specified), authenticating with the credential resolved in step 1 - the
+   per-`Repository` `secret_source_id` credential when one is configured, otherwise
+   the default platform GitHub App credential.
+   The reconciler SHALL fetch only that subtree, NOT the whole repository, and
+   SHALL NOT perform a git clone or checkout, SHALL NOT create a working directory,
+   and SHALL NOT use any persistent disk or PVC.
+3. Render that subtree IN MEMORY using the shared kustomize library: the exported
+   `Build` of the `pkg/kustomize` package that lives in `components/cli` and is
+   consumed by exactly two callers, `hsctl` and the control plane's
+   `RepositoryReconciler`, so there is exactly ONE kustomize implementation in the
+   stack. The library SHALL render through an in-memory
+   filesystem built from the fetched subtree. The control plane SHALL NOT invoke an
+   external `kustomize` or `hsctl` binary, SHALL NOT embed a second, divergent
+   Kustomize implementation, and SHALL NOT dispatch a `Job` to render.
+4. Reconcile the rendered ext resources into the API over the generated gRPC write
+   path - create new declarations, update changed declarations, and prune
+   declarations removed from the repository. Each written resource SHALL be
+   ownership-marked with its originating `Repository` (`repository_id`).
+
+Reconciliation SHALL converge, not create-and-skip, and SHALL be idempotent
+against unchanged repository state: a re-run over an unchanged `Repository` SHALL
+make no create, update, or prune write. Imported resources SHALL be owned by the
+originating `Repository`, and pruning SHALL be scoped to that `Repository`, so one
+`Repository`'s import SHALL NOT delete resources owned by another `Repository` or
+created directly through the REST API or `hsctl apply`.
+
+**Bounded write exception.** The `RepositoryReconciler` is the SINGLE, clearly-bounded
+control-plane path that writes HyperShell API desired-state resources. Outside it
+the control plane remains a reader of desired state: it writes back only derived
+resource `status` and realizes gateway-side objects through OpenShell's existing provisioning API.
+The `RepositoryReconciler` SHALL write ONLY ext resources owned by the originating
+`Repository`, SHALL perform only create / update / prune on those Repository-owned
+resources, and SHALL mark each written resource with its owning `Repository`. This
+resolves the apparent conflict with the "control plane is a reader of desired
+state" principle: the principle holds everywhere except this one named,
+ownership-scoped reconciler.
+
+**gRPC write authorization for the import.** The import-write Kinds
+(`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
+`InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
+held at default-deny when their gRPC surface was introduced. They SHALL now be
+authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
+`Repository` scope, and remain denied for every other caller (users, spokes acting
+outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
+(see the canonical importable-Kinds list in
+[`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC
+`Create` / `Update` / `Delete` are authorized for the control-plane identity on the
+same `Repository`-scoped import terms (a write carrying the reconciled-`Repository`
+binding is set and enforced as that `Repository`'s ownership server-side), while a
+`Gateway` or `AgentRuntime` write WITHOUT that binding stays on its existing
+cluster-scoped non-import path (health and status write-backs). Because the import
+reconciler must enumerate and prune a `Repository`'s gateways and agent runtimes
+across clusters, a `ListGateways` / `ListAgentRuntimes` read that carries the
+reconciled-`Repository` binding AND sets a matching `repository_id` filter for an
+existing `Repository` is exempted from the own-cluster watch-stream caller binding and
+served (and filtered) across clusters; every other read keeps the own-cluster binding.
+The `RepositoryReconciler` upserts and prunes all seven importable Kinds under the same
+`Repository`-scoped ownership mark.
+`Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
+the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
+import, so `Repository` is excluded from the canonical importable set in
+[`data-model.spec.md`](./data-model.spec.md) to prevent recursive or transitive
+import (infinite recursion). Whether `Repository`'s own gRPC Create / Update / Delete
+methods are authorized for any identity is a separate gRPC-authorization (RBAC)
+concern governed by
+[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md); it
+does NOT make `Repository` importable, and the import SHALL NOT write the `Repository`
+Kind.
+The authorization contract is specified in
+[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md),
+"Requirement: gRPC Authorization". In particular:
+
+- On create, the server SHALL set `repository_id` from the `Repository` the
+  reconciler is reconciling and SHALL ignore (not trust) any client-supplied
+  `repository_id` on the request, so a caller cannot forge ownership.
+- These writes SHALL be authorized as the control-plane identity, `Repository`-scoped
+  through the ownership mark, and SHALL NOT be an open bootstrap-service-account
+  bypass. The bootstrap-SA interceptor exemption (which allows a fully-trusted
+  internal identity to reach gRPC write handlers) is distinct from this import
+  authorization: the import write path derives its authority from the reconciled
+  `Repository` ownership, not from the bootstrap allowlist.
+
+#### Scenario: Import reconciles declared resources through the API
+
+- GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL read only the `import_path` subtree through the GitHub API at the `default_branch`, without cloning the repository
+- AND it SHALL render that subtree in memory through the shared `pkg/kustomize` `Build` and upsert both resources into the API over the gRPC write path
+- AND the resources SHALL be owned by the `Repository`
+
+#### Scenario: Removed declaration is pruned within the owning Repository
+
+- GIVEN a `Repository` that previously imported an `AgentRuntime`, and another `AgentRuntime` created directly through the REST API
+- WHEN that imported `AgentRuntime` is removed from `.hypershell` and the import re-runs
+- THEN the control-plane import reconciler SHALL delete the imported `AgentRuntime` through the API
+- AND it SHALL NOT delete the directly-created `AgentRuntime`
+
+#### Scenario: Import is idempotent against unchanged repository state
+
+- GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
+- WHEN the control-plane import reconciler runs again
+- THEN it SHALL make no create, update, or prune write to the API
+
+#### Scenario: Import reads the credential from the store, not via ExternalSecret
+
+- GIVEN a private `Repository` whose `secret_source_id` references a stored git credential
+- WHEN the control-plane import reconciler needs to read the `import_path` subtree
+- THEN it SHALL read the credential value through its read-only `pkg/secretstore` client
+- AND it SHALL NOT create an `ExternalSecret` or rely on External Secrets Operator
+
+#### Scenario: Import renders in memory through the shared kustomize library
+
+- GIVEN a `Repository` whose `import_path` subtree is a Kustomize root
+- WHEN the control-plane import reconciler renders the declared resources
+- THEN it SHALL render in memory through the exported `Build` of `pkg/kustomize` (the package in `components/cli` shared with `hsctl`)
+- AND it SHALL NOT clone the repository, write to disk, invoke an external `kustomize` or `hsctl` binary, or dispatch a `Job`
+- AND it SHALL NOT embed a second, divergent Kustomize implementation in the control plane
+
+#### Scenario: Import loop is in-process with no disk or external process
+
+- GIVEN the control-plane distroless runtime image, which ships no `git`, `kustomize`, or `hsctl` binary and mounts no persistent disk
+- WHEN the import reconcile loop runs
+- THEN it SHALL fetch the subtree over the GitHub API and render it entirely in process through an in-memory filesystem
+- AND it SHALL require no working directory, no PVC, and no child process
+
+#### Scenario: Server sets ownership on import create and ignores a client-supplied value
+
+- GIVEN the import reconciler creates an imported ext resource whose request carries a client-supplied `repository_id`
+- WHEN the gRPC create is authorized for the control-plane identity
+- THEN the server SHALL set `repository_id` from the reconciled `Repository`
+- AND it SHALL ignore the client-supplied `repository_id`
 
 ### Requirement: Watch Stream Liveness
 
@@ -488,7 +860,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings and AgentRuntimes
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings and AgentRuntimes
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
@@ -542,4 +914,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
-| AgentRuntime reconciled by the control plane; declarative `.hypershell` import hosted by the api-server | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import, by contrast, only reads Repository credentials and writes API resources (the same create/update/delete the REST layer already owns); it never touches a cluster, so it is hosted by the api-server, not the control plane (see [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
+| Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |

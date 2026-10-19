@@ -556,16 +556,16 @@ func (s *E2ESuite) cleanupGatewayServiceAccounts(ctx context.Context, client gat
 		return
 	}
 	if err := s.serviceAccounts.Close(ctx, client); err != nil {
-		s.T().Errorf("gateway service-account cleanup: %v", err)
+		reportingTest{T: s.T(), logger: s.logger}.Errorf("gateway service-account cleanup: %v", err)
 	}
 	for _, ref := range s.serviceAccounts.Gateways() {
 		dir, err := cliGatewayConfigDir(cliLocalName(ref.Namespace))
 		if err != nil {
-			s.T().Errorf("remove CLI gateway token: %v", err)
+			reportingTest{T: s.T(), logger: s.logger}.Errorf("remove CLI gateway token: %v", err)
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, "oidc_token.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
-			s.T().Errorf("remove CLI gateway token: %v", err)
+			reportingTest{T: s.T(), logger: s.logger}.Errorf("remove CLI gateway token: %v", err)
 		}
 	}
 }

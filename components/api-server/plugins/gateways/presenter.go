@@ -78,6 +78,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		CredentialDriver:   gateway.CredentialDriver,
+		RepositoryId:       gateway.RepositoryId,
 		Generation:         &gateway.Generation,
 		ObservedGeneration: &gateway.ObservedGeneration,
 		ActiveSandboxCount: func() *int32 {

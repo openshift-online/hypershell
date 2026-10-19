@@ -1,3 +1,4 @@
+import type { GateExecutionProps } from "../e2e-run/gate-execution";
 // The interactive promotion-topology map: the spec's centrepiece visual. It
 // composes the pure model/layout (buildMapModel + computeLayout) with the viewport
 // controller (pan/zoom/momentum) and the SVG layers (lane bands, promotion rails +
@@ -36,9 +37,9 @@ import {
   TEXT_SUBTLE,
   TONE_COLOR,
 } from "./colors";
+import { useRoute, useRouter } from "../../routing/router";
 import { MapEdges } from "./edges";
 import { MapFlights } from "./flights";
-import { FreightBar } from "./freight-bar";
 import { MapDetails, type MapSelection } from "./map-details";
 import { MapNodeCard } from "./map-node";
 import { MiniMap } from "./minimap";
@@ -48,10 +49,16 @@ import { useFlights } from "./use-flights";
 import { useMapViewport } from "./use-map-viewport";
 
 export interface TopologyMapProps {
+  readonly e2e?: Omit<GateExecutionProps, "target">;
   readonly promotion: PromotionData;
   readonly fleet: FleetData;
   /** Per-hub spoke layout, used to attribute gateways/sandboxes to their spoke. */
   readonly topology: TopologyData;
+  // The release freight bar is a single shared control lifted into the dashboard
+  // shell so it stays in lockstep with the Agent SDLC tab (SDLC-VIS-07). The map
+  // consumes the selected bundle as a controlled value and reports changes up.
+  readonly selectedBundleSeed: string | null;
+  readonly onSelectBundle: (seed: string) => void;
 }
 
 /** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
@@ -61,9 +68,12 @@ function hBezier(x1: number, y1: number, x2: number, y2: number): string {
 }
 
 export function TopologyMap({
+  e2e,
   promotion,
   fleet,
   topology,
+  selectedBundleSeed,
+  onSelectBundle,
 }: TopologyMapProps): React.ReactElement {
   const intl = useIntl();
   const model = useMemo(
@@ -118,25 +128,54 @@ export function TopologyMap({
     recenter,
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
-  const [selection, setSelection] = useState<MapSelection | null>(null);
+  // The node/gate selection lives in the URL (GLASS-NAV-09); the shared bundle
+  // selection arrives as a prop (route.bundle). The drawer's selection is derived:
+  // a node/gate takes the drawer, otherwise the shared bundle fills it. One source of
+  // truth per concern (the URL), no mirrored local state (GLASS-NAV-05).
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const selection: MapSelection | null = useMemo(() => {
+    if (route.map.node !== null) {
+      return { kind: "node", id: route.map.node };
+    }
+    if (route.map.gate !== null) {
+      return { kind: "gate", id: route.map.gate };
+    }
+    if (selectedBundleSeed !== null) {
+      return { kind: "bundle", id: selectedBundleSeed };
+    }
+    return null;
+  }, [route.map.node, route.map.gate, selectedBundleSeed]);
+
+  // Close the drawer, clearing the node/gate selection and the shared bundle that
+  // otherwise fills it (GLASS-NAV-09).
+  const closeSelection = () => {
+    navigate({ type: "mapClose" });
+  };
 
   // Esc closes the details drawer. PatternFly's inline Drawer does not trap focus
   // or handle Escape itself, so we listen at the document level, but only while a
-  // selection is open, leaving Esc untouched when the panel is closed.
+  // selection is open, leaving Esc untouched when the panel is closed. A nested
+  // dialog (the expanded log Modal in the gate drawer) must handle Escape first, so
+  // we ignore the key when it targets an open dialog and leave the gate drawer open
+  // (mirrors the E2E run view guard).
   useEffect(() => {
     if (selection === null) {
       return;
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSelection(null);
+      const target = e.target;
+      const inDialog =
+        target instanceof Element && target.closest('[role="dialog"]') !== null;
+      if (e.key === "Escape" && !e.defaultPrevented && !inDialog) {
+        navigate({ type: "mapClose" });
       }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [selection]);
+  }, [selection, navigate]);
 
   // Promotion fly-ins: identicons arc from the promoting-FROM node to the node they
   // land on, and each landing jolts the whole canvas (screen shake). Both collapse to
@@ -149,8 +188,6 @@ export function TopologyMap({
     () => new Map(model.nodes.map((n) => [n.id, promotionRing(n.state)])),
     [model.nodes],
   );
-
-  const selectedBundleSeed = selection?.kind === "bundle" ? selection.id : null;
 
   const highlighted = useMemo(() => {
     if (!selectedBundleSeed) {
@@ -165,28 +202,27 @@ export function TopologyMap({
     return new Set(deployedFor(bundle, model.nodes).map((n) => n.id));
   }, [promotion.releaseByDigest, model.nodes, selectedBundleSeed]);
 
+  // Selecting a node/gate is a discrete navigation step (GLASS-NAV-09). The pan guard
+  // keeps a drag from registering as a click; the reducer handles toggle-off and the
+  // node/gate mutual exclusion. The shared bundle stays selected but a node/gate wins
+  // the drawer (see the `selection` derivation above), so one thing shows at a time.
   const selectNode = (id: string) => {
     if (didPan()) {
       return;
     }
-    setSelection((cur) =>
-      cur?.kind === "node" && cur.id === id ? null : { kind: "node", id },
-    );
+    navigate({ type: "mapSelectNode", id });
   };
   const selectGate = (id: string) => {
     if (didPan()) {
       return;
     }
-    setSelection((cur) =>
-      cur?.kind === "gate" && cur.id === id ? null : { kind: "gate", id },
-    );
+    navigate({ type: "mapSelectGate", id });
   };
+  // Bundle selection lives in the shared freight bar; its shell-provided handler
+  // toggles the seed and the reducer drops any node/gate selection so the bundle
+  // takes the drawer.
   const selectBundle = (seed: string) => {
-    setSelection((cur) =>
-      cur?.kind === "bundle" && cur.id === seed
-        ? null
-        : { kind: "bundle", id: seed },
-    );
+    onSelectBundle(seed);
   };
   // From a node-card identicon: suppress when the press was actually a pan.
   const selectBundleOnMap = (seed: string) => {
@@ -220,13 +256,6 @@ export function TopologyMap({
 
   return (
     <div className={styles.wrap}>
-      <FreightBar
-        releaseByDigest={promotion.releaseByDigest}
-        nodes={model.nodes}
-        selectedSeed={selectedBundleSeed}
-        onSelectBundle={selectBundle}
-      />
-
       <div
         className={styles.stage}
         style={
@@ -240,23 +269,23 @@ export function TopologyMap({
             panelContent={
               <DrawerPanelContent
                 isResizable
-                defaultSize="420px"
+                defaultSize={selection?.kind === "gate" ? "560px" : "420px"}
                 minSize="320px"
               >
                 <DrawerPanelBody className={styles.panelBody}>
                   {selection ? (
                     <MapDetails
+                      e2e={e2e}
                       model={model}
                       releaseByDigest={promotion.releaseByDigest}
                       selection={selection}
-                      onClose={() => {
-                        setSelection(null);
-                      }}
+                      onClose={closeSelection}
                       onSelectBundle={selectBundle}
                       onSelectNode={(id) => {
-                        // From a "Deployed on" chip: always jump to that node (not a
-                        // map click, so skip the pan guard and the toggle-off).
-                        setSelection({ kind: "node", id });
+                        // From a "Deployed on" chip: jump to that node (not a map
+                        // click, so no pan guard). The reducer clears any gate; the
+                        // node then wins the drawer over the shared bundle.
+                        navigate({ type: "mapSelectNode", id });
                       }}
                     />
                   ) : null}

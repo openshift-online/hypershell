@@ -303,7 +303,6 @@ type Gateway struct {
 	Metadata               *ObjectReference         `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Name                   string                   `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	ClusterId              string                   `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	ReleaseId              string                   `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
 	Namespace              string                   `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	ExternalDns            *string                  `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode                *string                  `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
@@ -321,13 +320,8 @@ type Gateway struct {
 	ConsoleAddress         *string                  `protobuf:"bytes,22,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	ProvisioningConditions []*ProvisioningCondition `protobuf:"bytes,23,rep,name=provisioning_conditions,json=provisioningConditions,proto3" json:"provisioning_conditions,omitempty"`
 	GatewayVersion         *string                  `protobuf:"bytes,24,opt,name=gateway_version,json=gatewayVersion,proto3,oneof" json:"gateway_version,omitempty"`
-	// observed_release_id is the release the control plane has successfully rolled
-	// out and observed healthy, distinct from the desired release_id. It is
-	// control-plane-owned and advanced only after a new revision passes its
-	// health gates. See gateway-release-rollout.spec.md.
-	ObservedReleaseId  *string `protobuf:"bytes,25,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
-	Generation         int64   `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
-	ObservedGeneration *int64  `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	Generation             int64                    `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
+	ObservedGeneration     *int64                   `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
 	// provisioning_version is the gateway version the gateway's cluster advertises
 	// provisioning onto new gateways (that cluster's single-valued gateway-version
 	// capability). It is read-only and derived at read time from cluster_id, never
@@ -335,7 +329,12 @@ type Gateway struct {
 	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
 	// image_pinned reports whether this gateway pins an explicit image and so need
 	// not track its cluster's provisioning version. Read-only, derived from image.
-	ImagePinned   *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	ImagePinned *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	// repository_id is the control-plane import ownership mark: the Repository that
+	// owns this Gateway through the declarative .hypershell import. Null for gateways
+	// created directly through the REST API or hsctl apply. Read-only; set server-side
+	// from the x-hypershell-import-repository-id binding, never from a client body.
+	RepositoryId  *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -387,13 +386,6 @@ func (x *Gateway) GetName() string {
 func (x *Gateway) GetClusterId() string {
 	if x != nil {
 		return x.ClusterId
-	}
-	return ""
-}
-
-func (x *Gateway) GetReleaseId() string {
-	if x != nil {
-		return x.ReleaseId
 	}
 	return ""
 }
@@ -517,13 +509,6 @@ func (x *Gateway) GetGatewayVersion() string {
 	return ""
 }
 
-func (x *Gateway) GetObservedReleaseId() string {
-	if x != nil && x.ObservedReleaseId != nil {
-		return *x.ObservedReleaseId
-	}
-	return ""
-}
-
 func (x *Gateway) GetGeneration() int64 {
 	if x != nil {
 		return x.Generation
@@ -552,11 +537,17 @@ func (x *Gateway) GetImagePinned() bool {
 	return false
 }
 
+func (x *Gateway) GetRepositoryId() string {
+	if x != nil && x.RepositoryId != nil {
+		return *x.RepositoryId
+	}
+	return ""
+}
+
 type CreateGatewayRequest struct {
 	state            protoimpl.MessageState  `protogen:"open.v1"`
 	Name             string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	ClusterId        string                  `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	ReleaseId        string                  `protobuf:"bytes,4,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
 	ExternalDns      *string                 `protobuf:"bytes,6,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode          *string                 `protobuf:"bytes,7,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
 	ServiceType      *string                 `protobuf:"bytes,8,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
@@ -613,13 +604,6 @@ func (x *CreateGatewayRequest) GetName() string {
 func (x *CreateGatewayRequest) GetClusterId() string {
 	if x != nil {
 		return x.ClusterId
-	}
-	return ""
-}
-
-func (x *CreateGatewayRequest) GetReleaseId() string {
-	if x != nil {
-		return x.ReleaseId
 	}
 	return ""
 }
@@ -845,7 +829,6 @@ type UpdateGatewayRequest struct {
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	ClusterId        *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
-	ReleaseId        *string                `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3,oneof" json:"release_id,omitempty"`
 	ExternalDns      *string                `protobuf:"bytes,7,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode          *string                `protobuf:"bytes,8,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
 	ServiceType      *string                `protobuf:"bytes,9,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
@@ -864,14 +847,9 @@ type UpdateGatewayRequest struct {
 	// openshell-gateway-sandbox-count.spec.md.
 	ConsoleAddress         *string                  `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	ProvisioningConditions []*ProvisioningCondition `protobuf:"bytes,21,rep,name=provisioning_conditions,json=provisioningConditions,proto3" json:"provisioning_conditions,omitempty"`
-	// observed_release_id is control-plane-owned. It shares this whole-row write
-	// path with phase/status/route_address (the control plane advances it only
-	// after a new revision passes its health gates); it is readOnly to REST
-	// clients. See gateway-release-rollout.spec.md.
-	ObservedReleaseId  *string `protobuf:"bytes,22,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
-	ObservedGeneration *int64  `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	ObservedGeneration     *int64                   `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -921,13 +899,6 @@ func (x *UpdateGatewayRequest) GetName() string {
 func (x *UpdateGatewayRequest) GetClusterId() string {
 	if x != nil && x.ClusterId != nil {
 		return *x.ClusterId
-	}
-	return ""
-}
-
-func (x *UpdateGatewayRequest) GetReleaseId() string {
-	if x != nil && x.ReleaseId != nil {
-		return *x.ReleaseId
 	}
 	return ""
 }
@@ -1028,13 +999,6 @@ func (x *UpdateGatewayRequest) GetProvisioningConditions() []*ProvisioningCondit
 		return x.ProvisioningConditions
 	}
 	return nil
-}
-
-func (x *UpdateGatewayRequest) GetObservedReleaseId() string {
-	if x != nil && x.ObservedReleaseId != nil {
-		return *x.ObservedReleaseId
-	}
-	return ""
 }
 
 func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
@@ -1438,7 +1402,15 @@ type ListGatewaysRequest struct {
 	// managed cluster. A control-plane agent sets it to its own cluster identity
 	// so it only ever lists its cluster's gateways (managed-cluster pull model).
 	// Unset preserves the prior behaviour of listing every gateway.
-	ClusterId     *string `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	ClusterId *string `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	// repository_id, when set, restricts results to gateways owned by that Repository
+	// (the control-plane import ownership mark). It is the declarative import
+	// reconciler's cross-cluster, Repository-scoped read: a call that sets it AND
+	// carries the x-hypershell-import-repository-id import binding is exempted from
+	// the cluster caller binding so the single import reconciler can enumerate and
+	// prune a Repository's gateways across clusters. See
+	// security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+	RepositoryId  *string `protobuf:"bytes,4,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1490,6 +1462,13 @@ func (x *ListGatewaysRequest) GetSize() int32 {
 func (x *ListGatewaysRequest) GetClusterId() string {
 	if x != nil && x.ClusterId != nil {
 		return *x.ClusterId
+	}
+	return ""
+}
+
+func (x *ListGatewaysRequest) GetRepositoryId() string {
+	if x != nil && x.RepositoryId != nil {
+		return *x.RepositoryId
 	}
 	return ""
 }
@@ -1706,14 +1685,12 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"9\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
-	"\x12LocalKindPlacement\"\x9b\v\n" +
+	"\x12LocalKindPlacement\"\x98\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\x04 \x01(\tR\tclusterId\x12\x1d\n" +
-	"\n" +
-	"release_id\x18\x05 \x01(\tR\treleaseId\x12\x1c\n" +
+	"cluster_id\x18\x04 \x01(\tR\tclusterId\x12\x1c\n" +
 	"\tnamespace\x18\a \x01(\tR\tnamespace\x12&\n" +
 	"\fexternal_dns\x18\b \x01(\tH\x00R\vexternalDns\x88\x01\x01\x12\x1e\n" +
 	"\btls_mode\x18\t \x01(\tH\x01R\atlsMode\x88\x01\x01\x12&\n" +
@@ -1732,14 +1709,14 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14active_sandbox_count\x18\x15 \x01(\x05H\vR\x12activeSandboxCount\x88\x01\x01\x12,\n" +
 	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x17 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x12,\n" +
-	"\x0fgateway_version\x18\x18 \x01(\tH\rR\x0egatewayVersion\x88\x01\x01\x123\n" +
-	"\x13observed_release_id\x18\x19 \x01(\tH\x0eR\x11observedReleaseId\x88\x01\x01\x12\x1e\n" +
+	"\x0fgateway_version\x18\x18 \x01(\tH\rR\x0egatewayVersion\x88\x01\x01\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x1a \x01(\x03R\n" +
 	"generation\x124\n" +
-	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01\x126\n" +
-	"\x14provisioning_version\x18\x1c \x01(\tH\x10R\x13provisioningVersion\x88\x01\x01\x12&\n" +
-	"\fimage_pinned\x18\x1d \x01(\bH\x11R\vimagePinned\x88\x01\x01B\x0f\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x126\n" +
+	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
+	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1754,16 +1731,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_active_sandbox_countB\x12\n" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
-	"\x14_observed_release_idB\x16\n" +
 	"\x14_observed_generationB\x17\n" +
 	"\x15_provisioning_versionB\x0f\n" +
-	"\r_image_pinnedJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\xdf\x05\n" +
+	"\r_image_pinnedB\x10\n" +
+	"\x0e_repository_idJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x19\x10\x1aR\bfleet_idR\n" +
+	"release_idR\vdatabase_idR\x13observed_release_id\"\xd2\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\x03 \x01(\tR\tclusterId\x12\x1d\n" +
-	"\n" +
-	"release_id\x18\x04 \x01(\tR\treleaseId\x12&\n" +
+	"cluster_id\x18\x03 \x01(\tR\tclusterId\x12&\n" +
 	"\fexternal_dns\x18\x06 \x01(\tH\x00R\vexternalDns\x88\x01\x01\x12\x1e\n" +
 	"\btls_mode\x18\a \x01(\tH\x01R\atlsMode\x88\x01\x01\x12&\n" +
 	"\fservice_type\x18\b \x01(\tH\x02R\vserviceType\x88\x01\x01\x12\x1b\n" +
@@ -1786,41 +1762,38 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driverJ\x04\b\x02\x10\x03J\x04\b\x05\x10\x06R\bfleet_idR\vdatabase_id\"I\n" +
+	"\x12_credential_driverJ\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\bfleet_idR\n" +
+	"release_idR\vdatabase_id\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xd8\b\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x85\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"cluster_id\x18\x04 \x01(\tH\x01R\tclusterId\x88\x01\x01\x12\"\n" +
-	"\n" +
-	"release_id\x18\x05 \x01(\tH\x02R\treleaseId\x88\x01\x01\x12&\n" +
-	"\fexternal_dns\x18\a \x01(\tH\x03R\vexternalDns\x88\x01\x01\x12\x1e\n" +
-	"\btls_mode\x18\b \x01(\tH\x04R\atlsMode\x88\x01\x01\x12&\n" +
-	"\fservice_type\x18\t \x01(\tH\x05R\vserviceType\x88\x01\x01\x12\x1b\n" +
+	"cluster_id\x18\x04 \x01(\tH\x01R\tclusterId\x88\x01\x01\x12&\n" +
+	"\fexternal_dns\x18\a \x01(\tH\x02R\vexternalDns\x88\x01\x01\x12\x1e\n" +
+	"\btls_mode\x18\b \x01(\tH\x03R\atlsMode\x88\x01\x01\x12&\n" +
+	"\fservice_type\x18\t \x01(\tH\x04R\vserviceType\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\x06R\x06status\x88\x01\x01\x12\x19\n" +
-	"\x05phase\x18\v \x01(\tH\aR\x05phase\x88\x01\x01\x12\x19\n" +
-	"\x05image\x18\f \x01(\tH\bR\x05image\x88\x01\x01\x12.\n" +
-	"\x10supervisor_image\x18\r \x01(\tH\tR\x0fsupervisorImage\x88\x01\x01\x12(\n" +
+	" \x01(\tH\x05R\x06status\x88\x01\x01\x12\x19\n" +
+	"\x05phase\x18\v \x01(\tH\x06R\x05phase\x88\x01\x01\x12\x19\n" +
+	"\x05image\x18\f \x01(\tH\aR\x05image\x88\x01\x01\x12.\n" +
+	"\x10supervisor_image\x18\r \x01(\tH\bR\x0fsupervisorImage\x88\x01\x01\x12(\n" +
 	"\x10server_dns_names\x18\x0e \x03(\tR\x0eserverDnsNames\x12(\n" +
-	"\rroute_address\x18\x0f \x01(\tH\n" +
-	"R\frouteAddress\x88\x01\x01\x12\x17\n" +
-	"\x04oidc\x18\x10 \x01(\tH\vR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x11 \x01(\tH\fR\x05route\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\rR\x10credentialDriver\x88\x01\x01\x12,\n" +
-	"\x0fconsole_address\x18\x14 \x01(\tH\x0eR\x0econsoleAddress\x88\x01\x01\x12]\n" +
-	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x123\n" +
-	"\x13observed_release_id\x18\x16 \x01(\tH\x0fR\x11observedReleaseId\x88\x01\x01\x124\n" +
-	"\x13observed_generation\x18\x17 \x01(\x03H\x10R\x12observedGeneration\x88\x01\x01B\a\n" +
+	"\rroute_address\x18\x0f \x01(\tH\tR\frouteAddress\x88\x01\x01\x12\x17\n" +
+	"\x04oidc\x18\x10 \x01(\tH\n" +
+	"R\x04oidc\x88\x01\x01\x12\x19\n" +
+	"\x05route\x18\x11 \x01(\tH\vR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\fR\x10credentialDriver\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
+	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
+	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
-	"\v_cluster_idB\r\n" +
-	"\v_release_idB\x0f\n" +
+	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1833,8 +1806,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_release_idB\x16\n" +
-	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"I\n" +
+	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x16\x10\x17R\bfleet_idR\n" +
+	"release_idR\vdatabase_idR\x13observed_release_id\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +
@@ -1853,13 +1826,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x19SetGatewayVersionResponse\x12'\n" +
 	"\x0fgateway_version\x18\x01 \x01(\tR\x0egatewayVersion\"&\n" +
 	"\x14DeleteGatewayRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"p\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xac\x01\n" +
 	"\x13ListGatewaysRequest\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x05R\x04size\x12\"\n" +
 	"\n" +
-	"cluster_id\x18\x03 \x01(\tH\x00R\tclusterId\x88\x01\x01B\r\n" +
-	"\v_cluster_id\"y\n" +
+	"cluster_id\x18\x03 \x01(\tH\x00R\tclusterId\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x04 \x01(\tH\x01R\frepositoryId\x88\x01\x01B\r\n" +
+	"\v_cluster_idB\x10\n" +
+	"\x0e_repository_id\"y\n" +
 	"\x14ListGatewaysResponse\x12,\n" +
 	"\x05items\x18\x01 \x03(\v2\x16.hypershell.v1.GatewayR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x17\n" +

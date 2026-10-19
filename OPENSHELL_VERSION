@@ -6,6 +6,8 @@ OPENSHELL_CHART_REPO=https://github.com/opendatahub-io/openshell.git
 OPENSHELL_GATEWAY_IMAGE=quay.io/opendatahub/odh-openshell-gateway
 OPENSHELL_SUPERVISOR_IMAGE=quay.io/opendatahub/odh-openshell-supervisor
 OPENSHELL_SANDBOX_RUNTIME_IMAGE=quay.io/opendatahub/odh-openshell-sandbox
+# Workload image for e2e and Kind preload, synced from charts/openshell/values.yaml.
+OPENSHELL_SANDBOX_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 OPENSHELL_CLI_IMAGE=quay.io/opendatahub/odh-openshell-cli
 OPENSHELL_CONSOLE_IMAGE=quay.io/gkrumbach07/openshell-dashboard
 OPENSHELL_CONSOLE_DIGEST=sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927

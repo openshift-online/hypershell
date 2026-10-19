@@ -76,12 +76,69 @@ function buildSandboxActiveTotalData(
   ]);
 }
 
+function buildSandboxLifecycleData(
+  intl: IntlShape,
+  metric: {
+    expiringSandboxes?: number;
+    idleSandboxes?: number;
+    orphanedSandboxes?: number;
+    value: string;
+  },
+): StatusDonutSeries {
+  const total = Number(metric.value);
+  const expiring = metric.expiringSandboxes ?? 0;
+  const idle = metric.idleSandboxes ?? 0;
+  const orphaned = metric.orphanedSandboxes ?? 0;
+  const active = Math.max(0, total - expiring - idle - orphaned);
+  const entries = [
+    [messages.sandboxStatusActive, active, SANDBOX_STATUS_COLORS.healthy],
+    [
+      messages.sandboxAttentionExpiringSoon,
+      expiring,
+      SANDBOX_STATUS_COLORS.degraded,
+    ],
+    [messages.sandboxAttentionIdle, idle, SANDBOX_STATUS_COLORS.provisioning],
+    [messages.sandboxAttentionOrphaned, orphaned, SANDBOX_STATUS_COLORS.failed],
+  ] as const;
+
+  return buildStatusDonutData(
+    entries.map(([message, count, color]) => {
+      const label = intl
+        .formatMessage(message, { count })
+        .replace(/^\d+\s*/, "");
+      return {
+        color,
+        count,
+        label,
+        legendName: intl.formatMessage(messages.statusDonutLegend, {
+          count,
+          status: label,
+        }),
+      };
+    }),
+  );
+}
+
 export function buildSandboxStatusData(
   intl: IntlShape,
-  metric: { status?: OperationalMetricStatus; value: string },
+  metric: {
+    expiringSandboxes?: number;
+    idleSandboxes?: number;
+    orphanedSandboxes?: number;
+    status?: OperationalMetricStatus;
+    value: string;
+  },
 ): StatusDonutSeries {
   if (metric.status !== undefined) {
     return buildSandboxStatusBreakdownData(intl, metric.status);
+  }
+
+  if (
+    metric.expiringSandboxes !== undefined ||
+    metric.idleSandboxes !== undefined ||
+    metric.orphanedSandboxes !== undefined
+  ) {
+    return buildSandboxLifecycleData(intl, metric);
   }
 
   const parsed = Number(metric.value);

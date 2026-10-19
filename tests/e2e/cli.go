@@ -120,6 +120,26 @@ func repoRoot() string {
 	}
 }
 
+// readSandboxImage reads the same plain shell assignment that Kind sources.
+// There is no fallback literal: a missing pin must fail before test provisioning.
+func readSandboxImage(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read sandbox image pin: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || key != "OPENSHELL_SANDBOX_IMAGE" {
+			continue
+		}
+		if value == "" || strings.ContainsAny(value, " \t\r'\"") {
+			return "", fmt.Errorf("%s: OPENSHELL_SANDBOX_IMAGE must be a nonempty unquoted image reference", path)
+		}
+		return value, nil
+	}
+	return "", fmt.Errorf("%s: OPENSHELL_SANDBOX_IMAGE is missing", path)
+}
+
 // caFile writes the cluster CA to a temp file and returns its path, so the CLI
 // process (which cannot share the suite's in-process cert pool) trusts the
 // issuer's TLS via SSL_CERT_FILE. Cached for the suite lifetime.
@@ -320,7 +340,7 @@ func (s *E2ESuite) gatewayCLIImage(t *testing.T, ns string) string {
 	}
 	cliImage := strings.Replace(gwImage, "odh-openshell-gateway", "odh-openshell-cli", 1)
 	s.cliCache.openshiftCLIImage = cliImage
-	t.Logf("openshift CLI image: %s", cliImage)
+	s.Logf("openshift CLI image: %s", cliImage)
 	return cliImage
 }
 

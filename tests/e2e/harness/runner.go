@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -20,8 +21,8 @@ type Logf func(format string, args ...any)
 // of the commands a user would run by hand. It mirrors the Bash show_cmd helper
 // (which survives in the retained smoke script).
 type CommandRunner struct {
-	logf  Logf
-	color bool
+	logger *Logger
+	color  bool
 }
 
 const (
@@ -33,8 +34,25 @@ const (
 // when stdout is a TTY and NO_COLOR is unset; under go test output capture the
 // runner emits plain text.
 func NewCommandRunner(logf Logf) *CommandRunner {
-	return &CommandRunner{logf: logf, color: useColor()}
+	return &CommandRunner{logger: NewLogger(logf), color: useColor()}
 }
+
+// SetReporter attaches the structured reporter and the owning step id for the
+// streaming path. A nil reporter leaves the runner on its unchanged
+// combined-output-only behavior. stepID may be empty for run-scoped output.
+func (r *CommandRunner) SetReporter(reporter *Reporter, stepID string) {
+	r.logger = NewLogger(r.logger.human, ReporterSink(reporter)).WithStep(stepID, nil)
+}
+
+// SetStep updates the step attribution for subsequently streamed output. It is
+// used by the sequential gate path, where one shared runner serves successive
+// steps that never run concurrently.
+func (r *CommandRunner) SetStep(stepID string) {
+	r.logger = r.logger.WithStep(stepID, nil)
+}
+
+// SetLogger shares the suite logging fanout with the command runner.
+func (r *CommandRunner) SetLogger(logger *Logger) { r.logger = logger }
 
 func useColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
@@ -53,16 +71,16 @@ func useColor() bool {
 func (r *CommandRunner) Show(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
 	if r.color {
-		r.logf("%s$ %s%s", colorCyan, line, colorReset)
+		r.logger.Logf("%s$ %s%s", colorCyan, line, colorReset)
 		return
 	}
-	r.logf("$ %s", line)
+	r.logger.Logf("$ %s", line)
 }
 
 // Comment logs a `# `-prefixed note, for context around an illustrative command
 // (for example explaining a Keycloak admin API call), matching the Bash suite.
 func (r *CommandRunner) Comment(format string, args ...any) {
-	r.logf("# %s", fmt.Sprintf(format, args...))
+	r.logger.Logf("# %s", fmt.Sprintf(format, args...))
 }
 
 // Run echoes the command, then executes it with the suite context, capturing
@@ -96,17 +114,61 @@ func (r *CommandRunner) run(ctx context.Context, env []string, stdin, name strin
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	streamer := r.logger.Stream()
+	if len(r.logger.sinks) > 0 {
+		w := io.MultiWriter(&buf, streamer)
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+	}
 	err := cmd.Run()
+	if streamer != nil {
+		streamer.Flush()
+	}
 	out := buf.String()
 	if out != "" {
-		r.logf("%s", strings.TrimRight(out, "\n"))
+		r.logger.Humanf("%s", strings.TrimRight(out, "\n"))
 	}
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w\noutput:\n%s", name, strings.Join(args, " "), err, out)
 	}
 	return out, nil
+}
+
+// lineStreamer splits an output stream into newline-delimited lines and invokes
+// emit for each complete line, so command output is reported live. It buffers a
+// trailing partial line until the next write or a final Flush. It is written to
+// by a single os/exec copy goroutine, so it needs no internal synchronization.
+type lineStreamer struct {
+	emit func(line string)
+	buf  []byte
+}
+
+func newLineStreamer(emit func(line string)) *lineStreamer {
+	return &lineStreamer{emit: emit}
+}
+
+func (l *lineStreamer) Write(p []byte) (int, error) {
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			break
+		}
+		l.emit(strings.TrimRight(string(l.buf[:i]), "\r"))
+		l.buf = l.buf[i+1:]
+	}
+	return len(p), nil
+}
+
+// Flush emits any buffered trailing partial line that was not newline-terminated.
+func (l *lineStreamer) Flush() {
+	if len(l.buf) > 0 {
+		l.emit(string(l.buf))
+		l.buf = nil
+	}
 }
 
 // Poll calls fn every interval until it reports done, the timeout elapses, or the

@@ -356,4 +356,5 @@ func init() {
 	db.RegisterMigration(migrationDropReleaseFK())
 	db.RegisterMigration(migrationDropGatewayReleasesTable())
 	db.RegisterMigration(migrationDropGatewayNetworksTable())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

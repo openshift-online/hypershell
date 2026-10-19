@@ -22,6 +22,9 @@ const (
 	AgentRuntimeService_WatchAgentRuntimes_FullMethodName       = "/hypershell.v1.AgentRuntimeService/WatchAgentRuntimes"
 	AgentRuntimeService_ListAgentRuntimes_FullMethodName        = "/hypershell.v1.AgentRuntimeService/ListAgentRuntimes"
 	AgentRuntimeService_UpdateAgentRuntimeStatus_FullMethodName = "/hypershell.v1.AgentRuntimeService/UpdateAgentRuntimeStatus"
+	AgentRuntimeService_CreateAgentRuntime_FullMethodName       = "/hypershell.v1.AgentRuntimeService/CreateAgentRuntime"
+	AgentRuntimeService_UpdateAgentRuntime_FullMethodName       = "/hypershell.v1.AgentRuntimeService/UpdateAgentRuntime"
+	AgentRuntimeService_DeleteAgentRuntime_FullMethodName       = "/hypershell.v1.AgentRuntimeService/DeleteAgentRuntime"
 )
 
 // AgentRuntimeServiceClient is the client API for AgentRuntimeService service.
@@ -31,6 +34,12 @@ type AgentRuntimeServiceClient interface {
 	WatchAgentRuntimes(ctx context.Context, in *WatchAgentRuntimesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAgentRuntimesResponse], error)
 	ListAgentRuntimes(ctx context.Context, in *ListAgentRuntimesRequest, opts ...grpc.CallOption) (*ListAgentRuntimesResponse, error)
 	UpdateAgentRuntimeStatus(ctx context.Context, in *UpdateAgentRuntimeStatusRequest, opts ...grpc.CallOption) (*AgentRuntime, error)
+	// Create / Update / Delete are the declarative-import reconciler's bounded write
+	// surface for AgentRuntime; authorized only for the control-plane identity with
+	// a valid reconciled-Repository binding (rbac-enforcement.spec.md).
+	CreateAgentRuntime(ctx context.Context, in *CreateAgentRuntimeRequest, opts ...grpc.CallOption) (*CreateAgentRuntimeResponse, error)
+	UpdateAgentRuntime(ctx context.Context, in *UpdateAgentRuntimeRequest, opts ...grpc.CallOption) (*UpdateAgentRuntimeResponse, error)
+	DeleteAgentRuntime(ctx context.Context, in *DeleteAgentRuntimeRequest, opts ...grpc.CallOption) (*DeleteAgentRuntimeResponse, error)
 }
 
 type agentRuntimeServiceClient struct {
@@ -80,6 +89,36 @@ func (c *agentRuntimeServiceClient) UpdateAgentRuntimeStatus(ctx context.Context
 	return out, nil
 }
 
+func (c *agentRuntimeServiceClient) CreateAgentRuntime(ctx context.Context, in *CreateAgentRuntimeRequest, opts ...grpc.CallOption) (*CreateAgentRuntimeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAgentRuntimeResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CreateAgentRuntime_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) UpdateAgentRuntime(ctx context.Context, in *UpdateAgentRuntimeRequest, opts ...grpc.CallOption) (*UpdateAgentRuntimeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateAgentRuntimeResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_UpdateAgentRuntime_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) DeleteAgentRuntime(ctx context.Context, in *DeleteAgentRuntimeRequest, opts ...grpc.CallOption) (*DeleteAgentRuntimeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteAgentRuntimeResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_DeleteAgentRuntime_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentRuntimeServiceServer is the server API for AgentRuntimeService service.
 // All implementations must embed UnimplementedAgentRuntimeServiceServer
 // for forward compatibility.
@@ -87,6 +126,12 @@ type AgentRuntimeServiceServer interface {
 	WatchAgentRuntimes(*WatchAgentRuntimesRequest, grpc.ServerStreamingServer[WatchAgentRuntimesResponse]) error
 	ListAgentRuntimes(context.Context, *ListAgentRuntimesRequest) (*ListAgentRuntimesResponse, error)
 	UpdateAgentRuntimeStatus(context.Context, *UpdateAgentRuntimeStatusRequest) (*AgentRuntime, error)
+	// Create / Update / Delete are the declarative-import reconciler's bounded write
+	// surface for AgentRuntime; authorized only for the control-plane identity with
+	// a valid reconciled-Repository binding (rbac-enforcement.spec.md).
+	CreateAgentRuntime(context.Context, *CreateAgentRuntimeRequest) (*CreateAgentRuntimeResponse, error)
+	UpdateAgentRuntime(context.Context, *UpdateAgentRuntimeRequest) (*UpdateAgentRuntimeResponse, error)
+	DeleteAgentRuntime(context.Context, *DeleteAgentRuntimeRequest) (*DeleteAgentRuntimeResponse, error)
 	mustEmbedUnimplementedAgentRuntimeServiceServer()
 }
 
@@ -105,6 +150,15 @@ func (UnimplementedAgentRuntimeServiceServer) ListAgentRuntimes(context.Context,
 }
 func (UnimplementedAgentRuntimeServiceServer) UpdateAgentRuntimeStatus(context.Context, *UpdateAgentRuntimeStatusRequest) (*AgentRuntime, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateAgentRuntimeStatus not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CreateAgentRuntime(context.Context, *CreateAgentRuntimeRequest) (*CreateAgentRuntimeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAgentRuntime not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) UpdateAgentRuntime(context.Context, *UpdateAgentRuntimeRequest) (*UpdateAgentRuntimeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAgentRuntime not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) DeleteAgentRuntime(context.Context, *DeleteAgentRuntimeRequest) (*DeleteAgentRuntimeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAgentRuntime not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) mustEmbedUnimplementedAgentRuntimeServiceServer() {}
 func (UnimplementedAgentRuntimeServiceServer) testEmbeddedByValue()                             {}
@@ -174,6 +228,60 @@ func _AgentRuntimeService_UpdateAgentRuntimeStatus_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentRuntimeService_CreateAgentRuntime_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAgentRuntimeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CreateAgentRuntime(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CreateAgentRuntime_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CreateAgentRuntime(ctx, req.(*CreateAgentRuntimeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_UpdateAgentRuntime_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAgentRuntimeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).UpdateAgentRuntime(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_UpdateAgentRuntime_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).UpdateAgentRuntime(ctx, req.(*UpdateAgentRuntimeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_DeleteAgentRuntime_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAgentRuntimeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).DeleteAgentRuntime(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_DeleteAgentRuntime_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).DeleteAgentRuntime(ctx, req.(*DeleteAgentRuntimeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentRuntimeService_ServiceDesc is the grpc.ServiceDesc for AgentRuntimeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -188,6 +296,18 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateAgentRuntimeStatus",
 			Handler:    _AgentRuntimeService_UpdateAgentRuntimeStatus_Handler,
+		},
+		{
+			MethodName: "CreateAgentRuntime",
+			Handler:    _AgentRuntimeService_CreateAgentRuntime_Handler,
+		},
+		{
+			MethodName: "UpdateAgentRuntime",
+			Handler:    _AgentRuntimeService_UpdateAgentRuntime_Handler,
+		},
+		{
+			MethodName: "DeleteAgentRuntime",
+			Handler:    _AgentRuntimeService_DeleteAgentRuntime_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

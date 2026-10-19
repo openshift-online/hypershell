@@ -46,7 +46,6 @@ func createGatewayForSandboxCount(ctx context.Context, client pb.GatewayServiceC
 	created, err := client.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      name,
 		ClusterId: sandboxCountClusterID(),
-		ReleaseId: "test-release",
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))

@@ -372,6 +372,10 @@ components:
               format: int64
               readOnly: true
               description: Generation the control plane last successfully applied; converged when equal to generation
+            repository_id:
+              type: string
+              readOnly: true
+              description: Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
             can_delete:
               type: boolean
               readOnly: true

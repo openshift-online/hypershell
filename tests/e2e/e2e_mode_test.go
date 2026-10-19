@@ -67,3 +67,17 @@ func TestLongOnlyRunsOnlyInLongMode(t *testing.T) {
 		})
 	}
 }
+
+func TestNamespaceGCIsLongOnly(t *testing.T) {
+	s := &E2ESuite{mode: modeShort}
+	for _, step := range s.p2ParallelSteps() {
+		if step.name != "P2.3-deletion-namespace-gc" {
+			continue
+		}
+		if step.tag != tagLong {
+			t.Errorf("P2.3 tag = %q, want %q so namespace GC is excluded from short mode", step.tag, tagLong)
+		}
+		return
+	}
+	t.Fatal("P2.3-deletion-namespace-gc is not registered")
+}

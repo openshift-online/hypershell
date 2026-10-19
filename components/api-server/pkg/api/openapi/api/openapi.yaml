@@ -3168,6 +3168,490 @@ paths:
       security:
       - Bearer: []
       summary: Update a repository
+  /api/hypershell/ext/agent_workspaces:
+    get:
+      operationId: listAgentWorkspaces
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspaceList"
+          description: A JSON array of agent workspace objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of agent workspaces
+    post:
+      operationId: createAgentWorkspace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentWorkspace"
+        description: AgentWorkspace data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: "Workspace name already in use on the gateway, or the runtime\
+            \ already owns a workspace"
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new agent workspace
+  /api/hypershell/ext/agent_workspaces/{id}:
+    delete:
+      operationId: deleteAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: AgentWorkspace deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete an agent workspace
+    get:
+      operationId: getAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: AgentWorkspace found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get an agent workspace by ID
+    patch:
+      operationId: updateAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentWorkspacePatchRequest"
+        description: Updated agent workspace data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: AgentWorkspace updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace name already in use on the gateway
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update an agent workspace
+  /api/hypershell/ext/workspace_memberships:
+    get:
+      operationId: listWorkspaceMemberships
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembershipList"
+          description: A JSON array of workspace membership objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of workspace memberships
+    post:
+      operationId: createWorkspaceMembership
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMembership"
+        description: WorkspaceMembership data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace requires at least one admin membership for a refresh-bearing
+            provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new workspace membership
+  /api/hypershell/ext/workspace_memberships/{id}:
+    delete:
+      operationId: deleteWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: WorkspaceMembership deleted successfully
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Cannot remove the last admin membership from a workspace with
+            a refresh-bearing provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a workspace membership
+    get:
+      operationId: getWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: WorkspaceMembership found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a workspace membership by ID
+    patch:
+      operationId: updateWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMembershipPatchRequest"
+        description: Updated workspace membership data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: WorkspaceMembership updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace requires at least one admin membership for a refresh-bearing
+            provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a workspace membership
 components:
   parameters:
     id:
@@ -3658,6 +4142,12 @@ components:
             format: int64
             readOnly: true
             type: integer
+          repository_id:
+            description: Repository that owns this gateway through the control-plane
+              .hypershell import. Null for gateways created directly through the REST
+              API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           can_delete:
             description: Whether the authenticated caller is authorized to delete
               this gateway (gateway owner or platform admin). Advertised so clients
@@ -3687,6 +4177,7 @@ components:
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         can_delete: true
+        repository_id: repository_id
         id: id
         href: href
         gateway_version: gateway_version
@@ -3745,6 +4236,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version
@@ -3784,6 +4276,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version
@@ -4857,6 +5350,12 @@ components:
             description: "JSON-encoded filesystem, network, and process policy for\
               \ sandboxes"
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -4871,6 +5370,7 @@ components:
         kind: kind
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         policy: policy
@@ -4900,6 +5400,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           policy: policy
@@ -4910,6 +5411,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           policy: policy
@@ -4949,6 +5451,12 @@ components:
             description: JSON-encoded opaque profile passed through to the gateway
               provider registration step
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -4963,6 +5471,7 @@ components:
         profile: profile
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         category: inference
@@ -4992,6 +5501,7 @@ components:
           profile: profile
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           category: inference
@@ -5002,6 +5512,7 @@ components:
           profile: profile
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           category: inference
@@ -5034,6 +5545,12 @@ components:
           refresh_strategy:
             description: JSON-encoded credential refresh strategy configuration
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             readOnly: true
             type: string
@@ -5050,6 +5567,7 @@ components:
         kind: kind
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         refresh_strategy: refresh_strategy
@@ -5080,6 +5598,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           refresh_strategy: refresh_strategy
@@ -5091,6 +5610,7 @@ components:
           kind: kind
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           refresh_strategy: refresh_strategy
@@ -5119,6 +5639,12 @@ components:
           model:
             description: Model alias for LLM inference within the agent workspace
             type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
         required:
         - model
         - provider_binding_id
@@ -5130,6 +5656,7 @@ components:
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
         model: model
+        repository_id: repository_id
         id: id
         href: href
         provider_binding_id: provider_binding_id
@@ -5157,6 +5684,7 @@ components:
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
+          repository_id: repository_id
           id: id
           href: href
           provider_binding_id: provider_binding_id
@@ -5165,6 +5693,7 @@ components:
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
+          repository_id: repository_id
           id: id
           href: href
           provider_binding_id: provider_binding_id
@@ -5183,30 +5712,51 @@ components:
             description: "Secret backend type (vault, aws-secrets-manager, kubernetes)"
             type: string
           path:
-            description: Path to the secret in the backend
+            description: "Logical, mount-relative path to the secret in the backend.\
+              \ Optional on create - when omitted the API server derives the convention\
+              \ path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value\
+              \ is submitted the path is set server-side to the location the value\
+              \ was written to."
             type: string
           key_mappings:
             description: JSON-encoded mapping of backend secret keys to environment
               variable names
             type: string
+          value:
+            description: "Secret value to submit for storage. Write-only (one-way)\
+              \ - when present on create, the API server writes it to the configured\
+              \ secret manager at a deterministic location derived from the submission\
+              \ identity and then persists only this SecretSource reference; path\
+              \ is set server-side to that location. The value is never persisted\
+              \ in the database, never logged, and never returned on create, get,\
+              \ or list."
+            type: string
+            writeOnly: true
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
         required:
         - agent_runtime_id
         - backend
         - name
-        - path
         - purpose
         type: object
       example:
-        path: path
-        updated_at: 2000-01-23T04:56:07.000+00:00
         purpose: purpose
         kind: kind
-        name: name
         key_mappings: key_mappings
         created_at: 2000-01-23T04:56:07.000+00:00
+        path: path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
         backend: backend
+        repository_id: repository_id
         id: id
         href: href
+        value: value
         agent_runtime_id: agent_runtime_id
     SecretSourceList:
       allOf:
@@ -5227,27 +5777,31 @@ components:
         id: id
         href: href
         items:
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
+          repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
+          repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
     SecretSourcePatchRequest:
       example:
@@ -5266,6 +5820,158 @@ components:
         path:
           type: string
         key_mappings:
+          type: string
+      type: object
+    AgentWorkspace:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          agent_runtime_id:
+            description: The AgentRuntime that owns this workspace. Exactly one workspace
+              per runtime.
+            type: string
+          gateway_id:
+            description: The Gateway this workspace is provisioned on.
+            type: string
+          name:
+            description: "Workspace name, unique on the gateway."
+            type: string
+          status:
+            type: string
+        required:
+        - agent_runtime_id
+        - gateway_id
+        - name
+        type: object
+      example:
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        agent_runtime_id: agent_runtime_id
+        gateway_id: gateway_id
+        status: status
+    AgentWorkspaceList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/AgentWorkspace"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          agent_runtime_id: agent_runtime_id
+          gateway_id: gateway_id
+          status: status
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          agent_runtime_id: agent_runtime_id
+          gateway_id: gateway_id
+          status: status
+    AgentWorkspacePatchRequest:
+      example:
+        name: name
+        status: status
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+      type: object
+    WorkspaceMembership:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          workspace_id:
+            type: string
+          subject:
+            description: OIDC subject UUID the agent uses to connect to the gateway.
+            type: string
+          role:
+            description: "Membership role, one of admin or member."
+            enum:
+            - admin
+            - member
+            type: string
+        required:
+        - role
+        - subject
+        - workspace_id
+        type: object
+      example:
+        workspace_id: workspace_id
+        role: admin
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        subject: subject
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+    WorkspaceMembershipList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/WorkspaceMembership"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - workspace_id: workspace_id
+          role: admin
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject: subject
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+        - workspace_id: workspace_id
+          role: admin
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject: subject
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+    WorkspaceMembershipPatchRequest:
+      example:
+        role: admin
+      properties:
+        role:
+          enum:
+          - admin
+          - member
           type: string
       type: object
     GatewayCreateRequest:

@@ -717,10 +717,12 @@ jobs:
       # Run the Go E2ESuite and, outside merge_group, the console browser suite
       # concurrently against the same cluster (tests/e2e/run-parallel.sh). The two
       # own different gateways (e2e-gw-* and e2e-console-gw-*), browser sessions
-      # and temp directories. The Go suite holds its control-plane scale-down
-      # (P2 managedcluster reconnect) until the console suite has exited
-      # (E2E_DISRUPTIVE_GATE_FILE), so the console suite never loses the
-      # controller mid-run. On merge_group only the Go suite runs.
+      # and temp directories. The Go suite does not scale the control plane to
+      # zero (it rolls the controller only to set and then restore the
+      # namespace-GC timing, at setup and teardown). Recovery of gateways created while the control
+      # plane is down is covered by api-server and control-plane tests instead.
+      # Any future Go suite step that stops or restarts the control plane must
+      # wait for E2E_DISRUPTIVE_GATE_FILE. On merge_group only the Go suite runs.
       # E2E_MODE=short applies to the console suite only.
       - name: Run e2e tests
         env:

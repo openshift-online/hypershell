@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -30,11 +31,28 @@ type agentRuntimeGRPCHandler struct {
 	service         AgentRuntimeService
 	gatewayClusters GatewayClusterLookup
 	secretSources   SecretSourceLookup
+	workspaces      WorkspaceLookup
 	brokerFunc      func() *pkgserver.EventBroker
 }
 
-func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, secretSources SecretSourceLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
-	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, secretSources: secretSources, brokerFunc: brokerFunc}
+func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, secretSources SecretSourceLookup, workspaces WorkspaceLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
+	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, secretSources: secretSources, workspaces: workspaces, brokerFunc: brokerFunc}
+}
+
+// resolveWorkspace returns the gateway-side workspace view owned by the runtime for
+// embedding in its gRPC payload. When the lookup seam is unavailable (the
+// agentWorkspaces plugin is absent) or the runtime has no workspace yet it returns
+// nil so the stream still delivers the runtime; the reconciler then provisions
+// nothing gateway-side for it rather than the watch silently breaking.
+func (h *agentRuntimeGRPCHandler) resolveWorkspace(ctx context.Context, ar *AgentRuntime) (*WorkspaceView, error) {
+	if h.workspaces == nil || ar == nil {
+		return nil, nil
+	}
+	ws, svcErr := h.workspaces(ctx, ar.ID)
+	if svcErr != nil {
+		return nil, status.Errorf(codes.Internal, "resolve workspace for agent runtime %s: %v", ar.ID, svcErr)
+	}
+	return ws, nil
 }
 
 // resolveSecretSources returns the SecretSources owned by the runtime for
@@ -141,9 +159,18 @@ func (h *agentRuntimeGRPCHandler) ListAgentRuntimes(ctx context.Context, req *pb
 		return nil, status.Errorf(codes.Internal, "list agent runtimes: %v", svcErr)
 	}
 
+	// repositoryFilter, when set, restricts the result to the AgentRuntimes owned by
+	// that Repository. It is the declarative import reconciler's Repository-scoped
+	// read; the cluster caller binding exemption that lets this read span clusters is
+	// decided in pkg/rbac (import-bound + repository_id filter), not here.
+	repositoryFilter := req.GetRepositoryId()
+
 	resp := &pb.ListAgentRuntimesResponse{}
 	for _, ar := range runtimes {
 		if ar == nil {
+			continue
+		}
+		if repositoryFilter != "" && (ar.RepositoryId == nil || *ar.RepositoryId != repositoryFilter) {
 			continue
 		}
 		if scope != nil {
@@ -159,7 +186,11 @@ func (h *agentRuntimeGRPCHandler) ListAgentRuntimes(ctx context.Context, req *pb
 		if srcErr != nil {
 			return nil, srcErr
 		}
-		resp.Items = append(resp.Items, agentRuntimeToProto(ar, sources))
+		ws, wsErr := h.resolveWorkspace(ctx, ar)
+		if wsErr != nil {
+			return nil, wsErr
+		}
+		resp.Items = append(resp.Items, agentRuntimeToProto(ar, sources, ws))
 	}
 	return resp, nil
 }
@@ -187,7 +218,139 @@ func (h *agentRuntimeGRPCHandler) UpdateAgentRuntimeStatus(ctx context.Context, 
 	if srcErr != nil {
 		return nil, srcErr
 	}
-	return agentRuntimeToProto(ar, sources), nil
+	ws, wsErr := h.resolveWorkspace(ctx, ar)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return agentRuntimeToProto(ar, sources, ws), nil
+}
+
+// CreateAgentRuntime is the declarative-import create path. The import ownership
+// mark (repository_id) is set server-side from the x-hypershell-import-repository-id
+// binding and a client-supplied value is ignored, so ownership cannot be forged
+// (rbac-enforcement.spec.md). The gRPC authorization layer has already confirmed
+// the caller is the control-plane identity reconciling a real Repository.
+func (h *agentRuntimeGRPCHandler) CreateAgentRuntime(ctx context.Context, req *pb.CreateAgentRuntimeRequest) (*pb.CreateAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateStringField("name", req.GetName(), true); err != nil {
+		return nil, err
+	}
+	if err := grpcutil.ValidateStringField("gateway_id", req.GetGatewayId(), true); err != nil {
+		return nil, err
+	}
+	ar := &AgentRuntime{
+		Name:                req.GetName(),
+		GatewayId:           req.GetGatewayId(),
+		SandboxTemplateId:   req.GetSandboxTemplateId(),
+		ClusterId:           req.GetClusterId(),
+		Selector:            req.GetSelector(),
+		Description:         req.Description,
+		Cron:                req.Cron,
+		CoordinatorImage:    req.CoordinatorImage,
+		ConcurrencyPolicy:   req.ConcurrencyPolicy,
+		LoginRefreshSeconds: req.LoginRefreshSeconds,
+		Parameters:          req.Parameters,
+		RepositoryId:        pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
+	}
+	created, svcErr := h.service.Create(ctx, ar)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	sources, srcErr := h.resolveSecretSources(ctx, created)
+	if srcErr != nil {
+		return nil, srcErr
+	}
+	ws, wsErr := h.resolveWorkspace(ctx, created)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return &pb.CreateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(created, sources, ws)}, nil
+}
+
+// UpdateAgentRuntime replaces the mutable spec of an AgentRuntime. In an import
+// context it refuses a write to a runtime owned by a different Repository (or to an
+// unowned one) via EnforceImportOwnership; outside an import context that check is a
+// no-op, so this cannot regress a direct REST/hsctl write. status and status_message
+// are control-plane-owned and are deliberately not settable here. The reconciler
+// sends the full desired spec, so selector is replaced wholesale.
+func (h *agentRuntimeGRPCHandler) UpdateAgentRuntime(ctx context.Context, req *pb.UpdateAgentRuntimeRequest) (*pb.UpdateAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.GetId()); err != nil {
+		return nil, err
+	}
+	found, svcErr := h.service.Get(ctx, req.GetId())
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if req.Name != nil {
+		found.Name = *req.Name
+	}
+	if req.GatewayId != nil {
+		found.GatewayId = *req.GatewayId
+	}
+	if req.SandboxTemplateId != nil {
+		found.SandboxTemplateId = *req.SandboxTemplateId
+	}
+	if req.ClusterId != nil {
+		found.ClusterId = *req.ClusterId
+	}
+	found.Selector = req.GetSelector()
+	if req.Description != nil {
+		found.Description = req.Description
+	}
+	if req.Cron != nil {
+		found.Cron = req.Cron
+	}
+	if req.CoordinatorImage != nil {
+		found.CoordinatorImage = req.CoordinatorImage
+	}
+	if req.ConcurrencyPolicy != nil {
+		found.ConcurrencyPolicy = req.ConcurrencyPolicy
+	}
+	if req.LoginRefreshSeconds != nil {
+		found.LoginRefreshSeconds = req.LoginRefreshSeconds
+	}
+	if req.Parameters != nil {
+		found.Parameters = req.Parameters
+	}
+	updated, svcErr := h.service.Replace(ctx, found)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	sources, srcErr := h.resolveSecretSources(ctx, updated)
+	if srcErr != nil {
+		return nil, srcErr
+	}
+	ws, wsErr := h.resolveWorkspace(ctx, updated)
+	if wsErr != nil {
+		return nil, wsErr
+	}
+	return &pb.UpdateAgentRuntimeResponse{AgentRuntime: agentRuntimeToProto(updated, sources, ws)}, nil
+}
+
+// DeleteAgentRuntime removes an AgentRuntime. It loads the runtime first so a
+// missing row is a clean NotFound (nil-found guard) and so import ownership can be
+// enforced: in an import context a runtime owned by another Repository (or unowned)
+// is refused, so one Repository's prune cannot delete another's resource.
+func (h *agentRuntimeGRPCHandler) DeleteAgentRuntime(ctx context.Context, req *pb.DeleteAgentRuntimeRequest) (*pb.DeleteAgentRuntimeResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.GetId()); err != nil {
+		return nil, err
+	}
+	found, svcErr := h.service.Get(ctx, req.GetId())
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if found == nil {
+		return nil, status.Errorf(codes.NotFound, "agent runtime %s not found", req.GetId())
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryId); err != nil {
+		return nil, err
+	}
+	if svcErr := h.service.Delete(ctx, req.GetId()); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	return &pb.DeleteAgentRuntimeResponse{}, nil
 }
 
 func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesRequest, stream grpc.ServerStreamingServer[pb.WatchAgentRuntimesResponse]) error {
@@ -283,10 +446,15 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 				glog.Warningf("WatchAgentRuntimes: failed to resolve secret sources for agent runtime %s: %v", ar.ID, srcErr)
 				return srcErr
 			}
+			ws, wsErr := h.resolveWorkspace(ctx, ar)
+			if wsErr != nil {
+				glog.Warningf("WatchAgentRuntimes: failed to resolve workspace for agent runtime %s: %v", ar.ID, wsErr)
+				return wsErr
+			}
 			watchEvent := &pb.WatchAgentRuntimesResponse{
 				Type:         pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId:   ar.ID,
-				AgentRuntime: agentRuntimeToProto(ar, sources),
+				AgentRuntime: agentRuntimeToProto(ar, sources, ws),
 			}
 			if err := stream.Send(watchEvent); err != nil {
 				glog.V(4).Infof("WatchAgentRuntimes: send error for subscriber %s: %v", sub.ID, err)
@@ -324,10 +492,14 @@ func (h *agentRuntimeGRPCHandler) replayAgentRuntimes(ctx context.Context, strea
 		if srcErr != nil {
 			return srcErr
 		}
+		ws, wsErr := h.resolveWorkspace(ctx, ar)
+		if wsErr != nil {
+			return wsErr
+		}
 		if err := stream.Send(&pb.WatchAgentRuntimesResponse{
 			Type:         pb.EventType_EVENT_TYPE_UPDATED,
 			ResourceId:   ar.ID,
-			AgentRuntime: agentRuntimeToProto(ar, sources),
+			AgentRuntime: agentRuntimeToProto(ar, sources, ws),
 		}); err != nil {
 			return status.Errorf(codes.Unavailable, "failed to replay agent runtime %s: %v", ar.ID, err)
 		}

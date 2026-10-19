@@ -16,10 +16,10 @@ import (
 // held to its own cluster's gateways (grpc_authorization.go). A nil clusters
 // disables the control-plane identity, leaving RBAC_SERVICE_ACCOUNTS as the only
 // exemption.
-func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, config AuthzConfig) grpc.UnaryServerInterceptor {
+func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, imports ImportRepositoryResolver, config AuthzConfig) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		ctx = provisionUserForGRPC(ctx, provisioner, syncer)
-		if err := authorizeGRPC(ctx, info.FullMethod, req, lookup, activityRecorder, clusters, gateways, config); err != nil {
+		if err := authorizeGRPC(ctx, info.FullMethod, req, lookup, activityRecorder, clusters, gateways, imports, config); err != nil {
 			return nil, err
 		}
 		return handler(ctx, req)
@@ -29,11 +29,11 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 // RBACStreamInterceptor is the streaming counterpart of RBACUnaryInterceptor.
 // The request of a server-streaming call is read by the handler, so streams are
 // decided per method; every hypershell stream is a Watch.
-func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, config AuthzConfig) grpc.StreamServerInterceptor {
+func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, imports ImportRepositoryResolver, config AuthzConfig) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := provisionUserForGRPC(ss.Context(), provisioner, syncer)
 		wrapped := &wrappedServerStream{ServerStream: ss, ctx: ctx}
-		if err := authorizeGRPC(ctx, info.FullMethod, nil, lookup, activityRecorder, clusters, gateways, config); err != nil {
+		if err := authorizeGRPC(ctx, info.FullMethod, nil, lookup, activityRecorder, clusters, gateways, imports, config); err != nil {
 			return err
 		}
 		return handler(srv, wrapped)
@@ -43,7 +43,7 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 // authorizeGRPC decides one call. Order matters: a registered control plane is
 // scoped to its own cluster even when it is also on the allowlist, and the
 // allowlist exemption does not cover ManagedCluster record writes.
-func authorizeGRPC(ctx context.Context, fullMethod string, req interface{}, lookup RoleBindingLookup, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, config AuthzConfig) error {
+func authorizeGRPC(ctx context.Context, fullMethod string, req interface{}, lookup RoleBindingLookup, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, gateways GatewayClusterResolver, imports ImportRepositoryResolver, config AuthzConfig) error {
 	username := auth.GetUsernameFromContext(ctx)
 	if !config.EnforceRBAC {
 		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, clusters, activityRecorder)
@@ -57,11 +57,19 @@ func authorizeGRPC(ctx context.Context, fullMethod string, req interface{}, look
 		return err
 	}
 	if registered {
-		return authorizeControlPlaneGRPC(ctx, clusterID, fullMethod, req, gateways)
+		return authorizeControlPlaneGRPC(ctx, clusterID, fullMethod, req, gateways, imports)
 	}
 
 	if isServiceAccount(username, config.ServiceAccounts) {
 		if isManagedClusterRecordMutation(fullMethod) {
+			return denied()
+		}
+		// The bootstrap allowlist is a distinct, pre-existing exemption for
+		// fully-trusted internal identities; it is NOT import authority. An
+		// allowlisted account that is not a registered control plane is not an import
+		// reconciler (rbac-enforcement.spec.md), so it cannot reach the import ext
+		// kinds' write methods through the allowlist.
+		if IsImportExtKindWrite(fullMethod) {
 			return denied()
 		}
 		return nil

@@ -1,3 +1,4 @@
+import type { VerificationTarget } from "../promotion";
 // Promotion-topology MAP model. Pure projection of the promotion plane (+ fleet
 // metrics) into the nodes / columns / lanes / gates the interactive map draws.
 //
@@ -57,6 +58,7 @@ export interface MapNodeMetrics {
 
 /** One instance rendered as a card on the map. */
 export interface MapNode {
+  readonly verification?: VerificationTarget | null;
   /** Instance key from the payload (runtime data, never compiled in). */
   readonly id: string;
   /**
@@ -97,6 +99,12 @@ export interface MapNode {
   readonly driftsFromColumn: boolean;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
+  /**
+   * Argo CD sync-operation retry count for this node's environment. Null when no
+   * sync-operation data is available (unknown), distinct from a genuine 0; a
+   * climbing value signals a wedged release-analysis gate.
+   */
+  readonly syncRetries: number | null;
   readonly prState: string | null;
   /** Worst-case gate badge for this node's active gates. */
   readonly gateBadge: StatusBadge;
@@ -183,6 +191,7 @@ export interface GateCheck {
 }
 
 export interface MapGate {
+  readonly verification?: VerificationTarget | null;
   readonly id: string;
   /** The SOURCE column: the env whose analysis this gate reports. */
   readonly fromColumnKey: string;
@@ -202,6 +211,13 @@ export interface MapGate {
   readonly checks: readonly GateCheck[];
   /** Deep-link to the source env's analysis run, when the server provides one. */
   readonly analysisUrl: string | null;
+  /**
+   * Argo CD sync-operation retry count of the gate's SOURCE environment. A gate
+   * reports its source env's analysis, so that env's sync retries belong here.
+   * Null when unknown (no sync-operation data), distinct from a genuine 0; a
+   * climbing value signals this gate is wedged, not merely slow.
+   */
+  readonly syncRetries: number | null;
   /**
    * Deep-link to the source env's Argo CD Application tree, where its analysis
    * AnalysisRun and the Jobs/Pods it spawns surface - so the analysis logs are
@@ -472,7 +488,9 @@ function buildNode(
     driftsFromColumn: false,
     argoHealth: env.argoHealth,
     argoSync: env.argoSync,
+    syncRetries: env.syncRetries,
     prState: env.prState,
+    verification: env.verification ?? null,
     gateBadge: environmentGateBadge(env),
     gateNames: env.gates.map((g) => g.name).filter((n) => n !== ""),
     gateChecks: env.gates
@@ -621,6 +639,8 @@ function buildGates(
       name: source.gateNames[0] ?? null,
       checks: source.gateChecks,
       analysisUrl: source.links.analysis,
+      verification: source.verification ?? null,
+      syncRetries: source.syncRetries,
       argoUrl: source.links.argo,
       promoting,
       // The bundle in flight is the destination's PROPOSED release (identicon seed

@@ -16,7 +16,7 @@ func ConvertSecretSource(ss openapi.SecretSource) *SecretSource {
 		AgentRuntimeId: ss.AgentRuntimeId,
 		Purpose:        ss.Purpose,
 		Backend:        ss.Backend,
-		Path:           ss.Path,
+		Path:           util.NilToEmptyString(ss.Path),
 		KeyMappings:    ss.KeyMappings,
 	}
 	if ss.CreatedAt != nil {
@@ -38,7 +38,8 @@ func PresentSecretSource(ss *SecretSource) openapi.SecretSource {
 		AgentRuntimeId: ss.AgentRuntimeId,
 		Purpose:        ss.Purpose,
 		Backend:        ss.Backend,
-		Path:           ss.Path,
+		Path:           openapi.PtrString(ss.Path),
 		KeyMappings:    ss.KeyMappings,
+		RepositoryId:   ss.RepositoryId,
 	}
 }

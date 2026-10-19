@@ -12,22 +12,13 @@ import {
 describe("dashboard layout persistence", () => {
   it("collects active widget types across responsive variants", () => {
     expect(getActiveWidgetTypes(defaultDashboardLayoutTemplate)).toEqual([
-      "section-title",
-      "usage-summary",
-      "registered-users",
+      "resource-summary",
       "gateway-status",
       "sandbox-status",
+      "active-sandboxes",
+      "provisioning-snapshot",
       "gateway-releases",
-      "system-summary",
-      "memory",
-      "cpu",
-      "nodes",
-      "pods",
-      "provision-time",
-      "provision-reliability",
-      "inventory-summary",
-      "managed-cluster-providers",
-      "managed-cluster-regions",
+      "attention-required",
     ]);
   });
 
@@ -50,37 +41,35 @@ describe("dashboard layout persistence", () => {
   });
 
   it("deduplicates widget types within a variant on save", () => {
-    const cpuWidget = defaultDashboardLayoutTemplate.xl.find(
-      (item) => item.widgetType === "cpu",
+    const statusWidget = defaultDashboardLayoutTemplate.xl.find(
+      (item) => item.widgetType === "gateway-status",
     );
-    if (!cpuWidget) {
-      throw new Error("expected cpu widget in default layout");
+    if (!statusWidget) {
+      throw new Error("expected gateway status widget in default layout");
     }
 
-    const duplicateCpu = {
+    const duplicateStatus = {
       ...defaultDashboardLayoutTemplate,
       xl: [
         ...defaultDashboardLayoutTemplate.xl,
         {
-          ...cpuWidget,
-          i: "cpu#2",
+          ...statusWidget,
+          i: "gateway-status#2",
         },
       ],
     };
 
-    const sanitized = sanitizeDashboardTemplate(duplicateCpu);
+    const sanitized = sanitizeDashboardTemplate(duplicateStatus);
 
     expect(
-      sanitized.xl.filter((item) => item.widgetType === "cpu"),
+      sanitized.xl.filter((item) => item.widgetType === "gateway-status"),
     ).toHaveLength(1);
   });
 
-  it("keeps multiple section title widgets in a variant on save", () => {
+  it("keeps all overview widget types in a variant on save", () => {
     const sanitized = sanitizeDashboardTemplate(defaultDashboardLayoutTemplate);
 
-    expect(
-      sanitized.xl.filter((item) => item.widgetType === "section-title"),
-    ).toHaveLength(3);
+    expect(new Set(sanitized.xl.map((item) => item.widgetType)).size).toBe(7);
   });
 
   it("removes retired widget types from saved templates", () => {
@@ -93,15 +82,48 @@ describe("dashboard layout persistence", () => {
       x: 3,
       y: 0,
     };
+    const reconciliationSuccessesWidget = {
+      h: 5,
+      i: "reconciliation-successes#1",
+      title: "Reconciliation successes",
+      w: 1,
+      widgetType: "reconciliation-successes",
+      x: 1,
+      y: 14,
+    };
+    const reconciliationOverTimeWidget = {
+      h: 7,
+      i: "reconciliation-over-time#1",
+      title: "Reconciliations over time",
+      w: 3,
+      widgetType: "reconciliation-over-time",
+      x: 0,
+      y: 19,
+    };
     const templateWithRetiredWidget = {
       ...defaultDashboardLayoutTemplate,
-      xl: [...defaultDashboardLayoutTemplate.xl, sandboxesWidget],
+      xl: [
+        ...defaultDashboardLayoutTemplate.xl,
+        sandboxesWidget,
+        reconciliationSuccessesWidget,
+        reconciliationOverTimeWidget,
+      ],
     };
 
     const stripped = stripRemovedWidgetTypes(templateWithRetiredWidget);
 
     expect(
       stripped.xl.some((item) => item.widgetType === "provisioned-sandboxes"),
+    ).toBe(false);
+    expect(
+      stripped.xl.some(
+        (item) => item.widgetType === "reconciliation-successes",
+      ),
+    ).toBe(false);
+    expect(
+      stripped.xl.some(
+        (item) => item.widgetType === "reconciliation-over-time",
+      ),
     ).toBe(false);
   });
 });

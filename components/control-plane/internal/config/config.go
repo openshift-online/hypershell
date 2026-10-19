@@ -145,6 +145,29 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+
+	// RepositoryImportEnabled toggles the declarative `.hypershell` import
+	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
+	// reads repository subtrees over the GitHub API with the platform GitHub App
+	// credential, which must be provisioned (GitHubTokenFile) before the loop can
+	// do anything useful, so an unconfigured control plane stays inert rather than
+	// erroring every tick. Sourced from HYPERSHELL_REPOSITORY_IMPORT_ENABLED. See
+	// specs/platform/control-plane.spec.md ("Declarative `.hypershell` Import
+	// Reconciliation").
+	RepositoryImportEnabled bool
+	// RepositoryImportInterval is the reconcile cadence of the import loop. Sourced
+	// from HYPERSHELL_REPOSITORY_IMPORT_INTERVAL.
+	RepositoryImportInterval time.Duration
+	// GitHubAPIBase overrides the GitHub REST API base URL (for GitHub Enterprise
+	// or a test server). Sourced from HYPERSHELL_GITHUB_API_BASE; empty uses the
+	// public https://api.github.com.
+	GitHubAPIBase string
+	// GitHubTokenFile is the path to the mounted platform GitHub App credential
+	// (an installation access token delivered as a file, for example by External
+	// Secrets). It is the DEFAULT transport the import uses to read a repository
+	// subtree; a per-Repository secret_source_id credential takes precedence when
+	// set. Sourced from HYPERSHELL_GITHUB_TOKEN_FILE.
+	GitHubTokenFile string
 }
 
 func Load() (*Config, error) {
@@ -184,6 +207,11 @@ func Load() (*Config, error) {
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
+
+		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
+		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", 5*time.Minute),
+		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
+		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {

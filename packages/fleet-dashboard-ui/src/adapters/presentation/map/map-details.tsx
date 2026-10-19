@@ -1,3 +1,7 @@
+import {
+  GateExecution,
+  type GateExecutionProps,
+} from "../e2e-run/gate-execution";
 // The map's detail panel. Selecting a node opens a tabbed record (Details /
 // Bundle / Links): Details carries a gateway donut + legend and a field grid;
 // Bundle lists the pull requests in the instance's deployed release; Links holds
@@ -30,7 +34,6 @@ import {
 import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
-import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
 import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
@@ -58,6 +61,7 @@ import {
 } from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
+import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
 import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
@@ -173,6 +177,7 @@ export interface MapSelection {
 }
 
 export interface MapDetailsProps {
+  readonly e2e?: Omit<GateExecutionProps, "target">;
   readonly model: MapModel;
   readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   readonly selection: MapSelection;
@@ -872,7 +877,11 @@ function NodeDetails({
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
-  const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The node drawer sub-tab is URL-represented (GLASS-NAV-09); the temporal cursor
+  // below stays transient.
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const activeKey = route.map.nodeTab;
   // The shared temporal cursor's sample index, lifted here so the gateways donut and
   // the population tiles read the same moment. Null = cursor idle (live snapshot).
   const [active, setActive] = useState<number | null>(null);
@@ -889,7 +898,11 @@ function NodeDetails({
     <Tabs
       activeKey={activeKey}
       onSelect={(_event, key) => {
-        setActiveKey(key);
+        navigate({
+          type: "mapNodeTab",
+          tab:
+            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+        });
       }}
     >
       <Tab
@@ -951,7 +964,9 @@ function GateDetails({
   gateId,
   model,
   onSelectBundle,
+  e2e,
 }: {
+  e2e?: Omit<GateExecutionProps, "target">;
   gateId: string;
   model: MapModel;
   onSelectBundle: (seed: string) => void;
@@ -967,85 +982,54 @@ function GateDetails({
         : identiName(gate.promotingSeed)
       : null;
   return (
-    <DescriptionList isCompact>
-      <Row term={<FormattedMessage {...messages.detailFlow} />}>
-        <Flex
-          spaceItems={{ default: "spaceItemsXs" }}
-          alignItems={{ default: "alignItemsCenter" }}
-        >
-          <FlexItem>{gate.fromColumnKey}</FlexItem>
-          <FlexItem>
-            <LongArrowAltRightIcon />
-          </FlexItem>
-          <FlexItem>
-            {gate.terminal ? (
-              <em>
-                <FormattedMessage {...messages.detailFinalStage} />
-              </em>
-            ) : (
-              gate.toColumnKey
-            )}
-          </FlexItem>
-        </Flex>
-      </Row>
-      <Row term={<FormattedMessage {...messages.columnGates} />}>
-        {gate.checks.length > 0 ? (
-          <Flex
-            direction={{ default: "column" }}
-            spaceItems={{ default: "spaceItemsXs" }}
-          >
-            {gate.checks.map((check) => (
-              <Flex
-                key={check.name}
-                spaceItems={{ default: "spaceItemsSm" }}
-                alignItems={{ default: "alignItemsCenter" }}
-                flexWrap={{ default: "nowrap" }}
-              >
-                <FlexItem className={styles.gateCheckName}>
-                  {check.name}
-                </FlexItem>
-                <FlexItem>
-                  <StatusLabel badge={check.badge} />
-                </FlexItem>
-              </Flex>
-            ))}
-          </Flex>
+    <div className={styles.gateExecution}>
+      <Flex spaceItems={{ default: "spaceItemsSm" }}>
+        {gate.checks.length ? (
+          gate.checks.map((check) => (
+            <FlexItem key={check.name} className={styles.gateCheck}>
+              <span className={styles.gateCheckName}>{check.name}</span>
+              <StatusLabel badge={check.badge} />
+            </FlexItem>
+          ))
         ) : (
           <StatusLabel badge={gate.badge} />
         )}
-      </Row>
-      {gate.analysisUrl ? (
-        <Row term={<FormattedMessage {...messages.detailAnalysisRun} />}>
-          <Flex spaceItems={{ default: "spaceItemsSm" }}>
-            <Link
-              href={gate.analysisUrl}
-              label={<FormattedMessage {...messages.linkAnalysis} />}
-            />
-          </Flex>
-        </Row>
-      ) : null}
-      {gate.argoUrl ? (
-        <Row term={<FormattedMessage {...messages.detailAnalysisLogs} />}>
-          <Flex spaceItems={{ default: "spaceItemsSm" }}>
-            <Link
-              href={gate.argoUrl}
-              label={<FormattedMessage {...messages.linkArgo} />}
-            />
-          </Flex>
-        </Row>
-      ) : null}
-      <Row term={<FormattedMessage {...messages.detailPromoting} />}>
-        {gate.promotingSeed !== null && promotingLabel !== null ? (
+      </Flex>
+      <GateExecution
+        key={`${gate.id}:${gate.verification?.cluster ?? ""}:${gate.verification?.namespace ?? ""}:${gate.verification?.revision ?? ""}`}
+        target={gate.verification}
+        {...e2e}
+      />
+      <div className={styles.gateLinks}>
+        {gate.analysisUrl ? (
+          <Link
+            href={gate.analysisUrl}
+            label={<FormattedMessage {...messages.linkAnalysis} />}
+          />
+        ) : null}
+        {gate.argoUrl ? (
+          <Link
+            href={gate.argoUrl}
+            label={<FormattedMessage {...messages.linkArgo} />}
+          />
+        ) : null}
+        {gate.promotingSeed && promotingLabel ? (
           <BundleChip
             seed={gate.promotingSeed}
             label={promotingLabel}
             onSelect={onSelectBundle}
           />
-        ) : (
-          <FormattedMessage {...messages.valueNone} />
-        )}
-      </Row>
-    </DescriptionList>
+        ) : null}
+        {gate.syncRetries !== null ? (
+          <Content component="small">
+            <FormattedMessage
+              {...messages.e2eRetries}
+              values={{ count: gate.syncRetries }}
+            />
+          </Content>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1129,6 +1113,7 @@ export function MapDetails({
   onClose,
   onSelectBundle,
   onSelectNode,
+  e2e,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -1136,7 +1121,11 @@ export function MapDetails({
       ? model.nodes.find((n) => n.id === selection.id)
       : undefined;
   const title =
-    selection.kind === "node" ? (node?.id ?? selection.id) : selection.id;
+    selection.kind === "node"
+      ? (node?.id ?? selection.id)
+      : selection.kind === "gate"
+        ? selection.id.replace("->", " → ")
+        : selection.id;
 
   return (
     <div>
@@ -1190,6 +1179,7 @@ export function MapDetails({
       ) : null}
       {selection.kind === "gate" ? (
         <GateDetails
+          e2e={e2e}
           gateId={selection.id}
           model={model}
           onSelectBundle={onSelectBundle}

@@ -61,6 +61,20 @@ the coordinator queries the referenced `Repository` for items carrying **any**
 selector label and fans out one sandbox per match. `update-openshell` has no
 selector: it is purely scheduled.
 
+**`agent/allowed` gates the whole funnel, not only triage.** It is the human
+authorization gate, separate from the `agent/scope/*` run selector: scope selects
+an item for a run, `agent/allowed` authorizes the funnel to act on it. The gate is
+load-bearing across every write-performing step - intake, reconciliation, and work
+selection - not only triage. A scoped but un-authorized item is inert: `ingest`
+creates no Jira epic, GitHub execution record, or canonical link for it;
+`reconcile` skips it without writing (reported skipped, not failed); and
+`execute-sdlc` work selection never selects it. Authorization is a human act: NO
+agent applies `agent/allowed`, so an execution record `ingest` creates starts
+un-authorized (carrying only `agent/execution-record` and its scope label) and
+stays inert until a human grants the gate by hand. See
+`specs/standards/sdlc/jira-github-sync.spec.md` (`Authorization Gate Is
+Load-Bearing`).
+
 | Agent | Selector label(s) | Output label(s) |
 |-------|-------------------|-----------------|
 | `triage` | `agent/allowed` | `agent/workable`, `agent/needs-input`, `agent/duplicate` |
@@ -68,7 +82,6 @@ selector: it is purely scheduled.
 | `spec-review` | `agent/reviewable-spec` | `agent/review-spec-approved`, `agent/review-spec-rejected` |
 | `code-implementation` | `agent/review-spec-approved` | `agent/reviewable-code` |
 | `code-review` | `agent/reviewable-code` | `agent/review-code-approved`, `agent/review-code-rejected` |
-| `review-response` | `agent/needs-review-response` | re-queues spec/code review |
 | `release-verification` | `agent/release-pending` | `agent/release-verified`, `agent/release-verification-failed` |
 | `update-openshell` | (scheduled, no selector) | opens an update PR (`agent/reviewable-code`) |
 
@@ -81,8 +94,8 @@ they run inside a funnel pass rather than on their own cron tick:
 
 | Responsibility | Invoked by | Purpose |
 |----------------|------------|---------|
-| `ingest` | `execute-sdlc` Step 0 | Origin-agnostic intake: ensure every in-scope Jira item has a linked GitHub execution record (create-if-missing, idempotent). |
-| `reconcile` | `execute-sdlc` Step 0 (newly ingested record) and Step 3 (after each phase transition) | Bidirectional Jira <-> GitHub sync under a per-field authority rule: derived Jira status, artifact remote links, attributed phase comments, credit preservation. |
+| `ingest` | `execute-sdlc` Step 0 | Origin-agnostic intake: ensure every in-scope, `agent/allowed`-authorized work item has a linked GitHub execution record (create-if-missing, idempotent). Never self-authorizes a created record. |
+| `reconcile` | `execute-sdlc` Step 0 (newly ingested record) and Step 3 (after each phase transition) | Bidirectional Jira <-> GitHub sync under a per-field authority rule: derived Jira status, artifact remote links, attributed phase comments, credit preservation. Skips (no write) any record lacking `agent/allowed`. |
 
 `ingest` marks each execution record with the `agent/execution-record` label.
 This label is the canonical-link marker: combined with the exact Jira key in the

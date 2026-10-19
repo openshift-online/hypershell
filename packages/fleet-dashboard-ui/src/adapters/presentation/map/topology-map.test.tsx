@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
+import type { AgentSdlcData } from "../../../domain/agent-sdlc";
 import type { FleetData } from "../../../domain/fleet";
 import type { Plane } from "../../../domain/plane";
 import type { PromotionData } from "../../../domain/promotion";
@@ -12,6 +13,8 @@ import type {
   TopologyData,
 } from "../../../application/ports";
 import { FleetApiProvider } from "../../query/api-context";
+import { createMemoryHistory } from "../../routing/history-port";
+import { RouterProvider } from "../../routing/router";
 import { App } from "../app";
 
 function plane<T>(data: T): Plane<T> {
@@ -34,6 +37,7 @@ const envExtras = {
   cluster: null,
   argoHealth: null,
   argoSync: null,
+  syncRetries: null,
   consoleUrl: null,
   grafanaUrl: null,
   argoUrl: null,
@@ -65,6 +69,52 @@ function renderApp(): void {
     getTopology: () => Promise.resolve(plane<TopologyData>({})),
     getInstances: () =>
       Promise.resolve(plane<InstancesData>({ instances: [] })),
+    getSdlc: () =>
+      Promise.resolve(
+        plane<AgentSdlcData>({
+          phases: [],
+          cards: [],
+          lane: [],
+          matrix: { hubClusters: [], rows: [] },
+        }),
+      ),
+    getE2eRuns: () =>
+      Promise.resolve(
+        plane({
+          enabled: true,
+          runs: [],
+          truncated: false,
+          windowSeconds: 0,
+          limit: 0,
+        }),
+      ),
+    getE2eRun: () =>
+      Promise.resolve(
+        plane({
+          id: "",
+          runId: "",
+          tenant: "",
+          cluster: "",
+          bodyCluster: null,
+          namespace: "",
+          revision: "",
+          sourceRevision: null,
+          startedAt: "",
+          endedAt: null,
+          durationMs: null,
+          verdict: "unknown" as const,
+          reportingComplete: false,
+          hasStructuredSteps: false,
+          stepCount: 0,
+          plannedSteps: [],
+          steps: [],
+          logs: [],
+          logsTruncated: false,
+        }),
+      ),
+    streamE2eRun: () => () => {
+      /* unsubscribe */
+    },
   } satisfies FleetApi;
 
   const queryClient = new QueryClient({
@@ -74,7 +124,9 @@ function renderApp(): void {
     <IntlProvider locale="en" defaultLocale="en">
       <QueryClientProvider client={queryClient}>
         <FleetApiProvider value={api}>
-          <App />
+          <RouterProvider history={createMemoryHistory()}>
+            <App />
+          </RouterProvider>
         </FleetApiProvider>
       </QueryClientProvider>
     </IntlProvider>,
@@ -105,5 +157,34 @@ describe("TopologyMap details drawer", () => {
     // With the drawer already closed, Escape is a no-op (no throw, still closed).
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("button", { name: "Close details" })).toBeNull();
+  });
+
+  it("leaves the drawer open when Escape targets a nested dialog (GLASS-NAV-15)", async () => {
+    renderApp();
+
+    const [node] = await screen.findAllByRole("button", { name: "staging" });
+    if (!node) {
+      throw new Error("expected a selectable 'staging' map node");
+    }
+    fireEvent.click(node);
+    expect(
+      await screen.findByRole("button", { name: "Close details" }),
+    ).toBeDefined();
+
+    // Escape raised from inside a nested dialog (the expanded log modal) must be
+    // handled by that dialog, not collapse the whole gate drawer underneath it.
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.appendChild(inside);
+    document.body.appendChild(dialog);
+    try {
+      fireEvent.keyDown(inside, { key: "Escape" });
+      expect(
+        screen.queryByRole("button", { name: "Close details" }),
+      ).not.toBeNull();
+    } finally {
+      document.body.removeChild(dialog);
+    }
   });
 });

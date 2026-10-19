@@ -13,6 +13,11 @@ export default [
     index("./routes/home.tsx"),
     route(routeContract.dashboard, "./routes/dashboard.tsx"),
     route(
+      routeContract.dashboardProvisioning,
+      "./routes/dashboard-provisioning.tsx",
+    ),
+    route(routeContract.dashboardInventory, "./routes/dashboard-inventory.tsx"),
+    route(
       routeContract.dashboardReliability,
       "./routes/dashboard-reliability.tsx",
     ),

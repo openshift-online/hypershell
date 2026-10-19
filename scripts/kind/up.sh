@@ -228,6 +228,53 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   echo ""
 fi
 
+# --- Preload the tenant sandbox base image ---
+header "Sandbox Image"
+preload_sandbox_image() (
+  # lib.sh sources OPENSHELL_VERSION. This selects the image to cache in Kind;
+  # it does not configure the gateway's sandbox workload image.
+  sandbox_image="${OPENSHELL_SANDBOX_IMAGE}"
+  # crictl prints repository, tag, and digest in separate columns. --no-trunc
+  # preserves the complete digest. Consume all output to avoid SIGPIPE.
+  if ${CONTAINER_ENGINE} exec "${KIND_CLUSTER_NAME}-control-plane" crictl images --digests --no-trunc | \
+    awk -v image="${sandbox_image}" 'NR > 1 && ($1 ":" $2 == image || $1 "@" $3 == image) { found = 1 } END { exit !found }'; then
+    success "Sandbox image '${sandbox_image}' already present in Kind - skipping preload"
+    return
+  fi
+
+  # With :latest, sandbox pods use imagePullPolicy: Always. Kubelet still
+  # contacts the registry for a manifest digest, but cached layers avoid the
+  # large download. Preloading does not make sandbox creation fully offline;
+  # changing sandbox.image.pullPolicy (default null) or pinning a digest is
+  # outside this step's scope.
+  info "Pulling sandbox image '${sandbox_image}'..."
+  if ! ${CONTAINER_ENGINE} pull "${sandbox_image}"; then
+    warn "Sandbox image pull failed - continuing; sandbox pods can pull at runtime"
+    return
+  fi
+
+  if ! tmpdir=$(mktemp -d /tmp/kind-sandbox-image-XXXXXX); then
+    warn "Could not create sandbox image archive directory - continuing without preload"
+    return
+  fi
+  # Subshell-scoped trap cleans up on failure without replacing up.sh's traps.
+  trap 'rm -rf "${tmpdir}"' EXIT
+  archive="${tmpdir}/sandbox-image.tar"
+  info "Loading sandbox image into Kind cluster..."
+  if ${CONTAINER_ENGINE} save "${sandbox_image}" -o "${archive}" && \
+    kind load image-archive "${archive}" --name "${KIND_CLUSTER_NAME}"; then
+    success "Sandbox image loaded into Kind"
+  else
+    warn "Sandbox image preload failed - continuing; sandbox pods can pull at runtime"
+  fi
+)
+if [[ "${KIND_SKIP_SANDBOX_PRELOAD:-}" == "true" ]]; then
+  info "KIND_SKIP_SANDBOX_PRELOAD=true - skipping sandbox image preload"
+else
+  preload_sandbox_image
+fi
+echo ""
+
 # The per-gateway console images (the OpenShell dashboard and its oauth2-proxy
 # sidecar) are public registry images -- the dashboard is published to quay.io,
 # pinned by digest in the control plane's ImageDefaults -- so console pods pull

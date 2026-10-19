@@ -301,10 +301,16 @@ export function ApiReliabilityTrendCard({
     );
   }
 
-  const isCount =
+  const subtitleMessage =
     metric.id === "reconciliation-failures" ||
     metric.id === "reconciliation-retries" ||
-    metric.id === "reconciliation-successes";
+    metric.id === "reconciliation-successes"
+      ? messages.reconciliationFailuresLast24Hours
+      : metric.id === "reconciliation-lag"
+        ? messages.reconciliationLagCurrent
+        : metric.id === "stale-resource-status-count"
+          ? messages.staleResourceStatusCurrent
+          : messages.apiReliabilityLast5Minutes;
   const displayValue = formatMetricWithUnit(metric, intl);
   const helpMessage = getDashboardHelpMessage(metric.id);
 
@@ -325,13 +331,7 @@ export function ApiReliabilityTrendCard({
                   <>
                     {displayValue}
                     <br />
-                    <small>
-                      {intl.formatMessage(
-                        isCount
-                          ? messages.reconciliationFailuresLast24Hours
-                          : messages.apiReliabilityLast5Minutes,
-                      )}
-                    </small>
+                    <small>{intl.formatMessage(subtitleMessage)}</small>
                   </>
                 </Title>
               </FlexItem>
@@ -345,11 +345,7 @@ export function ApiReliabilityTrendCard({
           {metric.hourlyTrend && metric.hourlyTrend.points.length >= 2 ? (
             <StackItem>
               <TrendSparklineChart
-                caption={intl.formatMessage(
-                  isCount
-                    ? messages.trendLast2Hours
-                    : messages.trendLast24Hours,
-                )}
+                caption={intl.formatMessage(messages.trendLast24Hours)}
                 title={title}
                 trend={metric.hourlyTrend}
                 valueFormatter={(value) => value.toFixed(3)}

@@ -30,7 +30,7 @@ func TestRepositoryCreateAndSelectorContract(t *testing.T) {
 		Name:    "gh-cred",
 		Purpose: "source_control",
 		Backend: "kubernetes",
-		Path:    "pr-497/gh",
+		Path:    openapi.PtrString("pr-497/gh"),
 	}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "create secret source: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))

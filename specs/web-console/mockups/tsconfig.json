@@ -15,7 +15,9 @@
       "react": [
         "../../../components/web-console/node_modules/@types/react/index.d.ts"
       ],
-      "react/*": ["../../../components/web-console/node_modules/@types/react/*"],
+      "react/*": [
+        "../../../components/web-console/node_modules/@types/react/*"
+      ],
       "react/jsx-runtime": [
         "../../../components/web-console/node_modules/@types/react/jsx-runtime.d.ts"
       ],
@@ -31,6 +33,12 @@
       "@patternfly/react-core/*": [
         "../../../components/web-console/node_modules/@patternfly/react-core/*"
       ],
+      "@patternfly/react-charts": [
+        "../../../components/web-console/node_modules/@patternfly/react-charts"
+      ],
+      "@patternfly/react-charts/*": [
+        "../../../components/web-console/node_modules/@patternfly/react-charts/*"
+      ],
       "@patternfly/react-icons": [
         "../../../components/web-console/node_modules/@patternfly/react-icons"
       ],
@@ -42,6 +50,12 @@
       ],
       "@patternfly/react-table/*": [
         "../../../components/web-console/node_modules/@patternfly/react-table/*"
+      ],
+      "@patternfly/widgetized-dashboard": [
+        "../../../components/web-console/node_modules/@patternfly/widgetized-dashboard"
+      ],
+      "@patternfly/widgetized-dashboard/*": [
+        "../../../components/web-console/node_modules/@patternfly/widgetized-dashboard/*"
       ]
     }
   },

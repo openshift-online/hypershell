@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
 	"github.com/openshift-online/hypershell/components/cli/pkg/connection"
+	"github.com/openshift-online/hypershell/components/cli/pkg/kustomize"
 	"github.com/openshift-online/hypershell/components/cli/pkg/urls"
 )
 
@@ -210,35 +211,18 @@ func loadFromKustomize(dir string) ([]Resource, error) {
 		}
 	}
 
-	// Find kustomize binary
-	kustomizeBin, err := exec.LookPath("kustomize")
+	// Render the kustomization in-process through the shared pkg/kustomize library,
+	// the same implementation the control plane's RepositoryReconciler uses, so the
+	// CLI and server render identically. No external `kustomize` binary is required.
+	// The library disables plugins and restricts local file loading to the kustomize
+	// root. Build errors are already wrapped with "kustomize build failed".
+	rendered, err := kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)
 	if err != nil {
-		return nil, fmt.Errorf("kustomize binary not found in PATH - install from https://kustomize.io/")
+		return nil, err
 	}
 
-	// Run kustomize build with security flags
-	// --enable-alpha-plugins=false prevents arbitrary plugin execution
-	// --load-restrictor=LoadRestrictionsRootOnly restricts file loading to root directory
-	cmd := exec.Command(kustomizeBin, "build",
-		"--enable-alpha-plugins=false",
-		"--load-restrictor=LoadRestrictionsRootOnly",
-		dir)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		// Include stderr for better error messages
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		return nil, fmt.Errorf("kustomize build failed: %s", errMsg)
-	}
-
-	// Parse the YAML stream from kustomize output
-	resources, err := parseYAMLStream(&stdout)
+	// Parse the rendered YAML stream into the apply command's resource model.
+	resources, err := parseYAMLStream(bytes.NewReader(rendered))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse kustomize output: %w", err)
 	}

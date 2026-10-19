@@ -10,6 +10,7 @@ export interface DashboardUiNavigation {
 
 export interface DashboardUiServices {
   dashboard: DashboardOperations;
+  isAdmin?: boolean;
   navigation: DashboardUiNavigation;
   probes?: DashboardProbePublisher;
 }
@@ -21,11 +22,14 @@ const DashboardUiContext = createContext<DashboardUiServices | undefined>(
 export function DashboardUiProvider({
   children,
   dashboard,
+  isAdmin,
   navigation,
   probes,
 }: PropsWithChildren<DashboardUiServices>) {
   return (
-    <DashboardUiContext.Provider value={{ dashboard, navigation, probes }}>
+    <DashboardUiContext.Provider
+      value={{ dashboard, isAdmin, navigation, probes }}
+    >
       {children}
     </DashboardUiContext.Provider>
   );

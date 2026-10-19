@@ -74,9 +74,11 @@ func run(logger *slog.Logger) error {
 	// per-commit bundle resolutions, so walking the lock's commit history for the
 	// previously-deployed freight cards reuses that cache.
 	var versioner sources.VersionResolver
+	var hydratedVersioner sources.HydratedVersionResolver
 	var history sources.ReleaseHistory
 	if lr := sources.NewGitHubLockResolver(cfg); lr != nil {
 		versioner = lr
+		hydratedVersioner = lr
 		history = lr
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
@@ -88,10 +90,49 @@ func run(logger *slog.Logger) error {
 	topologySrc := cache.NewSource("topology", cfg.RefreshTopology, topology.Topology, metrics.Observe)
 	instancesSrc := cache.NewSource("instances", cfg.RefreshInstances, prom.Instances, metrics.Observe)
 
+	// Agent SDLC funnel visibility (agent-sdlc-visibility-dashboard.spec). Funnel
+	// state comes from the PUBLIC product repo through the GitHub-label adapter
+	// behind the SdlcStateProvider port (a Jira adapter is a future drop-in). The
+	// release-by-hub-cluster matrix reuses the SAME cached promotion bundle truth
+	// (promotionSrc) plus one PR->closing-issue hop; it does not re-derive bundles.
+	var sdlcProvider sources.SdlcStateProvider
+	if gs := sources.NewGitHubSDLC(cfg); gs != nil {
+		sdlcProvider = gs
+		logger.Info("agent sdlc visibility enabled", "repo", cfg.UpstreamRepo, "refresh", cfg.RefreshSDLC)
+	}
+	var issueBundles sources.WorkItemPRResolver
+	if ib := sources.NewGitHubWorkItemPRs(cfg); ib != nil {
+		issueBundles = ib
+	}
+	var sdlcSrc *cache.Source
+	if sdlcProvider != nil {
+		sdlc := sources.NewSDLC(cfg, sdlcProvider, promotionSrc, issueBundles)
+		sdlcSrc = cache.NewSource("sdlc", cfg.RefreshSDLC, sdlc.SDLC, metrics.Observe)
+	}
+
+	// E2E run/log visibility (e2e-run-log-visibility.spec). Opt-in on
+	// FD_E2E_LOKI_URL: NewE2E returns nil when unconfigured, in which case the
+	// recent-runs source is not started and the always-mounted e2e endpoints
+	// report the feature off (E2E-LOG-01/02).
+	var e2eSrc *cache.Source
+	var e2ePlane api.E2ERunPlane
+	if e2e := sources.NewE2E(cfg, hydratedVersioner); e2e != nil {
+		e2eSrc = cache.NewSource("e2e", cfg.RefreshE2E, e2e.Runs, metrics.Observe)
+		e2ePlane = e2e
+		logger.Info("e2e run visibility enabled", "tenants", cfg.E2ELokiTenants, "window", cfg.E2EHistoryWindow, "limit", cfg.E2ERecentRunLimit)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	for _, s := range []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc} {
+	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc}
+	if sdlcSrc != nil {
+		srcs = append(srcs, sdlcSrc)
+	}
+	if e2eSrc != nil {
+		srcs = append(srcs, e2eSrc)
+	}
+	for _, s := range srcs {
 		go s.Run(ctx)
 	}
 
@@ -100,6 +141,9 @@ func run(logger *slog.Logger) error {
 		Promotion: promotionSrc,
 		Topology:  topologySrc,
 		Instances: instancesSrc,
+		SDLC:      sdlcSrc,
+		E2ERuns:   e2eSrc,
+		E2E:       e2ePlane,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 

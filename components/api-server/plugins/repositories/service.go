@@ -4,9 +4,15 @@ import (
 	"context"
 	"strings"
 
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// repositoryEventSource is the event broker Source string for Repository
+// mutations. The gRPC watch handler filters the shared broker fan-out on this
+// value, so it MUST match the Source written here on create/update/delete.
+const repositoryEventSource = "Repositories"
 
 // supportedProviders is the set of provider types a Repository credential may target.
 var supportedProviders = map[string]bool{
@@ -25,14 +31,15 @@ type RepositoryService interface {
 	FindByIDs(ctx context.Context, ids []string) (RepositoryList, *errors.ServiceError)
 }
 
-func NewRepositoryService(dao RepositoryDao) RepositoryService {
-	return &sqlRepositoryService{dao: dao}
+func NewRepositoryService(dao RepositoryDao, events services.EventService) RepositoryService {
+	return &sqlRepositoryService{dao: dao, events: events}
 }
 
 var _ RepositoryService = &sqlRepositoryService{}
 
 type sqlRepositoryService struct {
-	dao RepositoryDao
+	dao    RepositoryDao
+	events services.EventService
 }
 
 func (s *sqlRepositoryService) Get(ctx context.Context, id string) (*Repository, *errors.ServiceError) {
@@ -73,6 +80,13 @@ func (s *sqlRepositoryService) Create(ctx context.Context, repository *Repositor
 	if err != nil {
 		return nil, errors.GeneralError("Unable to create repository: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    repositoryEventSource,
+		SourceID:  item.ID,
+		EventType: api.CreateEventType,
+	}); evErr != nil {
+		return nil, services.HandleCreateError("Repository", evErr)
+	}
 	return item, nil
 }
 
@@ -88,6 +102,13 @@ func (s *sqlRepositoryService) Replace(ctx context.Context, repository *Reposito
 	if err != nil {
 		return nil, errors.GeneralError("Unable to update repository: %s", err)
 	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    repositoryEventSource,
+		SourceID:  item.ID,
+		EventType: api.UpdateEventType,
+	}); evErr != nil {
+		return nil, services.HandleUpdateError("Repository", evErr)
+	}
 	return item, nil
 }
 
@@ -101,6 +122,13 @@ func (s *sqlRepositoryService) Delete(ctx context.Context, id string) *errors.Se
 	}
 	if err := s.dao.Delete(ctx, id); err != nil {
 		return errors.GeneralError("Unable to delete repository: %s", err)
+	}
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    repositoryEventSource,
+		SourceID:  id,
+		EventType: api.DeleteEventType,
+	}); evErr != nil {
+		return services.HandleDeleteError("Repository", evErr)
 	}
 	return nil
 }
