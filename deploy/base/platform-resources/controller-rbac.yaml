@@ -10,8 +10,8 @@ rules:
     resources: ["namespaces", "secrets", "configmaps", "services", "serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # TokenRequest for a gateway's ServiceAccount: the control plane mints a vault-audience
-  # token to probe the Vault credential backend (authn probe) and to purge the gateway's
-  # KV path on delete (HYPERSHELL-369). serviceaccounts/token is a distinct subresource.
+  # token to probe the Vault credential backend (authn probe) as the gateway's own
+  # identity (HYPERSHELL-369). serviceaccounts/token is a distinct subresource.
   - apiGroups: [""]
     resources: ["serviceaccounts/token"]
     verbs: ["create"]

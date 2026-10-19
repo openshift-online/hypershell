@@ -14,7 +14,7 @@ import (
 
 // gatewayVaultSAName is the ServiceAccount every gateway runs as and that the Vault
 // kubernetes-auth role (openshell-gateway) is bound to. The control plane mints this
-// SA's token to probe/purge as the gateway's own tenant identity.
+// SA's token to probe as the gateway's own tenant identity.
 const gatewayVaultSAName = "openshell-gateway"
 
 const vaultProbeTimeout = 10 * time.Second

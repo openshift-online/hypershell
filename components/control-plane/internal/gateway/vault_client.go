@@ -19,9 +19,9 @@ import (
 
 // vaultClient performs the few operations the control plane needs against a
 // per-cluster provider Vault, acting ONLY as a gateway's own tenant identity (never
-// as a Vault administrator): a reachability/auth probe (CRED-REACH) and KV-path purge
-// on deletion (CRED-PURGE). It speaks the Vault HTTP API directly to avoid pulling in
-// the full Vault SDK. See openshell-gateway-credentials.spec.md.
+// as a Vault administrator): a reachability/auth probe (CRED-REACH). It speaks the
+// Vault HTTP API directly to avoid pulling in the full Vault SDK. See
+// openshell-gateway-credentials.spec.md.
 type vaultClient struct {
 	address string
 	http    *http.Client
@@ -117,8 +117,8 @@ func (c *vaultClient) do(ctx context.Context, method, url, token string, payload
 
 // mintGatewayVaultToken mints a short-lived ServiceAccount token for the gateway's SA,
 // scoped to the Vault audience, via the Kubernetes TokenRequest API. This is the same
-// identity the gateway pod presents to Vault, so the control plane probes/purges as
-// the tenant, never as an administrator.
+// identity the gateway pod presents to Vault, so the control plane probes as the
+// tenant, never as an administrator.
 func mintGatewayVaultToken(ctx context.Context, clientset kubernetes.Interface, namespace, saName, audience string, ttl time.Duration) (string, error) {
 	seconds := int64(ttl.Seconds())
 	if seconds < 600 {
