@@ -7,6 +7,7 @@ export const REMOVED_WIDGET_TYPES = new Set([
   "provisioned-sandboxes",
   "reconciliation-successes",
   "reconciliation-over-time",
+  "managed-database-status",
 ]);
 
 export function stripRemovedWidgetTypes(
