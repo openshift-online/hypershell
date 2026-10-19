@@ -43,15 +43,16 @@ type ProviderMaterial struct {
 // refresh strategy; a realizer never mints or rotates the usable credential and never
 // renders a raw Kubernetes Secret.
 //
-// It is a seam. The gateway provider client that implements it (the gateway-side
-// workspace/provider provisioning over the gateway gRPC API) is the
-// gateway.WorkspaceProvisioner adapter, activated through SetProviderRealizer when the
-// gateway provisioning endpoint is configured. The AgentRuntime watch payload now
-// embeds the workspace name, ProviderBindings, memberships, and inference route
-// (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"). Until a realizer
-// is configured the reconciler keeps the transitional raw-Secret placement so the live
-// agent fleet does not regress; once a realizer is wired, provider material is realized
-// as providers instead of placed as Secrets.
+// It is a seam. The adapter that implements it realizes each ext kind as its OpenShell
+// native kind by consuming OpenShell's EXISTING provisioning API (the
+// gateway.OpenShellProvisioner behind reconciler.NewOpenShellProviderRealizer), with the
+// bounded control-plane GitHub rotator for app-installation-token credentials. It is
+// activated through SetProviderRealizer once a live OpenShell API session factory is wired.
+// The AgentRuntime watch payload now embeds the workspace name, ProviderBindings,
+// memberships, and inference route (data-model.spec.md "AgentRuntime Reconcile Payload
+// Completeness"). Until a realizer is configured the reconciler keeps the transitional
+// raw-Secret placement so the live agent fleet does not regress; once a realizer is wired,
+// provider material is realized as providers instead of placed as Secrets.
 type ProviderRealizer interface {
 	// RealizeProviders creates or updates the OpenShell providers for the runtime
 	// from the resolved provider material. It is idempotent.
@@ -80,8 +81,9 @@ type ProviderRealizer interface {
 // runs no ESO-style periodic resync.
 //
 // Provider realization is gateway-side and delegated to a ProviderRealizer, the
-// gateway.WorkspaceProvisioner adapter wired through SetProviderRealizer when the
-// gateway provisioning endpoint is configured. The AgentRuntime watch payload now
+// OpenShell-API adapter (gateway.OpenShellProvisioner behind
+// reconciler.NewOpenShellProviderRealizer) wired through SetProviderRealizer once a live
+// OpenShell API session factory is available. The AgentRuntime watch payload now
 // carries the workspace name, ProviderBindings, memberships, and inference route
 // (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"). Until a realizer
 // is configured, provider-material SecretSources keep the transitional raw-Secret
@@ -160,12 +162,12 @@ func NewAgentRuntimeReconciler(kube kubernetes.Interface, secrets secretstore.Re
 }
 
 // SetProviderRealizer activates gateway-side provider realization by wiring a live
-// ProviderRealizer (the gateway WorkspaceProvisioningPort adapter). When set, the
+// ProviderRealizer (the OpenShell-API WorkspaceProvisioningPort adapter). When set, the
 // reconciler realizes provider-material SecretSources as OpenShell providers on the
 // agent's gateway and retires the transitional raw-Secret placement for provider
 // material (realize-before-prune). A nil realizer keeps the transitional behavior so
-// the live fleet does not regress until the gateway-side server is available. It is
-// set once at construction time in main.go, before any reconcile runs.
+// the live fleet does not regress until the live OpenShell API session factory is
+// available. It is set once at construction time in main.go, before any reconcile runs.
 func (r *AgentRuntimeReconciler) SetProviderRealizer(p ProviderRealizer) {
 	r.providers = p
 }

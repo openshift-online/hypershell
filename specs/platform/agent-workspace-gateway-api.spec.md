@@ -83,7 +83,7 @@ Control plane (AgentRuntimeReconciler, on the assigned ManagedCluster)
 OpenShell gateway (existing API; system of record for provisioned workspace state)
   |-- workspace                 (named per AgentRuntime, unique on the gateway)
   |-- workspace member[*]       (OIDC subject -> role: admin | member)
-  |-- provider[*] + refresh     (realized from material + refresh_strategy; OpenShell rotates)
+  |-- provider[*] + refresh     (realized from material + refresh_strategy; OpenShell rotates its native strategies, control-plane GitHub rotator rotates app-installation-token)
   `-- inference route (0..1)    (binds inference.local to a provider + model alias)
 ```
 
