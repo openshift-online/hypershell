@@ -6,18 +6,18 @@ index f6aae794..8d016670 100644
  }
 
  func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
-+	if gateway.RepositoryId == nil || *gateway.RepositoryId == "" {
-+		if s.repositoryFinder == nil {
-+			return nil, errors.Validation("repository_id is required")
++	if gateway.ClusterId == "" {
++		if s.clusterFinder == nil {
++			return nil, errors.Validation("cluster_id is required")
 +		}
-+		repoID, findErr := s.repositoryFinder.FindSole(ctx)
++		clusterID, findErr := s.clusterFinder.FindSole(ctx)
 +		if findErr != nil {
-+			return nil, errors.GeneralError("resolve repository: %s", findErr)
++			return nil, errors.GeneralError("resolve cluster: %s", findErr)
 +		}
-+		if repoID == "" {
-+			return nil, errors.Validation("repository_id is required: zero or multiple Repositories exist")
++		if clusterID == "" {
++			return nil, errors.Validation("cluster_id is required: zero or multiple ManagedClusters exist")
 +		}
-+		gateway.RepositoryId = &repoID
++		gateway.ClusterId = clusterID
 +	}
 +
  	gateway.CaptureTraceContext(ctx)
@@ -27,27 +27,25 @@ diff --git a/components/api-server/plugins/gateways/integration_test.go b/compon
 index 0bae1642..9c290b00 100644
 --- a/components/api-server/plugins/gateways/integration_test.go
 +++ b/components/api-server/plugins/gateways/integration_test.go
-@@ -78,16 +78,37 @@ func TestGatewayPostAllowsEmptyRepositoryID(t *testing.T) {
+@@ -78,16 +78,37 @@ func TestGatewayPostAllowsEmptyClusterID(t *testing.T) {
  	_, _ = test.RegisterIntegration(t)
 
  	gatewayService := gateways.Service(&environments.Environment().Services)
  	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
- 		Name:      "no-import-gateway",
- 		ClusterId: "test-cluster_id",
+ 		Name: "no-cluster-gateway",
  	})
  	Expect(err).NotTo(HaveOccurred())
--	Expect(created.RepositoryId).To(BeNil())
-+	Expect(created.RepositoryId).NotTo(BeNil())
-+	Expect(*created.RepositoryId).To(Equal("test-repository_id"))
+-	Expect(created.ClusterId).To(Equal(""))
++	Expect(created.ClusterId).NotTo(Equal(""))
++	Expect(created.ClusterId).To(Equal("test-cluster_id"))
  }
 
-+func TestGatewayPostRejectsEmptyRepositoryID(t *testing.T) {
++func TestGatewayPostRejectsEmptyClusterID(t *testing.T) {
 +	_, _ = test.RegisterIntegration(t)
 +
 +	gatewayService := gateways.Service(&environments.Environment().Services)
 +	_, err := gatewayService.Create(context.Background(), &gateways.Gateway{
-+		Name:      "no-repo-gateway",
-+		ClusterId: "test-cluster_id",
++		Name: "no-cluster-rejected-gateway",
 +	})
 +	Expect(err).To(HaveOccurred())
 +}
@@ -58,8 +56,7 @@ index 0bae1642..9c290b00 100644
  	gatewayService := gateways.Service(&environments.Environment().Services)
  	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
  		Name:      "route-default-test",
- 		ClusterId: "test-cluster_id",
-+		RepositoryId: stringPtr("test-repository_id"),
++		ClusterId: "test-cluster_id",
  	})
  	Expect(err).NotTo(HaveOccurred())
  	Expect(created.GetRoute()).To(BeEmpty())
@@ -72,8 +69,7 @@ index 0bae1642..9c290b00 100644
  	gatewayService := gateways.Service(&environments.Environment().Services)
  	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
  		Name:      "route-explicit-test",
- 		ClusterId: "test-cluster_id",
-+		RepositoryId: stringPtr("test-repository_id"),
++		ClusterId: "test-cluster_id",
  		Route:     stringPtr(customRoute),
  	})
  	Expect(err).NotTo(HaveOccurred())
