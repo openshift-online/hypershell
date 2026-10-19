@@ -871,12 +871,6 @@ ALTER TABLE gateways ADD COLUMN route JSONB;
 ALTER TABLE gateways ADD COLUMN route_address TEXT;
 ```
 
-> **Database provisioning:** The `database` JSONB column and the `database_id` column have been removed. Gateway databases are provisioned automatically by the control plane on the platform's gateway database server. The migration SHALL drop the columns:
-> ```sql
-> ALTER TABLE gateways DROP COLUMN IF EXISTS database;
-> ALTER TABLE gateways DROP COLUMN IF EXISTS database_id;
-> ```
-
 ---
 
 ## RBAC Requirements (Consolidated)

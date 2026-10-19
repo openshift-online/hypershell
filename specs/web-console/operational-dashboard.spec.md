@@ -653,7 +653,7 @@ Each default-layout change that would leave saved positions incompatible with th
 | `v39` | Taller `usage-summary`, `gateway-status`, `memory`, `cpu`, and `pods` widgets for HYPERSHELL-281 trend sparklines (GFT-06, GSAT-07, HCUT-08)                               |
 | `v40` | Combined v38 inventory layout and v39 trend sparkline widget heights                                                                                                       |
 | `v41` | Hub utilization widgets render through `UtilizationCard` with sparklines; widget mapping defaults use `UTILIZATION_WIDGET_HEIGHT` / `POD_CAPACITY_WIDGET_HEIGHT` (HCUT-08) |
-| `v42` | Remove the `managed-database-status` widget and widen `managed-cluster-regions` back across columns 2-3; the ManagedDatabase resource no longer exists (OP-DASH-22)        |
+| `v42` | Retire the inventory status donut widget and widen `managed-cluster-regions` back across columns 2-3 (OP-DASH-22)                                                          |
 | `v43` | Taller `sandbox-status` for Attention required labels (SSA-09)                                                                                                             |
 | `v44` | Align `gateway-releases` height with `sandbox-status` on adoption row 2                                                                                                    |
 | `v46` | Replace the legacy multi-section dashboard with the seven-widget operational overview while preserving widgetized customization                                            |
@@ -935,7 +935,7 @@ The implementation retains optional inventory detail renderers defined in `platf
 - `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-22)
 - `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-22)
 
-The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, `managed-databases`, or `managed-database-status` widget types: the ManagedDatabase resource no longer exists (see `platform/openshell-gateway-database.spec.md`), and a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (OP-DASH-22); dimension breakdowns SHALL use the default-layout provider and region donut widgets above. No inventory status donut widget SHALL exist.
+The widget catalog SHALL NOT register standalone `managed-clusters` or `managed-cluster-status` widget types: a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (OP-DASH-22); dimension breakdowns SHALL use the default-layout provider and region donut widgets above. No inventory status donut widget SHALL exist.
 
 These widget types SHALL not be offered in the current overview add-widgets drawer or default layout. Existing saved entries may render until removed by the normal retired-widget sanitization path.
 

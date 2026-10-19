@@ -337,7 +337,7 @@ export function ReliabilityDashboardPageSurface() {
             Are reconciliations failing, retrying, or falling behind? Are there
             incidents or alerts requiring investigation? These platform-wide
             operational signals are for system admins; production views should
-            scope them to permitted fleets where supported.
+            scope them to permitted gateways where supported.
           </DashboardPurpose>
           <DashboardFilters
             actions={

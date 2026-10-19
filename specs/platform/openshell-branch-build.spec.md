@@ -168,9 +168,9 @@ workloads are selected per sandbox, separately from the Gateway resource.
 
 The seed SHALL reuse the Kind environment's existing placement and exposure
 fields so the branch-built gateway is reachable the same way `dev-gateway` is:
-the `cluster_id` and `database_id` of the ManagedCluster and ManagedDatabase
-that `make kind-up` (or the full-stack path of `kind-openshell-up`) seeded, the
-same Kind Keycloak OIDC config `dev-gateway` uses, and `route: {enabled: true}`.
+the `cluster_id` of the ManagedCluster that `make kind-up` (or the full-stack
+path of `kind-openshell-up`) seeded, the same Kind Keycloak OIDC config
+`dev-gateway` uses, and `route: {enabled: true}`.
 The control plane SHALL reconcile the gateway workload so that the running
 gateway container and supervisor sidecar use the branch-built images. Image changes SHALL
 be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)),
@@ -180,12 +180,12 @@ not by patching a static ConfigMap or SSA placeholder.
 
 - GIVEN a completed OpenShell branch build with gateway and supervisor images
   loaded into Kind
-- AND the Kind environment already has a seeded ManagedCluster, ManagedDatabase,
-  and Keycloak OIDC issuer
+- AND the Kind environment already has a seeded ManagedCluster and Keycloak
+  OIDC issuer
 - WHEN the dev gateway is seeded and reconciled
 - THEN the Gateway resource SHALL use the direct branch-built `image` and
   `supervisor_image` references
-- AND SHALL reuse that environment's `cluster_id` and `database_id`
+- AND SHALL reuse that environment's `cluster_id`
 - AND SHALL set `route: {enabled: true}` and the Kind Keycloak OIDC config
 - AND the gateway container SHALL run `gateway:dev-<sha>`
 - AND the supervisor sidecar SHALL run `supervisor:dev-<sha>`
