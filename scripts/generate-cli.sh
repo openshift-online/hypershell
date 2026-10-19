@@ -46,6 +46,10 @@ HAND_MAINTAINED_COMMANDS=(
   cmd/hsctl/list/gatewayAccess/cmd.go
   cmd/hsctl/update/gatewayAccess/cmd.go
   cmd/hsctl/delete/gatewayAccess/cmd.go
+  # Repository is a read-only extension kind from the CLI: hand-written get and
+  # list only, no create or delete (see hsctl-extension-commands.spec.md).
+  cmd/hsctl/get/repository/cmd.go
+  cmd/hsctl/list/repositories/cmd.go
 )
 for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource; do
   for verb in create get delete; do
