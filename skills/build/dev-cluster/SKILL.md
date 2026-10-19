@@ -51,12 +51,12 @@ kubectl rollout status deployment/hypershell-controller -n hypershell
 
 ### Step 4: Validate API
 ```bash
-curl -s http://localhost:23080/api/hypershell/v1/fleets | jq .
+curl -s http://localhost:23080/api/hypershell/v1/gateways | jq .
 ```
 
 ### Step 5: Provide Access Info
 ```
-API: http://localhost:23080/api/hypershell/v1/fleets
+API: http://localhost:23080/api/hypershell/v1/gateways
 
 To view logs:
   kubectl logs -f -l app=hypershell-api-server -n hypershell

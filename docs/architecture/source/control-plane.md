@@ -37,11 +37,7 @@ graph TB
   WS[ gRPC Watch streams ] --> W[Watcher]
   W --> F[Event fan-out]
   F --> GR[Gateway Reconciler]
-  F --> RR[Release Reconciler]
-  F --> NR[GatewayNetwork Reconciler]
   GR --> POOL[Multi-cluster KubeClient pool]
-  RR --> POOL
-  NR --> POOL
   POOL --> C1[ManagedCluster A]
   POOL --> C2[ManagedCluster B]
   POOL --> HUB[Hub cluster]

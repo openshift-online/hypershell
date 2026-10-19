@@ -8,9 +8,8 @@ of the core platform.
 Automation is **declarative**. This directory is a Kustomize root. A server-side
 import process (see `Repository.import_path` in
 `specs/platform/data-model.spec.md`) builds a kustomization and reconciles the
-rendered HyperShell ext-API resources into the API. The former imperative
-`discover.sh` / `run.sh` script contract has been removed; an `AgentRuntime` with
-a `selector` now expresses discovery declaratively.
+rendered HyperShell ext-API resources into the API. An `AgentRuntime` with a
+`selector` expresses discovery declaratively.
 
 These manifests carry **no explicit cluster**. The `Gateway` is fully
 declarable: it states the *type* of placement it wants as capability-label

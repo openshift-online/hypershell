@@ -39,8 +39,8 @@ main.go → imports plugins (init side-effects) → registers routes, controller
 
 ## Domain Model
 
-All resources are top-level; there is no Fleet/Sector grouping and no `fleet_id`
-field. Tenancy is enforced by RBAC (platform-level and per-gateway).
+All resources are top-level; tenancy is enforced by RBAC (platform-level and
+per-gateway).
 
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
@@ -104,7 +104,7 @@ All routes under `/api/hypershell/v1/`:
 
 Kinds: `gateways`, `managed_clusters` (plus the ADLC extension kinds under `/api/hypershell/ext/`)
 
-There is no database Kind: gateway databases are provisioned by the control plane from a mounted admin credential Secret (`specs/platform/openshell-gateway-database.spec.md`).
+Gateway databases are provisioned by the control plane from a mounted admin credential Secret (`specs/platform/openshell-gateway-database.spec.md`).
 
 ## Conventions
 

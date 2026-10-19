@@ -1126,7 +1126,7 @@ seed_via_api() {
 
   if [[ -n "${seed_failed}" ]]; then
     warn "Automatic seeding incomplete - create resources manually after the API server is ready"
-    warn "Hint: If your local branch has schema / contract changes (e.g. dropped 'fleet_id'), the baseline API server image in the registry might reject your seed request."
+    warn "Hint: If your local branch has schema / contract changes, the baseline API server image in the registry might reject your seed request."
     warn "      To resolve this, swap in your working-tree API server build first, then run 'make openshift-seed':"
     warn "      1. SKIP_SEED=true make openshift-up"
     warn "      2. make openshift-api-server-up"

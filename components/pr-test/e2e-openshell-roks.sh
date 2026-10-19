@@ -410,13 +410,14 @@ if [[ -z "$EXISTING_ID" ]]; then
   # per-gateway Keycloak client and populates oidc.* itself (read-only in the
   # API). Per openshell-gateway-keycloak.spec.md the create request MUST NOT
   # supply oidc -- we only ask for the gateway and its Route.
+  # Create takes a required placement intent, not a cluster_id. The selector
+  # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm.
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" \
     GW_IMAGE="$GW_IMAGE" GW_SUPERVISOR_IMAGE="$GW_SUPERVISOR_IMAGE" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
+    'placement': {'selector': ['network/public', 'provider/ibm']},
     'image': os.environ['GW_IMAGE'],
     'supervisor_image': os.environ['GW_SUPERVISOR_IMAGE'],
     'route': json.dumps({

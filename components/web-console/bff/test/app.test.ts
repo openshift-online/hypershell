@@ -442,7 +442,7 @@ describe("web-console BFF", () => {
       url: "/assets/app-deadbeef.js",
     });
     const unknown = await app.inject({ method: "GET", url: "/unknown" });
-    const obsolete = await app.inject({ method: "GET", url: "/fleets/a" });
+    const obsolete = await app.inject({ method: "GET", url: "/obsolete/a" });
 
     expect(asset.statusCode).toBe(200);
     expect(asset.headers["cache-control"]).toContain("immutable");

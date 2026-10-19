@@ -757,7 +757,7 @@ var File_hypershell_v1_managed_clusters_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xeb\x02\n" +
+	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xdb\x02\n" +
 	"\x0eManagedCluster\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -769,7 +769,7 @@ const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\fcapabilities\x18\t \x03(\tR\fcapabilitiesB\t\n" +
 	"\a_regionB\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_api_server_urlJ\x04\b\x03\x10\x04R\bfleet_id\"\x98\x02\n" +
+	"\x0f_api_server_url\"\x88\x02\n" +
 	"\x1bCreateManagedClusterRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1b\n" +
@@ -779,13 +779,13 @@ const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\x0eapi_server_url\x18\a \x01(\tH\x02R\fapiServerUrl\x88\x01\x01B\t\n" +
 	"\a_regionB\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_api_server_urlJ\x04\b\x02\x10\x03R\bfleet_id\"f\n" +
+	"\x0f_api_server_url\"f\n" +
 	"\x1cCreateManagedClusterResponse\x12F\n" +
 	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"*\n" +
 	"\x18GetManagedClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
 	"\x19GetManagedClusterResponse\x12F\n" +
-	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"\xe3\x02\n" +
+	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"\xd3\x02\n" +
 	"\x1bUpdateManagedClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
@@ -799,7 +799,7 @@ const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\a_regionB\x14\n" +
 	"\x12_kubeconfig_secretB\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_api_server_urlJ\x04\b\x03\x10\x04R\bfleet_id\"f\n" +
+	"\x0f_api_server_url\"f\n" +
 	"\x1cUpdateManagedClusterResponse\x12F\n" +
 	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"-\n" +
 	"\x1bDeleteManagedClusterRequest\x12\x0e\n" +

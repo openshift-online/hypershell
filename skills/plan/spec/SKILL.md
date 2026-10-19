@@ -30,7 +30,7 @@ $ARGUMENTS
 
 - **Desired state only.** Ask what the system should do, not what's broken.
 - **Scope boundary.** Which components does this change touch? (API, gRPC, CP, plugins)
-- **Reserved terms check.** Verify no collision with HyperShell domain terms (Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster).
+- **Reserved terms check.** Verify no collision with HyperShell domain terms (Gateway, ManagedCluster).
 - **Visual deliverable check.** If the spec describes a new or materially changed visual web-console page and the user provides an approved screenshot or visual reference, the deliverable includes a repository mockup under `specs/web-console/mockups/` and its Storybook design-review story. Treat both the written spec and visual artifact as required before finalizing.
 
 ### Phase 2 -- Ground in the codebase

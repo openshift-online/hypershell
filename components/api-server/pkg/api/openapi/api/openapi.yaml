@@ -4016,7 +4016,7 @@ components:
         name: name
       properties:
         name:
-          description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
+          description: "Human-readable spoke name, unique per platform (e.g. hyp0-mc1).\
             \ Must match on every subsequent call."
           type: string
         capabilities:
