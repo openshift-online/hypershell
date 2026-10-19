@@ -12,7 +12,7 @@ Gateways and clusters are **top-level resources**. An earlier model included a t
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -44,7 +44,8 @@ erDiagram
     Gateway {
         string ID PK
         string name
-        string cluster_id FK
+        string cluster_id FK "nullable; late-bound by placement when absent"
+        jsonb placement "capability-label selectors or local-kind mode; used when cluster_id is absent"
         string namespace
         string image
         string supervisor_image
@@ -240,6 +241,89 @@ ManagedCluster and Gateway SHALL be top-level resources. They SHALL NOT be scope
 - AND the control plane reconciler provisions the gateway workload from the
   given `image` and `supervisor_image`
 
+### Requirement: Gateway Placement and Late Binding
+
+A Gateway's target cluster SHALL be expressed in one of two ways, and `cluster_id`
+SHALL be OPTIONAL on create:
+
+- **Pinned.** When `cluster_id` is set, the Gateway is pinned to that cluster.
+  This is the existing contract and is UNCHANGED: a set `cluster_id` (on create or
+  on a `PATCH` that sets it) SHALL reference a registered `ManagedCluster` with a
+  non-empty `oidc_subject`, and an empty-string `cluster_id` SHALL still be
+  rejected (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+  "Requirement: Gateways Reference a Registered Cluster").
+- **Late-bound by placement.** When `cluster_id` is ABSENT, the Gateway SHALL
+  instead carry a `placement` selector that declares the TYPE of placement it
+  wants as ManagedCluster capability-label selectors (for example
+  `network/public`, `provider/ibm`) or a `local-kind` mode, exactly as the
+  declarative `.hypershell` Gateway manifest uses. The API server SHALL resolve
+  the selector to a concrete `ManagedCluster` and assign `cluster_id` server-side;
+  this keeps the watch-stream caller binding authoritative, consistent with the
+  server-side placement resolution used for `AgentRuntime`
+  ([`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime effective
+  cluster resolved server-side"). The selector vocabulary, validation, and
+  random-selection-among-eligible-clusters rules are defined canonically in
+  [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
+  (GP-01, GP-07). The resolved `cluster_id` is exposed on read exactly as a pinned
+  one.
+
+A create request SHALL provide exactly one of the two: `cluster_id`, or a
+`placement` selector. A request that supplies NEITHER SHALL be rejected, and a
+request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spec
+field persisted on the Gateway (not merely request-scoped), because it is
+re-evaluated for late binding after create.
+
+**Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
+matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
+SHALL be persisted with an empty `cluster_id`, SHALL hold in the `Pending` phase
+with a clear awaiting-placement `status`, and SHALL NOT be returned as an error.
+The API server SHALL re-resolve placement for such unplaced Gateways when the
+eligible-cluster set changes (for example when a matching `ManagedCluster`
+registers or updates its capabilities), and SHALL assign `cluster_id` as soon as a
+matching cluster appears. This is the same late-binding model used for agent
+secrets (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)):
+a resource is declarable before the thing it binds to exists, and binds when that
+thing appears. An unplaced Gateway (empty `cluster_id`) SHALL NOT be delivered to
+any `cluster_id`-filtered watch or list stream, because no control plane is
+responsible for it until it is placed.
+
+#### Scenario: Create a Gateway pinned to a cluster
+
+- GIVEN a create request with a `cluster_id` that references a registered cluster
+- WHEN the API server validates the request
+- THEN it SHALL accept the request and persist the Gateway on that cluster
+- AND the behavior SHALL be unchanged from the pre-existing pinned contract
+
+#### Scenario: Create a late-bound Gateway that resolves immediately
+
+- GIVEN a create request with NO `cluster_id` and `placement.selector = ["network/public", "provider/ibm"]`
+- AND at least one registered connected `ManagedCluster` carries both labels
+- WHEN the API server resolves placement
+- THEN it SHALL assign a matching cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL proceed through its normal provisioning lifecycle
+
+#### Scenario: Create a late-bound Gateway that has no eligible cluster yet
+
+- GIVEN a create request with NO `cluster_id` and a `placement.selector` that no registered cluster matches
+- WHEN the API server processes the request
+- THEN it SHALL create the Gateway with an empty `cluster_id` and `phase` `Pending`
+- AND it SHALL NOT return an error
+- AND the Gateway SHALL report an awaiting-placement `status`
+
+#### Scenario: Unplaced Gateway binds when a matching cluster appears
+
+- GIVEN a `Pending` Gateway with an empty `cluster_id` whose `placement.selector` matched no cluster
+- WHEN a `ManagedCluster` that carries every selected label registers
+- THEN the API server SHALL assign that cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL become eligible for reconciliation on that cluster
+
+#### Scenario: Create request with neither cluster_id nor placement is rejected
+
+- GIVEN a create request with NO `cluster_id` and NO `placement`
+- WHEN the API server validates the request
+- THEN it SHALL reject the request with a validation error
+- AND no Gateway SHALL be created
+
 ### Requirement: Gateway Namespace Ownership
 
 The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic gateway counts (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
@@ -306,7 +390,8 @@ from a redundant reconciliation event.
 The API server SHALL increment `generation` whenever any field of the Gateway's
 desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
 `oidc`, `route`, `credential_driver`, `external_dns`, `tls_mode`,
-`service_type`, and `cluster_id`. It SHALL NOT
+`service_type`, `placement`, and `cluster_id` (including the first time the API
+server assigns a `cluster_id` to a late-bound Gateway). It SHALL NOT
 increment `generation` for changes to control-plane-owned observed fields
 (`status`, `phase`, `route_address`, `observed_generation`).
 
@@ -1255,7 +1340,7 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `cluster_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
+| `Gateway` | `name`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector) | ✅ implemented |
 | `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |

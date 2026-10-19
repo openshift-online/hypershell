@@ -855,6 +855,14 @@ require an operator to restart the control plane.
 
 The control plane SHALL reconcile Gateway resources assigned to its own `cluster_id` into Kubernetes Deployments, Services, ConfigMaps, and supporting resources on the cluster it runs in, using its in-cluster credentials. It SHALL NOT hold or use credentials for any other cluster. Full provisioning details are defined in the [gateway sub-specs](./openshell-gateway.spec.md).
 
+A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") is not assigned to any cluster and SHALL NOT be reconciled by any control plane: it is not delivered on any `cluster_id`-filtered watch stream until the API server assigns it a `cluster_id`. Once the API server resolves placement and assigns a `cluster_id`, the gateway appears on the owning cluster's watch stream and is reconciled exactly like a pinned gateway.
+
+#### Scenario: Late-bound Gateway reconciled after placement is assigned
+- GIVEN a `Pending` Gateway with an empty `cluster_id` whose placement selector matched no cluster
+- WHEN the API server later assigns this control plane's `cluster_id` to it after a matching cluster registers
+- THEN the gateway SHALL appear on this control plane's watch stream
+- AND the reconciler SHALL provision it like any newly created gateway
+
 #### Scenario: New Gateway Created
 - GIVEN a new Gateway resource with this control plane's `cluster_id` appears via the watch stream
 - WHEN the reconciler processes it
