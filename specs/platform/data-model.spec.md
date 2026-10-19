@@ -12,7 +12,7 @@ Gateways and clusters are **top-level resources**. Tenancy is enforced by RBAC (
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26), and `additional_ca_bundle` (create and update; user-authored trust material -- see [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md)); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -390,7 +390,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 
 > **Relationship to database management fields:** The `image` field provides a direct image reference for the control plane reconciler. A Gateway carries no database configuration at all: the control plane provisions each gateway's database and login role on the platform's gateway database server using the admin credential Secret mounted into the controller (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)).
 
-All fields in the table below SHALL be present on the Gateway response schema and on the gRPC message so the control plane can write them over its internal `UpdateGateway` back-channel and every reader can observe them. They SHALL be marked `readOnly` on the REST contract and SHALL be rejected (not silently ignored) when a user or import caller sets or changes them, per PLAT-DATA-23. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
+All fields in the table below SHALL be present on the Gateway response schema and on the gRPC message so the control plane can write them over its internal `UpdateGateway` back-channel and every reader can observe them. They SHALL be marked `readOnly` on the REST contract and SHALL be rejected (not silently ignored) when a user or import caller sets or changes them, per PLAT-DATA-23 -- with exactly one exception: `additional_ca_bundle` is USER-WRITABLE (create and update), because it is user-authored trust material rather than platform provisioning config (see the PLAT-DATA-23 allowlist amendment and [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md)). The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
 
 `dedicated_route` is the table's one exception to platform management: it is the create-only user-writable request flag defined by "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26). It is exposed `readOnly` on Gateway responses, and an update that changes it SHALL be rejected per that requirement.
 
@@ -411,6 +411,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 | `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
+| `additional_ca_bundle` | text | Optional per-gateway additional destination-CA bundle (inline PEM certificate blocks) for sandbox egress to private-PKI destinations. Empty means default trust roots only. USER-WRITABLE (create and update) per the PLAT-DATA-23 allowlist amendment -- it is user-authored trust material, not platform provisioning config. Control plane materializes it as the `gateway-additional-ca` ConfigMap in the gateway's namespace and sets Helm `supervisor.network.additionalCaConfigMapName`. See [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md) |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -555,12 +556,19 @@ generation, under the same per-row lock that guards `generation`:
 ### Requirement: PLAT-DATA-23 -- Gateway Field Ownership and Write Policy
 
 The Gateway resource SHALL expose exactly ONE non-privileged-writable field after
-create - `name` - plus the create-only inputs at create (placement, and the
-`dedicated_route` request flag, PLAT-DATA-26). Every other Gateway field SHALL be
+create - `name` and `additional_ca_bundle` - plus the create-only inputs at create
+(placement, and the `dedicated_route` request flag, PLAT-DATA-26). Every other Gateway field SHALL be
 owned by the control plane and SHALL NOT be writable by an externally-authored
 caller. This is a single, authoritative, default-deny write policy: it is the
 chokepoint through which REST `PATCH`, gRPC `UpdateGateway`, gRPC `CreateGateway`,
 REST create, and `hsctl apply` all funnel, so no write surface can diverge from it.
+
+`additional_ca_bundle` is user-authored trust material (which private CAs a
+gateway's sandboxes should trust for egress), not platform provisioning config,
+which is why it sits in the allowlist despite the default-deny posture; the
+exception is recorded here and in the field policy so every new Gateway field
+still forces an explicit ownership decision
+(see [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md)).
 
 **Writer classes.** Because every writer calls the same gateway service write funnel
 (`Replace` for update, `Create` for create), the authorization layer SHALL mark each
@@ -582,8 +590,14 @@ control-plane gRPC write WITHOUT import metadata) retains full write access.
 
 **Allowlist (the ONLY non-privileged-writable fields).**
 
-- UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`.
-- CREATE (REST create, gRPC `CreateGateway`): `name`, exactly one of `placement`
+- UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`, and `additional_ca_bundle`
+  (user-authored trust material, not platform provisioning config; see
+  [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md).
+  The bundle is validated at the boundary -- PEM CERTIFICATE blocks only, no
+  private keys, size-bounded -- and clearing it is a supported, declarative
+  operation).
+- CREATE (REST create, gRPC `CreateGateway`): `name`, `additional_ca_bundle`,
+  exactly one of `placement`
   or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), and the
   create-only `dedicated_route` request flag (PLAT-DATA-26). An Import caller
   SHALL NOT set `dedicated_route`: the service funnel rejects an import create
@@ -606,7 +620,9 @@ pattern.
   is NOT user-writable on update); `dedicated_route` (create only; persisted as a
   nullable boolean where NULL and false both mean not requested, and rejected with
   409 and delete-and-recreate guidance when an update adds, removes, or changes it -
-  see PLAT-DATA-26).
+  see PLAT-DATA-26); `additional_ca_bundle` (create + update;
+  user-authored trust material, see
+  [`openshell-gateway-additional-ca.spec.md`](./openshell-gateway-additional-ca.spec.md)).
 - **Platform-managed (control-plane-only desired workload spec):** `image`,
   `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
   `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
