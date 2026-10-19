@@ -224,13 +224,33 @@ func (st *gatewayServiceAccountStore) entry(ref driver.GatewayRef) *gatewayServi
 	return e
 }
 
+// gatewayStatusNotReadyReason is the exact APIError reason
+// components/api-server/plugins/serviceAccounts/service.go's readyGateway
+// returns when a gateway's Status has not yet caught up to its Phase. The same
+// endpoint also 409s with the same Code ("gateway_not_ready") and Status
+// (409) from gateway(..., requireOIDC=true) when the gateway's OIDC
+// issuer/client/audience are unset - a permanent misconfiguration, not this
+// self-resolving race - so only this exact reason is safe to retry.
+const gatewayStatusNotReadyReason = "The gateway is not ready for service-account provisioning"
+
+// isGatewayStatusNotReady reports whether err is the specific gateway_not_ready
+// 409 that means Status has not yet caught up to Phase, as opposed to the
+// sibling 409 for an unconfigured OIDC client, which will never clear on its
+// own and so must not be retried.
+func isGatewayStatusNotReady(err error) bool {
+	var apiErr *sdktypes.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusConflict && apiErr.Code == "gateway_not_ready" && apiErr.Reason == gatewayStatusNotReadyReason
+}
+
 // ensureAccount creates the account once. A failed create is remembered rather
 // than posted again: the request may have succeeded, and a retry would orphan an
-// account. The one exception is a 409 gateway_not_ready: the server rejects that
-// request outright before creating anything (the gateway's Status has not yet
-// caught up to its Phase, a known control-plane health-reconciler race - see
-// requireGatewayToken), so it carries no orphan risk and is left retryable for
-// the caller.
+// account. The one exception is the gateway_not_ready Status race
+// (isGatewayStatusNotReady): the server rejects that request outright before
+// creating anything (see requireGatewayToken), so it carries no orphan risk and
+// is left retryable for the caller.
 func (st *gatewayServiceAccountStore) ensureAccount(ctx context.Context, api gatewayServiceAccountClient, e *gatewayServiceAccountEntry) error {
 	if e.attempted {
 		return e.createErr
@@ -247,7 +267,7 @@ func (st *gatewayServiceAccountStore) ensureAccount(ctx context.Context, api gat
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("create: %w", err)
-		if apiStatus(err) == http.StatusConflict {
+		if isGatewayStatusNotReady(err) {
 			return wrapped
 		}
 		e.attempted = true
@@ -536,11 +556,12 @@ func (s *E2ESuite) requireGatewayToken(t *testing.T, ctx context.Context, ref dr
 		var err error
 		tok, err = s.gatewayToken(ctx, ref)
 		if err == nil {
+			lastErr = nil // a prior attempt's failure must not outlive a later success
 			return true, nil
 		}
 		lastErr = err
 		lastGW, _ = s.admin.Gateways().Get(ctx, ref.ID)
-		if apiStatus(err) != http.StatusConflict {
+		if !isGatewayStatusNotReady(err) {
 			return false, err // not the known gateway_not_ready race; fail immediately
 		}
 		phase, status := "<unknown>", "<unknown>"

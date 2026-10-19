@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -460,7 +461,7 @@ type flakyOnceSAAPI struct {
 func (f *flakyOnceSAAPI) Create(ctx context.Context, gatewayID string, request *sdktypes.OpenShellGatewayServiceAccountCreateRequest) (*sdktypes.OpenShellGatewayServiceAccountCreateResponse, error) {
 	f.calls++
 	if f.calls <= f.failFirst {
-		return nil, &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "gateway_not_ready"}
+		return nil, &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "gateway_not_ready", Reason: gatewayStatusNotReadyReason}
 	}
 	return f.fakeSAAPI.Create(ctx, gatewayID, request)
 }
@@ -488,6 +489,76 @@ func TestGatewayServiceAccountCreateConflictIsRetried(t *testing.T) {
 	}
 	if flaky.calls != 2 {
 		t.Errorf("create calls = %d, want 2: a 409 must be retried, unlike other failures", flaky.calls)
+	}
+}
+
+// TestIsGatewayStatusNotReady proves the retry gate matches only the specific
+// gateway_not_ready reason (Status lagging Phase), not the sibling 409 the same
+// endpoint returns for an unconfigured OIDC client - the two share the same
+// Code and StatusCode, so only Reason can distinguish them.
+func TestIsGatewayStatusNotReady(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "status race",
+			err:  &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "gateway_not_ready", Reason: gatewayStatusNotReadyReason},
+			want: true,
+		},
+		{
+			name: "oidc client not ready shares code and status but a different reason",
+			err:  &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "gateway_not_ready", Reason: "The gateway OIDC client is not ready"},
+			want: false,
+		},
+		{
+			name: "unrelated 409",
+			err:  &sdktypes.APIError{StatusCode: http.StatusConflict, Code: "some_other_conflict", Reason: "something else entirely"},
+			want: false,
+		},
+		{
+			name: "non-API error",
+			err:  errors.New("boom"),
+			want: false,
+		},
+		{
+			name: "nil",
+			err:  nil,
+			want: false,
+		},
+	} {
+		if got := isGatewayStatusNotReady(tt.err); got != tt.want {
+			t.Errorf("%s: isGatewayStatusNotReady(%v) = %v, want %v", tt.name, tt.err, got, tt.want)
+		}
+	}
+}
+
+// TestRequireGatewayTokenRetriesGatewayNotReady proves the suite-level helper
+// actually retries through the real gatewayToken -> Acquire -> ensureAccount ->
+// SDK HTTP path instead of failing on the first gateway_not_ready response, and
+// returns the token once the race clears.
+func TestRequireGatewayTokenRetriesGatewayNotReady(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("E2E_SKIP_CLEANUP", "1")
+	// requireGatewayToken polls every 3s; the timeout must comfortably exceed
+	// one interval or the retry after the first gateway_not_ready never fires.
+	t.Setenv("E2E_GATEWAY_READY_TIMEOUT", "10s")
+
+	endpoint := newFakeTokenEndpoint(t)
+	t.Setenv("E2E_OIDC_ISSUER", endpoint.issuer)
+	store, api := newTestStore(t, endpoint)
+	flaky := &flakyOnceSAAPI{fakeSAAPI: api, failFirst: 1}
+	s := &E2ESuite{driver: &recordingDriver{}, admin: newManagementClient(t, flaky), mode: modeShort, serviceAccounts: store}
+	s.SetT(t)
+
+	tok := s.requireGatewayToken(t, t.Context(), testGateway, "token")
+	if tok.AccessToken == "" {
+		t.Fatal("requireGatewayToken returned an empty token after the race cleared")
+	}
+	if flaky.calls != 2 {
+		t.Errorf("create calls = %d, want 2 (one gateway_not_ready, one success)", flaky.calls)
 	}
 }
 
@@ -526,7 +597,10 @@ func TestGatewayTokenIdentityModeUsesDriverUnchanged(t *testing.T) {
 
 // newManagementClient serves the create endpoint from fake over HTTP and returns
 // an SDK client for it, so the suite's wiring runs against the real client code.
-func newManagementClient(t *testing.T, fake *fakeSAAPI) *apiclient.Client {
+// fake takes the gatewayServiceAccountClient interface, not the concrete
+// *fakeSAAPI, so a wrapper like flakyOnceSAAPI that overrides Create is
+// dispatched correctly instead of silently falling back to the embedded fake.
+func newManagementClient(t *testing.T, fake gatewayServiceAccountClient) *apiclient.Client {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer management-token" ||
@@ -536,8 +610,21 @@ func newManagementClient(t *testing.T, fake *fakeSAAPI) *apiclient.Client {
 		}
 		var request sdktypes.OpenShellGatewayServiceAccountCreateRequest
 		_ = json.NewDecoder(r.Body).Decode(&request)
-		account, _ := fake.Create(r.Context(), testGateway.ID, &request)
+		account, err := fake.Create(r.Context(), testGateway.ID, &request)
 		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			// Mirror the server's error envelope (handler.go: {"code", "reason"}) so
+			// the SDK client decodes it into the same *sdktypes.APIError a real
+			// gateway_not_ready response would produce.
+			status, code, reason := http.StatusInternalServerError, "internal_error", err.Error()
+			var apiErr *sdktypes.APIError
+			if errors.As(err, &apiErr) {
+				status, code, reason = apiErr.StatusCode, apiErr.Code, apiErr.Reason
+			}
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "reason": reason})
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(account)
 	}))
