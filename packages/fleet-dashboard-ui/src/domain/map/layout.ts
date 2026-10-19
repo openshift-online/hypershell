@@ -1,7 +1,14 @@
 // Map LAYOUT: pure geometry over the MapModel. Given columns (promotion order),
-// lanes (hub spine + provider spokes) and nodes, it computes absolute SVG
+// the per-node HUB/SPOKE role and the node set, it computes absolute SVG
 // coordinates. No DOM, no measurement - deterministic from the model alone so it
 // is unit-testable and the presentation layer just renders the boxes it returns.
+//
+// GEOMETRY CONTRACT (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md):
+// every column's governing HUB sits on ONE shared horizontal line - the hub spine -
+// at the vertical center of the map, and the change diamond + every gate ride that
+// same line. SPOKEs stack symmetrically above and below the spine. The HUB/SPOKE
+// role, not the cloud provider, governs vertical placement; nothing here consults a
+// provider lane, a baked-in hub list or a provider allowlist.
 
 import type { MapColumn, MapModel, MapNode } from "./model";
 
@@ -13,7 +20,6 @@ export const NODE_W = 150;
 export const NODE_H = 124;
 export const COL_GAP = 190;
 export const V_GAP = 46;
-export const LANE_GAP = 46;
 export const MARGIN_X = 210;
 export const MARGIN_TOP = 96;
 export const MARGIN_BOTTOM = 48;
@@ -33,15 +39,6 @@ export interface ColumnLayout {
   readonly index: number;
   readonly x: number;
   readonly centerX: number;
-}
-
-export interface LaneLayout {
-  readonly key: string;
-  readonly hostsHub: boolean;
-  readonly provider: string | null;
-  readonly y: number;
-  readonly height: number;
-  readonly centerY: number;
 }
 
 export interface GateLayout {
@@ -64,9 +61,13 @@ export interface MapLayout {
   readonly nodes: readonly NodeBox[];
   readonly columns: readonly ColumnLayout[];
   readonly bands: readonly BandLayout[];
-  readonly lanes: readonly LaneLayout[];
   readonly gates: readonly GateLayout[];
-  /** Y of the promotion spine (hub row): gates + the change diamond ride this. */
+  /**
+   * Y of the promotion spine - the single horizontal line every column's HUB sits
+   * on, which the change diamond and every gate ride. Equals the vertical center of
+   * the laid-out map (never the top of a lane), with SPOKEs stacked symmetrically
+   * above and below it.
+   */
   readonly hubSpineY: number;
   readonly width: number;
   readonly height: number;
@@ -74,16 +75,16 @@ export interface MapLayout {
   readonly nodeH: number;
 }
 
-function laneHeight(stack: number): number {
-  const n = Math.max(1, stack);
-  return n * NODE_H + (n - 1) * V_GAP;
-}
+/** Row pitch: one card height plus the vertical gap between stacked rows. */
+const ROW_PITCH = NODE_H + V_GAP;
 
 /**
- * Compute absolute positions for every node, column, lane and gate. Columns are
- * evenly spaced left -> right in model order; lanes stack top -> bottom (the hub
- * spine already centred by the model's lane ordering). Multiple nodes sharing one
- * (column, lane) cell stack vertically within that lane.
+ * Compute absolute positions for every node, column and gate. Columns are evenly
+ * spaced left -> right in model order. Within a column the governing HUB takes the
+ * spine (row 0) and its SPOKEs stack symmetrically around it; the spine itself sits
+ * at the vertical center of the map so the change diamond and every gate run
+ * straight through the HUB cards. Placement is driven by the HUB/SPOKE role alone -
+ * no provider lane, hub table or provider list is consulted.
  */
 export function computeLayout(model: MapModel): MapLayout {
   const columns: ColumnLayout[] = model.columns.map((c: MapColumn) => {
@@ -126,58 +127,64 @@ export function computeLayout(model: MapModel): MapLayout {
     }
   });
 
-  // How many nodes land in each (lane, column) cell -> lane row heights.
-  const nodesByLane = new Map<string, MapNode[]>();
-  for (const n of model.nodes) {
-    const bucket = nodesByLane.get(n.laneKey);
-    if (bucket) {
-      bucket.push(n);
-    } else {
-      nodesByLane.set(n.laneKey, [n]);
-    }
-  }
-  const maxStackPerLane = new Map<string, number>();
-  for (const [laneKey, laneNodes] of nodesByLane) {
-    const perColumn = new Map<string, number>();
-    for (const n of laneNodes) {
-      perColumn.set(n.columnKey, (perColumn.get(n.columnKey) ?? 0) + 1);
-    }
-    maxStackPerLane.set(laneKey, Math.max(1, ...perColumn.values()));
-  }
+  const byId = new Map(model.nodes.map((n) => [n.id, n]));
 
-  // Lay lanes top -> bottom in the model's lane order.
-  const lanes: LaneLayout[] = [];
-  let runningY = MARGIN_TOP;
-  for (const lane of model.lanes) {
-    const h = laneHeight(maxStackPerLane.get(lane.key) ?? 1);
-    lanes.push({
-      key: lane.key,
-      hostsHub: lane.hostsHub,
-      provider: lane.provider,
-      y: runningY,
-      height: h,
-      centerY: runningY + h / 2,
-    });
-    runningY += h + LANE_GAP;
+  // Assign every node a SIGNED row offset around its column's spine: 0 is the spine
+  // (the governing HUB, or the first node when a column has no hub), negative is
+  // above, positive is below. SPOKEs fill rings 1, 2, ... alternating below then
+  // above so they stack symmetrically; the order is the column's node order, so the
+  // same model always yields the same assignment. `halfRows` is the deepest ring any
+  // column needs on either side - the spine reserves that many rows above AND below
+  // itself, which centers it exactly whichever side the spokes fall on.
+  interface Placement {
+    readonly id: string;
+    readonly columnKey: string;
+    readonly rowOffset: number;
   }
-  const laneByKey = new Map(lanes.map((l) => [l.key, l]));
-
-  // Place nodes; stack within a (column, lane) cell as they appear in the model.
-  const stackIndex = new Map<string, number>();
-  const nodes: NodeBox[] = [];
-  for (const n of model.nodes) {
-    const col = colByKey.get(n.columnKey);
-    const lane = laneByKey.get(n.laneKey);
-    if (!col || !lane) {
+  const placements: Placement[] = [];
+  let halfRows = 0;
+  for (const column of model.columns) {
+    const colNodes = column.nodeIds
+      .map((id) => byId.get(id))
+      .filter((n): n is MapNode => n !== undefined);
+    if (colNodes.length === 0) {
       continue;
     }
-    const cellKey = `${n.laneKey}|${n.columnKey}`;
-    const si = stackIndex.get(cellKey) ?? 0;
-    stackIndex.set(cellKey, si + 1);
+    // HUB-first: the governing hub takes the spine no matter where it sits in the
+    // input; without a hub the first node holds the spine (the no-hub fallback).
+    const hubIdx = colNodes.findIndex((n) => n.isHub);
+    const spineIdx = hubIdx === -1 ? 0 : hubIdx;
+    const spine = colNodes[spineIdx];
+    if (spine) {
+      placements.push({ id: spine.id, columnKey: column.key, rowOffset: 0 });
+    }
+    const spokes = colNodes.filter((_, i) => i !== spineIdx);
+    spokes.forEach((spoke, i) => {
+      const ring = Math.floor(i / 2) + 1;
+      const rowOffset = i % 2 === 0 ? ring : -ring;
+      placements.push({ id: spoke.id, columnKey: column.key, rowOffset });
+      if (ring > halfRows) {
+        halfRows = ring;
+      }
+    });
+  }
+
+  // The hub spine is the vertical center of the laid-out CONTENT: the content region
+  // reserves `halfRows` rows above and below the spine, so the spine Y is exactly its
+  // midpoint and no provider, count or ordering can push it off center. (This is the
+  // content midpoint, not the full SVG box midpoint - MARGIN_TOP and MARGIN_BOTTOM
+  // differ on purpose, so do not "recenter" against `height`.)
+  const hubSpineY = MARGIN_TOP + halfRows * ROW_PITCH + NODE_H / 2;
+  const nodes: NodeBox[] = [];
+  for (const p of placements) {
+    const col = colByKey.get(p.columnKey);
+    if (!col) {
+      continue;
+    }
     const x = col.x;
-    const y = lane.y + si * (NODE_H + V_GAP);
+    const y = hubSpineY + p.rowOffset * ROW_PITCH - NODE_H / 2;
     nodes.push({
-      id: n.id,
+      id: p.id,
       x,
       y,
       w: NODE_W,
@@ -187,13 +194,8 @@ export function computeLayout(model: MapModel): MapLayout {
     });
   }
 
-  // Gates ride the promotion spine = the hub row, which sits at the TOP of the
-  // hub-hosting cloud's lane (one hub per env, sub-stacked at index 0). Fallback
-  // to the vertical midpoint when no lane hosts a hub.
-  const hubLane = lanes.find((l) => l.hostsHub);
-  const gateY = hubLane
-    ? hubLane.y + NODE_H / 2
-    : (MARGIN_TOP + Math.max(runningY - LANE_GAP, MARGIN_TOP)) / 2;
+  // The change diamond and every gate ride the hub spine, so the whole promotion
+  // line runs straight through the HUB cards from left to right.
   const gates: GateLayout[] = [];
   for (const g of model.gates) {
     const from = colByKey.get(g.fromColumnKey);
@@ -207,7 +209,7 @@ export function computeLayout(model: MapModel): MapLayout {
     gates.push({
       id: g.id,
       x,
-      y: gateY,
+      y: hubSpineY,
       fromColumnKey: g.fromColumnKey,
       toColumnKey: g.toColumnKey,
     });
@@ -215,15 +217,17 @@ export function computeLayout(model: MapModel): MapLayout {
 
   const lastCol = columns[columns.length - 1];
   const width = lastCol ? lastCol.x + NODE_W + MARGIN_X : MARGIN_X * 2 + NODE_W;
-  const height = Math.max(runningY - LANE_GAP, MARGIN_TOP) + MARGIN_BOTTOM;
+  // Content is symmetric about the spine (`halfRows` rows each side), so the bottom
+  // mirrors the top margin's reserved rows.
+  const contentBottom = hubSpineY + halfRows * ROW_PITCH + NODE_H / 2;
+  const height = contentBottom + MARGIN_BOTTOM;
 
   return {
     nodes,
     columns,
     bands,
-    lanes,
     gates,
-    hubSpineY: gateY,
+    hubSpineY,
     width,
     height,
     nodeW: NODE_W,

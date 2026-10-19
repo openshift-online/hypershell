@@ -164,7 +164,7 @@ describe("buildMapModel - columns", () => {
 });
 
 describe("buildMapModel - lanes", () => {
-  it("lays one lane per provider, sinking hub-hosting clouds to the bottom", () => {
+  it("lays one lane per provider, stable-alphabetical, not sinking hub clouds", () => {
     const model = buildMapModel(
       promotion(["a", "h", "b"], {
         a: env({ name: "a", role: "spoke", provider: "aws" }),
@@ -173,10 +173,25 @@ describe("buildMapModel - lanes", () => {
       }),
       emptyFleet,
     );
-    // spoke-only clouds first (alpha), the hub-hosting cloud last
+    // Plain alphabetical by key; the hub-hosting flag is labeling metadata and no
+    // longer reorders lanes (placement is role-driven in the layout).
     expect(model.lanes.map((l) => l.key)).toEqual(["aws", "gcp", "ibm"]);
     expect(model.lanes.map((l) => l.hostsHub)).toEqual([false, false, true]);
     expect(model.lanes.map((l) => l.provider)).toEqual(["aws", "gcp", "ibm"]);
+  });
+
+  it("does not sink a hub-hosting provider that sorts first alphabetically", () => {
+    const model = buildMapModel(
+      promotion(["a", "h", "b"], {
+        a: env({ name: "a", role: "spoke", provider: "mmm" }),
+        h: env({ name: "h", role: "hub", provider: "aaa" }),
+        b: env({ name: "b", role: "spoke", provider: "zzz" }),
+      }),
+      emptyFleet,
+    );
+    // The hub cloud "aaa" stays first (alpha), proving hub-hosting no longer sinks.
+    expect(model.lanes.map((l) => l.key)).toEqual(["aaa", "mmm", "zzz"]);
+    expect(model.lanes.map((l) => l.hostsHub)).toEqual([true, false, false]);
   });
 
   it("groups instances without a provider under a single lane key", () => {

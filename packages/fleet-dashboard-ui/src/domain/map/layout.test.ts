@@ -115,7 +115,7 @@ describe("computeLayout", () => {
     expect(prodBand?.width).toBe(NODE_W);
   });
 
-  it("positions a gate midway between its two columns on the hub lane", () => {
+  it("positions a gate midway between its two columns on the hub spine", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", envLabel: "a", role: "hub" }),
@@ -124,19 +124,19 @@ describe("computeLayout", () => {
       noFleet,
     );
     const layout = computeLayout(model);
-    const hub = layout.lanes.find((l) => l.hostsHub);
     const [colA, colB] = layout.columns;
     // One gate per column: a's midway to b, plus b's terminal gate a half-column
-    // past the final column.
+    // past the final column. Both ride the hub spine.
     expect(layout.gates).toHaveLength(2);
     expect(layout.gates[0]?.x).toBe(
       ((colA?.x ?? 0) + NODE_W + (colB?.x ?? 0)) / 2,
     );
-    expect(layout.gates[0]?.y).toBe(hub?.centerY);
+    expect(layout.gates[0]?.y).toBe(layout.hubSpineY);
+    expect(layout.gates[1]?.y).toBe(layout.hubSpineY);
     expect(layout.gates[1]?.x).toBe((colB?.x ?? 0) + NODE_W + COL_GAP / 2);
   });
 
-  it("falls back to the vertical midpoint for gates when there is no hub lane", () => {
+  it("falls back to the vertical midpoint for the spine when no node is a hub", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", envLabel: "a", role: "spoke" }),
@@ -146,7 +146,10 @@ describe("computeLayout", () => {
     );
     const layout = computeLayout(model);
     expect(layout.gates).toHaveLength(2);
-    expect(layout.gates[0]?.y).toBeGreaterThan(0);
+    // Spine is the vertical midpoint of the laid-out content; gates + change ride it.
+    expect(layout.hubSpineY).toBe((96 + (layout.height - 48)) / 2);
+    expect(layout.gates[0]?.y).toBe(layout.hubSpineY);
+    expect(layout.gates[1]?.y).toBe(layout.hubSpineY);
   });
 
   it("reports a bounding box large enough for all content", () => {
@@ -169,5 +172,113 @@ describe("computeLayout", () => {
     expect(layout.nodes).toHaveLength(0);
     expect(layout.width).toBeGreaterThan(0);
     expect(layout.height).toBeGreaterThan(0);
+  });
+});
+
+describe("computeLayout - hub spine", () => {
+  const boxesById = (layout: ReturnType<typeof computeLayout>) =>
+    new Map(layout.nodes.map((n) => [n.id, n]));
+
+  it("puts every column's hub on one spine at the vertical center", () => {
+    const model = buildMapModel(
+      promotion(["int", "stage", "prod"], {
+        int: env({ name: "int", role: "hub", provider: "aws" }),
+        stage: env({ name: "stage", role: "hub", provider: "ibm" }),
+        prod: env({ name: "prod", role: "hub", provider: "gcp" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    const centers = layout.nodes.map((n) => n.cy);
+    // Every hub shares the one spine Y...
+    for (const cy of centers) {
+      expect(cy).toBe(layout.hubSpineY);
+    }
+    // ...and that spine is the vertical center of the laid-out content.
+    expect(layout.hubSpineY).toBe((96 + (layout.height - 48)) / 2);
+  });
+
+  it("keeps the spine centered regardless of provider lane", () => {
+    // Two hubs on different providers plus spokes: the hubs still share the spine
+    // and no provider grouping moves it off center.
+    const model = buildMapModel(
+      promotion(["int", "int-s", "prod", "prod-s"], {
+        int: env({ name: "int", role: "hub", provider: "aws" }),
+        "int-s": env({ name: "int-s", role: "spoke", provider: "ibm" }),
+        prod: env({ name: "prod", role: "hub", provider: "ibm" }),
+        "prod-s": env({ name: "prod-s", role: "spoke", provider: "aws" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    const boxes = boxesById(layout);
+    expect(boxes.get("int")?.cy).toBe(layout.hubSpineY);
+    expect(boxes.get("prod")?.cy).toBe(layout.hubSpineY);
+    expect(layout.hubSpineY).toBe((96 + (layout.height - 48)) / 2);
+  });
+
+  it("places the hub on the spine even when a spoke precedes it in input", () => {
+    const model = buildMapModel(
+      promotion(["stage-s", "stage"], {
+        "stage-s": env({ name: "stage-s", role: "spoke", provider: "aws" }),
+        stage: env({ name: "stage", role: "hub", provider: "ibm" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    const boxes = boxesById(layout);
+    expect(boxes.get("stage")?.cy).toBe(layout.hubSpineY);
+    expect(boxes.get("stage-s")?.cy).not.toBe(layout.hubSpineY);
+  });
+
+  it("stacks two spokes symmetrically, one above and one below the spine", () => {
+    const model = buildMapModel(
+      promotion(["s", "s-a", "s-b"], {
+        s: env({ name: "s", role: "hub", provider: "ibm" }),
+        "s-a": env({ name: "s-a", role: "spoke", provider: "aws" }),
+        "s-b": env({ name: "s-b", role: "spoke", provider: "gcp" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    const boxes = boxesById(layout);
+    const hub = boxes.get("s")?.cy ?? 0;
+    expect(hub).toBe(layout.hubSpineY);
+    const spokeCys = [boxes.get("s-a")?.cy ?? 0, boxes.get("s-b")?.cy ?? 0];
+    expect(spokeCys.some((cy) => cy < hub)).toBe(true); // one above
+    expect(spokeCys.some((cy) => cy > hub)).toBe(true); // one below
+  });
+
+  it("is deterministic: identical coordinates on repeated computation", () => {
+    const build = () =>
+      buildMapModel(
+        promotion(["int", "int-s", "prod"], {
+          int: env({ name: "int", role: "hub", provider: "aws" }),
+          "int-s": env({ name: "int-s", role: "spoke", provider: "ibm" }),
+          prod: env({ name: "prod", role: "hub", provider: "gcp" }),
+        }),
+        noFleet,
+      );
+    const a = computeLayout(build());
+    const b = computeLayout(build());
+    expect(a.hubSpineY).toBe(b.hubSpineY);
+    expect(a.nodes).toEqual(b.nodes);
+    expect(a.gates).toEqual(b.gates);
+  });
+
+  it("does not sink a hub-hosting provider below other providers' spokes", () => {
+    // The hub runs on provider "zeta" (sorts last alphabetically) while a spoke runs
+    // on "alpha". Role, not provider, decides the row: the hub stays on the spine.
+    const model = buildMapModel(
+      promotion(["prod-s", "prod"], {
+        "prod-s": env({ name: "prod-s", role: "spoke", provider: "alpha" }),
+        prod: env({ name: "prod", role: "hub", provider: "zeta" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    const boxes = boxesById(layout);
+    expect(boxes.get("prod")?.cy).toBe(layout.hubSpineY);
+    expect(boxes.get("prod-s")?.cy).not.toBe(layout.hubSpineY);
   });
 });
