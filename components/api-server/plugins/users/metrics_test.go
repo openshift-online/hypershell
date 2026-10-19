@@ -176,8 +176,10 @@ func collectRegisteredUserLabeledSamples(collector *registeredUsersCollector) ma
 
 func collectRegisteredUserMetrics(collector *registeredUsersCollector) (map[string]float64, []string, error) {
 	ch := make(chan prometheus.Metric, 64)
-	collector.Collect(ch)
-	close(ch)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
 
 	values := make(map[string]float64)
 	var invalid []string
