@@ -86,10 +86,15 @@ counterpart), and authoring a `PrometheusRule` for the alerting feature (see
 ### Requirement: Provider Credential Driver Coverage
 
 The e2e test suite SHALL validate the per-gateway credential storage drivers
-specified in `openshell-gateway-credentials.spec.md`, not only the default
-encrypted-database store. This is the `credential-drivers` phase (P2.7),
-long-tagged (it provisions additional gateways and, for Vault, depends on external
-infrastructure).
+specified in `openshell-gateway-credentials.spec.md` across all three explicit
+types (`vault`, `kubernetes-secrets`, `kek-db`) and the deployment-selectable
+default an omitted `credential_driver` resolves to. The omitted-driver default is
+not fixed: the control plane resolves it per deployment via
+`GATEWAY_DEFAULT_CREDENTIAL_DRIVER` (`defaultCredentialDriverType()` in
+`components/control-plane/internal/gateway/helm_deploy.go`), which is `kek-db`
+today but whose target is `vault`. The suite SHALL NOT assume the omitted default
+is KEK. This is the `credential-drivers` phase (P2.7), long-tagged (it provisions
+additional gateways and, for Vault, depends on external infrastructure).
 
 The suite SHALL cover the **Kubernetes Secrets** driver unconditionally in long
 mode on every target, because Kind can host it. It SHALL provision a gateway with
@@ -112,11 +117,22 @@ sections, and that the gateway Deployment mounts a projected ServiceAccount toke
 volume with audience `vault` at `/var/run/secrets/vault`. When `E2E_QUALIFY_VAULT`
 is unset the Vault sub-check SHALL `t.Skipf`, never a false pass.
 
-The suite SHALL assert the **default** driver is unaffected: the primary gateway
-from the `provisioning` phase (P1.1, no `credential_driver`) still provisions its
-KEK Secret and `[openshell.gateway.credential_storage]` section. It SHALL also
-assert the two negative paths from `openshell-gateway-credentials.spec.md`: an
-unsupported `type` is rejected by the API or surfaced as a reconcile error, and a
+The suite SHALL cover the **explicit KEK** driver unconditionally in long mode by
+provisioning a gateway with `credential_driver.type = kek-db`, which provisions
+the KEK store on every cluster regardless of the deployment default: the generated
+configuration carries the `[openshell.gateway.credential_storage]` section, the
+Secret `openshell-gateway-credential-kek` exists, and the env var
+`OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` is on the Deployment. This keeps
+KEK coverage portable rather than depending on the omitted-driver default.
+
+The suite SHALL assert the **omitted-driver** gateway resolves to the deployment's
+configured default rather than a hard-coded driver: it SHALL read the resolved
+default (the control plane's `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`, or the reconciled
+configuration of a gateway created with no `credential_driver`) and assert the
+generated config matches that resolved type - KEK sections present on a `kek-db`
+default, the vault driver section on a `vault` default. It SHALL also assert the
+two negative paths from `openshell-gateway-credentials.spec.md`: an unsupported
+`type` is rejected by the API or surfaced as a reconcile error, and a
 driver-change after credentials exist is rejected.
 
 Credential-driver gateways SHALL be owned and torn down by the phase (delete plus
@@ -144,11 +160,18 @@ gateway), leaving nothing behind.
 - WHEN the suite reaches the Vault sub-check of the `credential-drivers` phase
 - THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
-#### Scenario: Default driver unaffected
+#### Scenario: Explicit kek-db driver provisions the KEK store
 
-- GIVEN the primary gateway created in the `provisioning` phase with no `credential_driver`
-- WHEN the `credential-drivers` phase inspects its credential configuration
-- THEN the `[openshell.gateway.credential_storage]` section and the KEK Secret `openshell-gateway-credential-kek` SHALL be present, proving the external drivers did not regress the default path
+- GIVEN a long-mode run on any target, regardless of `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
+- WHEN the suite creates a gateway with `credential_driver.type = kek-db` and waits for `Running`
+- THEN the generated config SHALL contain `[openshell.gateway.credential_storage]`, the Secret `openshell-gateway-credential-kek` SHALL exist, and the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL be on the Deployment
+
+#### Scenario: Omitted driver resolves to the deployment default
+
+- GIVEN a gateway created with no `credential_driver` and the deployment's resolved `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
+- WHEN the `credential-drivers` phase inspects its reconciled configuration
+- THEN the generated config SHALL match the resolved default (KEK sections on a `kek-db` default; the vault driver section and no KEK on a `vault` default)
+- AND the suite SHALL NOT assert KEK unconditionally for the omitted-driver gateway
 
 #### Scenario: Invalid driver and post-storage change rejected
 
@@ -169,14 +192,22 @@ The `role_bindings` API is a distinct, active public surface; the existing
 path without overlap - in particular the RoleBinding-reconciler -> Keycloak
 client-role propagation that the `/access` phase does not exercise.
 
-The flow SHALL use a gateway owned by the admin (the owner RoleBinding the control
-plane auto-creates at provisioning). The suite SHALL discover the second user's id
-through the admin `/users` inventory (ensuring that user record exists first by
-acquiring a token for `E2E_DEV_USERNAME` via `AcquireOIDCToken`), then as the
-owner create a `role_bindings` entry through `apiclient` (`RoleBindings().Create`,
-or `RawJSON` where the typed op is absent) with `scope = gateway`,
-`role = gateway:viewer`, `user_id = <second user>`, and
-`gateway_id = <owned gateway>`. It SHALL then prove the RoleBinding reconciler
+The phase SHALL provision and own a **dedicated gateway** (not the P1 primary
+gateway), because P2 steps run concurrently and the `gateway-access-management`
+phase (P2.5) already grants, promotes, and revokes the developer identity on the
+primary gateway; sharing the primary would let either phase tear down Keycloak/API
+state the other is still asserting. The admin is the owner of this dedicated
+gateway (the owner RoleBinding the control plane auto-creates at provisioning).
+
+The suite SHALL discover the second user's id through the admin `/users` inventory
+(ensuring that user record exists first by acquiring a token for `E2E_DEV_USERNAME`
+via `AcquireOIDCToken`), and SHALL discover the `gateway:viewer` role's id through
+`Roles().List` (the `role_bindings` API binds by `role_id`, not by role name; the
+SDK `RoleBinding` carries `RoleID`). It SHALL then, as the owner, create a
+`role_bindings` entry through `apiclient` (`RoleBindings().Create`, or `RawJSON`
+where the typed op is absent) with `scope = gateway`, the resolved
+`role_id` for `gateway:viewer`, `user_id = <second user>`, and
+`gateway_id = <dedicated gateway>`. It SHALL then prove the RoleBinding reconciler
 propagated the grant into Keycloak by acquiring a per-gateway token for the second
 user with `E2EInfraDriver.AcquireGatewayTokenWithRole` and asserting the
 `openshell-user` role lands in it, and by confirming the second user MAY now
@@ -195,8 +226,8 @@ The suite SHALL clean up any binding and gateway it creates on every exit path.
 
 #### Scenario: Owner shares viewer access and the reconciler propagates it
 
-- GIVEN the admin owns a `Running` gateway and the second user's id has been resolved from `/users`
-- WHEN the owner creates a `role_bindings` entry with `scope = gateway`, `role = gateway:viewer`, and the second user's id
+- GIVEN the admin owns the phase's dedicated `Running` gateway, the second user's id is resolved from `/users`, and the `gateway:viewer` role id is resolved from `Roles().List`
+- WHEN the owner creates a `role_bindings` entry with `scope = gateway`, the resolved `role_id`, the second user's `user_id`, and the dedicated `gateway_id`
 - THEN `E2EInfraDriver.AcquireGatewayTokenWithRole` for the second user SHALL observe the `openshell-user` role on the per-gateway client within the role-reconcile timeout
 - AND the second user SHALL be able to create a sandbox on that gateway
 
@@ -259,14 +290,20 @@ therefore has two tiers:
 
 1. **Metric signal (unconditional, long mode).** The suite SHALL provoke a
    reconcile fault condition and assert the corresponding control-plane metric
-   moves. It SHALL read the control-plane `/metrics` endpoint (through
-   `harness.Clients` port-forward or the metrics service), capture a baseline for
-   the reconcile outcome/error series defined in
-   `control-plane-reconciliation-metrics.spec.md`, drive a condition that fails a
+   moves. The control plane does not host an HTTP `/metrics` listener: it exports
+   OTLP to the `otel-collector` service
+   (`otel-collector.hypershell-system.svc.cluster.local:4317`), and the durable,
+   scrape-independent assertion is a **Prometheus query**. The suite SHALL query
+   the in-cluster Prometheus (`prometheus-operated.hypershell-system.svc.cluster.local:9090`,
+   the `PROMETHEUS_URL` target; reached via `harness.Clients` port-forward) once it
+   reports ready, capture a baseline for the reconcile outcome/error series defined
+   in `control-plane-reconciliation-metrics.spec.md`, drive a condition that fails a
    reconcile (for example a gateway referencing an unresolvable release or a
-   provisioning precondition that cannot be met), and assert the failure series
-   increments while the condition holds. This is the actionable near-term coverage
-   and is testable on Kind.
+   provisioning precondition that cannot be met), and assert (with `harness.Poll`,
+   allowing for the scrape interval) that the failure series increments above the
+   baseline while the condition holds. Prometheus and the otel-collector ship in the
+   Kind deploy (`deploy/kind/`), so this tier is testable on Kind; where Prometheus
+   is not reachable the tier SHALL `t.Skipf` with a reason rather than fail.
 
 2. **Alert firing (deferred, opt-in).** Asserting that an alert actually fires
    requires an alert rule to exist first. Until a `PrometheusRule` (or equivalent
@@ -283,9 +320,9 @@ wait out its namespace GC) on every exit path.
 
 #### Scenario: Reconcile fault increments the failure metric
 
-- GIVEN a baseline reading of the reconcile failure/outcome series from the control-plane `/metrics` endpoint
+- GIVEN a ready in-cluster Prometheus and a baseline query of the reconcile failure/outcome series (`PROMETHEUS_URL`, the control plane exports via OTLP to the otel-collector)
 - WHEN the suite drives a condition that fails a reconcile
-- THEN the failure series SHALL increment above the baseline within the provisioning timeout
+- THEN a follow-up Prometheus query SHALL show the failure series incremented above the baseline within the provisioning timeout, allowing for the scrape interval
 - AND the suite SHALL clear the condition and clean up the gateway it created
 
 #### Scenario: Alert firing qualification (deferred)
@@ -488,7 +525,7 @@ rather than restating their content here; this spec owns their content.
 | Proposed step | Slug | Mode | Gate |
 |------|-------|------|------|
 | P2.7 | `credential-drivers` | long | Kubernetes Secrets always; Vault on `E2E_QUALIFY_VAULT=1` |
-| P2.8 | `gateway-sharing-rolebindings` | long | long-tagged (seeded second identity) |
+| P2.8 | `gateway-sharing-rolebindings` | long | long-tagged; owns a dedicated gateway (no primary-gateway race with P2.5) |
 | P2.9 | `kata-runtime` | long | `E2E_QUALIFY_KATA=1` |
 | P2.10 | `alerting-signal` | long | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
 | P2.11 | `cli-ui-parity` | long | none (Kind-hostable) |
@@ -527,11 +564,14 @@ These extend the variables the Go suite already reads (via `envOrDefault` /
 The `gateway-sharing-rolebindings` phase reuses the suite's existing
 `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD` (the seeded second identity) and the admin
 token (`authentication` phase P0.1, `admin-inventory-validation` phase P3.1) for
-`/users` discovery. The `alerting-signal` metric tier reads the control-plane
-`/metrics` endpoint already used by the observability specs. The `cli-ui-parity`
-phase reuses `OPENSHELL_BIN`, `scripts/install-openshell.sh`, and the version
-helpers in `tests/e2e/cli.go`. The cross-component additions reuse the existing
-`E2E_MULTICLUSTER` and `E2E_SEED_CLUSTER_NAME_2`.
+`/users` discovery, and resolves the `gateway:viewer` role id from `Roles().List`.
+The `alerting-signal` metric tier queries the in-cluster Prometheus
+(`PROMETHEUS_URL`, default `prometheus-operated.hypershell-system.svc.cluster.local:9090`),
+since the control plane exports via OTLP to the otel-collector rather than hosting
+a `/metrics` listener. The `cli-ui-parity` phase reuses `OPENSHELL_BIN`,
+`scripts/install-openshell.sh`, and the version helpers in `tests/e2e/cli.go`. The
+cross-component additions reuse the existing `E2E_MULTICLUSTER` and
+`E2E_SEED_CLUSTER_NAME_2`.
 
 ## Design Decisions
 
