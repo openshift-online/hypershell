@@ -65,7 +65,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `E2E-CORE` | `platform/e2e-testing.spec.md` | 46 |
+| `E2E-CORE` | `platform/e2e-testing.spec.md` | 51 |
 | `E2E-COV` | `platform/e2e-feature-coverage.spec.md` | 7 |
 | `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 18 |
 

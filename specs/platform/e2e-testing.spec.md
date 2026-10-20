@@ -43,6 +43,9 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     │                         ordered phase-step subtests, mode + multi-identity gating
     ├── perf_test.go       -- TestPerformance entry point; PerfHarness (bounded concurrency)
     ├── matrix_test.go     -- TestMatrix entry point; fans the suite across ManagedClusters
+    ├── lifecycle_test.go  -- TestLifecycle entry point; LifecycleHarness drives install ->
+    │                         upgrade -> failed-upgrade rollback -> uninstall, running the
+    │                         suite (short) as a checkpoint after each state (opt-in, on-demand)
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
     ├── harness/           -- shared helpers: CommandRunner (demo logging), Reporter
     │                         (pass/fail/skip), the opt-in structured run reporter
@@ -1560,6 +1563,7 @@ tests/e2e/                 -- Go module: github.com/openshift-online/hypershell/
   phases.go                -- the phase steps P0-P3 (short/long tagged), infra-agnostic
   perf_test.go             -- TestPerformance entry point + PerfHarness (bounded concurrency, checkpoints)
   matrix_test.go           -- TestMatrix entry point + matrix runner (fans the suite across ManagedClusters)
+  lifecycle_test.go        -- TestLifecycle entry point + LifecycleHarness (install -> upgrade -> failed-upgrade rollback -> uninstall; short-mode suite checkpoint after each state; opt-in, on-demand, not in the PR/merge gate)
   driver/
     driver.go              -- E2EInfraDriver interface + registry + auto-detection (this spec)
     kind.go                -- Kind infra driver (this spec)
@@ -2384,6 +2388,319 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 
 **Capacity note:** a small Kind cluster cannot run hundreds of gateways. Each gateway provisions a deployment, a service, a TLS secret, a certgen job, a per-gateway Keycloak client, and a managed namespace. A run also stands up the canary and the functional gateway, so the cluster carries `E2E_PERF_GATEWAY_COUNT + 2` gateway stacks at peak: the default of 5 means 7 stacks, which fits a typical Kind cluster. Keep the total modest on Kind (roughly `count + 2` at or below 10). Use a larger count on an OpenShift cluster that has spare capacity. The harness reports resource pressure on failure so a user can find the ceiling.
 
+## Deployment Lifecycle Testing
+
+The functional suite, the performance harness, and the matrix runner all assume a
+platform that is already deployed. The platform itself also has a deployment
+lifecycle -- fresh install, supported upgrade, failed-upgrade rollback, and
+uninstall -- that no existing e2e entry point exercises. The deployment lifecycle
+harness closes that gap. It drives one environment through those four states on a
+representative supported overlay and runs the functional `E2ESuite` (short mode)
+as a checkpoint after every state that leaves a running platform, so a regression
+introduced by a specific version or a specific transition surfaces as a functional
+failure pinned to the state and version pair that caused it. A user runs it with
+`make e2e-lifecycle`.
+
+The harness is opt-in and on-demand, the same posture as the performance harness:
+driving a full install/upgrade/rollback/uninstall cycle is too slow and too
+disruptive for the per-pull-request and merge-queue e2e gate, so it is never wired
+into that gate. It runs against Kind for local checks and against any OpenShift
+cluster for on-demand qualification.
+
+Unlike the suite, the performance harness, and the matrix runner -- which hold no
+bring-up code because bring-up is a precondition owned by the environment `make`
+targets -- the lifecycle harness DOES drive environment bring-up, upgrade, and
+teardown. It does so through each overlay's own documented lifecycle commands,
+owned by `local-development.spec.md` (`make kind-up` / `make kind-down`) and
+`openshift-development.spec.md` (`make openshift-up` / `make openshift-down`), and
+the documented image-swap path (`scripts/kind/set-component-images.sh` and the
+OpenShift equivalent). It does NOT add bring-up, upgrade, or teardown methods to
+the `E2EInfraDriver`: the driver stays the inspection-and-access contract the suite
+depends on, and the lifecycle harness reuses it (and the shared `client-go` client)
+for every version read, retention check, and functional checkpoint.
+
+### Lifecycle Architecture
+
+```
+tests/e2e/lifecycle_test.go -> LifecycleHarness (infra-agnostic lifecycle driver)
+    │
+    ├── selects driver by auto-detecting the KUBECONFIG context
+    │   (E2E_INFRA_DRIVER overrides detection; kind | openshift)
+    │
+    ├── L1 Fresh install   -- bring the platform up at the from-version via the
+    │                         overlay's documented install command; wait for every
+    │                         platform component Available; run E2ESuite (short)
+    ├── L2 Supported upgrade -- swap component images to the to-version (and re-apply
+    │                         overlay config) via the documented upgrade path; wait
+    │                         for the rollout; run E2ESuite (short); pre-upgrade
+    │                         gateways, sandboxes, and data SHALL survive
+    ├── L3 Failed-upgrade rollback -- attempt an upgrade to a known-bad to-version;
+    │                         observe it never reaches healthy; roll back to the
+    │                         last-good from-version; run E2ESuite (short)
+    ├── L4 Uninstall        -- remove platform-owned resources via the documented
+    │                         uninstall command (make kind-down / make openshift-down,
+    │                         NOT the cluster-destroying teardown); verify retention
+    │
+    └── records the component versions before/after each transition and, on any
+        failure, the failing phase + version pair + diagnostics, to the lifecycle
+        results dir -- on every exit path, in CI or locally
+```
+
+### Requirement: E2E-CORE-47 -- Deployment Lifecycle Test Entry Point
+
+The system SHALL provide a `make e2e-lifecycle` target that runs the deployment
+lifecycle harness via `go -C tests/e2e test . -run TestLifecycle`. `TestLifecycle`
+SHALL be an ordinary `go test` function (`func TestLifecycle(t *testing.T)`), not a
+`testing.B` benchmark, and a separate entry point from `TestE2E`, `TestPerformance`,
+and `TestMatrix`. It SHALL select the driver the same way the suite does
+(auto-detected from the current KUBECONFIG context, with `E2E_INFRA_DRIVER` as an
+override) and SHALL fail fast at startup, listing the registered driver names, when
+`E2E_INFRA_DRIVER` names a driver absent from the registry. It SHALL run against the
+representative supported overlays `kind` and `openshift`.
+
+The harness SHALL be opt-in and on-demand and SHALL NOT run in the Kind
+pull-request or merge-queue e2e gate: the `TestE2E` run that gates CI SHALL NOT
+invoke `TestLifecycle`, which runs only when selected by `-run TestLifecycle` (its
+own `make` target), exactly as the performance harness stays out of the PR path. It
+SHALL reuse `E2ESuite` in-process at `short` depth as the functional checkpoint
+after each lifecycle state, reusing the same assertion code with no second copy of
+any check, as the performance harness does. The harness SHALL hold no
+infrastructure-specific inspection code: every version read and retention check
+SHALL go through the shared `client-go`/controller-runtime client, and every
+environment transition SHALL go through the overlay's documented lifecycle command
+rather than a method added to the `E2EInfraDriver`.
+
+#### Scenario: E2E-CORE-47.01 -- Local Kind Lifecycle Run
+
+- GIVEN a developer workstation that can create a Kind cluster
+- WHEN the developer runs `make e2e-lifecycle` with no `E2E_INFRA_DRIVER` set
+- THEN the harness SHALL auto-detect the `kind` driver and drive the install, upgrade, failed-upgrade rollback, and uninstall phases in order
+- AND it SHALL run the short-mode `E2ESuite` checkpoint after each state that leaves a running platform
+
+#### Scenario: E2E-CORE-47.02 -- Lifecycle Is Not In The PR Or Merge Gate
+
+- GIVEN the Kind e2e workflow that gates pull requests and merge-queue entries
+- WHEN that workflow runs the e2e suites (`go -C tests/e2e test . -run TestE2E`)
+- THEN it SHALL NOT invoke `TestLifecycle`
+- AND `TestLifecycle` SHALL run only when a user or a scheduled job invokes `make e2e-lifecycle`
+
+#### Scenario: E2E-CORE-47.03 -- Driver Override
+
+- GIVEN a user logged in to an OpenShift cluster
+- WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e-lifecycle`
+- THEN the harness SHALL run every phase against the OpenShift overlay with no change to the harness code
+- AND all Kubernetes access SHALL go through the shared `client-go`/controller-runtime client, not `oc`
+
+### Requirement: E2E-CORE-48 -- Install, Upgrade, Rollback, And Uninstall Phases
+
+The harness SHALL drive the selected overlay through four ordered lifecycle phases,
+each a named subtest with a stable id (`L1`, `L2`, `L3`, `L4`), and SHALL run the
+short-mode `E2ESuite` checkpoint after each phase that leaves a running platform
+(`L1`, `L2`, `L3`):
+
+- **L1 Fresh install** -- bring the platform up at the from-version using the
+  overlay's documented install command, wait until every platform component
+  Deployment reports Available, then run the checkpoint.
+- **L2 Supported upgrade** -- upgrade the running platform to the to-version by
+  swapping the platform component images (and re-applying overlay configuration)
+  through the documented upgrade path, wait for the rollout to complete, then run
+  the checkpoint. Gateways, sandboxes, and persistent data created before the
+  upgrade SHALL survive it.
+- **L3 Failed-upgrade rollback** -- attempt an upgrade to a known-bad to-version (a
+  component image that cannot reach readiness), observe that the bad version does
+  not reach a healthy rollout within `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds while
+  the last-good replicas keep serving, roll the platform back to the last-good
+  from-version, then run the checkpoint. The rollback SHALL restore a healthy
+  platform and the checkpoint SHALL pass.
+- **L4 Uninstall** -- remove the platform-owned resources using the overlay's
+  documented uninstall command (`make kind-down` / `make openshift-down`), NOT the
+  cluster-destroying teardown, then verify the retention policy (see [Retention
+  Policy On Uninstall](#requirement-retention-policy-on-uninstall)).
+
+A transition that does not converge within its timeout, or a failed checkpoint,
+SHALL fail its phase, record failure artifacts (see [Lifecycle Failure
+Artifacts](#requirement-lifecycle-failure-artifacts)), and SHALL NOT silently
+continue into a dependent phase. The harness SHALL still run the L4 uninstall
+cleanup on any exit path so a failed run does not strand the environment, honoring
+`E2E_LIFECYCLE_SKIP_UNINSTALL` (and `E2E_SKIP_CLEANUP`) for a user who wants to
+inspect a failed state.
+
+#### Scenario: E2E-CORE-48.01 -- Fresh Install Checkpoint Passes
+
+- GIVEN no HyperShell platform is deployed on the target environment
+- WHEN the harness runs L1 and brings the platform up at the from-version
+- THEN every platform component SHALL reach Available before the checkpoint runs
+- AND the short-mode `E2ESuite` checkpoint SHALL pass against the freshly installed platform
+
+#### Scenario: E2E-CORE-48.02 -- Upgrade Preserves Pre-Upgrade State
+
+- GIVEN a platform installed at the from-version with a gateway and a sandbox created during the L1 checkpoint's own gateway lifecycle
+- WHEN the harness runs L2 and upgrades the running platform to the to-version
+- THEN the rollout SHALL complete and the short-mode checkpoint SHALL pass
+- AND a gateway and its data that existed before the upgrade SHALL still be present and healthy after it
+
+#### Scenario: E2E-CORE-48.03 -- Failed Upgrade Rolls Back To Last-Good
+
+- GIVEN a platform running the from-version
+- WHEN the harness runs L3 and attempts an upgrade to a known-bad to-version whose component image never reaches readiness
+- THEN the bad rollout SHALL NOT reach a healthy state within `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds and the last-good replicas SHALL keep serving
+- AND the harness SHALL roll the platform back to the last-good from-version
+- AND the short-mode checkpoint SHALL pass after the rollback
+
+#### Scenario: E2E-CORE-48.04 -- Uninstall Removes Platform-Owned Resources
+
+- GIVEN a running platform
+- WHEN the harness runs L4 using the documented uninstall command
+- THEN the platform-owned workloads (API server, control plane, web console, Keycloak) SHALL be removed
+- AND the command SHALL be the manifest/namespace removal command, not the cluster-destroying teardown
+
+### Requirement: E2E-CORE-49 -- Version Skew And Compatibility Recording
+
+The harness SHALL exercise representative supported version skew: L1 SHALL install
+the from-version (`E2E_LIFECYCLE_FROM_VERSION`, default the baseline `origin/main`
+build) and L2 SHALL upgrade to the to-version (`E2E_LIFECYCLE_TO_VERSION`, default
+the working-tree / target build). The from/to pair SHALL be a supported upgrade
+pair; an unsupported or unknown pair SHALL fail the run with both recorded versions
+in the message rather than proceed silently. When the from-version and to-version
+resolve to the same image digest, the harness SHALL fail fast in setup, naming both
+variables, because there is no skew to exercise.
+
+The harness SHALL record the component versions observed before and after every
+transition -- the image reference and the resolved digest of each platform
+component, read through the shared kube client from the running Deployments -- and
+SHALL emit that record to `E2E_LIFECYCLE_RESULTS_DIR` as a versioned,
+machine-readable artifact alongside the per-phase pass/fail/skip result. The record
+SHALL be written on every exit path, so a completed or a failed run always leaves
+the exact version pair it exercised.
+
+#### Scenario: E2E-CORE-49.01 -- Versions Recorded Per Transition
+
+- GIVEN a lifecycle run with distinct from-version and to-version
+- WHEN the harness completes the install, upgrade, and rollback transitions
+- THEN it SHALL record the resolved component image digests observed before and after each transition
+- AND it SHALL write that record to `E2E_LIFECYCLE_RESULTS_DIR` with the per-phase results
+
+#### Scenario: E2E-CORE-49.02 -- Default Skew Is Baseline To Working Tree
+
+- GIVEN `E2E_LIFECYCLE_FROM_VERSION` and `E2E_LIFECYCLE_TO_VERSION` are unset
+- WHEN the harness resolves the versions
+- THEN the from-version SHALL default to the baseline `origin/main` build and the to-version to the working-tree / target build
+
+#### Scenario: E2E-CORE-49.03 -- No Skew Fails Fast
+
+- GIVEN the from-version and to-version resolve to the same image digest
+- WHEN the harness starts
+- THEN it SHALL fail fast in setup and name `E2E_LIFECYCLE_FROM_VERSION` and `E2E_LIFECYCLE_TO_VERSION`
+- AND it SHALL NOT bring up an environment
+
+### Requirement: E2E-CORE-50 -- Retention Policy On Uninstall
+
+Uninstall (L4) SHALL honor the documented retention policy: it SHALL remove only
+platform-owned resources and SHALL NOT delete externally-owned or shared resources,
+nor any data those resources hold. Which resources are externally owned depends on
+the overlay, so the harness SHALL resolve the set of externally-owned resources for
+the active overlay and verify each survives L4, failing the run if any is violated:
+
+- **Externally-provisioned database server and its data (overlay-aware).** The
+  production retention contract is that the externally-provisioned database server
+  (AWS RDS/Aurora, IBM Cloud Databases) and its data outlive the platform;
+  recovery of that data is the server owner's responsibility
+  (`openshell-gateway-database.spec.md`, OSG-DBS-07). On the **Kind** overlay that
+  server is modeled by the stand-in `external-cloud-db` PostgreSQL in its own
+  namespace (`local-development.spec.md`); `make kind-down` removes the platform
+  namespace, not `external-cloud-db`, so the harness SHALL verify through the shared
+  kube client and a database probe that the stand-in server still exists and that
+  data written before uninstall is still readable after it. On the **OpenShift**
+  overlay the database is the **bundled** PostgreSQL Deployment that stands in for
+  an externally provisioned server and is itself part of the platform manifest set,
+  which `make openshift-down` removes together with the platform project
+  (`openshift-development.spec.md`); the harness SHALL therefore NOT treat the
+  bundled stand-in as externally owned on that overlay. Where a run targets an
+  OpenShift environment wired to an out-of-band externally-provisioned server, that
+  server is not in the uninstall manifest set and the harness SHALL verify it
+  survives.
+- **Shared cluster infrastructure (both overlays).** Shared operators and CRDs the
+  platform depends on but does not own -- cert-manager, Gateway API, and the Agent
+  Sandbox controllers/CRDs -- SHALL survive uninstall on both overlays. The
+  uninstall SHALL use the manifest/namespace removal command (`make kind-down` /
+  `make openshift-down`), never the cluster-destroying teardown (`make
+  kind-teardown` or an OpenShift cluster destroy, which `openshift-development.spec.md`
+  notes cannot destroy the cluster anyway). The harness SHALL confirm these shared
+  dependencies are still present after L4.
+- **Per-gateway tenant databases.** The unconditional per-gateway drop in
+  `openshell-gateway-database.spec.md` (OSG-DBS-07) runs only on a Gateway delete
+  event, which platform uninstall does not issue, so a platform uninstall SHALL NOT
+  by itself drop tenant databases on an externally-provisioned server.
+
+This satisfies the constraint that an uninstall test SHALL NOT delete shared
+infrastructure or production data: the harness asserts exactly the resources that
+are externally owned on the active overlay, and never runs the cluster-destroying
+teardown.
+
+#### Scenario: E2E-CORE-50.01 -- Stand-In External Database Server And Data Survive On Kind
+
+- GIVEN a Kind platform with data written to the stand-in `external-cloud-db` server during the run
+- WHEN the harness runs L4 uninstall via `make kind-down`
+- THEN the `external-cloud-db` server workload SHALL still exist afterward
+- AND the data written before uninstall SHALL still be readable through a database probe
+
+#### Scenario: E2E-CORE-50.02 -- Shared Infrastructure Survives On Both Overlays
+
+- GIVEN cert-manager, Gateway API, and the Agent Sandbox controllers are present before uninstall
+- WHEN the harness runs L4 using the documented uninstall command on either overlay
+- THEN those shared controllers and CRDs SHALL still be present after uninstall
+- AND the uninstall SHALL NOT invoke the cluster-destroying teardown
+
+#### Scenario: E2E-CORE-50.03 -- Deleting An Externally-Owned Resource Is A Failure
+
+- GIVEN the harness resolves the externally-owned resource set for the active overlay and verifies retention after L4
+- WHEN an externally-owned resource (a stand-in or out-of-band external database server, its data, or a shared dependency) is found missing
+- THEN the harness SHALL fail the run and name the resource that was wrongly deleted
+
+### Requirement: E2E-CORE-51 -- Lifecycle Failure Artifacts
+
+On any failed lifecycle phase -- a transition that does not converge, a failed
+checkpoint, or a retention violation -- the harness SHALL record failure artifacts
+that identify the failing phase and the version pair in play. The artifacts SHALL
+include the version record (see [Version Skew And Compatibility
+Recording](#requirement-version-skew-and-compatibility-recording)), the failing
+phase id (`L1`--`L4`), and the same diagnostic set the e2e workflow collects on
+failure -- pods across namespaces, pod descriptions, platform component and Keycloak
+logs, cluster events, and Gateway API resources -- gathered through the shared kube
+client so it works on both overlays (see [CI Artifact
+Collection](#requirement-ci-artifact-collection) and [Performance Failure
+Diagnostics](#requirement-performance-failure-diagnostics)). The record SHALL be
+written to `E2E_LIFECYCLE_RESULTS_DIR` on every exit path, including a local run
+outside CI, and SHALL NOT be silently dropped. Under GitHub Actions
+(`GITHUB_ACTIONS` set) the harness SHALL wrap the diagnostic sections in collapsible
+`::group::` markers, matching the workflow style; for a local run it SHALL print
+plain, labeled sections.
+
+#### Scenario: E2E-CORE-51.01 -- Failed Upgrade Records Phase And Versions
+
+- GIVEN L3 attempts an upgrade that fails to reach a healthy rollout
+- WHEN the harness reaches its diagnostics path
+- THEN it SHALL record the failing phase id, the from-version and to-version digests, and the diagnostic set
+- AND it SHALL write them to `E2E_LIFECYCLE_RESULTS_DIR`
+
+#### Scenario: E2E-CORE-51.02 -- Artifacts Written Locally Too
+
+- GIVEN `GITHUB_ACTIONS` is not set and a lifecycle phase fails
+- WHEN the harness records failure artifacts
+- THEN it SHALL still write the version record and diagnostics to `E2E_LIFECYCLE_RESULTS_DIR`
+- AND it SHALL print plain, labeled sections without `::group::` markers
+
+### Lifecycle Environment Variables
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `E2E_INFRA_DRIVER` | (auto-detected from KUBECONFIG context) | Infra driver override: `kind` or `openshift` |
+| `E2E_LIFECYCLE_FROM_VERSION` | baseline `origin/main` build | Version (image tag or digest set) the platform is installed at in L1 and rolled back to in L3 |
+| `E2E_LIFECYCLE_TO_VERSION` | working-tree / target build | Version the platform is upgraded to in L2; must differ from the from-version digest |
+| `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` | `300` | Seconds to wait for an upgrade or rollback rollout to reach (or, for the known-bad L3 upgrade, provably not reach) a healthy state |
+| `E2E_LIFECYCLE_RESULTS_DIR` | `lifecycle-results` | Directory for the version record and per-phase results, and for failure diagnostics |
+| `E2E_LIFECYCLE_SKIP_UNINSTALL` | `0` | Set to `1` to keep the installed platform after the run for inspection (skips L4) |
+
 ## Design Decisions
 
 | Decision                                                                                   | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -2421,3 +2738,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | Performance test is not wired into PR CI                                                   | A large-scale provisioning run is too heavy and too slow for the per-PR e2e gate (20-minute ceiling). The performance test is run on demand locally, against any OpenShift cluster, or on a schedule. Keeping it out of the PR path avoids flaky, resource-bound CI failures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Terminal-native results: versioned JSON + history files + local report                     | Because the test is run manually and not in CI, results must digest from a terminal with no CI service. A documented, versioned JSON schema keeps `jq` filters stable across runs; per-run timestamped files build a local history instead of overwriting; a `make e2e-performance-report` target tabulates recent runs so a user can spot a regression. This gives the trend-comparison benefit of a CI benchmark chart without a CI dependency, and leaves the JSON as a clean hook to add `github-action-benchmark` later if the test is ever wired into CI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Report depends only on bash                                                                | The performance harness writes JSON from bash state and the report reads that schema with bash string helpers. Avoiding `python3` and `jq` means the report runs on a plain machine with no extra install. CSV export is opt-in for users who prefer a spreadsheet                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Lifecycle harness reuses the suite as a checkpoint, not a second set of assertions | The deployment lifecycle (install, upgrade, rollback, uninstall) needs to prove the platform still works after each transition, which the functional `E2ESuite` already asserts end to end. Running the short-mode suite in-process after each state -- exactly as the performance harness runs it as a scale checkpoint -- pins any regression to the state and version pair that caused it without duplicating functional assertions in the lifecycle harness |
+| Lifecycle transitions use the overlay `make` targets, not new driver methods | Bring-up and teardown are already owned by `local-development.spec.md` (`make kind-up`/`make kind-down`) and `openshift-development.spec.md` (`make openshift-up`/`make openshift-down`), and the `E2EInfraDriver` deliberately has no bring-up method. The lifecycle harness drives transitions through those documented commands and the documented image-swap path, keeping the driver the inspection-and-access contract the suite depends on. Upgrade and rollback map to Kubernetes rolling-update behavior: a bad image stalls at the readiness gate while the last-good replicas keep serving, so rollback is a deterministic swap back to the previous digests |
+| Lifecycle harness is opt-in and off the PR path | A full install/upgrade/rollback/uninstall cycle is slow and disruptive (it tears the environment down), so wiring it into the per-pull-request or merge-queue gate would blow the 20-minute ceiling and churn shared clusters. It runs on demand via `make e2e-lifecycle` and on a schedule, the same posture as the performance harness |
+| Uninstall verifies retention instead of trusting it | The constraint is that an uninstall test must not delete shared infrastructure or production data. Rather than assume the `down` command is well behaved, the harness writes data before uninstall, uninstalls with the manifest/namespace-removal command (never the cluster-destroying teardown), then verifies the resources that are externally owned on the active overlay are still present -- the Kind stand-in `external-cloud-db` server and its data, and on both overlays the shared operators (cert-manager, Gateway API, Agent Sandbox). On OpenShift the bundled stand-in PostgreSQL is platform-owned and removed with the platform (`openshift-development.spec.md`), so it is not asserted as externally owned. This turns the documented retention policy (`local-development.spec.md`, `openshift-development.spec.md`, and OSG-DBS-07) into an asserted contract |
