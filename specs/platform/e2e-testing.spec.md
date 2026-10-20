@@ -11,7 +11,8 @@
 `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
 `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
 `openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting;
-`e2e-run-log-visibility.spec.md` (HYPERSHELL-402) -- the Glass fleet dashboard consumer of the opt-in structured run reporting this spec defines (recent runs, run detail/history, live step and log streaming via Loki)
+`e2e-run-log-visibility.spec.md` (HYPERSHELL-402) -- the Glass fleet dashboard consumer of the opt-in structured run reporting this spec defines (recent runs, run detail/history, live step and log streaming via Loki);
+`e2e-feature-coverage.spec.md` (HYPERSHELL-368) -- the credential-driver, gateway-sharing, Kata-runtime, alerting-signal, and CLI/UI-parity phase steps (P2.7-P2.11) and the ManagedCluster delete-and-restore extension of P2.4; this spec names those steps, that spec owns their content
 
 ## Purpose
 
@@ -698,13 +699,20 @@ The ordering principle is: cheap preconditions that gate everything run first an
 - **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
 - **P2.3 Gateway deletion + namespace GC** -- long-mode qualification of both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout long-mode P2; see Gateway Deletion and Namespace GC).
-- **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage).
+- **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage). Also under `E2E_MULTICLUSTER=1`, deleting that second cluster's record orphans its gateway until the control plane's next `/registration` restores the same `cluster_id` and the gateway re-attaches (see `e2e-feature-coverage.spec.md` E2E-COV-06).
+- **P2.5 Gateway access management** -- owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment, acting as several secondary user identities.
+- **P2.6 Gateway service accounts** -- create, use, revoke, and delete a gateway service account.
+- **P2.7 Provider credential drivers** -- validate the Kubernetes Secrets and explicit KEK credential-storage drivers unconditionally, the Vault driver under `E2E_QUALIFY_VAULT=1`, the deployment-resolved omitted-driver default, and the two rejection paths (see `e2e-feature-coverage.spec.md` E2E-COV-01).
+- **P2.8 Gateway sharing via `role_bindings`** -- an owner grants and revokes `gateway:viewer` access to a second user on a dedicated gateway through the `role_bindings` API, and non-owner and Keycloak-only-role requests are refused (see `e2e-feature-coverage.spec.md` E2E-COV-02).
+- **P2.9 Kata runtime sandboxes** -- a sandbox honors a configured Kata RuntimeClass, gated on `E2E_QUALIFY_KATA=1` (see `e2e-feature-coverage.spec.md` E2E-COV-03).
+- **P2.10 Alerting and incident signal** -- a reconcile fault increments the corresponding Prometheus metric unconditionally, and alert-firing is asserted only under the deferred `E2E_QUALIFY_ALERTING=1` opt-in (see `e2e-feature-coverage.spec.md` E2E-COV-04).
+- **P2.11 CLI/UI command parity** -- the install and provider-create commands the web console renders equal the commands the suite executes, driven by the live reconciled `gateway_version` (see `e2e-feature-coverage.spec.md` E2E-COV-05).
 
 **Phase P3 -- Read-only verification** (parallel, non-gating, runs last):
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 and P2.4 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 through P2.11 are long-only, each with its own opt-in gate where one applies (defined where the step is specified). P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
@@ -727,7 +735,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.4 and P3.1)
+- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.3 through P2.11 and P3.1)
 - AND results SHALL be reported as pass/fail/skip counts with per-step detail
 
 #### Scenario: E2E-CORE-13.02 -- Gateway Provisioning
@@ -1961,7 +1969,7 @@ When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2
 
 `perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4, P2.5, P2.6, and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4 through P2.11 and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
 
 | Step | Short (essential checks) | Long-only (deep / slow checks) |
 |------|--------------------------|--------------------------------|
@@ -1978,6 +1986,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
 | P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
+| P2.7-P2.11 Feature-coverage phases (credential drivers, gateway sharing, Kata runtime, alerting signal, CLI/UI parity) | skipped | see `e2e-feature-coverage.spec.md` E2E-COV-01 through E2E-COV-05 for each phase's long-mode checks |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
 `short` mode SHALL own the gateway it provisions and its cleanup path SHALL delete that gateway on any exit, so a short run leaves no gateway behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace, wait for a managed namespace to be garbage collected, or mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 and P2.3's namespace-GC qualification SHALL NOT run in short or perf mode.
