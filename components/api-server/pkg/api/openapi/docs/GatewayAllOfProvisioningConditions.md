@@ -4,9 +4,9 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Type** | Pointer to **string** | Condition identifier (e.g., EnvironmentReady) | [optional] 
-**ConditionStatus** | Pointer to **string** | Current status of this provisioning step | [optional] 
-**Message** | Pointer to **string** | Human-readable detail (failure reason when Failed) | [optional] 
+**Type** | Pointer to **string** | Condition identifier (e.g., EnvironmentReady) | [optional]
+**ConditionStatus** | Pointer to **string** | Current status of this provisioning step | [optional]
+**Message** | Pointer to **string** | Human-readable detail (failure reason when Failed) | [optional]
 
 ## Methods
 
@@ -104,5 +104,3 @@ HasMessage returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

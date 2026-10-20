@@ -4,15 +4,15 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**AgentRuntimeId** | **string** | The AgentRuntime that owns this workspace. Exactly one workspace per runtime. | 
-**GatewayId** | **string** | The Gateway this workspace is provisioned on. | 
-**Name** | **string** | Workspace name, unique on the gateway. | 
-**Status** | Pointer to **string** |  | [optional] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**AgentRuntimeId** | **string** | The AgentRuntime that owns this workspace. Exactly one workspace per runtime. |
+**GatewayId** | **string** | The Gateway this workspace is provisioned on. |
+**Name** | **string** | Workspace name, unique on the gateway. |
+**Status** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -245,5 +245,3 @@ HasStatus returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

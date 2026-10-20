@@ -32,6 +32,9 @@ docs/GatewayPlacementAvailability.md
 docs/GatewayPlacementAvailabilityItem.md
 docs/GatewayPlacementAvailabilityRequest.md
 docs/GatewayPlacementIntent.md
+docs/GatewaySandboxEvent.md
+docs/GatewaySandboxEventGroup.md
+docs/GatewaySandboxEventList.md
 docs/InferenceRoute.md
 docs/InferenceRouteList.md
 docs/List.md
@@ -104,6 +107,9 @@ model_gateway_placement_availability.go
 model_gateway_placement_availability_item.go
 model_gateway_placement_availability_request.go
 model_gateway_placement_intent.go
+model_gateway_sandbox_event.go
+model_gateway_sandbox_event_group.go
+model_gateway_sandbox_event_list.go
 model_inference_route.go
 model_inference_route_list.go
 model_list.go

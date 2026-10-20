@@ -4,14 +4,14 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**WorkspaceId** | **string** |  | 
-**Subject** | **string** | OIDC subject UUID the agent uses to connect to the gateway. | 
-**Role** | **string** | Membership role, one of admin or member. | 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**WorkspaceId** | **string** |  |
+**Subject** | **string** | OIDC subject UUID the agent uses to connect to the gateway. |
+**Role** | **string** | Membership role, one of admin or member. |
 
 ## Methods
 
@@ -219,5 +219,3 @@ SetRole sets Role field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

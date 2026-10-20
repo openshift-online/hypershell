@@ -4,38 +4,38 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. | 
-**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
-**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
-**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
-**GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
-**ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly] 
-**ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
-**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
-**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly] 
-**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
-**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
-**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
-**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
-**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
-**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. |
+**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly]
+**ExternalDns** | Pointer to **string** |  | [optional]
+**TlsMode** | Pointer to **string** |  | [optional]
+**ServiceType** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**Phase** | Pointer to **string** |  | [optional]
+**Image** | Pointer to **string** | Container image for the gateway deployment | [optional]
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional]
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional]
+**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
+**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
+**GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly]
+**ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly]
+**ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly]
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
+**Route** | Pointer to **string** | JSON-encoded route configuration | [optional]
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional]
+**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
+**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly]
+**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly]
+**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly]
+**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly]
+**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
+**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly]
+**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly]
 
 ## Methods
 
@@ -843,5 +843,3 @@ HasCanEdit returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

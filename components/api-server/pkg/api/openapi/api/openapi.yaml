@@ -1496,6 +1496,38 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Keycloak provisioning or lifecycle verification is unavailable
       summary: Grant a user access to a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
+    get:
+      operationId: listGatewaySandboxEvents
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewaySandboxEventList"
+          description: Current bounded event snapshots grouped by sandbox name
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List recent sandbox Kubernetes events for a gateway
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     get:
       operationId: searchGatewayDirectory
@@ -5130,6 +5162,124 @@ components:
       - page
       - size
       - total
+      type: object
+    GatewaySandboxEvent:
+      example:
+        reason: reason
+        last_observed_at: 2000-01-23T04:56:07.000+00:00
+        involved_pod_name: involved_pod_name
+        involved_pod_uid: involved_pod_uid
+        count: 0
+        first_observed_at: 2000-01-23T04:56:07.000+00:00
+        type: type
+        message: message
+      properties:
+        type:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+        first_observed_at:
+          format: date-time
+          type: string
+        last_observed_at:
+          format: date-time
+          type: string
+        count:
+          format: int32
+          type: integer
+        involved_pod_name:
+          type: string
+        involved_pod_uid:
+          type: string
+      required:
+      - count
+      type: object
+    GatewaySandboxEventGroup:
+      example:
+        observed_at: 2000-01-23T04:56:07.000+00:00
+        sandbox_name: sandbox_name
+        events:
+        - reason: reason
+          last_observed_at: 2000-01-23T04:56:07.000+00:00
+          involved_pod_name: involved_pod_name
+          involved_pod_uid: involved_pod_uid
+          count: 0
+          first_observed_at: 2000-01-23T04:56:07.000+00:00
+          type: type
+          message: message
+        - reason: reason
+          last_observed_at: 2000-01-23T04:56:07.000+00:00
+          involved_pod_name: involved_pod_name
+          involved_pod_uid: involved_pod_uid
+          count: 0
+          first_observed_at: 2000-01-23T04:56:07.000+00:00
+          type: type
+          message: message
+      properties:
+        sandbox_name:
+          type: string
+        observed_at:
+          format: date-time
+          type: string
+        events:
+          items:
+            $ref: "#/components/schemas/GatewaySandboxEvent"
+          type: array
+      required:
+      - events
+      - observed_at
+      - sandbox_name
+      type: object
+    GatewaySandboxEventList:
+      example:
+        items:
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          sandbox_name: sandbox_name
+          events:
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          sandbox_name: sandbox_name
+          events:
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/GatewaySandboxEventGroup"
+          type: array
+      required:
+      - items
       type: object
     GatewayDirectoryUser:
       example:

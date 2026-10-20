@@ -4,21 +4,21 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**Provider** | **string** | Cloud provider capability used for gateway placement. | 
-**Visibility** | Pointer to **string** | Network visibility supported by this control plane for gateway placement. | [optional] [readonly] 
-**Region** | Pointer to **string** |  | [optional] 
-**KubeconfigSecret** | **string** |  | 
-**Status** | Pointer to **string** |  | [optional] 
-**ApiServerUrl** | Pointer to **string** |  | [optional] 
-**OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly] 
-**LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly] 
-**Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**Provider** | **string** | Cloud provider capability used for gateway placement. |
+**Visibility** | Pointer to **string** | Network visibility supported by this control plane for gateway placement. | [optional] [readonly]
+**Region** | Pointer to **string** |  | [optional]
+**KubeconfigSecret** | **string** |  |
+**Status** | Pointer to **string** |  | [optional]
+**ApiServerUrl** | Pointer to **string** |  | [optional]
+**OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly]
+**LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly]
+**Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. | [optional] [readonly]
 
 ## Methods
 
@@ -401,5 +401,3 @@ HasCapabilities returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

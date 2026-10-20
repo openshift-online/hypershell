@@ -33,6 +33,7 @@ var controlPlaneOnlyMethods = []string{
 	"/hypershell.v1.GatewayService/AdjustActiveSandboxCount",
 	"/hypershell.v1.GatewayService/SetActiveSandboxCount",
 	"/hypershell.v1.GatewayService/SetGatewayVersion",
+	"/hypershell.v1.GatewayService/ReportSandboxEvents",
 }
 
 type fakeActivityRecorder struct{ users []string }
@@ -129,6 +130,8 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 		{"adjust own namespace", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}, codes.OK},
 		{"adjust foreign namespace", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-foreign"}, codes.PermissionDenied},
 		{"set foreign namespace", gatewaySvc("SetActiveSandboxCount"), &pb.SetActiveSandboxCountRequest{Namespace: "ns-foreign"}, codes.PermissionDenied},
+		{"report own namespace", gatewaySvc("ReportSandboxEvents"), &pb.ReportSandboxEventsRequest{Namespace: "ns-own", SandboxName: "writer"}, codes.OK},
+		{"report foreign namespace", gatewaySvc("ReportSandboxEvents"), &pb.ReportSandboxEventsRequest{Namespace: "ns-foreign", SandboxName: "writer"}, codes.PermissionDenied},
 		{"adjust namespace without a live gateway (service no-op)", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-gone"}, codes.OK},
 		{"create gateway", gatewaySvc("CreateGateway"), &pb.CreateGatewayRequest{}, codes.PermissionDenied},
 		{"delete gateway", gatewaySvc("DeleteGateway"), &pb.DeleteGatewayRequest{Id: "gw-own"}, codes.PermissionDenied},
@@ -180,6 +183,7 @@ func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
 		controlPlaneOnlyMethods[0]: &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"},
 		controlPlaneOnlyMethods[1]: &pb.SetActiveSandboxCountRequest{Namespace: "ns-own"},
 		controlPlaneOnlyMethods[2]: &pb.SetGatewayVersionRequest{Id: "gw-own"},
+		controlPlaneOnlyMethods[3]: &pb.ReportSandboxEventsRequest{Namespace: "ns-own", SandboxName: "writer"},
 	}
 	for name, ctx := range cases {
 		for _, method := range controlPlaneOnlyMethods {

@@ -41,12 +41,17 @@ func FindSandboxForPod(pod *corev1.Pod, sandboxes SandboxLookup) *unstructured.U
 	if pod == nil {
 		return nil
 	}
+	hasSandboxOwner := false
 	for _, ref := range pod.OwnerReferences {
 		if ref.Kind == "Sandbox" && ref.Name != "" {
+			hasSandboxOwner = true
 			if sb := sandboxes[sandboxKey(pod.Namespace, ref.Name)]; sb != nil {
 				return sb
 			}
 		}
+	}
+	if hasSandboxOwner {
+		return nil
 	}
 	return sandboxes[sandboxKey(pod.Namespace, pod.Name)]
 }

@@ -58,6 +58,8 @@ paths:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1{id}'
   /api/hypershell/v1/gateways/{gateway_id}/access:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access'
+  /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
+    $ref: 'openapi.sandboxEvents.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1sandbox_events'
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1directory'
   /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
@@ -208,6 +210,12 @@ components:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessCapabilities'
     GatewayAccessList:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessList'
+    GatewaySandboxEvent:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEvent'
+    GatewaySandboxEventGroup:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEventGroup'
+    GatewaySandboxEventList:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEventList'
     GatewayDirectoryUser:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayDirectoryUser'
     GatewayDirectoryUserList:

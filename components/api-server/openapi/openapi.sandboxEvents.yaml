@@ -1,0 +1,85 @@
+paths:
+  /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
+    parameters:
+      - $ref: '#/components/parameters/gatewayId'
+    get:
+      operationId: listGatewaySandboxEvents
+      summary: List recent sandbox Kubernetes events for a gateway
+      responses:
+        '200':
+          description: Current bounded event snapshots grouped by sandbox name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewaySandboxEventList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+components:
+  parameters:
+    gatewayId:
+      name: gateway_id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    NotFoundError:
+      description: Gateway not found or caller is not bound to it
+      content:
+        application/json:
+          schema:
+            $ref: 'openapi.yaml#/components/schemas/Error'
+  schemas:
+    GatewaySandboxEvent:
+      type: object
+      properties:
+        type:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+        first_observed_at:
+          type: string
+          format: date-time
+        last_observed_at:
+          type: string
+          format: date-time
+        count:
+          type: integer
+          format: int32
+        involved_pod_name:
+          type: string
+        involved_pod_uid:
+          type: string
+      required:
+        - count
+    GatewaySandboxEventGroup:
+      type: object
+      properties:
+        sandbox_name:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewaySandboxEvent'
+      required:
+        - sandbox_name
+        - observed_at
+        - events
+    GatewaySandboxEventList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewaySandboxEventGroup'
+      required:
+        - items

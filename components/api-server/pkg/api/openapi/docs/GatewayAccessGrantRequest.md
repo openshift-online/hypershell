@@ -4,9 +4,9 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Username** | **string** |  | 
-**Subject** | Pointer to **string** | Optional Keycloak subject reference returned by the directory search | [optional] 
-**Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  | 
+**Username** | **string** |  |
+**Subject** | Pointer to **string** | Optional Keycloak subject reference returned by the directory search | [optional]
+**Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  |
 
 ## Methods
 
@@ -94,5 +94,3 @@ SetRole sets Role field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

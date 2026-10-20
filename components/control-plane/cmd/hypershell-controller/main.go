@@ -565,8 +565,12 @@ func main() {
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")
+
+			sandboxEventsReconciler := reconciler.NewSandboxEventsReconciler(clientset, dynamicClient, conn, 0, clusterID, 0)
+			supervise("sandbox events reconciler", sandboxEventsReconciler.Run)
+			log.Printf("INFO sandbox events reconciler launched")
 		} else {
-			log.Printf("WARN no dynamic client available, sandbox attention reconciliation disabled")
+			log.Printf("WARN no dynamic client available, sandbox attention and events reconciliation disabled")
 		}
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")

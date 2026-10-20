@@ -72,7 +72,7 @@ The control plane SHALL create one span per resource reconciliation, wrapping ea
 
 Each reconcile span SHALL record at least the resource kind and event type as span attributes. The span status SHALL reflect the reconcile outcome: OK on success, Error with a description on failure. When a reconcile is skipped because of the phase gate or deduplication, no span SHALL be created for the skipped event.
 
-The continuous reconcilers (health, namespace GC, sandbox count, sandbox attention) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`, `reconcile sandbox-attention`).
+The continuous reconcilers (health, namespace GC, sandbox count, sandbox attention, sandbox events) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`, `reconcile sandbox-attention`, `reconcile sandbox-events`).
 
 **Verification:** Trigger a gateway create, update, and delete event; confirm one span each named by kind and event type, with the outcome reflected in the span status. Confirm that a phase-gated skip produces no span. Confirm that the health reconciler produces a span per tick.
 
