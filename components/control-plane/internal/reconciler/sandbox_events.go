@@ -166,6 +166,7 @@ func (r *SandboxEventsReconciler) grpcReport(ctx context.Context, namespace, san
 type sandboxEventGroup struct {
 	namespace, sandbox string
 	events             []*pb.SandboxEvent
+	sourceEvents       []*corev1.Event
 }
 
 func selectSandboxEvents(pods []*corev1.Pod, sandboxes gateway.SandboxLookup, events []*corev1.Event, live map[string]struct{}, limit int) []sandboxEventGroup {
@@ -192,15 +193,23 @@ func selectSandboxEvents(pods []*corev1.Pod, sandboxes gateway.SandboxLookup, ev
 		}
 		for _, event := range events {
 			if eventMatchesPod(event, pod) {
-				group.events = append(group.events, protoEvent(event))
+				group.sourceEvents = append(group.sourceEvents, event)
 			}
 		}
 	}
 	out := make([]sandboxEventGroup, 0, len(groups))
 	for _, group := range groups {
-		sort.SliceStable(group.events, func(i, j int) bool { return sandboxEventNewer(group.events[i], group.events[j]) })
-		if len(group.events) > limit {
-			group.events = group.events[:limit]
+		// Kubernetes Events retain ordering information that cannot be recovered
+		// after conversion to the bounded protobuf representation. Sort the source
+		// objects before projecting them so EventTime, series observations, and
+		// creation time retain their distinct precedence (GSE-01).
+		sort.SliceStable(group.sourceEvents, func(i, j int) bool { return sandboxEventNewer(group.sourceEvents[i], group.sourceEvents[j]) })
+		if len(group.sourceEvents) > limit {
+			group.sourceEvents = group.sourceEvents[:limit]
+		}
+		group.events = make([]*pb.SandboxEvent, 0, len(group.sourceEvents))
+		for _, event := range group.sourceEvents {
+			group.events = append(group.events, protoEvent(event))
 		}
 		out = append(out, *group)
 	}
@@ -227,8 +236,10 @@ func eventMatchesPod(event *corev1.Event, pod *corev1.Pod) bool {
 }
 func protoEvent(event *corev1.Event) *pb.SandboxEvent {
 	first := event.FirstTimestamp.Time
-	last := sandboxEventTimestamp(event)
-	return &pb.SandboxEvent{Type: event.Type, Reason: event.Reason, Message: event.Message, FirstObservedAt: timestampOrNil(first), LastObservedAt: timestampOrNil(last), Count: event.Count, InvolvedPodName: event.InvolvedObject.Name, InvolvedPodUid: string(event.InvolvedObject.UID)}
+	if first.IsZero() && !event.EventTime.IsZero() {
+		first = event.EventTime.Time
+	}
+	return &pb.SandboxEvent{Type: event.Type, Reason: event.Reason, Message: event.Message, FirstObservedAt: timestampOrNil(first), LastObservedAt: timestampOrNil(sandboxEventLastObservedTime(event)), Count: event.Count, InvolvedPodName: event.InvolvedObject.Name, InvolvedPodUid: string(event.InvolvedObject.UID)}
 }
 func timestampOrNil(value time.Time) *timestamppb.Timestamp {
 	if value.IsZero() {
@@ -236,40 +247,43 @@ func timestampOrNil(value time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(value.UTC())
 }
-func sandboxEventTimestamp(event *corev1.Event) time.Time {
-	if !event.EventTime.IsZero() {
-		return event.EventTime.Time
-	}
+
+// sandboxEventLastObservedTime returns the Kubernetes last-observed value.
+// EventTime is deliberately not a fallback: it has a distinct meaning and is
+// represented by first_observed_at when FirstTimestamp is unavailable.
+func sandboxEventLastObservedTime(event *corev1.Event) time.Time {
 	if event.Series != nil && !event.Series.LastObservedTime.IsZero() {
 		return event.Series.LastObservedTime.Time
 	}
-	if !event.LastTimestamp.IsZero() {
-		return event.LastTimestamp.Time
-	}
-	return event.CreationTimestamp.Time
+	return event.LastTimestamp.Time
 }
-func sandboxEventNewer(left, right *pb.SandboxEvent) bool {
-	leftTime, rightTime := protoEventTime(left), protoEventTime(right)
-	if !leftTime.Equal(rightTime) {
-		return leftTime.After(rightTime)
+
+// sandboxEventNewer implements the GSE-01 source-object ordering. Do not sort
+// protobuf events here: projection loses EventTime and creation time, and would
+// collapse independently meaningful Kubernetes timestamps.
+func sandboxEventNewer(left, right *corev1.Event) bool {
+	for _, timestamps := range [][2]time.Time{
+		{left.EventTime.Time, right.EventTime.Time},
+		{sandboxEventLastObservedTime(left), sandboxEventLastObservedTime(right)},
+		{left.CreationTimestamp.Time, right.CreationTimestamp.Time},
+	} {
+		if !timestamps[0].Equal(timestamps[1]) {
+			return timestamps[0].After(timestamps[1])
+		}
 	}
-	if left.GetInvolvedPodUid() != right.GetInvolvedPodUid() {
-		return left.GetInvolvedPodUid() < right.GetInvolvedPodUid()
+	for _, values := range [][2]string{
+		{string(left.InvolvedObject.UID), string(right.InvolvedObject.UID)},
+		{left.InvolvedObject.Namespace, right.InvolvedObject.Namespace},
+		{left.InvolvedObject.Name, right.InvolvedObject.Name},
+		{left.Reason, right.Reason},
+		{left.Message, right.Message},
+		{left.Type, right.Type},
+		{left.Name, right.Name},
+		{left.ResourceVersion, right.ResourceVersion},
+	} {
+		if values[0] != values[1] {
+			return values[0] < values[1]
+		}
 	}
-	if left.GetInvolvedPodName() != right.GetInvolvedPodName() {
-		return left.GetInvolvedPodName() < right.GetInvolvedPodName()
-	}
-	if left.GetReason() != right.GetReason() {
-		return left.GetReason() < right.GetReason()
-	}
-	return left.GetMessage() < right.GetMessage()
-}
-func protoEventTime(event *pb.SandboxEvent) time.Time {
-	if event.GetLastObservedAt() != nil {
-		return event.GetLastObservedAt().AsTime()
-	}
-	if event.GetFirstObservedAt() != nil {
-		return event.GetFirstObservedAt().AsTime()
-	}
-	return time.Time{}
+	return false
 }

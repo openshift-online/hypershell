@@ -787,6 +787,38 @@ func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	}
 }
 
+func TestAuthorizeApiSandboxEventsRouteHidesUnboundCallerAndAllowsViewer(t *testing.T) {
+	gatewayID := "gw-events"
+	for _, test := range []struct {
+		name     string
+		bindings []BindingSummary
+		wantCode int
+		wantHit  bool
+	}{
+		{name: "unbound caller receives not found", wantCode: http.StatusNotFound},
+		{name: "gateway viewer reaches handler", bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: &gatewayID}}, wantCode: http.StatusOK, wantHit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			middleware := NewRBACAuthzMiddleware(authorizationLookup{bindings: test.bindings}, AuthzConfig{EnforceRBAC: true}, nil, nil)
+			hit := false
+			router := mux.NewRouter()
+			router.Handle("/api/hypershell/v1/gateways/{gateway_id}/sandbox_events", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hit = true
+				w.WriteHeader(http.StatusOK)
+			}))).Methods(http.MethodGet)
+			request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways/"+gatewayID+"/sandbox_events", nil)
+			token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "viewer"}}
+			ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+			ctx = context.WithValue(ctx, ContextUserIDKey, "viewer-id")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request.WithContext(ctx))
+			if response.Code != test.wantCode || hit != test.wantHit {
+				t.Fatalf("status=%d hit=%t, want %d/%t", response.Code, hit, test.wantCode, test.wantHit)
+			}
+		})
+	}
+}
+
 func TestSandboxEventsAuthorizationRequiresGatewayBinding(t *testing.T) {
 	gatewayID := "gw-events"
 	for _, role := range []string{"gateway:viewer", "gateway:admin", "gateway:owner"} {

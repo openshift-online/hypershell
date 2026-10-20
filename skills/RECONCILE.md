@@ -1625,6 +1625,8 @@ label-selected pod informer.
 
 **Completed:** GSE-01 through GSE-06 are implemented: a two-minute control-plane Event snapshot reconciler; `ReportSandboxEvents` gRPC contract and cluster-scoped authorization; a TTL- and capacity-bounded in-memory store; gateway-scoped REST read route and binding-only RBAC; regenerated OpenAPI, SDK, protobuf, and TUI descriptor artifacts; focused store, handler, RBAC, and reconciler tests. No web UI or hsctl command was added because the specification defines a REST-only diagnostic endpoint.
 
+**Review follow-up (2026-10-20):** GSE-01 now sorts source `corev1.Event` objects by EventTime, series or deprecated last-observed time, creation time, then deterministic keys before protobuf projection, and maps first and last observation timestamps independently. GSE-06 coverage now exercises active and terminated Pods, the default cap, source ordering ties, UID-less associations, empty full-snapshot clearing through the reconcile path, the ten-second gRPC deadline, failed-report continuation, complete REST payloads and groups, and routed viewer/unbound authorization. Equal-refresh cache eviction is deterministic.
+
 ### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
 
 **Scope:** Shift from static YAML manifests to Helm-based gateway deployment (openshell-gateway-helm-adoption.spec.md)

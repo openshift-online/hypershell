@@ -157,13 +157,22 @@ func (s *MemoryStore) evictOneLocked() {
 	var victim key
 	var oldest time.Time
 	for k, value := range s.entries {
-		if oldest.IsZero() || value.refreshedAt.Before(oldest) {
+		if oldest.IsZero() || value.refreshedAt.Before(oldest) || (value.refreshedAt.Equal(oldest) && keyBefore(k, victim)) {
 			victim, oldest = k, value.refreshedAt
 		}
 	}
 	if !oldest.IsZero() {
 		delete(s.entries, victim)
 	}
+}
+
+// keyBefore makes otherwise equal refresh times deterministic instead of
+// letting Go map iteration decide which valid cache entry is evicted.
+func keyBefore(left, right key) bool {
+	if left.namespace != right.namespace {
+		return left.namespace < right.namespace
+	}
+	return left.sandbox < right.sandbox
 }
 func cloneSnapshot(s Snapshot) Snapshot { s.Events = cloneEvents(s.Events); return s }
 func cloneEvents(in []Event) []Event {

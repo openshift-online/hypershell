@@ -3,6 +3,7 @@ package sandboxEvents
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -72,7 +73,9 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 func writeSandboxEventsJSON(w http.ResponseWriter, value response) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("WARN sandbox events: encode response: %v", err)
+	}
 }
 
 func eventNewer(left, right Event) bool {
