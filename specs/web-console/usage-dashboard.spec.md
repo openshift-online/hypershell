@@ -328,6 +328,8 @@ Sandbox utilization SHALL be:
 
 `gateway.sandbox.lifetime` SHALL be a histogram recorded when a sandbox leaves the active set. The Prometheus exporter SHALL append the instrument unit suffix `_seconds` to the histogram series. The lifetime start SHALL use the Sandbox CR creation timestamp, with pod creation timestamp only as a fallback. The implementation SHALL NOT use `spec.lifecycle.shutdownTime` because it is optional and may represent a future expiry rather than an observed termination.
 
+The lifetime histogram is not a continuity SLI. The separate bounded departure classification in `platform/minimum-usable-experience-slis.spec.md` (MUE-SLI-04) may use the same observation to determine whether a departure was expected; it SHALL NOT change this histogram's lifetime start or its inclusion rules.
+
 Lifetime bucket upper bounds, in seconds:
 
 `60`, `300`, `900`, `1800`, `3600`, `7200`, `14400`, `28800`, `43200`, `86400`, `172800`, `259200`, `604800`, `1209600`, `2592000`.

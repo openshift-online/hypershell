@@ -10,7 +10,7 @@ Give the HyperShell control plane distributed tracing and reconcile-level metric
 
 Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`, which adds span links from the reconcile root span to the originating request trace. That specification extends this one and `platform/api-server-observability.spec.md`.
 
-This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
+This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs. The minimum-usable-experience SLI semantic contract, including the new Sandbox establishment, continuity, and state-trust instruments, is defined by `platform/minimum-usable-experience-slis.spec.md`; this specification owns their control-plane OTel registration and export path.
 
 ## Requirements
 
@@ -203,6 +203,10 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 | `reconcile.queue.wait.duration` | Histogram | `s` | Time from when a resource key becomes ready until a worker starts reconciliation |
 | `gateway.provision.duration` | Histogram | `s` | Time from Gateway creation until its first successful transition to `Running` |
 | `gateway.provision.outcomes` | Counter | `{outcome}` | Count of terminal gateway provision outcomes (`success` or `failure`) |
+| `gateway.sandbox.establishment.duration` | Histogram | `s` | Creation-to-first-Ready Sandbox establishment duration for an in-window Ready event |
+| `gateway.sandbox.establishment.outcomes` | Counter | `{outcome}` | One terminal Sandbox establishment outcome with the closed outcome set in MUE-SLI-03 |
+| `gateway.sandbox.continuity.outcomes` | Counter | `{outcome}` | Active Sandbox departures classified with bounded `outcome` and `reason` attributes per MUE-SLI-04 |
+| `gateway.sandbox.count.reconciliation.outcomes` | Counter | `{outcome}` | Sandbox-count self-heal comparisons, `matched` or `corrected`, per MUE-SLI-05 |
 | `gateway.sandbox.orphaned` | Gauge | `{sandbox}` | Cluster-local orphaned active sandbox count |
 | `gateway.sandbox.expiring` | Gauge | `{sandbox}` | Cluster-local expiring-soon active sandbox count |
 | `gateway.sandbox.idle` | Gauge | `{sandbox}` | Cluster-local idle active sandbox count |
@@ -219,6 +223,8 @@ The queue wait histogram SHALL record one observation when the queue calls
 stop when a worker starts the call. Updates that coalesce into the same pending
 key SHALL NOT add observations. A scheduled retry backoff SHALL NOT be part of
 the queue wait duration.
+
+The control plane SHALL register the MUE-SLI-03 through MUE-SLI-05 instruments with the exact names and closed label values defined by `platform/minimum-usable-experience-slis.spec.md`. Their metric attributes SHALL NOT include a Gateway, Sandbox, namespace, user, or request identifier. The Sandbox establishment duration histogram SHALL export as `gateway_sandbox_establishment_duration_seconds`; the three counters SHALL export with `_total` suffixes. The API-server-owned `gateway.acquisition.outcomes` instrument is outside this control-plane metric list.
 
 The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 

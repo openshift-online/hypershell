@@ -12,6 +12,12 @@ These metrics are derived from the API server framework Prometheus histogram `ap
 
 Authentication failure rate and login failure rate are **out of scope** for this specification (deferred from HYPERSHELL-285).
 
+This dashboard's generic HTTP reliability metrics are supporting operational
+signals, not the minimum-usable-experience SLIs. In particular, the Gateway
+acquisition SLI is the dedicated accepted-versus-explicit-rejection counter
+defined by `platform/minimum-usable-experience-slis.spec.md` MUE-SLI-02; a
+framework HTTP status-code rate SHALL NOT replace it.
+
 ### Relationship to other specifications
 
 | Concern | Owner |

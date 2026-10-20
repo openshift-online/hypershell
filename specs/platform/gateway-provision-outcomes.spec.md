@@ -26,6 +26,7 @@ The operational dashboard `system-summary` card SHALL render a success-rate row 
 - **Gateway provision time** (`platform/gateway-provision-time.spec.md`) owns the companion `gateway.provision.duration` histogram. Success outcomes SHALL be recorded together with duration observations on the same one-per-gateway claim.
 - **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-reliability` widget, system-summary success-rate row, refresh policy (OP-DASH-09), independent metric loading within the `gateway-metrics` source (OP-DASH-19, OP-DASH-23), and dashboard-operator access (OP-DASH-04).
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
+- **Minimum usable experience SLIs** (`platform/minimum-usable-experience-slis.spec.md`, MUE-SLI-02) uses the first `Running` and `Failed` outcomes as the denominator for Gateway establishment indicator 0b. Its fifteen-minute good-event boundary does not change this spec's raw one-per-Gateway outcome contract or create an SLO target.
 
 ### Scope note: fleet-wide vs RBAC-filtered
 

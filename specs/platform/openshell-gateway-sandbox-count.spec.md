@@ -133,6 +133,28 @@ without requiring any intervening sandbox create or delete.
 - THEN it SHALL set the Gateway's `active_sandbox_count` to the observed number of
   active sandbox pods
 
+### Requirement: State-Trust Self-Heal Observations
+
+Before each periodic self-heal writes an absolute count, the control plane SHALL
+compare the synchronized watch-cache count with the count currently reported by
+the API server. It SHALL emit the bounded state-trust observation required by
+`minimum-usable-experience-slis.spec.md` MUE-SLI-05: `matched` when the counts
+are equal and `corrected` when it applies the observed count. The observation
+SHALL use the same active definition as this spec (a labeled Sandbox pod in
+`Pending` or `Running`) and SHALL NOT include a Gateway, Sandbox, or namespace
+identifier as a metric label.
+
+An API read or write failure is not evidence that the counts match. It SHALL NOT
+emit `matched`; existing reconciliation telemetry records that supporting failure.
+
+#### Scenario: Equal count is observed before a self-heal write
+
+- GIVEN the synchronized watch cache contains two active Sandbox pods for a Gateway namespace
+- AND the API server reports `active_sandbox_count = 2`
+- WHEN the periodic reconciliation evaluates that namespace
+- THEN it SHALL emit a `matched` state-trust observation
+- AND it SHALL not apply an absolute correction
+
 ### Requirement: Control-Plane-Owned, Read-Only Surfacing
 
 `active_sandbox_count` SHALL be owned and written only by the control plane. It

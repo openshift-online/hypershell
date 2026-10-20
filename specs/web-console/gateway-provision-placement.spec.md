@@ -231,6 +231,8 @@ The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage
 
 If no eligible cluster matches the selector, the backend SHALL NOT reject the create: the Gateway is LATE-BOUND. The backend SHALL create the Gateway with an empty `cluster_id`, hold it in the `Pending` phase with a clear awaiting-placement `status`, and bind it when a matching cluster appears, per [`data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway Placement and Late Binding"). The backend SHALL NOT drop selector labels or fall back to another selector or local-kind. This late-binding model lets a declarative `.hypershell` Gateway (which declares a selector and no `cluster_id`) import successfully even when no matching cluster is connected yet.
 
+For the Gateway acquisition SLI, this create is accepted, not a placement-unavailable rejection. `platform/minimum-usable-experience-slis.spec.md` defines placement-unavailable only for the local-kind rejection in GP-08.
+
 The backend SHALL persist BOTH the `placement` selector (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
 
 #### Scenario: Backend randomly selects a matching cluster

@@ -28,6 +28,7 @@ The operational dashboard `system-summary` card already renders provision-durati
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
 - **Gateway list metrics** (`provisioned-gateways`, `provisioned-sandboxes`) remain REST-driven and are unrelated to provision duration.
 - **Gateway metrics dashboard** (`platform/gateway-metrics-dashboard.spec.md`) exposes Prometheus gateway phase counts, not provision duration.
+- **Minimum usable experience SLIs** (`platform/minimum-usable-experience-slis.spec.md`, MUE-SLI-02) uses this histogram as raw evidence for Gateway establishment indicator 0b. Its fifteen-minute good-event boundary is an SLI measurement boundary, not an SLO target; this dashboard's mean, P50, and P95 presentation remains diagnostic.
 
 ### Scope note: fleet-wide vs RBAC-filtered
 
