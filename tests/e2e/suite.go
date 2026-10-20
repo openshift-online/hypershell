@@ -356,7 +356,7 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
-		s.parallelStep("P2.7", "vault-credential-coverage", tagLong, (*E2ESuite).p2_7VaultCredentialCoverage),
+		s.parallelStep("P2.7", "vault-fail-closed", tagLong, (*E2ESuite).p2_7VaultFailClosed),
 	}
 }
 

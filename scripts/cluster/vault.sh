@@ -256,6 +256,38 @@ apply_config() {
     token_ttl=3600 >/dev/null
 }
 
+# run_selftest validates the capability-scoped policy the way a gateway does, so the
+# GitOps Contract is checked once here in the fixture rather than by the e2e suite reaching
+# into Vault with a synthetic identity. It mints a vault-audience token for a throwaway
+# openshell-gateway ServiceAccount (the role binds bound_service_account_namespaces=*),
+# logs in under the openshell-gateway role, and asserts: a round-trip under
+# provider-credentials/* works, LIST is denied (no enumeration), and any path outside the
+# prefix is denied. Fails the script if the policy drifts. See
+# openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E Vault Coverage).
+run_selftest() {
+  local ns="openshell-vault-selftest" jwt out
+  vkube create namespace "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  vkube create serviceaccount openshell-gateway -n "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
+  [ -n "${jwt}" ] || { error "vault self-test: could not mint a vault-audience token"; exit 1; }
+  # The login + checks run inside the pod; the SA JWT is read from stdin (never argv).
+  out="$(printf '%s\n' "${jwt}" | vxi sh -c '
+    read -r JWT
+    CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
+    export VAULT_TOKEN="$CT"
+    K="secret/openshell/provider-credentials/selftest"
+    if vault kv put "$K" value=ok >/dev/null 2>&1 && [ "$(vault kv get -field=value "$K" 2>/dev/null)" = "ok" ]; then echo ROUNDTRIP_OK; else echo ROUNDTRIP_FAIL; fi
+    vault kv metadata delete "$K" >/dev/null 2>&1 || true
+    if vault kv list secret/openshell/provider-credentials 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
+    if vault kv put secret/openshell/not-allowed/x value=nope 2>&1 | grep -qiE "permission denied|403"; then echo OUTSIDE_DENIED; else echo OUTSIDE_ALLOWED; fi
+  ')"
+  vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
+  printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK  || { error "vault self-test: provider-credentials round-trip failed (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q LIST_DENIED   || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q OUTSIDE_DENIED || { error "vault self-test: out-of-prefix write not denied (out: ${out})"; exit 1; }
+  success "Capability policy self-test passed (round-trip ok; list denied; out-of-prefix denied)"
+}
+
 info "Waiting for the Vault API..."
 until vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; do sleep 3; done
 
@@ -274,6 +306,7 @@ if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
   [ -n "${RT}" ] || { error "generate-root reconcile failed"; exit 1; }
   apply_config "${RT}"
   vxt "${RT}" vault token revoke -self >/dev/null 2>&1 || true
+  run_selftest
   success "Vault reconciled at https://${VAULT_HOST}:8200 (capability-scoped policy re-applied)"
   exit 0
 fi
@@ -294,4 +327,5 @@ apply_config "${ROOT_TOKEN}"
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.
 vxt "${ROOT_TOKEN}" vault token revoke -self >/dev/null 2>&1 || true
 
+run_selftest
 success "Vault ready at https://${VAULT_HOST}:8200 (KV v2 'secret', role '${VAULT_ROLE}')"

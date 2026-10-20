@@ -600,64 +600,59 @@ previous backend.
 
 ### Requirement: End-to-End Vault Coverage in CI
 
-The Vault credential driver SHALL be exercised end-to-end by the e2e suite in **both**
-environments it runs in (Kind and OpenShift), so the whole path is proven in CI and so
-`vault` can become the flat default (see Requirement: Credential Driver Configuration
-Field) without reddening e2e. Each environment's bring-up SHALL stand up a **stand-in
-HashiCorp Vault** (the same software the per-cluster production Vault runs), as one
-Vault per cluster in namespace `openshell-vault` at the convention address
-`openshell-gateway-vault.openshell-vault.svc:8200` - the per-cluster production shape, so
-the control plane uses the convention with no address override - configured to the GitOps
-Contract below (KV v2 at `secret`, Kubernetes auth, the `openshell-gateway` role and the
-capability-scoped policy, a serving CA). The stand-in differs from production only in the
-seal/storage plumbing (file storage + a scripted, idempotent init+unseal, not KMS/Shamir +
-managed Postgres), and its setup is idempotent so it is safe as a shared fixture. A
-Vault-backed gateway can therefore authenticate and store secrets exactly as on a real
-cluster. See [`e2e-testing.spec.md`](./e2e-testing.spec.md).
+The Vault credential path SHALL be proven in CI so `vault` can become the flat default (see
+Requirement: Credential Driver Configuration Field) without reddening e2e. Each environment's
+bring-up (Kind and OpenShift) SHALL stand up a **stand-in HashiCorp Vault** (the same software
+the per-cluster production Vault runs), as one Vault per cluster in namespace `openshell-vault`
+at the convention address `openshell-gateway-vault.openshell-vault.svc:8200` - the per-cluster
+production shape, so the control plane uses the convention with no address override - configured
+to the GitOps Contract below (KV v2 at `secret`, Kubernetes auth, the `openshell-gateway` role
+and the capability-scoped policy, a serving CA). The stand-in differs from production only in
+the seal/storage plumbing (file storage + a scripted, idempotent init+unseal, not KMS/Shamir +
+managed Postgres), and its setup is idempotent so it is safe as a shared fixture. See
+[`e2e-testing.spec.md`](./e2e-testing.spec.md).
 
-The strongest end-to-end proof is **the suite's own sandbox lifecycle**: creating a sandbox
-drives the real OpenShell gateway process to resolve a provider credential from Vault at
-`secret/data/openshell/provider-credentials/*`, so if the capability-scoped policy did not
-grant that path the sandbox would never reach Running. The Vault-specific scenarios below
-additionally assert the capability boundary directly.
+Coverage is split so each layer is proven where it belongs, and the e2e suite does not reach
+into Vault with a synthetic identity:
 
-#### Scenario: Vault-backed gateway stores and reads a provider secret
+- **The capability-scoped policy** (a round-trip succeeds under
+  `secret/data/openshell/provider-credentials/*`; `list` is denied; any path outside the prefix
+  is denied) is the GitOps Contract, authored in `hypershell-gitops`. The stand-in Vault fixture
+  SHALL **self-verify** it once at setup, acting as a gateway identity (a `vault`-audience
+  ServiceAccount token logged in under the `openshell-gateway` role), and SHALL fail the bring-up
+  if the policy drifts. This keeps the contract check in the fixture, not in the product e2e.
+- **The real gateway-process resolve** is exercised end-to-end by the suite's own **sandbox
+  lifecycle**: creating a sandbox drives the actual OpenShell gateway to resolve a provider
+  credential from Vault at `provider-credentials/*`, so if the policy did not grant that path the
+  sandbox would never reach Running.
+- **Fail-closed** when Vault is unreachable is asserted by the suite through the **product API**
+  only (no Vault fixture or kube access required).
 
-- GIVEN the e2e environment with a Vault stood up to the GitOps Contract
-- AND a gateway provisioned with `credential_driver.type` = `vault`
-- WHEN the suite, acting as the gateway's own Vault identity, writes and reads a secret under
-  `secret/data/openshell/provider-credentials/*`
-- THEN the value SHALL round-trip
+#### Scenario: Vault fixture self-verifies the capability policy
 
-  The suite drives this as the gateway's own Vault identity (a `vault`-audience ServiceAccount
-  token under the `openshell-gateway` role and the shared policy) at the exact path prefix the
-  gateway runtime uses, since the product's provider-credential storage API is not driven by
-  the suite.
-
-#### Scenario: Capability boundary holds (no list, no reach outside the prefix)
-
-- GIVEN a gateway authenticated to Vault as its own identity
-- WHEN it attempts to `list` `secret/metadata/openshell/provider-credentials`
-- THEN it SHALL be denied, so it cannot enumerate another gateway's entries
-- AND WHEN it attempts to read or write a path outside `secret/data/openshell/provider-credentials/*`
-- THEN it SHALL be denied
+- GIVEN a stand-in Vault stood up to the GitOps Contract
+- WHEN the bring-up authenticates as a gateway identity (a `vault`-audience ServiceAccount token
+  under the `openshell-gateway` role) and checks the policy
+- THEN a write/read round-trip under `secret/data/openshell/provider-credentials/*` SHALL succeed
+- AND a `list` on the `provider-credentials` folder SHALL be denied
+- AND a read or write outside `secret/data/openshell/provider-credentials/*` SHALL be denied
+- AND the bring-up SHALL fail if any of these do not hold
 
 #### Scenario: Fail-closed is observable when Vault is unavailable
 
-- GIVEN a Vault-backed gateway on an environment whose Vault is unreachable
-- WHEN the gateway is provisioned
-- THEN the suite SHALL observe the fail-closed signal (provisioning fails with a
-  Vault-named reason / the gateway reports `Degraded`), never a gateway that reports
-  healthy while unable to reach Vault
+- GIVEN a gateway provisioned with a Vault driver pointed at an unreachable address
+- WHEN the GatewayReconciler reconciles
+- THEN the suite SHALL observe the fail-closed signal through the API (`EnvironmentReady` fails
+  with a Vault-named reason), and the gateway SHALL never report `Running`
 
-**Coverage boundaries.** The sandbox lifecycle scenarios exercise the real gateway-process
-resolve at `provider-credentials/*`; the Vault-specific scenarios drive the round-trip and
-the capability boundary as the gateway's own Vault identity, and fail-closed at provisioning
-via an unreachable address. The following are proven elsewhere and SHOULD NOT be assumed
-covered by this suite: sandbox-to-sandbox / cross-workspace resolve denial (OpenShell gateway
-workspace authorization, upstream unit tests), the authenticated-probe *rejection* path
-(Vault reachable but the identity denied), and the runtime `Degraded` transition when a
-healthy gateway's Vault later becomes unreachable.
+**Coverage boundaries.** The sandbox lifecycle exercises the real gateway-process resolve at
+`provider-credentials/*`; the fixture self-test proves the capability policy (round-trip, no
+list, no out-of-prefix) against the GitOps Contract; the suite asserts fail-closed at
+provisioning via the API. The following are proven elsewhere and SHOULD NOT be assumed covered
+by this suite: sandbox-to-sandbox / cross-workspace resolve denial (OpenShell gateway workspace
+authorization, upstream unit tests), the authenticated-probe *rejection* path (Vault reachable
+but the identity denied), and the runtime `Degraded` transition when a healthy gateway's Vault
+later becomes unreachable.
 
 ---
 

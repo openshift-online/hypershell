@@ -218,9 +218,12 @@ convention address, configured to the GitOps Contract - so the suite exercises t
 production credential path. The setup SHALL be idempotent (safe to re-run against an
 already-initialized Vault, so it holds on a shared cluster across pull-request
 environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
-pod UID/fsGroup). The detailed coverage (round-trip, the capability boundary, fail-closed)
-lives in `openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage
-in CI).
+pod UID/fsGroup). The bring-up SHALL **self-verify** the capability-scoped policy as a
+gateway identity (round-trip under `provider-credentials/*`, `list` denied, out-of-prefix
+denied) and fail if it drifts, so the GitOps Contract is checked in the fixture rather than
+by the suite reaching into Vault. How the remaining coverage is split (the sandbox lifecycle
+for the real resolve, and the API-driven fail-closed check) lives in
+`openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
 
 #### Scenario: Vault stood up on bring-up
 
@@ -228,6 +231,7 @@ in CI).
 - WHEN the suite provisions a gateway with no `credential_driver`
 - THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
   Vault
+- AND the bring-up SHALL have self-verified the capability policy (failing otherwise)
 - AND re-running bring-up SHALL leave the already-initialized Vault unchanged
 
 ### Requirement: Infra Driver Abstraction
