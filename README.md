@@ -218,3 +218,13 @@ To deploy the dashboard, apply the ConfigMap to the namespace where Grafana is r
 ```shell
 kubectl apply -f dashboards/hypershell-dashboard.yml
 ```
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=openshift-online%2Fhypershell&type=timeline&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=openshift-online/hypershell&type=timeline&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=openshift-online/hypershell&type=timeline&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=openshift-online/hypershell&type=timeline&legend=bottom-right" />
+ </picture>
+</a>
