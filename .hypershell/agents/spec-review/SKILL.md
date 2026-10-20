@@ -61,7 +61,15 @@ Output: `$REVIEW_VERDICT` - One of
 
 _Note: Create `$REVIEW_VERDICT` label if not exist._
 
-Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
+Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`.
+
+The verdict labels are mutually exclusive. On BOTH `$GITHUB_ISSUE_URL` and
+`$GITHUB_PR_URL`, remove the opposite verdict label if present:
+- Verdict `agent/review-spec-approved`: remove `agent/review-spec-rejected`.
+- Verdict `agent/review-spec-rejected`: remove `agent/review-spec-approved`.
+
+Other agents remove phase labels only from the issue. This agent is the only one
+that labels the pull request, so it MUST keep the pull request labels current.
 
 **Always post the review as a comment on `$GITHUB_PR_URL`, for BOTH an approved
 and a rejected verdict.** An approved review MUST NOT be silent: the record of
