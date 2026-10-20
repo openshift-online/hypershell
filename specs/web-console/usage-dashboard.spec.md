@@ -61,7 +61,7 @@ The dashboard uses the same BFF-to-Prometheus architecture as the other operatio
 
 ## Requirements
 
-### Requirement: WEB-USE-01 -- USAGE-DASH-01 - Package placement and exports
+### Requirement: WEB-USE-01 -- Package placement and exports
 
 The `@openshift-online/hypershell-operational-dashboard-ui` package SHALL host the usage dashboard presentation layer alongside the operational and reliability dashboards.
 
@@ -87,7 +87,7 @@ Presentation code SHALL NOT call `fetch`, the SDK, or BFF routes directly. Usage
 
 ---
 
-### Requirement: WEB-USE-02 -- USAGE-DASH-02 - Hexagonal application boundary
+### Requirement: WEB-USE-02 -- Hexagonal application boundary
 
 The usage dashboard SHALL follow the narrow hexagonal UI boundary defined in `standards/ui/hexagonal-architecture.spec.md`.
 
@@ -106,7 +106,7 @@ The usage dashboard SHALL follow the narrow hexagonal UI boundary defined in `st
 
 ---
 
-### Requirement: WEB-USE-03 -- USAGE-DASH-03 - Authenticated access and resource scope
+### Requirement: WEB-USE-03 -- Authenticated access and resource scope
 
 The `/dashboard/usage` SPA route SHALL be available to every authenticated user. It SHALL use the existing `RequireAuthenticatedDashboard` guard, not `RequireDashboardAdmin`.
 
@@ -156,7 +156,7 @@ No-auth development mode SHALL treat the caller as `platform:admin` only when OI
 
 ---
 
-### Requirement: WEB-USE-04 -- USAGE-DASH-04 - SPA and BFF route surfaces
+### Requirement: WEB-USE-04 -- SPA and BFF route surfaces
 
 The web console SHALL add:
 
@@ -195,7 +195,7 @@ Route behavior:
 
 ---
 
-### Requirement: WEB-USE-05 -- USAGE-DASH-05 - Widgetized layout and shared components
+### Requirement: WEB-USE-05 -- Widgetized layout and shared components
 
 The usage dashboard SHALL use the same widgetized dashboard package and layout behavior as the operational dashboard.
 
@@ -244,7 +244,7 @@ Because the implementation runtime cannot create or compare screenshots, the pro
 
 ---
 
-### Requirement: WEB-USE-06 -- USAGE-DASH-06 - Gateway request metrics
+### Requirement: WEB-USE-06 -- Gateway request metrics
 
 Gateway request metrics SHALL use the gateway-native Prometheus series:
 
@@ -281,7 +281,7 @@ Calculations:
 
 ---
 
-### Requirement: WEB-USE-07 -- USAGE-DASH-07 - Active and unused gateways
+### Requirement: WEB-USE-07 -- Active and unused gateways
 
 An active gateway is an authorized current gateway namespace with at least one non-peer gateway request in the covered range.
 
@@ -307,7 +307,7 @@ Deleted gateways SHALL NOT inflate active or unused counts.
 
 ---
 
-### Requirement: WEB-USE-08 -- USAGE-DASH-08 - Sandbox utilization and lifetime
+### Requirement: WEB-USE-08 -- Sandbox utilization and lifetime
 
 The control plane SHALL export:
 
@@ -353,7 +353,7 @@ Lifetime calculations:
 
 ---
 
-### Requirement: WEB-USE-09 -- USAGE-DASH-09 - Data source documentation
+### Requirement: WEB-USE-09 -- Data source documentation
 
 `packages/operational-dashboard-ui/DATA_SOURCES.md` SHALL document every usage metric with:
 
@@ -376,7 +376,7 @@ Lifetime calculations:
 
 ---
 
-### Requirement: WEB-USE-10 -- USAGE-DASH-10 - Localization and accessibility
+### Requirement: WEB-USE-10 -- Localization and accessibility
 
 All usage dashboard text SHALL be localized through the existing dashboard message catalog.
 
@@ -398,7 +398,7 @@ The page SHALL provide:
 
 ---
 
-### Requirement: WEB-USE-11 -- USAGE-DASH-11 - Tests and verification
+### Requirement: WEB-USE-11 -- Tests and verification
 
 The implementation SHALL include tests for:
 

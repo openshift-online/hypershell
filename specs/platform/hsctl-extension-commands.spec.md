@@ -29,7 +29,7 @@ including `Repository`.
 
 ## Requirements
 
-### Requirement: CLI-EXT-01 -- HEC-01 - Generator Boundary and Registration
+### Requirement: CLI-EXT-01 -- Generator Boundary and Registration
 
 The rh-trex-ai CLI generator SHALL generate resource commands only for the
 `/api/hypershell/v1` kinds, because it handles a single API prefix. The Extension
@@ -49,7 +49,7 @@ command files; the generated files SHALL remain editable only by regeneration.
 - THEN `hsctl get <kind>` and `hsctl list <kinds>` SHALL appear in the extension help section of their parent commands
 - AND no generated parent command file SHALL be hand-edited to make them appear
 
-### Requirement: CLI-EXT-02 -- HEC-02 - Read-Back for Every Listable Extension Kind
+### Requirement: CLI-EXT-02 -- Read-Back for Every Listable Extension Kind
 
 Every Extension API kind the API server serves with both a list endpoint
 (`GET /api/hypershell/ext/<kinds>`) and a get-by-id endpoint
@@ -84,7 +84,7 @@ every other Extension list command; `hsctl get` resolves by id.
 - WHEN the user lists repositories and then gets the repository by id
 - THEN both commands SHALL succeed, so the apply-then-verify loop is complete from `hsctl` alone
 
-### Requirement: CLI-EXT-03 -- HEC-03 - get Renders Read-Only Status
+### Requirement: CLI-EXT-03 -- get Renders Read-Only Status
 
 `hsctl get repository <id>` SHALL render the full Repository object returned by
 the API, including the read-only `status` field (registration and import health).
@@ -96,13 +96,13 @@ No extension `get` command SHALL omit a read-only field the API returns.
 - WHEN the user runs `hsctl get repository <id>`
 - THEN the printed object SHALL include the `status` field so the user can follow the Repository's registration and import health
 
-### Requirement: CLI-EXT-04 -- HEC-04 - No CLI or TUI Drift
+### Requirement: CLI-EXT-04 -- No CLI or TUI Drift
 
 The committed CLI command set and the generated terminal UI descriptor SHALL stay
 consistent with the API. When an Extension kind is added to the API, its generated
 terminal UI descriptor entry SHALL be regenerated through `make generate-tui`, and
 `make check` SHALL fail when the committed descriptor differs from a fresh
-generation (see [`hsctl-terminal-ui.spec.md`](hsctl-terminal-ui.spec.md), TUI-02).
+generation (see [`hsctl-terminal-ui.spec.md`](hsctl-terminal-ui.spec.md), CLI-TUI-02).
 The hand-written extension resource commands SHALL be registered consistently
 across `get`, `list`, `create`, and `delete` so that the Extension kinds a user
 can create are also the Extension kinds a user can read back.

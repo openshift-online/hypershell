@@ -31,7 +31,7 @@ resource commands for the Extension API kinds are codified in
 
 ## Requirements
 
-### Requirement: CLI-TUI-01 -- TUI-01 - Command Entry Point
+### Requirement: CLI-TUI-01 -- Command Entry Point
 
 `hsctl` SHALL provide a `tui` subcommand that starts the terminal interface. The
 command SHALL load the saved `hsctl` configuration and use the saved server URL
@@ -62,7 +62,7 @@ default 5 seconds, `0` disables polling).
 - WHEN the user runs `hsctl tui > out.txt`
 - THEN the command SHALL exit with status 1 and an error mentioning an interactive terminal
 
-### Requirement: CLI-TUI-02 -- TUI-02 - Generated From the API Description
+### Requirement: CLI-TUI-02 -- Generated From the API Description
 
 The resources, columns, relationships, and actions shown by `hsctl tui` SHALL
 come from the generated descriptor under `components/cli/data/generated/tui`,
@@ -87,7 +87,7 @@ committed descriptor differs from a fresh generation.
 - WHEN `make check` runs
 - THEN it SHALL fail and name `make generate-tui`
 
-### Requirement: CLI-TUI-03 -- TUI-03 - Pinned Generator and Runtime
+### Requirement: CLI-TUI-03 -- Pinned Generator and Runtime
 
 The descriptor generator and the terminal runtime linked into `hsctl` SHALL come
 from the same rh-trex-ai commit, so that every descriptor field the generator
@@ -101,7 +101,7 @@ emits is understood by the runtime. The generator commit SHALL be the full SHA i
 - WHEN a developer updates `scripts/rh-trex-ai.ref` and the `go.mod` module version to that commit
 - THEN `make generate-cli`, `make generate-tui`, and the `hsctl` unit tests SHALL pass before the change is merged
 
-### Requirement: CLI-TUI-04 -- TUI-04 - Credentials and Session Renewal
+### Requirement: CLI-TUI-04 -- Credentials and Session Renewal
 
 Every API request made by the terminal interface SHALL carry the current access
 token, obtained from the saved login through a token provider that renews an
