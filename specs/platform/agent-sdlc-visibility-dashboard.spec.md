@@ -164,9 +164,13 @@ unauthenticated), and a future **Jira adapter** SHALL satisfy the same port by
 returning the PRs linked to a Jira item. The matrix SHALL depend only on the port, not
 on any issue-tracker specifics.
 
-A tracked work item whose associated pull requests are absent from every bundle's PR
-set SHALL collect in the Unreleased row (SDLC-VIS-11), which holds only genuinely
-in-flight tracked work.
+A tracked work item SHALL be treated as released when any of its pull requests appears
+in a resolved bundle's SHA compare window, OR when it merged at or before the oldest
+resolved bundle's build date (SDLC-VIS-11a); a pre-horizon item is contained in that
+oldest bundle and every newer one even though no compare window reaches back to it. Only
+a tracked work item that is neither window-placed nor pre-horizon -- genuinely merged
+after the newest resolved bundle -- SHALL collect in the Unreleased row (SDLC-VIS-11),
+which holds only genuinely in-flight tracked work.
 
 The bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift between
 them) SHALL be the promotion plane's existing release-plus-deployment facts, not a
@@ -415,12 +419,17 @@ SHALL show both counts, the number of tracked issues and the number of pull requ
 in the bundle (for example "2 issues, 4 PRs").
 
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
-execution-record issues whose pull requests are absent from every bundle's PR set.
-A one-off pull request SHALL NOT appear in the Unreleased row; it appears only under
-the bundle that shipped it. The Unreleased row SHALL carry no version and no
-hub-cluster markers. When a bundle is released whose PR set contains an Unreleased
-issue's pull requests, that issue SHALL move from the Unreleased row into that
-bundle's row. The matrix SHALL NOT present a named "building" bundle.
+execution-record issues merged after the newest resolved bundle's build boundary, whose
+pull requests are therefore absent from every resolved bundle's compare window and which
+did not merge at or before the oldest resolved bundle's build date (SDLC-VIS-11a). A
+shipped issue whose delivering pull requests are already contained in a bundle -- whether
+a recent bundle's compare window placed them or the issue merged before the oldest
+resolved bundle -- SHALL NOT appear in the Unreleased row. A one-off pull request SHALL
+NOT appear in the Unreleased row; it appears only under the bundle that shipped it. The
+Unreleased row SHALL carry no version and no hub-cluster markers. When a bundle is
+released whose PR set contains an Unreleased issue's pull requests, that issue SHALL move
+from the Unreleased row into that bundle's row. The matrix SHALL NOT present a named
+"building" bundle.
 
 #### Scenario: Current bundle marked per hub cluster
 
@@ -456,8 +465,8 @@ bundle's row. The matrix SHALL NOT present a named "building" bundle.
 
 #### Scenario: Unreleased holds only in-flight tracked work
 
-- GIVEN a shipped execution-record issue whose pull requests are absent from every
-  bundle's PR set
+- GIVEN a shipped execution-record issue whose pull requests merged after the newest
+  resolved bundle's build boundary and appear in no resolved bundle's compare window
 - WHEN the matrix renders
 - THEN that issue SHALL appear in the single Unreleased row
 - AND the Unreleased row SHALL carry no version and no hub-cluster markers
@@ -467,6 +476,80 @@ bundle's row. The matrix SHALL NOT present a named "building" bundle.
 - GIVEN an issue in the Unreleased row
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
+
+### Requirement: SDLC-VIS-11a -- Released Decision Independent of the Compare-Window Horizon
+
+Whether a tracked execution-record issue is **released** or **Unreleased** SHALL be
+decided by whether its delivering pull requests are actually contained in a shipped
+bundle, not solely by whether a pull request falls inside one of the resolved bundles'
+SHA compare windows. The resolved bundle set is bounded (the currently deployed bundles
+plus the last `FD_RELEASE_HISTORY_LIMIT` distinct bundles from history), and the compare
+windows span only from the oldest to the newest bundle in that set. A pull request merged
+before the oldest resolved bundle therefore falls inside no window even though it is an
+ancestor of every resolved bundle and is running on every hub cluster. Deciding
+"released" by window membership alone wrongly reports such pre-horizon work as never
+shipped, and the error grows with build cadence because a faster release cadence shortens
+the span the resolved set covers.
+
+The two conflated concerns SHALL be separated:
+
+- **Per-bundle grouping** of recent pull requests (which recent bundle first introduced a
+  pull request) SHALL continue to use the exact SHA-based compare windows, unchanged.
+  Those windows remain correct for the recent frontier, including build lag near it.
+- **The released-vs-unreleased decision** SHALL additionally treat a tracked work item as
+  released when its merge time (`ClosedAt` / `MergedAt`) is at or before the **oldest
+  resolved bundle's build date** (`Release.Date`). An item merged before the oldest bundle
+  the dashboard can resolve is contained in that bundle and every newer one, so it SHALL
+  be reported released, not Unreleased.
+
+A tracked work item released only by this build-date boundary (window-unplaced but
+pre-horizon) SHALL remain visible in a released position rather than being dropped: it
+SHALL be grouped under the oldest resolved bundle row, or under a single collapsed
+"Earlier releases" row. It SHALL NOT appear in the Unreleased row and SHALL NOT be
+silently omitted from the matrix.
+
+The decision SHALL be computed in-memory from the `Release.Date` fields already held on
+the resolved bundles and the records' own merge times. It SHALL NOT issue any additional
+GitHub request, open any new cache entry, or change the refresh cost or the
+unauthenticated rate budget (SDLC-VIS-04). Per-pull-request ancestry probing against the
+newest bundle's source revision SHALL NOT be used, because it would cost one GitHub call
+per unplaced pull request on every refresh for a result the build-date boundary already
+gives where precision matters.
+
+Because the build-date boundary does not depend on pull-request-to-issue association
+linkage, a pre-horizon item SHALL be reported released even when its association
+cross-reference (SDLC-VIS-03) is momentarily unrecoverable; this also mitigates the
+missing-association contributor for deep-tail work.
+
+#### Scenario: Pre-horizon item is released, not Unreleased
+
+- GIVEN a tracked execution-record issue whose delivering pull request merged at or before
+  the oldest resolved bundle's build date
+- AND none of its pull requests appear in any resolved bundle's compare window
+- WHEN the matrix renders
+- THEN the issue SHALL appear in a released position, not in the Unreleased row
+
+#### Scenario: Pre-horizon released item stays visible
+
+- GIVEN a tracked issue released only by the build-date boundary
+- WHEN the matrix renders
+- THEN the issue SHALL be grouped under the oldest resolved bundle row or a single
+  collapsed "Earlier releases" row
+- AND it SHALL NOT be silently dropped from the matrix
+
+#### Scenario: Recent per-bundle grouping is unchanged
+
+- GIVEN a pull request that falls inside a resolved bundle's SHA compare window
+- WHEN the matrix groups bundle contents
+- THEN that pull request SHALL be grouped under the bundle whose window contains it,
+  exactly as before the fix
+
+#### Scenario: Decision adds no GitHub calls
+
+- GIVEN the SDLC plane recomputes the matrix on refresh
+- WHEN it decides released versus Unreleased for every tracked record
+- THEN it SHALL use only in-memory `Release.Date` and record merge-time comparisons
+- AND it SHALL NOT issue any additional GitHub request on account of the decision
 
 ### Requirement: SDLC-VIS-12 -- Fleet Map Cross-Link
 
@@ -711,8 +794,11 @@ HYPERSHELL-401 is illustrative only and SHALL NOT be copied literally.
 The repository SHALL include: BFF tests for the SDLC source (snapshot envelope,
 never-refreshed 503, stale-serving 200, PR-driven bundle contents grouped into tracked
 issues and other pull requests, a tracked issue delivered by multiple PRs in one
-bundle grouped once, the Unreleased row reduced to shipped issues absent from every
-bundle's PR set, rework-from-timeline counting) and for the `SdlcStateProvider` port
+bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
+resolved bundle, a shipped record whose merge time precedes the oldest resolved bundle's
+build date landing in a released row rather than Unreleased with no additional GitHub call
+(the compare-window horizon regression, SDLC-VIS-11a), rework-from-timeline counting) and
+for the `SdlcStateProvider` port
 with its GitHub adapter; UI tests for the wire mapper, the tab shell and shared
 freight-bar coupling, the aging-board position and SLE line, the rework meter encoding,
 the escalation lane ordering, the phase-transition flight detection (a flight is emitted
