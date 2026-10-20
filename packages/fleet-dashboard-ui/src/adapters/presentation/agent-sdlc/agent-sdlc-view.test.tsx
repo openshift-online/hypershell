@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -481,5 +481,49 @@ describe("AgentSdlcView phase-transition flights", () => {
     expect(document.querySelectorAll('[data-card-flight="11"]')).toHaveLength(
       1,
     );
+  });
+});
+
+describe("AgentSdlcView stacked-card popover", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function card(number: number, timeInPhaseSeconds: number): AgentSdlcCard {
+    return {
+      number,
+      title: `item ${String(number)}`,
+      url: "u",
+      phase: "spec",
+      timeInPhaseSeconds,
+      scope: null,
+      escalation: null,
+      rework: null,
+      history: [],
+    };
+  }
+
+  it("stays open while the live clock ages the cards and moves the stack", () => {
+    vi.useFakeTimers();
+    // One card sits at its true age; the next two are too close to it to fit, so
+    // they collapse into a stack placed just below it. As the clock ticks, the
+    // first card slides down and the stack moves with it.
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      phases: [{ key: "spec", sleSeconds: 100 }],
+      cards: [card(1, 600), card(2, 700), card(3, 800)],
+    };
+    // No nowMs override: the live clock ticks every second.
+    renderView({ data });
+
+    fireEvent.click(screen.getByRole("button", { name: /\+2 more/ }));
+    expect(screen.getByText("2 items at a similar age")).toBeDefined();
+
+    // Several ticks move the stack's position; the popover must stay open.
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(screen.getByText("2 items at a similar age")).toBeDefined();
+    expect(screen.getByRole("button", { name: /#2 item 2/ })).toBeDefined();
   });
 });
