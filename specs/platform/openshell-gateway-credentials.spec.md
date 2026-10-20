@@ -617,10 +617,12 @@ into Vault with a synthetic identity:
 
 - **The capability-scoped policy** (a round-trip succeeds under
   `secret/data/openshell/provider-credentials/*`; `list` is denied; any path outside the prefix
-  is denied) is the GitOps Contract, authored in `hypershell-gitops`. The stand-in Vault fixture
-  SHALL **self-verify** it once at setup, acting as a gateway identity (a `vault`-audience
-  ServiceAccount token logged in under the `openshell-gateway` role), and SHALL fail the bring-up
-  if the policy drifts. This keeps the contract check in the fixture, not in the product e2e.
+  is denied; and access revocation holds - removing the `openshell-gateway-provider` policy denies
+  the gateway, after which the fixture restores it) is the GitOps Contract, authored in
+  `hypershell-gitops`. The stand-in Vault fixture SHALL **self-verify** it once at setup, acting as
+  a gateway identity (a `vault`-audience ServiceAccount token logged in under the `openshell-gateway`
+  role), and SHALL fail the bring-up if the policy drifts. This keeps the contract check in the
+  fixture, not in the product e2e.
 - **The real gateway-process resolve** is exercised end-to-end by the suite's own **sandbox
   lifecycle**: creating a sandbox drives the actual OpenShell gateway to resolve a provider
   credential from Vault at `provider-credentials/*`, so if the policy did not grant that path the
@@ -636,6 +638,8 @@ into Vault with a synthetic identity:
 - THEN a write/read round-trip under `secret/data/openshell/provider-credentials/*` SHALL succeed
 - AND a `list` on the `provider-credentials` folder SHALL be denied
 - AND a read or write outside `secret/data/openshell/provider-credentials/*` SHALL be denied
+- AND removing the `openshell-gateway-provider` policy SHALL deny the gateway identity (access
+  revocation); the fixture SHALL then restore the policy so it is left usable
 - AND the bring-up SHALL fail if any of these do not hold
 
 #### Scenario: OSG-CRED-14.02 -- Fail-closed is observable when Vault is unavailable

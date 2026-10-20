@@ -271,7 +271,7 @@ apply_config() {
 # prefix is denied. Fails the script if the policy drifts. See
 # openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E Vault Coverage).
 run_selftest() {
-  local ns="openshell-vault-selftest" jwt out
+  local rt="$1" ns="openshell-vault-selftest" jwt out rev
   vkube create namespace "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   vkube create serviceaccount openshell-gateway -n "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
@@ -287,11 +287,25 @@ run_selftest() {
     if vault kv list secret/openshell/provider-credentials 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
     if vault kv put secret/openshell/not-allowed/x value=nope 2>&1 | grep -qiE "permission denied|403"; then echo OUTSIDE_DENIED; else echo OUTSIDE_ALLOWED; fi
   ')"
-  vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
   printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK  || { error "vault self-test: provider-credentials round-trip failed (out: ${out})"; exit 1; }
   printf '%s\n' "${out}" | grep -q LIST_DENIED   || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
   printf '%s\n' "${out}" | grep -q OUTSIDE_DENIED || { error "vault self-test: out-of-prefix write not denied (out: ${out})"; exit 1; }
-  success "Capability policy self-test passed (round-trip ok; list denied; out-of-prefix denied)"
+
+  # Revocation (openshell-gateway-vault.spec.md section 10): removing the policy revokes all
+  # gateway access. Delete the policy as root, confirm the gateway identity is then denied,
+  # and restore it via apply_config (idempotent) so the fixture is left usable. This needs
+  # root, so the caller runs the self-test in the setup window, before root is revoked.
+  vxt "${rt}" vault policy delete openshell-gateway-provider >/dev/null 2>&1 || { error "vault self-test: could not delete policy for the revocation check"; exit 1; }
+  rev="$(printf '%s\n' "${jwt}" | vxi sh -c '
+    read -r JWT
+    CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" 2>/dev/null) || CT=""
+    [ -n "$CT" ] && export VAULT_TOKEN="$CT"
+    if [ -z "$CT" ] || vault kv get secret/openshell/provider-credentials/selftest 2>&1 | grep -qiE "permission denied|403"; then echo REVOKED_DENIED; else echo REVOKED_ALLOWED; fi
+  ' || true)"
+  apply_config "${rt}" # restore the policy/role (idempotent); leaves the fixture usable
+  vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
+  printf '%s\n' "${rev}" | grep -q REVOKED_DENIED || { error "vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"; exit 1; }
+  success "Capability policy self-test passed (round-trip ok; list denied; out-of-prefix denied; revoked->denied)"
 }
 
 info "Waiting for the Vault API..."
@@ -318,8 +332,8 @@ if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
   RT="$(gen_root_token "${UNSEAL_KEY}")"
   [ -n "${RT}" ] || { error "generate-root reconcile failed"; exit 1; }
   apply_config "${RT}"
+  run_selftest "${RT}"
   vxt "${RT}" vault token revoke -self >/dev/null 2>&1 || true
-  run_selftest
   success "Vault reconciled at https://${VAULT_HOST}:8200 (capability-scoped policy re-applied)"
   exit 0
 fi
@@ -337,8 +351,9 @@ vx vault operator unseal "${UNSEAL_KEY}" >/dev/null
 info "Configuring KV v2, kubernetes auth, role and capability-scoped policy..."
 apply_config "${ROOT_TOKEN}"
 
+run_selftest "${ROOT_TOKEN}"
+
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.
 vxt "${ROOT_TOKEN}" vault token revoke -self >/dev/null 2>&1 || true
 
-run_selftest
 success "Vault ready at https://${VAULT_HOST}:8200 (KV v2 'secret', role '${VAULT_ROLE}')"

@@ -221,8 +221,9 @@ already-initialized Vault, so it holds on a shared cluster across pull-request
 environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
 pod UID/fsGroup). The bring-up SHALL **self-verify** the capability-scoped policy as a
 gateway identity (round-trip under `provider-credentials/*`, `list` denied, out-of-prefix
-denied) and fail if it drifts, so the GitOps Contract is checked in the fixture rather than
-by the suite reaching into Vault. How the remaining coverage is split (the sandbox lifecycle
+denied, and - access revocation - the gateway denied once the policy is removed, then the
+policy restored) and fail if it drifts, so the GitOps Contract is checked in the fixture
+rather than by the suite reaching into Vault. How the remaining coverage is split (the sandbox lifecycle
 for the real resolve, and the API-driven fail-closed check) lives in
 `openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
 
@@ -232,7 +233,8 @@ for the real resolve, and the API-driven fail-closed check) lives in
 - WHEN the suite provisions a gateway with no `credential_driver`
 - THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
   Vault
-- AND the bring-up SHALL have self-verified the capability policy (failing otherwise)
+- AND the bring-up SHALL have self-verified the capability policy, including that removing the
+  `openshell-gateway-provider` policy denies the gateway and restoring it recovers access (failing otherwise)
 - AND re-running bring-up SHALL leave the already-initialized Vault unchanged
 
 ### Requirement: E2E-CORE-01 -- Infra Driver Abstraction
