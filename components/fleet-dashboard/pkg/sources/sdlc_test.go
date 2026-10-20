@@ -215,6 +215,93 @@ func TestSDLCMatrix(t *testing.T) {
 	}
 }
 
+// countingIssues wraps a PR resolver and counts AssociatedPRs calls, so a test can
+// prove the released-vs-unreleased decision adds no GitHub lookups (SDLC-VIS-11a/04).
+type countingIssues struct {
+	inner WorkItemPRResolver
+	calls int
+}
+
+func (c *countingIssues) AssociatedPRs(ctx context.Context, rec SdlcRecord) []int {
+	c.calls++
+	return c.inner.AssociatedPRs(ctx, rec)
+}
+
+// TestSDLCMatrixPreHorizonReleased is the compare-window horizon regression
+// (SDLC-VIS-11a). A shipped execution-record issue whose delivering pull request is in
+// no resolved bundle's compare window but which merged at or before the oldest resolved
+// bundle's build date is contained in that bundle and every newer one, so it SHALL land
+// in a released row (the oldest resolved bundle row), not the Unreleased row. Only work
+// merged after the newest resolved bundle stays Unreleased. The decision adds no GitHub
+// calls beyond the one AssociatedPRs lookup per shipped record the grouping already does.
+func TestSDLCMatrixPreHorizonReleased(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	// Resolved bundles span 2026-09-01 (oldest) .. 2026-09-15 (newest).
+	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "pr 101"}}}
+	rel2 := &Release{Version: "v20260915", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102, Title: "pr 102"}}}
+	promo := PromotionPayload{
+		Order: []string{"env-a", "env-b"},
+		Environments: map[string]Environment{
+			"env-a": {Active: rel2, Cluster: "cluster-a", Env: "prod"},
+			"env-b": {Active: rel1, Cluster: "cluster-b", Env: "stage"},
+		},
+		Releases: map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		// #501 placed by a compare window (PR 101 in d1).
+		{Number: 501, Title: "window-placed", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-25T00:00:00Z"},
+		// #576 (the issue from the bug report) merged BEFORE the oldest resolved bundle;
+		// its PR 577 is in no window. Pre-horizon -> released under the oldest bundle row.
+		{Number: 576, Title: "pre-horizon shipped", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-01T00:00:00Z"},
+		// #600 merged AFTER the newest resolved bundle; its PR 888 is in no window.
+		// Genuinely in-flight -> stays Unreleased.
+		{Number: 600, Title: "genuinely in-flight", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-10-01T00:00:00Z"},
+	}
+	issues := &countingIssues{inner: fakeIssues{m: map[int][]int{501: {101}, 576: {577}, 600: {888}}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	rows := p.Matrix.Rows
+	if len(rows) != 3 {
+		t.Fatalf("want 3 rows (Unreleased + 2 bundles), got %d", len(rows))
+	}
+
+	// Unreleased holds only the genuinely in-flight #600.
+	if !rows[0].Unreleased {
+		t.Fatalf("row 0 should be the Unreleased row, got %+v", rows[0])
+	}
+	if len(rows[0].Issues) != 1 || rows[0].Issues[0].Number != 600 {
+		t.Errorf("Unreleased row should hold only in-flight #600, got %+v", rows[0].Issues)
+	}
+	for _, iss := range rows[0].Issues {
+		if iss.Number == 576 {
+			t.Errorf("pre-horizon #576 must not appear in Unreleased")
+		}
+	}
+
+	// Oldest resolved bundle row (v20260901) holds the window-placed #501 and the
+	// pre-horizon #576, grouped in a released position rather than dropped.
+	oldest := rows[2]
+	if oldest.Version != "v20260901" || oldest.Unreleased {
+		t.Fatalf("row 2 should be the oldest resolved bundle, got %+v", oldest)
+	}
+	found576 := false
+	for _, iss := range oldest.Issues {
+		if iss.Number == 576 {
+			found576 = true
+		}
+	}
+	if !found576 {
+		t.Errorf("pre-horizon #576 should be grouped under the oldest bundle row, got %+v", oldest.Issues)
+	}
+
+	// The decision adds no GitHub calls: AssociatedPRs is called exactly once per shipped
+	// record for grouping, and the pre-horizon test is pure in-memory date arithmetic.
+	if issues.calls != len(shipped) {
+		t.Errorf("released decision added GitHub calls: AssociatedPRs called %d times, want %d", issues.calls, len(shipped))
+	}
+}
+
 // TestSDLCMatrixTrackedIssueMultiplePRs confirms a tracked issue delivered by several
 // pull requests in ONE bundle appears once under that bundle's tracked issues with all
 // of its pull requests grouped beneath it (SDLC-VIS-03).
