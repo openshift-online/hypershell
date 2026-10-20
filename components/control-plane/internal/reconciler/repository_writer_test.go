@@ -219,6 +219,25 @@ func TestUpsertGateway_LateBoundNoOpAfterServerAssignsCluster(t *testing.T) {
 	}
 }
 
+func TestUpsertGateway_MalformedPlacementReportsError(t *testing.T) {
+	gwc := &importFakeGatewayClient{}
+	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
+	// A placement block that is present but declares neither a non-empty selector nor
+	// mode: local-kind must fail with a clear error, not silently create a gateway
+	// with neither cluster_id nor placement.
+	res := RenderedResource{Kind: "Gateway", Name: "gw-bad", Spec: map[string]interface{}{
+		"placement": map[string]interface{}{"mode": "nonsense"},
+	}}
+
+	err := w.Upsert(context.Background(), "repo-1", res)
+	if err == nil {
+		t.Fatalf("Upsert of a malformed placement returned nil error; want a diagnostic")
+	}
+	if len(gwc.created) != 0 || len(gwc.updated) != 0 {
+		t.Fatalf("malformed placement still wrote: created=%+v updated=%+v", gwc.created, gwc.updated)
+	}
+}
+
 func TestListOwned_FiltersGatewaysAndAgentRuntimesByRepository(t *testing.T) {
 	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{
 		importGw("g1", "gw-1", "repo-1", "c1"),

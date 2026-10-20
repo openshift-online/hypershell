@@ -763,6 +763,20 @@ The import writer SHALL:
   import SHALL NOT diff or mutate a Gateway's placement after create; server-side late
   binding re-resolves the already-persisted placement whenever the eligible-cluster
   set changes.
+- Report a malformed placement. When a rendered Gateway declares a `placement` block
+  that is neither a non-empty `selector` list nor `mode: local-kind`, the writer SHALL
+  fail the import of that Gateway with an error that names the problem, rather than
+  send a create with neither `cluster_id` nor `placement`, so the cause is clear
+  instead of surfacing only as the api-server's generic exactly-one-of rejection. The
+  error SHALL be collected like any other per-resource import error and SHALL NOT
+  abort the rest of the import.
+
+#### Scenario: Import of a malformed placement fails with a clear cause
+
+- GIVEN a `.hypershell` Gateway manifest whose `placement` declares neither a non-empty `selector` nor `mode: local-kind`
+- WHEN the import writer reconciles that Gateway
+- THEN it SHALL report an error that names the malformed placement and SHALL NOT send a create or update for that Gateway
+- AND the error SHALL be collected so the rest of the import still runs
 
 #### Scenario: Import of a late-bound Gateway maps the capability selector
 

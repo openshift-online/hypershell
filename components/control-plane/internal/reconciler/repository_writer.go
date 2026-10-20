@@ -495,7 +495,10 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		return err
 	}
 	clusterID := specString(res.Spec, "cluster_id")
-	placement := gatewayPlacement(res.Spec)
+	placement, err := gatewayPlacement(res.Spec)
+	if err != nil {
+		return fmt.Errorf("gateway %s: %w", res.Name, err)
+	}
 	// A gateway is late-bound when it declares a placement and no explicit
 	// cluster_id: the api-server resolves the placement selector to a concrete
 	// cluster and assigns cluster_id server-side (data-model.spec.md, "Gateway
@@ -587,34 +590,36 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 // api-server create contract (data-model.spec.md, "Gateway Placement and Late
 // Binding"; gateway-provision-placement.spec.md GP-01). A `selector` list maps to
 // CapabilitySelectorPlacement; `mode: local-kind` maps to LocalKindPlacement. It
-// returns nil when the spec declares no placement (a pinned gateway) or when the
-// placement block is malformed, in which case a late-bound create carrying neither
-// cluster_id nor placement is rejected by the api-server.
-func gatewayPlacement(spec map[string]interface{}) *pb.GatewayPlacementIntent {
+// returns (nil, nil) when the spec declares no placement at all (a pinned gateway).
+// When a `placement` block IS present but declares neither a non-empty selector nor
+// `mode: local-kind`, it returns an error naming the problem, so a malformed
+// late-bound manifest fails with a clear cause rather than silently rendering a
+// create with neither cluster_id nor placement.
+func gatewayPlacement(spec map[string]interface{}) (*pb.GatewayPlacementIntent, error) {
 	if spec == nil {
-		return nil
+		return nil, nil
 	}
 	raw, ok := spec["placement"]
 	if !ok || raw == nil {
-		return nil
+		return nil, nil
 	}
 	placementMap, ok := raw.(map[string]interface{})
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("placement must be a mapping with a selector list or mode: local-kind")
 	}
 	if selector := specStringSlice(placementMap, "selector"); len(selector) > 0 {
 		return &pb.GatewayPlacementIntent{
 			Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
 				CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: selector},
 			},
-		}
+		}, nil
 	}
 	if specString(placementMap, "mode") == "local-kind" {
 		return &pb.GatewayPlacementIntent{
 			Placement: &pb.GatewayPlacementIntent_LocalKind{LocalKind: &pb.LocalKindPlacement{}},
-		}
+		}, nil
 	}
-	return nil
+	return nil, fmt.Errorf("placement declares neither a non-empty selector nor mode: local-kind")
 }
 
 // ---- AgentRuntime ----

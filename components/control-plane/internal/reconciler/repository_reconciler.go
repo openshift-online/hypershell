@@ -203,14 +203,12 @@ func (r *RepositoryReconciler) Handle(ctx context.Context, event watcher.Event[*
 	}
 	repoID := repo.GetMetadata().GetId()
 	if event.Type == watcher.EventDeleted {
-		r.forgetRevision(repoID)
+		r.forget(repoID)
 		return nil
 	}
-	if err := r.reconcileRepository(ctx, repo, true); err != nil {
-		log.Printf("WARN repository import: event-driven reconcile of repository %s (%s) failed: %v", repo.GetName(), repoID, err)
-		return err
-	}
-	return nil
+	// Return the error without logging it here: WatchRepositories logs a failed
+	// event-driven import once, so logging again would double-report it.
+	return r.reconcileRepository(ctx, repo, true)
 }
 
 // reconcileOnce enumerates every registered Repository and reconciles each one. A
@@ -363,11 +361,13 @@ func (r *RepositoryReconciler) recordRevision(repoID, rev string) {
 	r.lastRevision[repoID] = rev
 }
 
-// forgetRevision drops the cached revision for repoID (on Repository delete).
-func (r *RepositoryReconciler) forgetRevision(repoID string) {
+// forget drops all per-Repository state (cached revision and reconcile lock) for
+// repoID when the Repository is deleted, so neither map grows without bound.
+func (r *RepositoryReconciler) forget(repoID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.lastRevision, repoID)
+	delete(r.repoLocks, repoID)
 }
 
 // renderImportables renders the kustomize root and returns only the resources
