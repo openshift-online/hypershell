@@ -51,6 +51,8 @@ Gateway-bound users need recent Kubernetes pod events to diagnose a sandbox that
 
 The control plane SHALL run a sandbox-events reconciler on a periodic tick. Its default cadence SHALL be two minutes, matching the sandbox attention reconciler cadence. The reconciler SHALL use a bounded Kubernetes-list context and SHALL continue on its next tick after a failed observation or push.
 
+The reconciler SHALL scope its Kubernetes Event list calls to the live gateway namespaces of its managed cluster and SHALL NOT list Events cluster-wide. A shared cluster hosts other tenants' environments whose event volume is unbounded from this controller's perspective, and a cluster-wide list is an unbounded decode cost for the memory-limited control plane.
+
 On each tick, the reconciler SHALL observe all sandbox Pods carrying `agents.x-k8s.io/sandbox-name-hash` in namespaces assigned to live Gateways on its managed cluster. It SHALL include Pods in `Pending`, `Running`, `Succeeded`, `Failed`, and `Unknown` phases. It SHALL NOT use the active-sandbox definition from `openshell-gateway-sandbox-count.spec.md` to exclude terminated Pods.
 
 The reconciler SHALL correlate a selected Pod to its Sandbox custom resource using a `Sandbox` owner reference in the same namespace. When that owner reference is absent, it MAY use a same-namespace, same-name Sandbox custom resource fallback. A Pod for which no sandbox name can be resolved SHALL NOT be reported. The label identifies a candidate Pod; it SHALL NOT by itself select an unrelated Event.

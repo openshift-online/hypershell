@@ -36,7 +36,7 @@ type SandboxEventsReconciler struct {
 	limit          int
 	listPods       func(context.Context) ([]*corev1.Pod, error)
 	listSandboxes  func(context.Context) ([]*unstructured.Unstructured, error)
-	listEvents     func(context.Context) ([]*corev1.Event, error)
+	listEvents     func(context.Context, []string) ([]*corev1.Event, error)
 	liveNamespaces func(context.Context) (map[string]struct{}, error)
 	report         func(context.Context, string, string, []*pb.SandboxEvent) error
 }
@@ -93,7 +93,7 @@ func (r *SandboxEventsReconciler) reconcileOnce(ctx context.Context) {
 		log.Printf("WARN sandbox events: list Sandbox CRs: %v", err)
 		return
 	}
-	events, err := r.listEvents(listCtx)
+	events, err := r.listEvents(listCtx, sortedNamespaces(live))
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN sandbox events: list Kubernetes Events: %v", err)
@@ -130,16 +130,36 @@ func (r *SandboxEventsReconciler) kubernetesSandboxes(ctx context.Context) ([]*u
 	}
 	return out, nil
 }
-func (r *SandboxEventsReconciler) kubernetesEvents(ctx context.Context) ([]*corev1.Event, error) {
-	list, err := r.client.CoreV1().Events("").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("list Kubernetes Events: %w", err)
-	}
-	out := make([]*corev1.Event, 0, len(list.Items))
-	for i := range list.Items {
-		out = append(out, &list.Items[i])
+
+// kubernetesEvents lists Kubernetes Events per live gateway namespace, never
+// cluster-wide. A shared cluster hosts other tenants' environments whose event
+// volume is unbounded from this controller's perspective; a cluster-wide list
+// has already OOM-killed the memory-limited controller in the PR e2e
+// environment (HYPERSHELL-422). Namespace-scoped lists bound the decode cost
+// to the namespaces this cluster actually reconciles.
+func (r *SandboxEventsReconciler) kubernetesEvents(ctx context.Context, namespaces []string) ([]*corev1.Event, error) {
+	var out []*corev1.Event
+	for _, namespace := range namespaces {
+		list, err := r.client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("list Kubernetes Events in %s: %w", namespace, err)
+		}
+		for i := range list.Items {
+			out = append(out, &list.Items[i])
+		}
 	}
 	return out, nil
+}
+
+// sortedNamespaces returns the live namespace set as a stable sorted slice so
+// list calls and logs are deterministic across ticks.
+func sortedNamespaces(live map[string]struct{}) []string {
+	out := make([]string, 0, len(live))
+	for namespace := range live {
+		out = append(out, namespace)
+	}
+	sort.Strings(out)
+	return out
 }
 func (r *SandboxEventsReconciler) grpcLiveNamespaces(ctx context.Context) (map[string]struct{}, error) {
 	callCtx, cancel := context.WithTimeout(ctx, sandboxEventsRPCTimeout)

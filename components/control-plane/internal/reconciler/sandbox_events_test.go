@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestSelectSandboxEventsIncludesActiveAndTerminatedPodsAndCapsDefaultLimit(t *testing.T) {
@@ -218,7 +219,7 @@ func newFakeSandboxEventsReconciler(pods []*corev1.Pod, sandboxes []*unstructure
 		listSandboxes: func(context.Context) ([]*unstructured.Unstructured, error) {
 			return sandboxes, nil
 		},
-		listEvents:     func(context.Context) ([]*corev1.Event, error) { return *events, nil },
+		listEvents:     func(_ context.Context, namespaces []string) ([]*corev1.Event, error) { return *events, nil },
 		liveNamespaces: func(context.Context) (map[string]struct{}, error) { return map[string]struct{}{"live": {}}, nil },
 		report:         report,
 	}
@@ -241,4 +242,51 @@ func event(pod *corev1.Pod, name string, eventTime, lastObserved, created time.T
 		value.Series = &corev1.EventSeries{LastObservedTime: metav1.NewMicroTime(lastObserved)}
 	}
 	return value
+}
+
+// TestKubernetesEventsListsOnlyLiveNamespaces guards the HYPERSHELL-422 e2e
+// regression: a cluster-wide Event list OOM-killed the memory-limited
+// controller on the shared PR environment cluster. The list seam MUST receive
+// exactly the live gateway namespaces and kubernetesEvents MUST issue one
+// namespace-scoped list per entry, never a cluster-wide ("") list.
+func TestKubernetesEventsListsOnlyLiveNamespaces(t *testing.T) {
+	requested := make([]string, 0, 2)
+	r := &SandboxEventsReconciler{
+		limit:         5,
+		listPods:      func(context.Context) ([]*corev1.Pod, error) { return nil, nil },
+		listSandboxes: func(context.Context) ([]*unstructured.Unstructured, error) { return nil, nil },
+		liveNamespaces: func(context.Context) (map[string]struct{}, error) {
+			return map[string]struct{}{"openshell-b": {}, "openshell-a": {}}, nil
+		},
+		report: func(context.Context, string, string, []*pb.SandboxEvent) error { return nil },
+	}
+	r.listEvents = func(_ context.Context, namespaces []string) ([]*corev1.Event, error) {
+		requested = append(requested, namespaces...)
+		return nil, nil
+	}
+	r.reconcileOnce(context.Background())
+	if len(requested) != 2 || requested[0] != "openshell-a" || requested[1] != "openshell-b" {
+		t.Fatalf("event list namespaces = %v, want sorted live namespaces [openshell-a openshell-b]", requested)
+	}
+
+	client := fake.NewSimpleClientset(
+		&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "e1", Namespace: "openshell-a"}},
+		&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "e2", Namespace: "other-tenant"}},
+	)
+	scoped := &SandboxEventsReconciler{client: client}
+	got, err := scoped.kubernetesEvents(context.Background(), []string{"openshell-a"})
+	if err != nil {
+		t.Fatalf("kubernetes events: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "e1" {
+		t.Fatalf("scoped events = %v, want only e1 from openshell-a", got)
+	}
+	for _, action := range client.Actions() {
+		if action.GetVerb() != "list" {
+			continue
+		}
+		if action.GetNamespace() == "" {
+			t.Fatalf("cluster-wide event list issued; want namespace-scoped lists only")
+		}
+	}
 }
