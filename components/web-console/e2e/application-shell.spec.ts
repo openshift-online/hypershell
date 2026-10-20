@@ -551,10 +551,10 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  const publicPlacement = page.getByRole("radio", { name: "Public" });
-  await publicPlacement.focus();
+  const noInternalServices = page.getByRole("radio", { name: "No" });
+  await noInternalServices.focus();
   await page.keyboard.press("Space");
-  await expect(publicPlacement).toBeChecked();
+  await expect(noInternalServices).toBeChecked();
   const awsProvider = page.getByRole("radio", {
     name: "Amazon Web Services",
   });
