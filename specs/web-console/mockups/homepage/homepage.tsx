@@ -40,16 +40,16 @@ import {
   ChartLineIcon,
   CheckCircleIcon,
   CodeIcon,
+  CompassIcon,
   CubesIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
   HashtagIcon,
-  InfoCircleIcon,
-  OutlinedClockIcon,
   RocketIcon,
-  SearchIcon,
   ServerAltIcon,
+  TerminalIcon,
 } from "@patternfly/react-icons";
+import { ChartDonut } from "@patternfly/react-charts/victory";
 
 import { useId, useState } from "react";
 
@@ -137,7 +137,7 @@ function WelcomeCard() {
   return (
     <>
       <Card>
-        <CardBody>
+        <CardBody className="pf-v6-u-p-3xl">
           <Split hasGutter>
             <SplitItem isFilled>
               <Content>
@@ -371,7 +371,7 @@ function GatewayHealthCard({ state }: { state: HomepageState }) {
   );
 }
 
-function ClusterAvailabilityCard({ state }: { state: HomepageState }) {
+function ClusterAvailabilityContent({ state }: { state: HomepageState }) {
   const clusterState =
     state === "clusterError"
       ? {
@@ -388,99 +388,120 @@ function ClusterAvailabilityCard({ state }: { state: HomepageState }) {
         : null;
 
   return (
-    <HomepageCard
-      icon={
-        state === "partial" ? (
-          <ExclamationTriangleIcon color="var(--pf-t--global--color--status--warning--default)" />
-        ) : clusterState ? (
-          <ExclamationCircleIcon color="var(--pf-t--global--color--status--danger--default)" />
-        ) : (
-          <CheckCircleIcon color="var(--pf-t--global--color--status--success--default)" />
-        )
-      }
-      title="Cluster availability"
-    >
-      <Stack hasGutter>
+    <Stack hasGutter>
+      {state === "partial" ? (
         <StackItem>
-          <Alert
-            isInline
-            title={
-              state === "partial"
-                ? "Cluster status is unavailable"
-                : clusterState
-                  ? `${clusterState.name} is unavailable`
-                  : "All 6 clusters are healthy"
-            }
-            variant={
-              state === "partial"
-                ? "warning"
-                : (clusterState?.tone ?? "success")
-            }
+          <Content>Cluster availability could not be loaded.</Content>
+        </StackItem>
+      ) : (
+        <StackItem>
+          <Progress
+            label={`${clusterState ? 5 : 6} of 6 clusters healthy`}
+            max={6}
+            measureLocation={ProgressMeasureLocation.outside}
+            value={clusterState ? 5 : 6}
+            variant={clusterState?.tone ?? "success"}
           />
         </StackItem>
-        {state === "partial" ? (
+      )}
+      {clusterState ? (
+        <>
           <StackItem>
-            <Content>Cluster availability could not be loaded.</Content>
+            <List>
+              <ListItem>
+                <Flex
+                  justifyContent={{ default: "justifyContentSpaceBetween" }}
+                >
+                  <FlexItem>{clusterState.name}</FlexItem>
+                  <FlexItem>
+                    <Flex
+                      alignItems={{ default: "alignItemsCenter" }}
+                      gap={{ default: "gapXs" }}
+                    >
+                      <Icon status={clusterState.tone} title="Unavailable">
+                        {clusterState.tone === "danger" ? (
+                          <ExclamationCircleIcon aria-hidden />
+                        ) : (
+                          <ExclamationTriangleIcon aria-hidden />
+                        )}
+                      </Icon>
+                      <span>Unavailable</span>
+                    </Flex>
+                  </FlexItem>
+                </Flex>
+                <Content component="small">{clusterState.reason}</Content>
+              </ListItem>
+            </List>
           </StackItem>
-        ) : (
-          <StackItem>
-            <Progress
-              label={`${clusterState ? 5 : 6} of 6 clusters healthy`}
-              max={6}
-              measureLocation={ProgressMeasureLocation.outside}
-              value={clusterState ? 5 : 6}
-              variant={clusterState?.tone ?? "success"}
-            />
-          </StackItem>
-        )}
-        {clusterState ? (
-          <>
-            <StackItem>
-              <List>
-                <ListItem>
-                  <Flex
-                    justifyContent={{ default: "justifyContentSpaceBetween" }}
-                  >
-                    <FlexItem>{clusterState.name}</FlexItem>
-                    <FlexItem>
-                      <Flex
-                        alignItems={{ default: "alignItemsCenter" }}
-                        gap={{ default: "gapXs" }}
-                      >
-                        <Icon status={clusterState.tone} title="Unavailable">
-                          {clusterState.tone === "danger" ? (
-                            <ExclamationCircleIcon aria-hidden />
-                          ) : (
-                            <ExclamationTriangleIcon aria-hidden />
-                          )}
-                        </Icon>
-                        <span>Unavailable</span>
-                      </Flex>
-                    </FlexItem>
-                  </Flex>
-                  <Content component="small">{clusterState.reason}</Content>
-                </ListItem>
-              </List>
-            </StackItem>
-            <StackItem>
-              <Content component="small">
-                These clusters may impact your gateways and sandboxes
-              </Content>
-            </StackItem>
-          </>
-        ) : (
-          <StackItem>
-            <Content component="small">
-              Your gateways are running on healthy clusters.
-            </Content>
-          </StackItem>
-        )}
-      </Stack>
-    </HomepageCard>
+        </>
+      ) : null}
+    </Stack>
+  );
+}
+
+type StatusDatum = {
+  color: string;
+  label: string;
+  value: number;
+};
+
+const statusDonutTextStyle = {
+  "--pf-v6-chart-donut--label--subtitle--Fill":
+    "var(--pf-t--global--text--color--subtle)",
+  "--pf-v6-chart-donut--label--title--Fill":
+    "var(--pf-t--global--text--color--regular)",
+  "--pf-v6-chart-global--label--Fill":
+    "var(--pf-t--global--text--color--regular)",
+} as React.CSSProperties;
+
+function StatusDonut({
+  ariaTitle,
+  data,
+  subTitle,
+  title,
+}: {
+  ariaTitle: string;
+  data: readonly StatusDatum[];
+  subTitle: string;
+  title: string;
+}) {
+  return (
+    <div style={statusDonutTextStyle}>
+      <ChartDonut
+        ariaDesc={`${ariaTitle} by status`}
+        ariaTitle={ariaTitle}
+        colorScale={data.map((status) => status.color)}
+        data={data.map((status) => ({ x: status.label, y: status.value }))}
+        height={120}
+        labels={({ datum }) => `${datum.x}: ${datum.y}`}
+        legendData={data.map((status) => ({
+          name: `${status.label}: ${status.value}`,
+        }))}
+        legendOrientation="vertical"
+        legendPosition="right"
+        padding={{ bottom: 8, left: 8, right: 100, top: 8 }}
+        subTitle={subTitle}
+        subTitlePosition="bottom"
+        title={title}
+        width={300}
+      />
+    </div>
   );
 }
 
 function PlatformOverviewCard({ state }: { state: HomepageState }) {
+  const gatewayStatuses = [
+    { label: "Healthy", value: 35, color: "#63993d" },
+    { label: "Provisioning", value: 5, color: "#0066cc" },
+    { label: "Failed", value: 2, color: "#c9190b" },
+  ];
+  const sandboxStatuses = [
+    { label: "Active", value: 112, color: "#63993d" },
+    { label: "Expiring", value: 9, color: "#f0ab00" },
+    { label: "Idle", value: 5, color: "#0066cc" },
+    { label: "Orphaned", value: 2, color: "#c9190b" },
+  ];
+
   return (
     <HomepageCard
       footer={
@@ -501,135 +522,134 @@ function PlatformOverviewCard({ state }: { state: HomepageState }) {
           {state === "partial" ? (
             <Label color="grey">Platform inventory unavailable</Label>
           ) : (
-            <DescriptionList columnModifier={{ default: "3Col", md: "3Col" }}>
-              <DescriptionListGroup>
-                <DescriptionListTerm>42</DescriptionListTerm>
-                <DescriptionListDescription>
-                  gateways
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>5</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <Label
-                    color="purple"
-                    icon={<ExclamationCircleIcon />}
-                    variant="outline"
-                  >
-                    Provisioning
-                  </Label>
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>2</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <Label
-                    color="red"
-                    icon={<ExclamationCircleIcon />}
-                    variant="outline"
-                  >
-                    Failed
-                  </Label>
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>128</DescriptionListTerm>
-                <DescriptionListDescription>
-                  active sandboxes
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-            </DescriptionList>
+            <>
+              <StackItem>
+                <Title headingLevel="h3" size="md">
+                  Gateways
+                </Title>
+              </StackItem>
+              <StatusDonut
+                ariaTitle="Gateways"
+                data={gatewayStatuses}
+                subTitle="gateways"
+                title="42"
+              />
+              <StackItem className="pf-v6-u-mt-md">
+                <Title headingLevel="h3" size="md">
+                  Active sandboxes
+                </Title>
+              </StackItem>
+              <StatusDonut
+                ariaTitle="Active sandboxes"
+                data={sandboxStatuses}
+                subTitle="sandboxes"
+                title="128"
+              />
+            </>
           )}
+        </StackItem>
+        <StackItem>
+          <Title headingLevel="h3" size="md">
+            Cluster availability
+          </Title>
+        </StackItem>
+        <StackItem>
+          <ClusterAvailabilityContent state={state} />
         </StackItem>
       </Stack>
     </HomepageCard>
   );
 }
 
-function PlatformPulseCard() {
-  return (
-    <HomepageCard icon={<InfoCircleIcon />} title="Platform pulse">
-      <Grid hasGutter>
-        {[
-          {
-            description: "IBM public",
-            icon: <CubesIcon />,
-            title: "OpenShell 4.1.2",
-          },
-          {
-            description: "Released Oct 12",
-            icon: <OutlinedClockIcon />,
-            title: "HyperShell 2.7.0",
-          },
-        ].map((item) => (
-          <GridItem key={item.title} md={6}>
-            <Flex
-              alignItems={{ default: "alignItemsFlexStart" }}
-              gap={{ default: "gapMd" }}
-            >
-              <FlexItem>{item.icon}</FlexItem>
-              <FlexItem flex={{ default: "flex_1" }}>
-                <Title headingLevel="h3" size="lg">
-                  {item.title}
-                </Title>
-                <Content component="small">{item.description}</Content>
-              </FlexItem>
-            </Flex>
-          </GridItem>
-        ))}
-      </Grid>
-    </HomepageCard>
-  );
-}
-
 function LearnMoreCard() {
-  const resources = [
-    {
-      description: "Get oriented with gateway concepts and workflows.",
-      href: "/docs/openshell",
-      icon: <BookOpenIcon />,
-      title: "OpenShell docs",
-    },
-    {
-      description: "Learn how HyperShell fits your platform.",
-      href: "/docs/hypershell",
-      icon: <RocketIcon />,
-      title: "HyperShell overview",
-    },
-    {
-      description: "Browse ready-to-run gateway examples.",
-      href: "/examples",
-      icon: <CodeIcon />,
-      title: "Examples",
-    },
-    {
-      description: "Find answers, patterns, and community discussion.",
-      href: "/community",
-      icon: <SearchIcon />,
-      title: "Community",
-    },
-  ];
-
   return (
-    <HomepageCard icon={<BookOpenIcon />} title="Learn and explore">
-      <Grid hasGutter>
-        {resources.map((resource) => (
-          <GridItem key={resource.title} md={6}>
-            <Flex
-              alignItems={{ default: "alignItemsFlexStart" }}
-              gap={{ default: "gapMd" }}
+    <HomepageCard icon={<CompassIcon />} title="Learn and explore">
+      <List isPlain>
+        <ListItem>
+          <Flex
+            alignItems={{ default: "alignItemsFlexStart" }}
+            gap={{ default: "gapMd" }}
+          >
+            <FlexItem
+              style={{
+                paddingTop:
+                  "var(--pf-t--global--spacer--control--vertical--default)",
+              }}
             >
-              <FlexItem>{resource.icon}</FlexItem>
-              <FlexItem flex={{ default: "flex_1" }}>
-                <Button component="a" href={resource.href} variant="link">
-                  {resource.title}
-                </Button>
-                <Content component="small">{resource.description}</Content>
-              </FlexItem>
-            </Flex>
-          </GridItem>
-        ))}
-      </Grid>
+              <CodeIcon />
+            </FlexItem>
+            <FlexItem flex={{ default: "flex_1" }}>
+              <Button
+                component="a"
+                href="https://github.com/openshift-online/hypershell/"
+                target="_blank"
+                variant="link"
+              >
+                HyperShell repo
+              </Button>
+              <Content component="small">
+                Explore the source and project history.
+              </Content>
+            </FlexItem>
+          </Flex>
+        </ListItem>
+        <ListItem>
+          <Flex
+            alignItems={{ default: "alignItemsFlexStart" }}
+            gap={{ default: "gapMd" }}
+          >
+            <FlexItem
+              style={{
+                paddingTop:
+                  "var(--pf-t--global--spacer--control--vertical--default)",
+              }}
+            >
+              <BookOpenIcon />
+            </FlexItem>
+            <FlexItem flex={{ default: "flex_1" }}>
+              <Button
+                component="a"
+                href="https://docs.nvidia.com/openshell/about/overview"
+                target="_blank"
+                variant="link"
+              >
+                OpenShell docs
+              </Button>
+              <Content component="small">
+                Get oriented with OpenShell concepts.
+              </Content>
+            </FlexItem>
+          </Flex>
+        </ListItem>
+        <ListItem>
+          <Flex
+            alignItems={{ default: "alignItemsFlexStart" }}
+            gap={{ default: "gapMd" }}
+          >
+            <FlexItem
+              style={{
+                paddingTop:
+                  "var(--pf-t--global--spacer--control--vertical--default)",
+              }}
+            >
+              <TerminalIcon />
+            </FlexItem>
+            <FlexItem flex={{ default: "flex_1" }}>
+              <Button
+                component="a"
+                href="https://docs.nvidia.com/openshell/about/installation"
+                target="_blank"
+                variant="link"
+              >
+                OpenShell CLI
+              </Button>
+              <Content component="small">
+                Install and start using the CLI.
+              </Content>
+            </FlexItem>
+          </Flex>
+        </ListItem>
+      </List>
     </HomepageCard>
   );
 }
@@ -699,29 +719,31 @@ export function HomepagePageSurface({
         ) : null}
         <Grid hasGutter>
           <GridItem xl={8}>
-            <WelcomeCard />
+            <Stack hasGutter>
+              <StackItem>
+                <WelcomeCard />
+              </StackItem>
+              <StackItem>
+                <GatewayHealthCard state={state} />
+              </StackItem>
+              <StackItem>
+                <SlackCard />
+              </StackItem>
+            </Stack>
           </GridItem>
           <GridItem xl={4}>
-            {state === "platformRestricted" ? (
-              <DashboardCard />
-            ) : (
-              <PlatformOverviewCard state={state} />
-            )}
-          </GridItem>
-          <GridItem xl={8}>
-            <GatewayHealthCard state={state} />
-          </GridItem>
-          <GridItem xl={4}>
-            <ClusterAvailabilityCard state={state} />
-          </GridItem>
-          <GridItem xl={6}>
-            <PlatformPulseCard />
-          </GridItem>
-          <GridItem xl={6}>
-            <LearnMoreCard />
-          </GridItem>
-          <GridItem xl={6}>
-            <SlackCard />
+            <Stack hasGutter>
+              <StackItem>
+                {state === "platformRestricted" ? (
+                  <DashboardCard />
+                ) : (
+                  <PlatformOverviewCard state={state} />
+                )}
+              </StackItem>
+              <StackItem>
+                <LearnMoreCard />
+              </StackItem>
+            </Stack>
           </GridItem>
         </Grid>
       </PageSection>
