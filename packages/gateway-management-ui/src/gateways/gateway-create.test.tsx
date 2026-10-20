@@ -1,64 +1,101 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
-import { vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GatewayUiProvider } from "../gateway-ui-provider";
 import { GatewayCreatePage } from "./gateway-create";
 
-const { createGatewayMock, findGatewayPlacementsMock, navigateMock } =
-  vi.hoisted(() => ({
-    createGatewayMock: vi.fn(),
-    findGatewayPlacementsMock: vi.fn(),
-    navigateMock: vi.fn(),
-  }));
+const { provisionGateway, navigate } = vi.hoisted(() => ({
+  provisionGateway: vi.fn(),
+  navigate: vi.fn(),
+}));
 
-const gatewayOperations = {
+function placementAvailability(
+  available: readonly boolean[],
+  localKind = false,
+) {
+  const selectors = [
+    ["network/public", "provider/aws"],
+    ["network/vpn", "provider/aws"],
+    ["network/public", "provider/ibm"],
+    ["network/vpn", "provider/ibm"],
+  ] as const;
+  return {
+    localKind,
+    placements: selectors.map((selector, index) => ({
+      available: available[index] ?? false,
+      ...(!available[index] ? { reason: "no-eligible-cluster" as const } : {}),
+      selector,
+    })),
+  };
+}
+
+const availablePlacement = placementAvailability([true, true, true, false]);
+
+// Mocks the batched availability endpoint by echoing every requested selector
+// with availability driven by an explicit allow-list of selector keys. This
+// lets version-bearing selectors (network/provider/gateway-version) be probed
+// alongside the base network/provider pairs (GP-04, GP-11).
+function availabilityFromAllowList(
+  availableSelectorKeys: readonly string[],
+  localKind = false,
+) {
+  const allowed = new Set(availableSelectorKeys);
+  return (selectors: readonly (readonly string[])[]) =>
+    Promise.resolve({
+      localKind,
+      placements: selectors.map((selector) => {
+        const available = allowed.has(selector.join("|"));
+        return {
+          available,
+          ...(available ? {} : { reason: "no-eligible-cluster" as const }),
+          selector: [...selector],
+        };
+      }),
+    });
+}
+
+const operations = {
+  changeGatewayAccessRole: vi.fn(),
   createOpenShellGatewayServiceAccount: vi.fn(),
+  grantGatewayAccess: vi.fn(),
+  listGatewayAccess: vi.fn(),
+  revokeGatewayAccess: vi.fn(),
+  searchGatewayDirectory: vi.fn(),
   deleteOpenShellGatewayServiceAccount: vi.fn(),
-  findGatewayPlacements: findGatewayPlacementsMock,
+  findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
   getGatewayPlacement: vi.fn(),
+  getGatewayPlacementAvailability: vi.fn(),
   getGatewayPlacements: vi.fn(),
+  getGatewayProvisioningVersions: vi.fn(),
   getOpenShellGatewayServiceAccount: vi.fn(),
   listGateways: vi.fn(),
   listOpenShellGatewayServiceAccounts: vi.fn(),
-  provisionGateway: createGatewayMock,
+  provisionGateway,
   removeGateway: vi.fn(),
   renameGateway: vi.fn(),
   revokeOpenShellGatewayServiceAccount: vi.fn(),
 };
 
-const navigation = {
-  collectionHref: "/",
-  createHref: "/gateways/new",
-  detailHref: (gatewayId: string) => `/gateways/${gatewayId}`,
-  navigate: navigateMock,
-};
-
-const createdGateway = {
-  clusterId: "",
-  externalDns: "",
-  id: "gateway-1",
-  name: "team-gateway",
-  namespace: "openshell",
-  phase: "",
-  releaseId: "",
-  status: "",
-};
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-}
-
-function renderPage(queryClient = createTestQueryClient()) {
   return render(
     <IntlProvider locale="en">
-      <QueryClientProvider client={queryClient}>
-        <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
+      <QueryClientProvider client={client}>
+        <GatewayUiProvider
+          gateways={operations}
+          navigation={{
+            collectionHref: "/",
+            createHref: "/gateways/new",
+            detailHref: (id: string) => `/gateways/${id}`,
+            navigate,
+          }}
+        >
           <GatewayCreatePage />
         </GatewayUiProvider>
       </QueryClientProvider>
@@ -66,433 +103,535 @@ function renderPage(queryClient = createTestQueryClient()) {
   );
 }
 
+async function enterNameAndSelectPublic(
+  user: ReturnType<typeof userEvent.setup>,
+) {
+  await user.type(
+    screen.getByRole("textbox", { name: "Gateway name" }),
+    "team-gateway",
+  );
+  await user.click(screen.getByRole("radio", { name: "No" }));
+}
+
+function radio(name: string) {
+  const accessibleName =
+    name === "IBM Cloud"
+      ? "IBM (default)"
+      : name === "Amazon Web Services"
+        ? "AWS (For workloads that rely heavily on AWS services or data)"
+        : name === "Yes"
+          ? "Yes (Requires Red Hat VPN)"
+          : name;
+  return screen.getByRole<HTMLInputElement>("radio", { name: accessibleName });
+}
+
 describe("GatewayCreatePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: false,
-      items: [
-        {
-          id: "cluster-east",
-          name: "Cluster East",
-          provider: "AWS",
-          region: "us-east-1",
-          status: "Ready",
-        },
-      ],
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      availablePlacement,
+    );
+    operations.getGatewayProvisioningVersions.mockResolvedValue([]);
+    provisionGateway.mockResolvedValue({
+      id: "gateway-1",
+      name: "team-gateway",
     });
-    navigateMock.mockResolvedValue(undefined);
   });
 
-  it("preselects the only registered cluster without exposing a namespace", async () => {
+  it("defaults public placement to IBM Cloud", async () => {
     const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue({
-      ...createdGateway,
-      clusterId: "cluster-east",
-    });
     renderPage();
+    await enterNameAndSelectPublic(user);
 
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
-    await waitFor(() => {
-      expect(clusterInput.value).toBe("Cluster East");
-    });
-    expect(
-      screen.getByText(
-        "Only clusters with a connected control plane can host a gateway.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByLabelText("Namespace")).toBeNull();
-    expect(screen.queryByLabelText("Gateway release")).toBeNull();
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway name" }),
-      "  team-gateway  ",
-    );
+    expect(radio("IBM Cloud").checked).toBe(true);
+    expect(radio("Amazon Web Services").checked).toBe(false);
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     await waitFor(() => {
-      expect(createGatewayMock).toHaveBeenCalledWith({
-        clusterId: "cluster-east",
+      expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
+        placement: {
+          selector: ["network/public", "provider/ibm"],
+        },
       });
-    });
-    await waitFor(() => {
-      expect(navigateMock).toHaveBeenCalledWith("/gateways/gateway-1");
     });
   });
 
-  it("searches managed clusters and provisions on the selected result", async () => {
-    const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue({
-      ...createdGateway,
-      clusterId: "cluster-east",
-    });
+  it("defaults multiple available options to Public and IBM Cloud", async () => {
     renderPage();
 
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
     await waitFor(() => {
-      expect(clusterInput.value).toBe("Cluster East");
+      expect(radio("No").checked).toBe(true);
+      expect(radio("IBM Cloud").checked).toBe(true);
     });
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
+  });
+
+  it("forces AWS for VPN and disables IBM Cloud", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
     );
-    await user.type(clusterInput, "East");
-    const clusterOption = await screen.findByText("Cluster East");
-    expect(screen.getByText("Provider: AWS; region: us-east-1")).toBeTruthy();
-    await user.click(clusterOption);
-    expect(clusterInput.value).toBe("Cluster East");
+    await user.click(radio("Yes"));
+
+    expect(radio("Amazon Web Services").checked).toBe(true);
+    expect(radio("IBM Cloud").disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: { selector: ["network/vpn", "provider/aws"] },
+      });
+    });
+  });
+
+  it("allows IBM Cloud for VPN when its selector is available", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([true, true, true, true]),
+    );
+    const user = userEvent.setup();
+    renderPage();
 
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
+    await user.click(radio("Yes"));
+
+    expect(radio("IBM Cloud").disabled).toBe(false);
+    expect(radio("IBM Cloud").checked).toBe(true);
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     await waitFor(() => {
-      expect(createGatewayMock).toHaveBeenCalledWith({
-        clusterId: "cluster-east",
+      expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
+        placement: { selector: ["network/vpn", "provider/ibm"] },
       });
     });
-    expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
-      "East",
+  });
+
+  it("loads all rendered placement selectors in one batch", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(operations.getGatewayPlacementAvailability).toHaveBeenCalledTimes(
+        1,
+      );
+    });
+    expect(operations.getGatewayPlacementAvailability).toHaveBeenCalledWith(
+      [
+        ["network/public", "provider/aws"],
+        ["network/vpn", "provider/aws"],
+        ["network/public", "provider/ibm"],
+        ["network/vpn", "provider/ibm"],
+        ["network/public", "provider/aws", "runtime/kata"],
+        ["network/vpn", "provider/aws", "runtime/kata"],
+        ["network/public", "provider/ibm", "runtime/kata"],
+        ["network/vpn", "provider/ibm", "runtime/kata"],
+      ],
       expect.any(AbortSignal),
     );
   });
 
-  it("debounces placement searches into one API request", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => {
-      expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
-        "",
-        expect.any(AbortSignal),
-      );
-    });
-    findGatewayPlacementsMock.mockClear();
-
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
-    await waitFor(() => {
-      expect(clusterInput.value).toBe("Cluster East");
-    });
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
+  it("selects the only available network and provider", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, true, false, false]),
     );
-    await user.type(clusterInput, "East");
-
-    expect(findGatewayPlacementsMock).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
-        "East",
-        expect.any(AbortSignal),
-      );
-    });
-    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
-  });
-
-  it("shows one loading message while placement options are pending", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock.mockReturnValue(new Promise(() => undefined));
     renderPage();
 
-    const clusterInput = screen.getByRole("combobox", { name: "Cluster" });
-    await user.click(clusterInput);
-
-    expect(await screen.findAllByText("Loading managed clusters")).toHaveLength(
-      1,
-    );
-    expect(clusterInput.getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => {
+      expect(radio("Yes").checked).toBe(true);
+      expect(radio("Amazon Web Services").checked).toBe(true);
+    });
   });
 
-  it("reuses fresh placement results after remounting", async () => {
-    const user = userEvent.setup();
-    const queryClient = createTestQueryClient();
-    const firstRender = renderPage(queryClient);
-    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
-    firstRender.unmount();
+  it("selects the only available provider for public placement", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, false, true, false]),
+    );
+    renderPage();
 
-    renderPage(queryClient);
-    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(radio("No").checked).toBe(true);
+      expect(radio("IBM Cloud").checked).toBe(true);
+    });
   });
 
-  it("blocks provisioning when managed clusters fail to load", async () => {
+  it("uses accessible radio groups with mutually exclusive choices", async () => {
     const user = userEvent.setup();
-    findGatewayPlacementsMock.mockRejectedValue(
-      new Error("managed cluster API unavailable"),
-    );
     renderPage();
 
     expect(
-      await screen.findByText("Managed clusters could not be loaded"),
+      screen.getByRole("radiogroup", {
+        name: "Does the gateway need to reach GitLab or other internal Red Hat services?",
+      }),
     ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "A registered cluster is required to provision a gateway. Try loading managed clusters again.",
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole<HTMLInputElement>("combobox", { name: "Cluster" }).value,
-    ).toBe("");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway name" }),
-      "team-gateway",
-    );
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-    expect(await screen.findByText("This field is required.")).toBeTruthy();
-    expect(createGatewayMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    expect(radio("No").checked).toBe(true);
+    await user.click(radio("Yes"));
+    expect(radio("Yes").checked).toBe(true);
+    expect(radio("No").checked).toBe(false);
   });
 
-  it("leaves the cluster unselected when several registered clusters exist", async () => {
+  it("shows required placement and name errors without disabling submit", async () => {
     const user = userEvent.setup();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: false,
-      items: [
-        { id: "cluster-east", name: "Cluster East", provider: "AWS" },
-        { id: "cluster-west", name: "Cluster West", provider: "GCP" },
-      ],
-    });
     renderPage();
+    const submit = screen.getByRole("button", { name: "Provision gateway" });
+    await user.click(submit);
 
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
-    await user.click(clusterInput);
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    expect(screen.getByText("Cluster West")).toBeTruthy();
-    expect(clusterInput.value).toBe("");
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getAllByText("This field is required.")).toHaveLength(1);
+    expect(provisionGateway).not.toHaveBeenCalled();
   });
 
-  it("does not override a field the user already touched with the single cluster", async () => {
+  it("shows progress only while provisioning is pending", async () => {
     const user = userEvent.setup();
-    let resolvePlacements:
-      ((options: { hasMore: boolean; items: unknown[] }) => void) | undefined;
-    findGatewayPlacementsMock.mockReturnValue(
+    let resolveProvision:
+      ((gateway: { id: string; name: string }) => void) | undefined;
+    provisionGateway.mockReturnValue(
       new Promise((resolve) => {
-        resolvePlacements = resolve;
+        resolveProvision = resolve;
       }),
     );
     renderPage();
+    await enterNameAndSelectPublic(user);
+    const submit = screen.getByRole("button", { name: "Provision gateway" });
+    await user.click(submit);
 
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
+    await waitFor(() => {
+      expect((submit as HTMLButtonElement).disabled).toBe(true);
     });
-    await user.type(clusterInput, "E");
-    await user.keyboard("{Backspace}");
-    resolvePlacements?.({
-      hasMore: false,
-      items: [{ id: "cluster-east", name: "Cluster East", provider: "AWS" }],
+    expect(submit.classList.contains("pf-m-progress")).toBe(true);
+    resolveProvision?.({ id: "gateway-1", name: "team-gateway" });
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith("/gateways/gateway-1");
     });
-
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    expect(clusterInput.value).toBe("");
   });
 
-  it("requires an explicit option after a free-form cluster search", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: false,
-      items: [],
-    });
-    renderPage();
-
-    await user.type(
-      screen.getByRole("combobox", { name: "Cluster" }),
-      "Unknown placement",
+  it("offers and defaults local-kind when it is the only available placement", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, false, false, false], true),
     );
-    expect(await screen.findByText("No matching clusters")).toBeTruthy();
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway name" }),
-      "team-gateway",
-    );
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-
-    expect(await screen.findByText("This field is required.")).toBeTruthy();
-    expect(createGatewayMock).not.toHaveBeenCalled();
-  });
-
-  it("supports keyboard selection and bounded-result guidance", async () => {
     const user = userEvent.setup();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: true,
-      items: [
-        {
-          id: "cluster-west",
-          name: "Cluster West",
-          provider: "GCP",
-          region: "us-west1",
-          status: "Ready",
-        },
-      ],
-    });
     renderPage();
 
     expect(
-      await screen.findByText(
-        "More clusters are available. Refine your search to find a specific cluster.",
-      ),
-    ).toBeTruthy();
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
-    await user.type(clusterInput, "West");
-    await screen.findByText("Cluster West");
-    await user.keyboard("{ArrowDown}{Enter}");
-
-    expect(clusterInput.value).toBe("Cluster West");
-  });
-
-  it("restores the last accepted placement when Escape cancels a search", async () => {
-    const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue({
-      ...createdGateway,
-      clusterId: "cluster-east",
-    });
-    renderPage();
-
-    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
-      name: "Cluster",
-    });
-    await user.type(clusterInput, "East");
-    await user.click(await screen.findByText("Cluster East"));
-
-    await user.clear(clusterInput);
-    await user.type(clusterInput, "Uncommitted search");
-    await user.keyboard("{Escape}");
-
-    expect(clusterInput.value).toBe("Cluster East");
-    expect(clusterInput.getAttribute("aria-expanded")).toBe("false");
-
+      (
+        await screen.findByRole<HTMLInputElement>("radio", {
+          name: "Use local-kind",
+        })
+      ).checked,
+    ).toBe(true);
+    expect(screen.queryByRole("radio", { name: "No" })).toBeNull();
+    expect(
+      screen.queryByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),
+    ).toBeNull();
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
     await waitFor(() => {
-      expect(createGatewayMock).toHaveBeenCalledWith({
-        clusterId: "cluster-east",
+      expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
+        placement: { mode: "local-kind" },
       });
     });
   });
 
-  it("shows the available provider and region context for cluster options", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: false,
-      items: [
-        {
-          id: "provider-only",
-          name: "Provider cluster",
-          provider: "AWS",
-        },
-        {
-          id: "region-only",
-          name: "Region cluster",
-          provider: "",
-          region: "eu-west-1",
-        },
-        {
-          id: "without-context",
-          name: "Unclassified cluster",
-          provider: "",
-        },
-      ],
-    });
-    renderPage();
-
-    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
-    expect(await screen.findByText("Provider cluster")).toBeTruthy();
-    expect(screen.getByText("Provider: AWS")).toBeTruthy();
-    expect(screen.getByText("Region: eu-west-1")).toBeTruthy();
-    expect(screen.getByText("Unclassified cluster")).toBeTruthy();
-  });
-
-  it("retries a failed managed-cluster request", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock
-      .mockRejectedValueOnce(new Error("managed cluster API unavailable"))
-      .mockResolvedValue({
-        hasMore: false,
-        items: [
-          {
-            id: "cluster-east",
-            name: "Cluster East",
-            provider: "AWS",
-            region: "us-east-1",
-            status: "Ready",
-          },
-        ],
-      });
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
-    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    expect(
-      screen.queryByText("Managed clusters could not be loaded"),
-    ).toBeNull();
-  });
-
-  it("validates required values before sending a request", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock.mockResolvedValue({
-      hasMore: false,
-      items: [
-        { id: "cluster-east", name: "Cluster East", provider: "AWS" },
-        { id: "cluster-west", name: "Cluster West", provider: "GCP" },
-      ],
-    });
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-
-    expect(await screen.findAllByText("This field is required.")).toHaveLength(
-      2,
+  it("hides local-kind when managed placement is also available", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([true, true, true, false], true),
     );
-    expect(createGatewayMock).not.toHaveBeenCalled();
+    renderPage();
+
+    expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
+    await waitFor(() => {
+      expect(radio("No").checked).toBe(true);
+    });
+    expect(radio("Yes").checked).toBe(false);
   });
 
-  it("shows progress only while the create request is pending", async () => {
-    const user = userEvent.setup();
-    let resolveRequest: ((gateway: typeof createdGateway) => void) | undefined;
-    createGatewayMock.mockImplementation(
+  it("does not show a default preview while availability loads", async () => {
+    let resolveAvailability:
+      ((value: ReturnType<typeof placementAvailability>) => void) | undefined;
+    operations.getGatewayPlacementAvailability.mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveRequest = resolve;
+          resolveAvailability = resolve;
         }),
     );
     renderPage();
 
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
+
+    resolveAvailability?.(
+      placementAvailability([false, false, false, false], true),
+    );
+    const localKind = await screen.findByRole<HTMLInputElement>("radio", {
+      name: "Use local-kind",
+    });
+    expect(localKind.checked).toBe(true);
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
+  });
+
+  it("fails closed when placement availability cannot be loaded", async () => {
+    operations.getGatewayPlacementAvailability.mockRejectedValue(
+      new Error("unavailable"),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        "Placement availability could not be loaded. Cloud placement is disabled until availability can be verified.",
+      ),
+    ).toBeTruthy();
+    expect(radio("No").disabled).toBe(true);
+    expect(radio("Yes").disabled).toBe(true);
+
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("uses network-specific availability and explains the backend reason", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([true, false, false, false]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    const vpn = radio("Yes");
+    expect(vpn.disabled).toBe(true);
+    expect(vpn.getAttribute("aria-describedby")).toBe(
+      "internal-services-yes-description",
+    );
+    const vpnReason = await screen.findByText(
+      "VPN is unavailable: no eligible managed cluster is connected.",
+    );
+    expect(vpnReason.className).toContain("visuallyHidden");
+    expect(vpnReason.id).toBe("internal-services-yes-description");
+    expect(vpn.getAttribute("aria-describedby")).toBe(
+      "internal-services-yes-description",
+    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+
+    expect(radio("IBM Cloud").disabled).toBe(true);
+    expect(radio("IBM Cloud").getAttribute("aria-describedby")).toBe(
+      "cloud-provider-ibm-description",
+    );
+    const ibmReason = screen.getByText(
+      "IBM Cloud is unavailable: no eligible managed cluster is connected.",
+    );
+    expect(ibmReason.className).toContain("visuallyHidden");
+  });
+
+  it("explains when neither managed nor local placement is available", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, false, false, false]),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText("No managed placement is currently available."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Kind" })).toBeNull();
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
+  });
+
+  it("offers only advertised versions for the selected network and provider (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.1-rhaiv.3",
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        "network/public|provider/aws|gateway-version/v0.1.1-rhaiv.3",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    const submitButton = screen.getByRole("button", {
-      name: "Provision gateway",
-    });
-    expect(submitButton.classList.contains("pf-m-progress")).toBe(false);
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(radio("Amazon Web Services"));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
-    await user.click(submitButton);
+    const select = await screen.findByRole("combobox", {
+      name: "OpenShell version",
+    });
+    const options = within(select)
+      .getAllByRole<HTMLOptionElement>("option")
+      .map((option) => option.textContent);
+    expect(options).toEqual([
+      "Any version",
+      "OpenShell version v0.1.2-rhaiv.7",
+      "OpenShell version v0.1.1-rhaiv.3",
+    ]);
+  });
+
+  it("hides the preview version when Any version is selected (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+      "v0.1.1-rhaiv.3",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        "network/public|provider/ibm|gateway-version/v0.1.1-rhaiv.3",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+
+    expect(screen.queryByText(/^OpenShell version:/)).toBeNull();
+    expect(screen.queryByText("OpenShell version: v0.1.2-rhaiv.7")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "OpenShell version",
+    });
+    await user.selectOptions(select, "v0.1.1-rhaiv.3");
+
+    expect(screen.getByText("OpenShell version: v0.1.1-rhaiv.3")).toBeTruthy();
+  });
+
+  it("adds the chosen version to the placement selector (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(radio("Amazon Web Services"));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+
+    const select = await screen.findByRole("combobox", {
+      name: "OpenShell version",
+    });
+    await user.selectOptions(select, "v0.1.2-rhaiv.7");
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     await waitFor(() => {
-      expect(submitButton.classList.contains("pf-m-progress")).toBe(true);
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: {
+          selector: [
+            "network/public",
+            "provider/aws",
+            "gateway-version/v0.1.2-rhaiv.7",
+          ],
+        },
+      });
     });
-    resolveRequest?.(createdGateway);
+  });
+
+  it("omits the version label when left at Any version (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/ibm|gateway-version/v0.1.2-rhaiv.7",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+
+    // IBM Cloud is the default public provider; leave the version at its default.
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
     await waitFor(() => {
-      expect(navigateMock).toHaveBeenCalledWith("/gateways/gateway-1");
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: { selector: ["network/public", "provider/ibm"] },
+      });
     });
+  });
+
+  it("resets the version choice when it is no longer advertised (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        // IBM Cloud does not advertise the version for Public.
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("radio", { name: "No" }));
+    await user.click(radio("Amazon Web Services"));
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "OpenShell version",
+    });
+    await user.selectOptions(select, "v0.1.2-rhaiv.7");
+    expect(select.value).toBe("v0.1.2-rhaiv.7");
+
+    await user.click(radio("IBM Cloud"));
+    expect(screen.queryByText("OpenShell version: v0.1.2-rhaiv.7")).toBeNull();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole<HTMLSelectElement>("combobox", {
+          name: "OpenShell version",
+        }).value,
+      ).toBe("");
+    });
+  });
+
+  it("explains when provisioning versions cannot be loaded", async () => {
+    operations.getGatewayProvisioningVersions.mockRejectedValue(
+      new Error("unavailable"),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+
+    expect(
+      await screen.findByText(
+        "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
+      ),
+    ).toBeTruthy();
+    const select = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "OpenShell version",
+    });
+    expect(
+      within(select)
+        .getAllByRole<HTMLOptionElement>("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Any version"]);
   });
 });

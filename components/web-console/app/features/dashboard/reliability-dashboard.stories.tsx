@@ -21,7 +21,18 @@ const stubNavigation: DashboardUiNavigation = {
   navigate: () => undefined,
 };
 
+function stubAdoptionMetrics(
+  context: Parameters<DashboardControlPlane["getAdoptionMetrics"]>[0],
+) {
+  context.signal?.throwIfAborted();
+  return Promise.resolve({
+    lastSuccessfulRefresh: new Date(),
+    metrics: [],
+  });
+}
+
 const stubReliabilityControlPlane: DashboardControlPlane = {
+  getAdoptionMetrics: stubAdoptionMetrics,
   getOperationalMetrics: (context) => {
     context.signal?.throwIfAborted();
     return Promise.resolve({
@@ -45,6 +56,7 @@ const mockDashboard = createDashboardOperations({
 
 const initialLoadFailedDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -65,6 +77,7 @@ const initialLoadFailedDashboard = createDashboardOperations({
 
 const loadingDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -83,6 +96,7 @@ const loadingDashboard = createDashboardOperations({
 
 const partialLoadDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -107,6 +121,7 @@ function createRefreshFailedDashboard(): DashboardOperations {
   let callCount = 0;
 
   const controlPlane: DashboardControlPlane = {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -182,7 +197,7 @@ const pseudoMessages = Object.fromEntries(
 );
 
 const meta = {
-  title: "HyperShell/Reliability dashboard",
+  title: "Production/Dashboards/Reliability",
   component: ReliabilityDashboardPage,
   parameters: {
     layout: "fullscreen",
@@ -192,6 +207,8 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
 
 export const MockedMetrics: Story = {
   play: async ({ canvasElement }) => {

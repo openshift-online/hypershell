@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-const inventoryLookback = 30 * 24 * time.Hour
+const inventoryLookback7Days = 7 * 24 * time.Hour
+const inventoryLookback30Days = 30 * 24 * time.Hour
 
 // ClusterInventoryRow is one labeled bucket in the managed cluster inventory
 // aggregate exposed to Prometheus.
@@ -19,6 +20,7 @@ type ClusterInventoryRow struct {
 // ClusterInventorySnapshot is the fleet-wide managed cluster inventory computed
 // on each metrics scrape.
 type ClusterInventorySnapshot struct {
+	CreatedLast7Days  int64
 	CreatedLast30Days int64
 	Rows              []ClusterInventoryRow
 }
@@ -38,32 +40,54 @@ func inventoryBucketOptional(value *string) string {
 	return inventoryBucketString(*value)
 }
 
-func inventoryLookbackStart(evaluationTime time.Time) time.Time {
-	return evaluationTime.UTC().Add(-inventoryLookback)
+// clusterProvider resolves the provider for the inventory metric. Registered
+// clusters self-declare provider through the capability model and no longer write
+// the legacy Provider column, so the column is preferred (manually created
+// records set it directly) and the provider/ capability label is the fallback.
+// Without this, every registered cluster would bucket as provider="unknown".
+func clusterProvider(cluster *ManagedCluster) string {
+	if strings.TrimSpace(cluster.Provider) != "" {
+		return cluster.Provider
+	}
+	return capabilityValue(cluster.Capabilities, providerNamespace)
+}
+
+// clusterRegion resolves the region for the inventory metric with the same
+// column-then-capability precedence as clusterProvider.
+func clusterRegion(cluster *ManagedCluster) string {
+	if cluster.Region != nil && strings.TrimSpace(*cluster.Region) != "" {
+		return *cluster.Region
+	}
+	return capabilityValue(cluster.Capabilities, regionNamespace)
 }
 
 func buildClusterInventorySnapshot(
 	clusters ManagedClusterList,
 	evaluationTime time.Time,
 ) *ClusterInventorySnapshot {
-	windowStart := inventoryLookbackStart(evaluationTime)
+	window7DaysStart := evaluationTime.UTC().Add(-inventoryLookback7Days)
+	window30DaysStart := evaluationTime.UTC().Add(-inventoryLookback30Days)
 	type inventoryKey struct {
 		status   string
 		provider string
 		region   string
 	}
 	counts := make(map[inventoryKey]int64)
+	var createdLast7Days int64
 	var createdLast30Days int64
 
 	for _, cluster := range clusters {
 		key := inventoryKey{
 			status:   inventoryBucketOptional(cluster.Status),
-			provider: inventoryBucketString(cluster.Provider),
-			region:   inventoryBucketOptional(cluster.Region),
+			provider: inventoryBucketString(clusterProvider(cluster)),
+			region:   inventoryBucketString(clusterRegion(cluster)),
 		}
 		counts[key]++
 
-		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(windowStart) {
+		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(window7DaysStart) {
+			createdLast7Days++
+		}
+		if !cluster.CreatedAt.IsZero() && !cluster.CreatedAt.Before(window30DaysStart) {
 			createdLast30Days++
 		}
 	}
@@ -79,6 +103,7 @@ func buildClusterInventorySnapshot(
 	}
 
 	return &ClusterInventorySnapshot{
+		CreatedLast7Days:  createdLast7Days,
 		CreatedLast30Days: createdLast30Days,
 		Rows:              rows,
 	}

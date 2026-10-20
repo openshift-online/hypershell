@@ -1,0 +1,96 @@
+.choice {
+  min-height: 7rem;
+}
+.choiceTooltip {
+  display: inline-block;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.choiceTitle {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.choiceHeading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3rem;
+}
+.providerLogo {
+  display: block;
+  width: 10rem;
+  height: 4rem;
+  margin: 0 auto 0.75rem;
+  object-fit: contain;
+  object-position: center;
+  box-sizing: content-box;
+}
+.providerLogoDark {
+  display: none;
+  width: 10rem;
+  height: 4rem;
+  margin: 0 auto 0.75rem;
+  object-fit: contain;
+  object-position: center;
+  box-sizing: content-box;
+}
+.providerLogoIbm {
+  width: 5rem;
+  height: 5rem;
+}
+:global(html[data-color-scheme="light"]) .providerLogoDark {
+  display: none !important;
+}
+:global(html[data-color-scheme="light"]) .providerLogoLight {
+  display: block !important;
+}
+:global(html[data-color-scheme="dark"]) .providerLogoLight {
+  display: none !important;
+}
+:global(html[data-color-scheme="dark"]) .providerLogoDark {
+  display: block !important;
+}
+.providerContent {
+  display: block;
+  text-align: center;
+}
+.descriptionAfterLabel {
+  display: block;
+  margin-top: 0.25rem;
+}
+.recommendationCard {
+  min-height: 14rem;
+}
+.recommendationTitle {
+  margin-right: 0.625rem;
+}
+.recommendationVersion {
+  margin-top: 0.625rem;
+  font-weight: 700;
+}
+.recommendationDescription {
+  margin-top: 0.625rem;
+}
+.awsLogo,
+.ibmLogo {
+  position: absolute;
+  right: 1.5rem;
+  object-fit: contain;
+}
+.awsLogo {
+  top: 2.5rem;
+  width: 3.125rem;
+}
+.ibmLogo {
+  top: 2.25rem;
+  width: 2.8125rem;
+}

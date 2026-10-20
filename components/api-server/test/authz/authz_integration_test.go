@@ -17,8 +17,11 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 // These tests pin the authorization of ManagedCluster records and of the
@@ -87,7 +90,7 @@ func registerSpoke(t *testing.T, h *test.Helper, client *openapi.APIClient) spok
 func registerAs(t *testing.T, client *openapi.APIClient, s spoke) string {
 	t.Helper()
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "register %s: HTTP %d %s", s.name, statusOf(httpResp), test.APIErrorReason(err))
 	return resp.ClusterId
 }
@@ -220,7 +223,7 @@ func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a deregistered spoke wrote a gateway: %v", err)
 
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "re-registration after delete: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	Expect(resp.ClusterId).To(Equal(s.clusterID), "the record must come back under its original id")
 
@@ -247,7 +250,7 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 	other.clusterID = registerAs(t, client, other)
 
 	_, httpResp, err = client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).To(HaveOccurred(), "a deleted control plane took back a name another one registered")
 	Expect(statusOf(httpResp)).To(Equal(http.StatusConflict))
 }
@@ -258,11 +261,19 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 
 func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clusterID string) *openapi.Gateway {
 	t.Helper()
-	gw, httpResp, err := client.DefaultAPI.CreateGateway(owner.rest).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]), ClusterId: clusterID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred(), "create gateway: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
-	return gw
+	_ = client
+	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
+		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
+		ClusterId: clusterID,
+	})
+	Expect(err).NotTo(HaveOccurred(), "create gateway")
+	id := created.GetGateway().GetMetadata().GetId()
+	user, svcErr := users.Service(&environments.Environment().Services).GetByUsername(context.Background(), owner.name)
+	Expect(svcErr).NotTo(HaveOccurred(), "find gateway owner")
+	Expect(roleBindings.Service(&environments.Environment().Services).CreateGatewayOwnerBinding(
+		context.Background(), user.ID, id,
+	)).To(Succeed(), "bind gateway owner")
+	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
 func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
@@ -303,33 +314,6 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	// ...but cannot hand its gateway to (or pull one from) another cluster.
 	_, err = gwAClient.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: gwA.GetId(), ClusterId: strPtr(b.clusterID)})
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "re-pointing cluster_id: %v", err)
-}
-
-func TestGRPCControlPlaneCannotRewriteFleetWideReleases(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-	a := registerSpoke(t, h, client)
-	admin := newPrincipal(t, h, "creator-"+strings.ToLower(api.NewID()), nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	release, err := pb.NewGatewayReleaseServiceClient(admin.conn).CreateGatewayRelease(ctx, &pb.CreateGatewayReleaseRequest{
-		Name: "rel-" + strings.ToLower(api.NewID())[:8], Image: "quay.io/good/gateway:1.0",
-	})
-	Expect(err).NotTo(HaveOccurred())
-
-	releases := pb.NewGatewayReleaseServiceClient(a.conn)
-	_, err = releases.UpdateGatewayRelease(ctx, &pb.UpdateGatewayReleaseRequest{
-		Id: release.GetGatewayRelease().GetMetadata().GetId(), Image: strPtr("quay.io/evil/gateway:1.0"),
-	})
-	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a control plane rewrote a release image: %v", err)
-	_, err = releases.CreateGatewayRelease(ctx, &pb.CreateGatewayReleaseRequest{Name: "rel-evil", Image: "quay.io/evil/gateway:1.0"})
-	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a control plane created a release: %v", err)
-
-	// The status write the release reconciler performs stays allowed.
-	_, err = releases.UpdateGatewayRelease(ctx, &pb.UpdateGatewayReleaseRequest{
-		Id: release.GetGatewayRelease().GetMetadata().GetId(), Status: strPtr("Active"),
-	})
-	Expect(err).NotTo(HaveOccurred())
 }
 
 // ---------------------------------------------------------------------------

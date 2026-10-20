@@ -80,7 +80,7 @@ func TestReserveOutputRejectsExistingTargetWithoutRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	conn, err := connection.NewConnection().Config(&config.Config{
+	conn, err := connection.NewConnectionBuilder().Config(&config.Config{
 		URL:         server.URL,
 		AccessToken: "management-token",
 	}).Build()
@@ -144,7 +144,7 @@ func TestRequestDoesNotExposeUnstructuredResponseBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	conn, err := connection.NewConnection().Config(&config.Config{
+	conn, err := connection.NewConnectionBuilder().Config(&config.Config{
 		URL:         server.URL,
 		AccessToken: "management-token",
 	}).Build()

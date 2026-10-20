@@ -10,13 +10,15 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**Provider** | **string** |  | 
+**Provider** | **string** | Cloud provider capability used for gateway placement. | 
+**Visibility** | Pointer to **string** | Network visibility supported by this control plane for gateway placement. | [optional] [readonly] 
 **Region** | Pointer to **string** |  | [optional] 
 **KubeconfigSecret** | **string** |  | 
 **Status** | Pointer to **string** |  | [optional] 
 **ApiServerUrl** | Pointer to **string** |  | [optional] 
 **OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly] 
 **LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly] 
+**Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. | [optional] [readonly] 
 
 ## Methods
 
@@ -202,6 +204,31 @@ and a boolean to check if the value has been set.
 SetProvider sets Provider field to given value.
 
 
+### GetVisibility
+
+`func (o *ManagedCluster) GetVisibility() string`
+
+GetVisibility returns the Visibility field if non-nil, zero value otherwise.
+
+### GetVisibilityOk
+
+`func (o *ManagedCluster) GetVisibilityOk() (*string, bool)`
+
+GetVisibilityOk returns a tuple with the Visibility field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetVisibility
+
+`func (o *ManagedCluster) SetVisibility(v string)`
+
+SetVisibility sets Visibility field to given value.
+
+### HasVisibility
+
+`func (o *ManagedCluster) HasVisibility() bool`
+
+HasVisibility returns a boolean if a field has been set.
+
 ### GetRegion
 
 `func (o *ManagedCluster) GetRegion() string`
@@ -346,6 +373,31 @@ SetLastSeenAt sets LastSeenAt field to given value.
 `func (o *ManagedCluster) HasLastSeenAt() bool`
 
 HasLastSeenAt returns a boolean if a field has been set.
+
+### GetCapabilities
+
+`func (o *ManagedCluster) GetCapabilities() []string`
+
+GetCapabilities returns the Capabilities field if non-nil, zero value otherwise.
+
+### GetCapabilitiesOk
+
+`func (o *ManagedCluster) GetCapabilitiesOk() (*[]string, bool)`
+
+GetCapabilitiesOk returns a tuple with the Capabilities field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCapabilities
+
+`func (o *ManagedCluster) SetCapabilities(v []string)`
+
+SetCapabilities sets Capabilities field to given value.
+
+### HasCapabilities
+
+`func (o *ManagedCluster) HasCapabilities() bool`
+
+HasCapabilities returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

@@ -49,7 +49,12 @@ const {
 }));
 
 const gatewayOperations = {
+  changeGatewayAccessRole: vi.fn(),
   createOpenShellGatewayServiceAccount: vi.fn(),
+  grantGatewayAccess: vi.fn(),
+  listGatewayAccess: vi.fn(),
+  revokeGatewayAccess: vi.fn(),
+  searchGatewayDirectory: vi.fn(),
   deleteOpenShellGatewayServiceAccount: vi.fn(),
   findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
@@ -81,7 +86,6 @@ function gatewayResponse(id: string, name: string) {
     name,
     namespace: "openshell",
     phase: "Running",
-    releaseId: "release-1",
     status: "Ready",
   };
 }
@@ -192,7 +196,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
       />
@@ -225,7 +228,6 @@ describe("gateway shell pages", () => {
     expect(
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
-    expect(screen.getByText("release-1")).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     renameGatewayMock.mockResolvedValue(
@@ -319,7 +321,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
         gatewayId="gateway-1"
@@ -1670,5 +1671,165 @@ describe("gateway shell pages", () => {
         "CLI connection command for openshell-gateway-test could not be copied",
       ),
     ).toBeNull();
+  });
+
+  it("shows the running version as its own column with a placeholder (GVV-01)", () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          { ...previewGateway, gatewayVersion: "v0.1.2-rhaiv.7" },
+          {
+            ...previewGateway,
+            gatewayVersion: undefined,
+            id: "no-version",
+            name: "no-version",
+          },
+        ]}
+      />
+    ));
+
+    expect(screen.getByRole("columnheader", { name: "Version" })).toBeTruthy();
+    const versionCell = screen.getByText("v0.1.2-rhaiv.7").closest("td");
+    expect(versionCell?.getAttribute("data-label")).toBe("Version");
+    // No chip on list rows (GVV-01).
+    expect(versionCell?.querySelector(".pf-v6-c-label")).toBeNull();
+    const placeholderRow = screen.getByText("no-version").closest("tr");
+    expect(within(placeholderRow as HTMLElement).getByText("-")).toBeTruthy();
+  });
+
+  it("sorts the gateway list by the version column (GVV-01)", async () => {
+    const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
+    const collectionState = {
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "asc" as const,
+      sortField: "name" as const,
+    };
+    renderPage(() => (
+      <GatewaysPage
+        collectionState={collectionState}
+        gateways={previewGateways}
+        onCollectionStateChange={onCollectionStateChange}
+      />
+    ));
+
+    await user.click(screen.getByRole("button", { name: "Version" }));
+
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        ...collectionState,
+        page: 1,
+        sortDirection: "asc",
+        sortField: "version",
+      },
+      "sort",
+    );
+  });
+
+  it("shows a running-version chip and Details field on the detail page (GVV-02)", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewayPage
+        gatewayId="gateway-1"
+        gateway={{
+          clusterId: "cluster-east",
+          gatewayVersion: "v0.1.2-rhaiv.7",
+          id: "gateway-1",
+          name: "Team gateway",
+          namespace: "openshell",
+          phase: "Running",
+          status: "Ready",
+        }}
+      />
+    ));
+
+    expect(
+      screen.getByLabelText("Running version v0.1.2-rhaiv.7"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Newer version available")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(screen.getByText("Version", { exact: true })).toBeTruthy();
+    const detailsList = screen
+      .getByText("Version", { exact: true })
+      .closest("dl");
+    expect(
+      within(detailsList as HTMLElement).getByText("v0.1.2-rhaiv.7"),
+    ).toBeTruthy();
+  });
+
+  it("omits the header chip and shows a Details placeholder without a version (GVV-02)", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewayPage
+        gatewayId="gateway-1"
+        gateway={{
+          clusterId: "cluster-east",
+          id: "gateway-1",
+          name: "Team gateway",
+          namespace: "openshell",
+          phase: "Running",
+          status: "Ready",
+        }}
+      />
+    ));
+
+    expect(screen.queryByLabelText(/Running version/)).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    const detailsList = screen
+      .getByText("Version", { exact: true })
+      .closest("dl");
+    expect(within(detailsList as HTMLElement).getByText("-")).toBeTruthy();
+  });
+
+  it("shows the neutral newer-version indicator only when behind (GVV-03)", () => {
+    renderPage(() => (
+      <GatewayPage
+        gatewayId="gateway-1"
+        gateway={{
+          clusterId: "cluster-east",
+          gatewayVersion: "v0.1.1-rhaiv.3",
+          id: "gateway-1",
+          name: "Team gateway",
+          namespace: "openshell",
+          phase: "Running",
+          provisioningVersion: "v0.1.2-rhaiv.7",
+          status: "Ready",
+        }}
+      />
+    ));
+
+    const indicator = screen.getByText("Newer version available");
+    expect(indicator).toBeTruthy();
+    // Neutral in tone: no warning/danger status treatment.
+    const indicatorRoot = indicator.closest(".pf-v6-c-label");
+    expect(indicatorRoot?.classList.contains("pf-m-orange")).toBe(false);
+    expect(indicatorRoot?.classList.contains("pf-m-red")).toBe(false);
+    // No upgrade affordance anywhere.
+    expect(screen.queryByText(/upgrade/i)).toBeNull();
+  });
+
+  it("suppresses the newer-version indicator for a pinned-image gateway (GVV-03)", () => {
+    renderPage(() => (
+      <GatewayPage
+        gatewayId="gateway-1"
+        gateway={{
+          clusterId: "cluster-east",
+          gatewayVersion: "v0.1.1-rhaiv.3",
+          id: "gateway-1",
+          imagePinned: true,
+          name: "Team gateway",
+          namespace: "openshell",
+          phase: "Running",
+          provisioningVersion: "v0.1.2-rhaiv.7",
+          status: "Ready",
+        }}
+      />
+    ));
+
+    expect(screen.queryByText("Newer version available")).toBeNull();
   });
 });

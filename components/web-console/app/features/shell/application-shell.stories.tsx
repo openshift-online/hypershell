@@ -33,7 +33,6 @@ const previewGatewayResource: GatewayRecord = {
   name: "OpenShell gateway",
   namespace: "openshell",
   phase: "",
-  releaseId: "release-1",
   status: "Ready",
 };
 

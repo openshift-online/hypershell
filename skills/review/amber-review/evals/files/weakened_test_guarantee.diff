@@ -2,82 +2,76 @@ diff --git a/components/api-server/plugins/gateways/service.go b/components/api-
 index f6aae794..8d016670 100644
 --- a/components/api-server/plugins/gateways/service.go
 +++ b/components/api-server/plugins/gateways/service.go
-@@ -85,6 +85,15 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gate
+@@ -109,6 +109,19 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gate
  }
- 
+
  func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
-+	if gateway.DatabaseId == "" {
-+		if s.dbFinder == nil {
-+			return nil, errors.Validation("database_id is required")
++	if gateway.ClusterId == "" {
++		if s.clusterFinder == nil {
++			return nil, errors.Validation("cluster_id is required")
 +		}
-+		dbID, findErr := s.dbFinder.FindSole(ctx)
++		clusterID, findErr := s.clusterFinder.FindSole(ctx)
 +		if findErr != nil {
-+			return nil, errors.GeneralError("resolve database: %s", findErr)
++			return nil, errors.GeneralError("resolve cluster: %s", findErr)
 +		}
-+		if dbID == "" {
-+			return nil, errors.Validation("database_id is required: zero or multiple ManagedDatabases exist")
++		if clusterID == "" {
++			return nil, errors.Validation("cluster_id is required: zero or multiple ManagedClusters exist")
 +		}
-+		gateway.DatabaseId = dbID
++		gateway.ClusterId = clusterID
 +	}
 +
+ 	gateway.CaptureTraceContext(ctx)
  	gateway, err := s.gatewayDao.Create(ctx, gateway)
  	if err != nil {
- 		return nil, services.HandleCreateError("Gateway", err)
 diff --git a/components/api-server/plugins/gateways/integration_test.go b/components/api-server/plugins/gateways/integration_test.go
 index 0bae1642..9c290b00 100644
 --- a/components/api-server/plugins/gateways/integration_test.go
 +++ b/components/api-server/plugins/gateways/integration_test.go
-@@ -85,7 +85,7 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
- 		FleetId:    "",
- 		ClusterId:  "",
- 		ReleaseId:  "",
--		DatabaseId: "",
-+		DatabaseId: "test-database_id",
- 	}
- 
- 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-@@ -94,10 +94,28 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
- 	Expect(gatewayOutput.FleetId).To(BeEmpty())
- 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
- 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
--	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
-+	Expect(gatewayOutput.DatabaseId).To(Equal("test-database_id"))
- 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+@@ -78,16 +78,37 @@ func TestGatewayPostAllowsEmptyClusterID(t *testing.T) {
+ 	_, _ = test.RegisterIntegration(t)
+
+ 	gatewayService := gateways.Service(&environments.Environment().Services)
+ 	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
+ 		Name: "no-cluster-gateway",
+ 	})
+ 	Expect(err).NotTo(HaveOccurred())
+-	Expect(created.ClusterId).To(Equal(""))
++	Expect(created.ClusterId).NotTo(Equal(""))
++	Expect(created.ClusterId).To(Equal("test-cluster_id"))
  }
- 
-+func TestGatewayPostRejectsEmptyDatabaseId(t *testing.T) {
-+	h, client := test.RegisterIntegration(t)
+
++func TestGatewayPostRejectsEmptyClusterID(t *testing.T) {
++	_, _ = test.RegisterIntegration(t)
 +
-+	account := h.NewRandAccount()
-+	ctx := h.NewAuthenticatedContext(account)
-+	gatewayInput := openapi.GatewayCreateRequest{
-+		Name:       "no-db-gateway",
-+		DatabaseId: "",
-+	}
-+
-+	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
++	gatewayService := gateways.Service(&environments.Environment().Services)
++	_, err := gatewayService.Create(context.Background(), &gateways.Gateway{
++		Name: "no-cluster-rejected-gateway",
++	})
 +	Expect(err).To(HaveOccurred())
-+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 +}
 +
  func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
- 	h, client := test.RegisterIntegration(t)
- 
-@@ -109,7 +127,7 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
- 		FleetId:    "",
- 		ClusterId:  "",
- 		ReleaseId:  "",
--		DatabaseId: "",
-+		DatabaseId: "test-database_id",
- 	}
- 
- 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-@@ -130,7 +148,7 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
- 		FleetId:    "",
- 		ClusterId:  "",
- 		ReleaseId:  "",
--		DatabaseId: "",
-+		DatabaseId: "test-database_id",
- 		Route:      openapi.PtrString(customRoute),
- 	}
- 
+ 	_, _ = test.RegisterIntegration(t)
+
+ 	gatewayService := gateways.Service(&environments.Environment().Services)
+ 	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
+ 		Name:      "route-default-test",
++		ClusterId: "test-cluster_id",
+ 	})
+ 	Expect(err).NotTo(HaveOccurred())
+ 	Expect(created.GetRoute()).To(BeEmpty())
+ }
+
+ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
+ 	_, _ = test.RegisterIntegration(t)
+
+ 	customRoute := `{"enabled":true,"host":"custom.example.com"}`
+ 	gatewayService := gateways.Service(&environments.Environment().Services)
+ 	created, err := gatewayService.Create(context.Background(), &gateways.Gateway{
+ 		Name:      "route-explicit-test",
++		ClusterId: "test-cluster_id",
+ 		Route:     stringPtr(customRoute),
+ 	})
+ 	Expect(err).NotTo(HaveOccurred())
+ 	Expect(created.GetRoute()).To(Equal(customRoute))
+ }

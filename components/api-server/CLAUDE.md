@@ -39,14 +39,12 @@ main.go → imports plugins (init side-effects) → registers routes, controller
 
 ## Domain Model
 
-All resources are top-level; there is no Fleet/Sector grouping and no `fleet_id`
-field. Tenancy is enforced by RBAC (platform-level and per-gateway).
+All resources are top-level; tenancy is enforced by RBAC (platform-level and
+per-gateway).
 
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
-| **Gateway** | name, cluster_id, release_id, namespace, tls_mode | API gateway instance |
-| **GatewayNetwork** | name, topology, tunnel_mode, hub_gateway_id | Network connectivity mesh |
-| **GatewayRelease** | name, image, rollout_strategy, canary_percent | Versioned gateway images |
+| **Gateway** | name, cluster_id, image, supervisor_image, tls_mode | API gateway instance |
 | **ManagedCluster** | name, provider, region, kubeconfig_secret | Registered K8s cluster |
 
 ## Plugin System
@@ -104,9 +102,9 @@ All routes under `/api/hypershell/v1/`:
 | PATCH | `/{kinds}/{id}` | Patch |
 | DELETE | `/{kinds}/{id}` | Delete |
 
-Kinds: `gateways`, `gateway_networks`, `gateway_releases`, `managed_clusters`
+Kinds: `gateways`, `managed_clusters` (plus the ADLC extension kinds under `/api/hypershell/ext/`)
 
-There is no database Kind: gateway databases are provisioned by the control plane from a mounted admin credential Secret (`specs/platform/openshell-gateway-database.spec.md`).
+Gateway databases are provisioned by the control plane from a mounted admin credential Secret (`specs/platform/openshell-gateway-database.spec.md`).
 
 ## Conventions
 

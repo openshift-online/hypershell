@@ -42,6 +42,11 @@ type GatewayService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
+	// FindUnplaced returns late-bound gateways awaiting placement (persisted
+	// placement selector, empty cluster_id). The API server re-resolves these when
+	// a matching ManagedCluster appears.
+	FindUnplaced(ctx context.Context) (GatewayList, *errors.ServiceError)
+
 	// ClusterIDByNamespace returns the cluster the live gateway backing
 	// namespace is assigned to; found is false when no live gateway backs it.
 	ClusterIDByNamespace(ctx context.Context, namespace string) (clusterID string, found bool, svcErr *errors.ServiceError)
@@ -229,7 +234,7 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 // workload and must not advance generation. See data-model.spec.md.
 func desiredStateChanged(current, next *Gateway) bool {
 	return current.ClusterId != next.ClusterId ||
-		current.ReleaseId != next.ReleaseId ||
+		!jsonEq(current.Placement, next.Placement) ||
 		!strEq(current.ExternalDns, next.ExternalDns) ||
 		!strEq(current.TlsMode, next.TlsMode) ||
 		!strEq(current.ServiceType, next.ServiceType) ||
@@ -318,6 +323,14 @@ func (s *sqlGatewayService) FindByIDs(ctx context.Context, ids []string) (Gatewa
 	gateways, err := s.gatewayDao.FindByIDs(ctx, ids)
 	if err != nil {
 		return nil, errors.GeneralError("Unable to get all gateways: %s", err)
+	}
+	return gateways, nil
+}
+
+func (s *sqlGatewayService) FindUnplaced(ctx context.Context) (GatewayList, *errors.ServiceError) {
+	gateways, err := s.gatewayDao.FindUnplaced(ctx)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to list unplaced gateways: %s", err)
 	}
 	return gateways, nil
 }

@@ -185,6 +185,60 @@ class DependencyAgeTest(unittest.TestCase):
                 )
             )
 
+    def test_cached_version_replacement_is_still_checked(self):
+        # `go list` fills Replace.Dir for a version replacement whose source is
+        # in the module cache. The replacement must be checked either way.
+        with tempfile.TemporaryDirectory() as directory:
+            go_mod = Path(directory) / "go.mod"
+            go_mod.write_text("module example.test/service\n\ngo 1.26.4\n", encoding="utf-8")
+            go_mod.with_name("go.sum").write_text("", encoding="utf-8")
+            edit_json = json.dumps({"Replace": []})
+            graph_json = json.dumps(
+                {
+                    "Path": "example.test/framework",
+                    "Version": "v1.0.0",
+                    "Replace": {
+                        "Path": "example.test/fork",
+                        "Version": "v1.0.1",
+                        "Time": "2026-10-06T00:00:00Z",
+                        "Dir": "/cache/example.test/fork@v1.0.1",
+                    },
+                }
+            )
+
+            def fake_run(arguments, **kwargs):
+                if arguments[:3] == ["go", "mod", "edit"]:
+                    return subprocess.CompletedProcess(arguments, 0, edit_json, "")
+                return subprocess.CompletedProcess(arguments, 0, graph_json, "")
+
+            with mock.patch.object(CHECKER.subprocess, "run", side_effect=fake_run):
+                self.assertEqual(
+                    CHECKER.go_modules(go_mod, Path(directory)),
+                    [("example.test/fork", "v1.0.1", "2026-10-06T00:00:00Z", str(go_mod))],
+                )
+
+    def test_local_directory_replacement_is_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            go_mod = Path(directory) / "go.mod"
+            go_mod.write_text("module example.test/service\n\ngo 1.26.4\n", encoding="utf-8")
+            go_mod.with_name("go.sum").write_text("", encoding="utf-8")
+            edit_json = json.dumps({"Replace": []})
+            graph_json = json.dumps(
+                {
+                    "Path": "example.test/framework",
+                    "Version": "v1.0.0",
+                    "Replace": {"Path": "../framework", "Dir": "/work/framework"},
+                }
+            )
+
+            def fake_run(arguments, **kwargs):
+                if arguments[:3] == ["go", "mod", "edit"]:
+                    return subprocess.CompletedProcess(arguments, 0, edit_json, "")
+                return subprocess.CompletedProcess(arguments, 0, graph_json, "")
+
+            with mock.patch.object(CHECKER.subprocess, "run", side_effect=fake_run):
+                self.assertEqual(CHECKER.go_modules(go_mod, Path(directory)), [])
+
     def test_cutoff_boundary_and_exact_allowlist(self):
         cutoff = dt.datetime(2026, 6, 6, tzinfo=UTC)
         source = "package-lock.json"
@@ -255,6 +309,51 @@ class DependencyAgeTest(unittest.TestCase):
     def test_invalid_timestamp_is_rejected(self):
         with self.assertRaises(ValueError):
             CHECKER.parse_time("not-a-timestamp")
+
+    def test_fetch_json_retries_a_truncated_body(self):
+        bodies = ['{"time": {"1.0.0": "2026-01-01T00:00:', '{"time": {"1.0.0": "2026-01-01T00:00:00Z"}}']
+        with mock.patch.object(CHECKER, "_fetch_body", side_effect=bodies) as fetch:
+            with mock.patch.object(CHECKER.time, "sleep"):
+                data = CHECKER.fetch_json("https://registry.example.test/pkg")
+        self.assertEqual(data["time"]["1.0.0"], "2026-01-01T00:00:00Z")
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_fetch_json_gives_up_on_persistent_garbage(self):
+        with mock.patch.object(CHECKER, "_fetch_body", return_value="{not json") as fetch:
+            with mock.patch.object(CHECKER.time, "sleep"):
+                with self.assertRaises(json.JSONDecodeError):
+                    CHECKER.fetch_json("https://registry.example.test/pkg")
+        self.assertEqual(fetch.call_count, CHECKER.FETCH_ATTEMPTS)
+
+    def test_external_go_modules_are_checked_against_their_own_root(self):
+        # Build tools run from another repository's checkout (the pinned
+        # rh-trex-ai generators) must be held to the same age policy.
+        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as external:
+            seen = []
+
+            def fake_go_modules(go_mod, root):
+                seen.append((Path(go_mod), Path(root)))
+                return [("example.test/generator-dep", "v1.0.0", "2026-06-19T00:00:00Z", str(go_mod))]
+
+            with mock.patch.object(CHECKER, "go_modules", side_effect=fake_go_modules):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    status = CHECKER.main(
+                        [
+                            "--root", repo, "--skip-npm", "--now", "2026-06-20T00:00:00Z",
+                            "--external-repo", external,
+                            "--external-go-mod", "scripts/tool/go.mod",
+                        ]
+                    )
+            self.assertEqual(status, 1, "a too-new dependency of an external tool must fail")
+            self.assertEqual(
+                seen,
+                [(Path(external).resolve() / "scripts/tool/go.mod", Path(external).resolve())],
+            )
+
+    def test_external_go_mod_requires_external_repo(self):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                CHECKER.main(["--skip-npm", "--external-go-mod", "x/go.mod"])
 
     def test_now_override_drives_cutoff(self):
         with tempfile.TemporaryDirectory() as directory:

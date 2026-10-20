@@ -16,8 +16,7 @@ import (
 //
 //   - A registered control plane (its JWT sub is a ManagedCluster's
 //     oidc_subject) may read fleet-wide records it reconciles from, write only
-//     gateways assigned to its own cluster, write only the status of releases
-//     and networks, and delete only its own ManagedCluster record.
+//     gateways assigned to its own cluster, and delete only its own ManagedCluster record.
 //   - An RBAC_SERVICE_ACCOUNTS account that has not registered keeps the
 //     bootstrap exemption, except that it may not create, change, or delete
 //     ManagedCluster records.
@@ -74,14 +73,27 @@ func isManagedClusterRecordMutation(fullMethod string) bool {
 }
 
 // authorizeControlPlaneGRPC decides a call from the control plane registered as
-// clusterID. req is nil on a streaming call, where only Watch methods exist.
-func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string, req interface{}, gateways GatewayClusterResolver) error {
+// clusterID. req is nil on a streaming call, where only Watch methods exist. imports
+// validates the reconciled Repository on a declarative-import write.
+func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string, req interface{}, gateways GatewayClusterResolver, imports ImportRepositoryResolver) error {
 	service, method, ok := splitHypershellMethod(fullMethod)
 	if !ok {
 		return nil
 	}
 	switch service {
 	case "GatewayService":
+		// A declarative-import write (Create/Update/Delete) is marked with the
+		// reconciled Repository id in trusted metadata. It is authorized as an import
+		// write (control-plane identity + a real named Repository), and the handler
+		// sets repository_id ownership server-side and refuses a cross-Repository
+		// write. A Gateway write WITHOUT that mark is the control plane's
+		// cluster-scoped health/status path, decided per method below and held to its
+		// own cluster. Gateway and AgentRuntime are not in importExtKindServices, so
+		// the bootstrap-allowlist guard in the interceptor does not cover them; this
+		// registered-identity path is where their import writes are authorized.
+		if !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
+			return authorizeImportWrite(ctx, imports)
+		}
 		switch method {
 		case "ListGateways", "WatchGateways":
 			// The watch-stream caller binding already requires cluster_id to be
@@ -136,53 +148,66 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			}
 		}
 		return denied()
-	case "GatewayReleaseService":
-		if isReadMethodName(method) {
-			return nil
-		}
-		if method == "UpdateGatewayRelease" {
-			r, ok := req.(*pb.UpdateGatewayReleaseRequest)
-			if !ok {
-				return unexpectedRequest()
-			}
-			if isReleaseStatusOnlyUpdate(r) {
-				return nil
-			}
-		}
-		return denied()
-	case "GatewayNetworkService":
-		if isReadMethodName(method) {
-			return nil
-		}
-		if method == "UpdateGatewayNetwork" {
-			r, ok := req.(*pb.UpdateGatewayNetworkRequest)
-			if !ok {
-				return unexpectedRequest()
-			}
-			if isNetworkStatusOnlyUpdate(r) {
-				return nil
-			}
-		}
-		return denied()
 	case "RoleBindingService":
 		if method == "ListRoleBindings" || method == "WatchRoleBindings" {
 			// Scoped to the caller's cluster by the caller binding.
 			return nil
 		}
 		return denied()
+	case "AgentRuntimeService":
+		// A declarative-import write (Create/Update/Delete) marked with the reconciled
+		// Repository id is authorized as an import write; the handler sets and enforces
+		// repository_id ownership server-side (see the GatewayService note above).
+		if !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
+			return authorizeImportWrite(ctx, imports)
+		}
+		if method == "ListAgentRuntimes" || method == "WatchAgentRuntimes" {
+			// Scoped to the caller's cluster by the caller binding, which resolves
+			// each AgentRuntime's effective cluster (its own cluster_id, or the
+			// cluster of its referenced gateway) server-side. The import reconciler's
+			// Repository-scoped, cross-cluster read is the one exemption, decided in
+			// cluster_binding.go (import binding + repository_id filter).
+			return nil
+		}
+		// UpdateAgentRuntimeStatus (the control-plane status write-back) without an
+		// import mark remains out of this registered-cluster path; it is reached
+		// through the bootstrap-service-account allowlist, unchanged.
+		return denied()
+	case "SandboxTemplateService", "ProviderSpecService",
+		"ProviderBindingService", "InferenceRouteService", "SecretSourceService":
+		// A registered control plane may READ these owned import kinds (list/watch/get)
+		// to drive reconciliation. WRITES are the declarative-import reconciler's
+		// bounded path: they are authorized only when the write carries the reconciled
+		// Repository id in trusted metadata and that Repository exists
+		// (authorizeImportWrite / import_binding.go). The handler then sets the
+		// repository_id ownership mark server-side from that metadata and refuses a
+		// write to a resource owned by a different Repository, so a registered spoke
+		// cannot forge ownership of or prune another Repository's resources.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return authorizeImportWrite(ctx, imports)
+	case "RepositoryService":
+		// A Repository is the owner (no ownership mark) and is registered and managed
+		// by an admin over HTTP, not created, updated, or pruned by the import
+		// reconciler. The control plane may READ repositories to drive the import;
+		// Repository writes over gRPC stay denied.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
+	case "AgentWorkspaceService", "WorkspaceMembershipService":
+		// AgentWorkspace and WorkspaceMembership are not importable kinds; they are
+		// authored over HTTP by an admin and embedded in the AgentRuntime reconcile
+		// payload (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"),
+		// so the control plane does not write them over gRPC. A registered control
+		// plane may READ them; writes over gRPC stay denied.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
 	}
 	return denied()
-}
-
-// A release or network is fleet-wide: a control plane reports validation or
-// reconcile status on it, never its definition (image, rollout, gateways).
-func isReleaseStatusOnlyUpdate(r *pb.UpdateGatewayReleaseRequest) bool {
-	return r.Status != nil && r.Name == nil && r.Image == nil && r.RolloutStrategy == nil &&
-		r.CanaryPercent == nil && r.CanaryDuration == nil
-}
-
-func isNetworkStatusOnlyUpdate(r *pb.UpdateGatewayNetworkRequest) bool {
-	return r.Status != nil && r.Name == nil && r.Topology == nil && r.TunnelMode == nil && r.HubGatewayId == nil
 }
 
 func requireGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolver, gatewayID, clusterID string, deny func() error) error {
@@ -269,15 +294,28 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 			return allowIf(hasDashboardInventoryAccess(bindings, nil))
 		}
 		return allowIf(hasPlatformAdmin(bindings))
-	case "GatewayReleaseService":
-		if hasPlatformAdmin(bindings) && (isReadMethodName(method) || strings.HasPrefix(method, "Delete")) {
-			return nil
-		}
-		return allowIf(hasGatewayCreator(bindings))
-	case "GatewayNetworkService":
-		return allowIf(hasGatewayCreator(bindings))
 	case "RoleBindingService":
 		// Unfiltered by user or gateway; users manage bindings over HTTP.
+		return denied()
+	case "AgentRuntimeService":
+		switch method {
+		case "ListAgentRuntimes", "WatchAgentRuntimes":
+			// The gRPC list and watch are unfiltered by caller, so only
+			// platform:admin (who sees every agent runtime over HTTP too) may use
+			// them, mirroring GatewayService.
+			return allowIf(hasPlatformAdmin(bindings))
+		}
+		return denied()
+	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
+		"ProviderBindingService", "InferenceRouteService", "SecretSourceService",
+		"AgentWorkspaceService", "WorkspaceMembershipService":
+		// These kinds are authored over HTTP; their gRPC read methods are unfiltered
+		// by caller, so only platform:admin (who sees them all over HTTP too) may read
+		// them. Writes over gRPC are the control-plane import reconciler's exclusive
+		// path and are denied to every user caller.
+		if isReadMethodName(method) {
+			return allowIf(hasPlatformAdmin(bindings))
+		}
 		return denied()
 	}
 	return denied()

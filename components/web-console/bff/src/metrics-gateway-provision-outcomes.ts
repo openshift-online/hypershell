@@ -13,6 +13,10 @@ export const gatewayProvisionOutcomesSuccessHourlyPromql =
   'sum(increase(gateway_provision_outcomes_total{outcome="success"}[1h]))';
 export const gatewayProvisionOutcomesFailureHourlyPromql =
   'sum(increase(gateway_provision_outcomes_total{outcome="failure"}[1h]))';
+export const gatewayProvisionOutcomesSuccessDailyPromql =
+  'sum(increase(gateway_provision_outcomes_total{outcome="success"}[1d]))';
+export const gatewayProvisionOutcomesFailureDailyPromql =
+  'sum(increase(gateway_provision_outcomes_total{outcome="failure"}[1d]))';
 export const gatewayProvisionDurationCount24hPromql =
   "sum(increase(gateway_provision_duration_seconds_count[24h]))";
 export const gatewayProvisionDurationCountLifetimePromql =
@@ -30,6 +34,7 @@ export interface GatewayProvisionHourlySuccessRate {
 export interface GatewayProvisionOutcomes {
   failure_count_24h: number;
   hourly_success_rate: GatewayProvisionHourlySuccessRate[];
+  daily_success_rate: { date: string; success_rate_percent: number }[];
   success_count_24h: number;
   success_rate_percent: number | null;
 }
@@ -52,8 +57,8 @@ interface PrometheusRangeQueryResponse {
   };
 }
 
-const hourlyRangeSeconds = 24 * 60 * 60;
 const hourlyStepSeconds = 60 * 60;
+const dailyStepSeconds = 24 * 60 * 60;
 
 function roundCount(value: number): number {
   return Math.round(value);
@@ -132,6 +137,8 @@ async function queryPrometheusHourlyIncreases(
   prometheusUrl: MetricsSource,
   query: string,
   timeoutMs: number,
+  rangeDays = 1,
+  stepSeconds = hourlyStepSeconds,
 ): Promise<Map<number, number>> {
   const controller = new AbortController();
   const timeoutReason = new Error("Prometheus query timed out");
@@ -141,13 +148,13 @@ async function queryPrometheusHourlyIncreases(
 
   try {
     const end = Math.floor(Date.now() / 1000);
-    const start = end - hourlyRangeSeconds;
+    const start = end - rangeDays * 24 * 60 * 60;
     const response = await fetchMetricsRange(
       prometheusUrl,
       query,
       start,
       end,
-      `${String(hourlyStepSeconds)}s`,
+      `${String(stepSeconds)}s`,
       controller.signal,
     );
     if (!response.ok) {
@@ -175,6 +182,32 @@ async function queryPrometheusHourlyIncreases(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function buildDailySuccessRate(
+  successIncreases: Map<number, number>,
+  failureIncreases: Map<number, number>,
+): { date: string; success_rate_percent: number }[] {
+  const timestamps = new Set([
+    ...successIncreases.keys(),
+    ...failureIncreases.keys(),
+  ]);
+  return [...timestamps]
+    .sort((left, right) => left - right)
+    .flatMap((timestamp) => {
+      const rate = computeSuccessRatePercent(
+        roundCount(successIncreases.get(timestamp) ?? 0),
+        roundCount(failureIncreases.get(timestamp) ?? 0),
+      );
+      return rate === null
+        ? []
+        : [
+            {
+              date: new Date(timestamp * 1000).toISOString().slice(0, 10),
+              success_rate_percent: rate,
+            },
+          ];
+    });
 }
 
 function buildHourlySuccessRate(
@@ -238,17 +271,21 @@ export async function queryGatewayProvisionOutcomes(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays?: 7 | 30,
 ): Promise<GatewayProvisionOutcomes> {
   const successSelector = outcomeMetricSelector(namespace, "success");
   const failureSelector = outcomeMetricSelector(namespace, "failure");
   const durationCountMetricName = durationCountMetric(namespace);
-  const success24hQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[24h]))`;
-  const failure24hQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[24h]))`;
+  const window = rangeDays === undefined ? "24h" : `${String(rangeDays)}d`;
+  const success24hQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[${window}]))`;
+  const failure24hQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[${window}]))`;
   const successHourlyQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[1h]))`;
   const failureHourlyQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[1h]))`;
-  const durationCount24hQuery = `sum(increase(${durationCountMetricName}[24h]))`;
+  const durationCount24hQuery = `sum(increase(${durationCountMetricName}[${window}]))`;
   const durationCountLifetimeQuery = `sum(${durationCountMetricName})`;
   const durationCountHourlyQuery = `sum(increase(${durationCountMetricName}[1h]))`;
+  const successDailyQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[1d]))`;
+  const failureDailyQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[1d]))`;
 
   let successCount24h = roundCount(
     await queryPrometheusInstantNumber(
@@ -322,12 +359,32 @@ export async function queryGatewayProvisionOutcomes(
     successCount24h,
     failureCount24h,
   );
+  const [successDailyIncreases, failureDailyIncreases] = await Promise.all([
+    queryPrometheusHourlyIncreases(
+      prometheusUrl,
+      successDailyQuery,
+      timeoutMs,
+      rangeDays ?? 1,
+      dailyStepSeconds,
+    ),
+    queryPrometheusHourlyIncreases(
+      prometheusUrl,
+      failureDailyQuery,
+      timeoutMs,
+      rangeDays ?? 1,
+      dailyStepSeconds,
+    ),
+  ]);
 
   return {
     failure_count_24h: failureCount24h,
     hourly_success_rate: buildHourlySuccessRate(
       successHourlyIncreases,
       failureHourlyIncreases,
+    ),
+    daily_success_rate: buildDailySuccessRate(
+      successDailyIncreases,
+      failureDailyIncreases,
     ),
     success_count_24h: successCount24h,
     success_rate_percent: successRatePercent,

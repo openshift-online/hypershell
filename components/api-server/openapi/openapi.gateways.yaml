@@ -59,9 +59,9 @@ paths:
                 $ref: '#/components/schemas/Gateway'
         '400':
           description: |
-            Validation errors occurred, including a cluster_id that is empty or does not
-            reference a ManagedCluster with a registered control plane (non-empty
-            oidc_subject). On update, cluster_id is validated only when it changes.
+            Validation errors occurred, including an invalid or unavailable placement
+            intent. The backend resolves a valid intent to a registered ManagedCluster
+            before creating the gateway.
           content:
             application/json:
               schema:
@@ -86,6 +86,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: An unexpected error occurred creating the gateway
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+  /api/hypershell/v1/gateways/placement-availability:
+    post:
+      operationId: getGatewayPlacementAvailability
+      summary: Returns current placement eligibility for a batch of selectors
+      security:
+        - Bearer: []
+      requestBody:
+        description: Capability selectors to evaluate
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewayPlacementAvailabilityRequest'
+      responses:
+        '200':
+          description: Current backend placement eligibility
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayPlacementAvailability'
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error evaluating placement availability
           content:
             application/json:
               schema:
@@ -232,15 +264,16 @@ components:
           required:
             - name
             - cluster_id
-            - release_id
             - namespace
           properties:
             name:
               type: string
             cluster_id:
               type: string
-            release_id:
-              type: string
+              description: >-
+                Managed cluster this gateway is assigned to. Empty while a late-bound
+                gateway (one created with a placement selector) is awaiting placement;
+                the API server assigns it when a matching ManagedCluster is available.
             namespace:
               type: string
               readOnly: true
@@ -278,10 +311,21 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
-            observed_release_id:
+            provisioning_version:
               type: string
               readOnly: true
-              description: Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
+              description: >-
+                Gateway version the gateway's cluster advertises provisioning onto new
+                gateways, derived from that cluster's single-valued gateway-version
+                capability. Empty when the cluster advertises no provisioning version.
+            image_pinned:
+              type: boolean
+              readOnly: true
+              description: >-
+                Whether this gateway pins an explicit image and therefore need not track
+                its cluster's provisioning version. True suppresses the newer-version-available
+                drift indicator, because a pinned gateway may intentionally run a different
+                version from its cluster default.
             oidc:
               type: string
               readOnly: true
@@ -332,19 +376,40 @@ components:
               format: int64
               readOnly: true
               description: Generation the control plane last successfully applied; converged when equal to generation
+            repository_id:
+              type: string
+              readOnly: true
+              description: Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+            can_delete:
+              type: boolean
+              readOnly: true
+              description: Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative.
+            can_edit:
+              type: boolean
+              readOnly: true
+              description: Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
     GatewayCreateRequest:
       type: object
+      description: >-
+        A gateway is created either pinned to a cluster (set cluster_id) or
+        late-bound by placement (set placement). Exactly one of cluster_id or
+        placement must be supplied. The web-console provision form submits only the
+        placement shape; the pinned shape is available to hsctl apply and the
+        declarative .hypershell import.
       required:
         - name
-        - cluster_id
-        - release_id
       properties:
         name:
           type: string
         cluster_id:
           type: string
-        release_id:
-          type: string
+          description: >-
+            Pin the gateway to this managed cluster. Mutually exclusive with placement.
+        placement:
+          description: >-
+            Late-bind the gateway by capability-label selector. Mutually exclusive
+            with cluster_id.
+          $ref: '#/components/schemas/GatewayPlacementIntent'
         external_dns:
           type: string
         tls_mode:
@@ -375,6 +440,60 @@ components:
         credential_driver:
           type: string
           description: JSON-encoded credential storage driver configuration
+    GatewayPlacementIntent:
+      type: object
+      description: Exactly one of selector or mode must be supplied.
+      oneOf:
+        - title: Capability selector placement
+          required: [selector]
+          not:
+            required: [mode]
+        - title: Local Kind placement
+          required: [mode]
+          not:
+            required: [selector]
+      properties:
+        selector:
+          $ref: '#/components/schemas/GatewayPlacementSelector'
+        mode:
+          type: string
+          enum: [local-kind]
+    GatewayPlacementSelector:
+      type: array
+      minItems: 1
+      items:
+        type: string
+    GatewayPlacementAvailabilityRequest:
+      type: object
+      required: [selectors]
+      properties:
+        selectors:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/GatewayPlacementSelector'
+    GatewayPlacementAvailabilityItem:
+      type: object
+      required: [selector, available]
+      properties:
+        selector:
+          $ref: '#/components/schemas/GatewayPlacementSelector'
+        available:
+          type: boolean
+        reason:
+          type: string
+          enum: [no-eligible-cluster]
+    GatewayPlacementAvailability:
+      type: object
+      required: [placements, local_kind]
+      properties:
+        placements:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewayPlacementAvailabilityItem'
+        local_kind:
+          type: boolean
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END
@@ -394,8 +513,6 @@ components:
         name:
           type: string
         cluster_id:
-          type: string
-        release_id:
           type: string
         external_dns:
           type: string

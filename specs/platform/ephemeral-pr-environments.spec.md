@@ -56,7 +56,7 @@ images, swaps those images into the environment, and posts a pull-request commen
 telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
 then runs the OpenShift e2e suite against the live namespace (the same
 `plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
-environment, and only after Unit succeeds so a red unit job never deploys).
+environment, and concurrently with Unit, so the deploy does not wait on it).
 Unless the pull request is marked retained, CI then destroys the environment.
 The per-PR namespace is deterministic from the
 pull-request number, so a retained pull request reuses the same environment
@@ -96,9 +96,9 @@ This spec covers:
 - the GitHub-brokered Keycloak authentication model for these environments,
   including the GitHub OAuth App, the stable callback, admin authorization, and
   developer-tier testing by impersonation, and
-- the deprecation of the legacy `components/pr-test/e2e-openshell.sh` script in
+- the removal of the legacy `components/pr-test/e2e-openshell.sh` script in
   favor of the shared e2e harness and this workflow (the ROKS variant is out of
-  scope).
+  scope and was not removed).
 
 This spec does not redefine `make openshift-up`, the `deploy/openshift/` overlay,
 the ephemeral-namespace isolation rules, the cluster-scoped RBAC handling, or
@@ -112,14 +112,13 @@ the CI YAML or the Keycloak realm export.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
-provisions one. "Environment" here means the per-pull-request namespace
+ManagedCluster) only where a scenario provisions one. "Environment" here means the per-pull-request namespace
 group (the platform namespace and its companion `-keycloak` namespace) that
 `openshift-development.spec.md` defines.
 
 ## Requirements
 
-### Requirement: Per-Pull-Request Environment Identity
+### Requirement: CICD-PREN-01 -- Per-Pull-Request Environment Identity
 
 Each pull request SHALL map to exactly one ephemeral environment on the shared
 target cluster, and that mapping SHALL be deterministic from the pull-request
@@ -156,7 +155,7 @@ SHALL NOT derive the namespace from the branch name, the commit SHA, or the
 developer identity, because those are not stable across the life of one pull
 request.
 
-#### Scenario: Namespace derives from the pull-request number
+#### Scenario: CICD-PREN-01.01 -- Namespace derives from the pull-request number
 
 - GIVEN a pull request numbered 232 runs the workflow
 - WHEN the workflow resolves the target environment
@@ -165,21 +164,21 @@ request.
 - AND both namespaces SHALL carry `hypershell.redhat.io/owned=true` and
   `hypershell.redhat.io/environment=pr-232`
 
-#### Scenario: Labeling failure fails the job
+#### Scenario: CICD-PREN-01.02 -- Labeling failure fails the job
 
 - GIVEN the CI service account cannot patch namespace objects
 - WHEN the workflow attempts to stamp the namespace group
 - THEN the job SHALL fail
 - AND it SHALL NOT leave an unlabeled pull-request environment
 
-#### Scenario: Same pull request always resolves the same environment
+#### Scenario: CICD-PREN-01.03 -- Same pull request always resolves the same environment
 
 - GIVEN pull request 232 already has an environment from an earlier run
 - WHEN any later run for pull request 232 starts
 - THEN it SHALL resolve `hypershell-ci-pr-232` without consulting external state
 - AND it SHALL NOT create a second environment for the same pull request
 
-### Requirement: Ephemeral-by-Default Deploy, Test, and Destroy
+### Requirement: CICD-PREN-02 -- Ephemeral-by-Default Deploy, Test, and Destroy
 
 The workflow SHALL run a standard ephemeral e2e cycle for an e2e-relevant pull
 request: deploy the environment for the current head commit, let Tests / E2E /
@@ -194,19 +193,21 @@ gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
-`.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
+`.github/workflows/e2e.yml`, the Tests e2e stage invoked concurrently with Unit
 (`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
 `should_run` gate, so an e2e-irrelevant pull request does not consume a
-cluster namespace, and a unit failure never deploys. OpenShift SHALL
+cluster namespace; a unit failure does not stop the deploy, and the existing teardown still destroys the unretained environment. OpenShift SHALL
 `needs:` Deploy OpenShift Environment; there SHALL be no cross-workflow poller
 between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
-to destroy a retained environment (see the Timebox and Reaping requirement), so
-Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
-on `merge_group`: this ephemeral-environment lifecycle (GitHub-brokered
-OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is pull-request-only,
-and this environment does not share a namespace with a merge-queue SHA.
+and `enqueued` (the pull request enters the merge queue, which does not close
+it) to destroy a retained environment (see the Timebox and Reaping
+requirement), so Tests runs do not list a skipped Destroy check. None of
+these jobs SHALL run on `merge_group`: this ephemeral-environment lifecycle
+(GitHub-brokered OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is
+pull-request-only, and this environment does not share a namespace with a
+merge-queue SHA.
 `e2e-testing.spec.md` separately runs Kind and OpenShift as the merge-queue
 gate, the latter through the same `Deploy OpenShift Environment`/`OpenShift`
 jobs this spec's pull-request path uses, but without any of this spec's
@@ -261,7 +262,7 @@ not drift across the many deployments a pull request accumulates. The reconcile
 SHALL preserve any active per-namespace component swap the same way
 `openshift-development.spec.md` specifies.
 
-#### Scenario: Unretained pull request deploys, tests, and is destroyed
+#### Scenario: CICD-PREN-02.01 -- Unretained pull request deploys, tests, and is destroyed
 
 - GIVEN an e2e-relevant pull request that is not marked retained
 - WHEN the workflow runs and `plan-images` sets `should_run=true`
@@ -272,7 +273,7 @@ SHALL preserve any active per-namespace component swap the same way
 - AND no `hypershell-ci-pr-<number>` namespace group or instance-managed
   gateway/database namespace SHALL remain on the cluster
 
-#### Scenario: Failed cycle still tears down
+#### Scenario: CICD-PREN-02.02 -- Failed cycle still tears down
 
 - GIVEN an unretained pull request whose deploy or e2e run fails
 - WHEN the cycle concludes
@@ -280,7 +281,7 @@ SHALL preserve any active per-namespace component swap the same way
 - AND it SHALL NOT leave a failed environment on the shared cluster
 - AND a teardown failure SHALL fail Tests / E2E / OpenShift
 
-#### Scenario: Commit pushed to a retained pull request
+#### Scenario: CICD-PREN-02.03 -- Commit pushed to a retained pull request
 
 - GIVEN pull request 232 is marked retained and already has a running environment
 - WHEN a new commit is pushed and the `synchronize` trigger fires
@@ -294,7 +295,7 @@ SHALL preserve any active per-namespace component swap the same way
 - AND it SHALL update the access comment to reflect the new head commit (see
   Pull-Request Comment)
 
-#### Scenario: Deploy runs unconditionally once gated in
+#### Scenario: CICD-PREN-02.04 -- Deploy runs unconditionally once gated in
 
 - GIVEN a deploying run for a pull request (`should_run=true`)
 - WHEN the workflow reaches the deploy step
@@ -302,7 +303,7 @@ SHALL preserve any active per-namespace component swap the same way
   already exists
 - AND it SHALL NOT skip deployment based on a prior-existence check
 
-#### Scenario: E2e-irrelevant pull request skips deploy
+#### Scenario: CICD-PREN-02.05 -- E2e-irrelevant pull request skips deploy
 
 - GIVEN an origin pull request whose three-dot diff contains only
   e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
@@ -312,7 +313,7 @@ SHALL preserve any active per-namespace component swap the same way
 - AND the workflow SHALL NOT consume a cluster namespace
 - AND Tests / E2E / OpenShift SHALL skip as `e2e-testing.spec.md` defines
 
-#### Scenario: Overlapping runs serialize per pull request
+#### Scenario: CICD-PREN-02.06 -- Overlapping runs serialize per pull request
 
 - GIVEN a deploying run for pull request 232 is already in flight
 - WHEN a later `synchronize` run for pull request 232 starts
@@ -321,7 +322,7 @@ SHALL preserve any active per-namespace component swap the same way
   a time
 - AND the access comment SHALL name the commit whose digest swap completed
 
-#### Scenario: Merge-queue does not use this environment
+#### Scenario: CICD-PREN-02.07 -- Merge-queue does not use this environment
 
 - GIVEN a pull request enters the GitHub merge queue
 - WHEN CI evaluates which jobs to run
@@ -333,7 +334,7 @@ SHALL preserve any active per-namespace component swap the same way
   `hypershell-ci-mq-<short-sha>` namespace that never collides with a
   pull-request or push-to-main namespace
 
-### Requirement: Extend and Destroy Controls
+### Requirement: CICD-PREN-03 -- Extend and Destroy Controls
 
 The pull request's retained state SHALL be authoritative from the pull request's
 own command history, not from the order in which comment-triggered runs happen to
@@ -392,7 +393,7 @@ Closing or merging the pull request SHALL release the environment regardless of
 the retained marker (see Timebox and Reaping); the label does not outlive the
 pull request.
 
-#### Scenario: Extend retains and redeploys
+#### Scenario: CICD-PREN-03.01 -- Extend retains and redeploys
 
 - GIVEN an unretained pull request whose ephemeral environment has already been destroyed
 - WHEN a write-access collaborator comments `/pr-extend`
@@ -400,7 +401,7 @@ pull request.
 - AND it SHALL deploy the environment for the current head commit
 - AND it SHALL stamp the timebox so the reaper reclaims it only after inactivity
 
-#### Scenario: Extend is sticky across later commits
+#### Scenario: CICD-PREN-03.02 -- Extend is sticky across later commits
 
 - GIVEN a pull request already carries the `pr-environment/pr-extended` label
 - WHEN a later commit is pushed
@@ -408,7 +409,7 @@ pull request.
 - AND it SHALL refresh the timebox
 - AND no second `/pr-extend` SHALL be required
 
-#### Scenario: Destroy frees the environment early
+#### Scenario: CICD-PREN-03.03 -- Destroy frees the environment early
 
 - GIVEN a retained pull request with a running environment
 - WHEN a write-access collaborator comments `/pr-destroy`
@@ -418,7 +419,7 @@ pull request.
 - AND it SHALL remove the `pr-environment/pr-extended` label
 - AND later commits SHALL return to the ephemeral deploy/test/destroy default
 
-#### Scenario: Latest command wins across a sequence
+#### Scenario: CICD-PREN-03.04 -- Latest command wins across a sequence
 
 - GIVEN a write-access collaborator comments `/pr-extend`, then `/pr-destroy`, then
   `/pr-extend` again on the same pull request
@@ -428,14 +429,14 @@ pull request.
 - AND the pull request SHALL be marked retained with a running environment
 - AND the intermediate `/pr-destroy` SHALL NOT leave the pull request ephemeral
 
-#### Scenario: Out-of-order or stale command run converges to the latest command
+#### Scenario: CICD-PREN-03.05 -- Out-of-order or stale command run converges to the latest command
 
 - GIVEN the latest authorized command comment on a pull request is `/pr-destroy`
 - WHEN a run triggered by an earlier `/pr-extend` comment executes late
 - THEN it SHALL compute the retained state from the latest command (`/pr-destroy`)
 - AND it SHALL NOT re-extend the pull request from its own stale trigger body
 
-#### Scenario: Unauthorized command does not flip the state
+#### Scenario: CICD-PREN-03.06 -- Unauthorized command does not flip the state
 
 - GIVEN the latest authorized command comment is `/pr-extend`
 - WHEN a commenter without write access later comments `/pr-destroy`
@@ -443,7 +444,7 @@ pull request.
 - AND the pull request SHALL remain retained
 - AND the workflow SHALL acknowledge that the command was refused rather than act silently
 
-#### Scenario: Unauthorized command is refused
+#### Scenario: CICD-PREN-03.07 -- Unauthorized command is refused
 
 - GIVEN a commenter without write access to the origin repository
 - WHEN they comment `/pr-extend` or `/pr-destroy`
@@ -451,7 +452,7 @@ pull request.
 - AND it SHALL NOT use cluster credentials
 - AND it SHALL acknowledge that the command was refused rather than act silently
 
-### Requirement: Image Gating and Swap
+### Requirement: CICD-PREN-04 -- Image Gating and Swap
 
 The workflow SHALL NOT build component images itself. It SHALL gate on the
 Konflux builds for the pull request's head commit and swap the built images into
@@ -487,7 +488,7 @@ than passed silently. This reinforces the cross-cutting image-reference
 consistency convention: image references SHALL resolve to the same immutable
 artifact across the stack.
 
-#### Scenario: Swap the pull request's images by digest
+#### Scenario: CICD-PREN-04.01 -- Swap the pull request's images by digest
 
 - GIVEN a pull request changed `components/api-server/`
 - AND Konflux built the API server image for the head commit
@@ -496,7 +497,7 @@ artifact across the stack.
 - AND it SHALL swap the API server image into the environment by digest
 - AND the control plane and web console SHALL keep baseline registry images
 
-#### Scenario: New commit rebuilds and re-swaps
+#### Scenario: CICD-PREN-04.02 -- New commit rebuilds and re-swaps
 
 - GIVEN a new commit changes `components/control-plane/`
 - WHEN the `synchronize` trigger deploys the environment
@@ -504,12 +505,12 @@ artifact across the stack.
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
   before the `Deploy OpenShift Environment` check succeeds
-- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` and
-  `GatewayRelease` seed resources
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` seed
+  resource
 - AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
   it or create a second Gateway named `dev-gateway`
 
-#### Scenario: Immutable digest is preferred over a mutable tag
+#### Scenario: CICD-PREN-04.03 -- Immutable digest is preferred over a mutable tag
 
 - GIVEN a component's Konflux build has concluded and exposes both a floating
   `on-pr-<head_sha>` tag and a manifest digest
@@ -519,7 +520,7 @@ artifact across the stack.
 - AND when no digest is available it SHALL fall back to the tag and record that
   fallback in the run output
 
-### Requirement: E2E Execution Against the Environment
+### Requirement: CICD-PREN-05 -- E2E Execution Against the Environment
 
 After the environment is deployed and the pull request's images are swapped in,
 Tests / E2E / OpenShift SHALL run the OpenShift e2e suite against it, exactly as
@@ -548,7 +549,7 @@ have no password grant. Deploy and the suite live as distinct jobs in the Tests
 e2e stage so a deploy failure and an e2e failure surface as distinct checks;
 teardown is a last step of OpenShift and fails that check if destroy fails.
 
-#### Scenario: E2E runs on every e2e-relevant deployment
+#### Scenario: CICD-PREN-05.01 -- E2E runs on every e2e-relevant deployment
 
 - GIVEN the environment is deployed and the pull request's images are swapped in
 - AND `plan-images` set `should_run=true` (e2e-relevant paths changed)
@@ -558,7 +559,7 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
   `Deploy OpenShift Environment`
 
-#### Scenario: Retained environment survives a failing run
+#### Scenario: CICD-PREN-05.02 -- Retained environment survives a failing run
 
 - GIVEN the e2e suite fails
 - AND the pull request is marked retained
@@ -566,7 +567,7 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - THEN it SHALL collect the failure diagnostics
 - AND the environment SHALL remain deployed for developer inspection
 
-#### Scenario: Unretained failing run is torn down
+#### Scenario: CICD-PREN-05.03 -- Unretained failing run is torn down
 
 - GIVEN the e2e suite fails
 - AND the pull request is not marked retained
@@ -575,7 +576,7 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - AND the ephemeral cycle SHALL destroy the environment
 - AND a developer SHALL `/pr-extend` to redeploy for inspection
 
-### Requirement: Timebox and Reaping
+### Requirement: CICD-PREN-06 -- Timebox and Reaping
 
 The primary teardown path SHALL be in-band: an unretained cycle destroys its
 environment right after the e2e suite concludes (see Ephemeral-by-Default), and
@@ -658,16 +659,19 @@ cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
 labeled for a different instance, including `hyp4`, `hyp5`, and local
 `make openshift-up` environments.
 
-On pull-request `closed` (merge or close), CI SHALL destroy the environment as
-the primary path by running the same teardown as `make openshift-down`, whether
-or not the pull request was retained. That destroy SHALL live in a `closed`-only
+On pull-request `closed` (merge or close) or `enqueued` (the pull request enters
+the merge queue), CI SHALL destroy the environment as the primary path by
+running the same teardown as `make openshift-down`, whether or not the pull
+request was retained. `enqueued` destroys early because `e2e-testing.spec.md`'s
+mq-<sha> environment takes over validation once the pull request is queued, so
+this pull request's own namespace would otherwise sit idle on the cluster for
+the whole queue wait. That destroy SHALL live in a `closed`/`enqueued`-only
 workflow so open and synchronize runs do not list a skipped Destroy check. The
-timebox SHALL remain the backstop for the case where the close event does not
-fire or its destroy cannot be confirmed; when the destroy step cannot confirm the
-destroy, the workflow SHALL report the failure so an operator can free the
-environment.
+timebox SHALL remain the backstop for the case where neither event fires or its
+destroy cannot be confirmed; when the destroy step cannot confirm the destroy,
+the workflow SHALL report the failure so an operator can free the environment.
 
-#### Scenario: Retained deploying run refreshes the inactivity expiry
+#### Scenario: CICD-PREN-06.01 -- Retained deploying run refreshes the inactivity expiry
 
 - GIVEN a retained pull-request environment exists
 - WHEN a new commit's deploying run finishes `make openshift-up`
@@ -676,7 +680,7 @@ environment.
 - AND `make openshift-up` SHALL NOT have written that annotation
 - AND the environment SHALL NOT be reaped while the retained pull request stays active
 
-#### Scenario: Unretained deploy stamps only a short backstop expiry
+#### Scenario: CICD-PREN-06.02 -- Unretained deploy stamps only a short backstop expiry
 
 - GIVEN an unretained deploying run
 - WHEN it finishes `make openshift-up`
@@ -686,7 +690,7 @@ environment.
 - AND if that teardown does not complete, the reaper SHALL reclaim the
   environment once the backstop expiry passes
 
-#### Scenario: Quiet retained environment is reaped by the timebox
+#### Scenario: CICD-PREN-06.03 -- Quiet retained environment is reaped by the timebox
 
 - GIVEN a retained pull-request environment has had no deploying run for the
   inactivity window
@@ -699,7 +703,7 @@ environment.
 - AND it SHALL delete only namespaces matching the pull-request ownership labels
   and `pr-*` environment identifier, plus that instance's managed namespaces
 
-#### Scenario: Leftover instance namespaces are reaped after the project is gone
+#### Scenario: CICD-PREN-06.04 -- Leftover instance namespaces are reaped after the project is gone
 
 - GIVEN the platform project `hypershell-ci-pr-267` is already absent
 - AND gateway namespaces remain labeled
@@ -710,14 +714,14 @@ environment.
 - AND it SHALL NOT delete namespaces labeled for `hyp4`, `hyp5`, or a local
   `make openshift-up` environment
 
-#### Scenario: Local environments are not reaped
+#### Scenario: CICD-PREN-06.05 -- Local environments are not reaped
 
 - GIVEN a developer ran `make openshift-up` into a namespace that is not
   `hypershell-ci-pr-*`
 - WHEN the out-of-band reaper evaluates environments
 - THEN it SHALL NOT delete that namespace group
 
-#### Scenario: Close destroys the environment; timebox backstops
+#### Scenario: CICD-PREN-06.06 -- Close destroys the environment; timebox backstops
 
 - GIVEN a pull-request environment exists (retained or not)
 - WHEN the pull request merges or closes
@@ -726,7 +730,7 @@ environment.
 - AND when the close event does not fire, the timebox SHALL reclaim the environment
 - AND when destroy cannot be confirmed, the workflow SHALL report the failure
 
-#### Scenario: Idempotent re-run after reaping
+#### Scenario: CICD-PREN-06.07 -- Idempotent re-run after reaping
 
 - GIVEN a retained pull request's environment was reaped after its timebox
 - WHEN a new commit is pushed to that still-open, still-retained pull request
@@ -735,7 +739,7 @@ environment.
 - AND the workflow SHALL stamp a fresh `hypershell.redhat.io/expires-at`
 - AND the workflow SHALL proceed with image swap, e2e, and comment as on first open
 
-### Requirement: Pull-Request Comment and Access Handoff
+### Requirement: CICD-PREN-07 -- Pull-Request Comment and Access Handoff
 
 The workflow SHALL communicate the live environment to the developer through a
 pull-request comment, and SHALL keep exactly one such comment current for the
@@ -803,7 +807,7 @@ issuance and refresh itself. No separate credential delivery step is needed: no
 kubeconfig, token, or password SHALL appear in the comment, the job logs, or a
 public artifact.
 
-#### Scenario: Deploying placeholder posted first
+#### Scenario: CICD-PREN-07.01 -- Deploying placeholder posted first
 
 - GIVEN a pull request is opened
 - WHEN the deploy job starts, before cluster login or deploy
@@ -816,7 +820,7 @@ public artifact.
 - AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
 - AND the comment SHALL contain no access facts or credential
 
-#### Scenario: Initial comment on pull-request open
+#### Scenario: CICD-PREN-07.02 -- Initial comment on pull-request open
 
 - GIVEN a pull request is opened and its environment becomes ready
 - WHEN the workflow finishes deploying
@@ -831,7 +835,7 @@ public artifact.
 - AND the comment SHALL NOT link master-realm `/admin/` as the GitHub login
 - AND the comment SHALL NOT contain a credential
 
-#### Scenario: Comment updated on each new commit
+#### Scenario: CICD-PREN-07.03 -- Comment updated on each new commit
 
 - GIVEN a pull request already has an access comment that carries the marker
   and an access-fact table
@@ -850,7 +854,7 @@ public artifact.
 - AND the workflow SHALL NOT post a second access comment
 - AND the comment SHALL refresh the login details
 
-#### Scenario: Credentials never leak
+#### Scenario: CICD-PREN-07.04 -- Credentials never leak
 
 - GIVEN the workflow delivers access details
 - WHEN a reader inspects the comment, the job logs, and public artifacts
@@ -858,7 +862,7 @@ public artifact.
 - AND the `oc login` template uses `--web` so OpenShift issues the credential
   interactively through the developer's own browser session
 
-#### Scenario: Comment advertises /pr-extend on an ephemeral environment
+#### Scenario: CICD-PREN-07.05 -- Comment advertises /pr-extend on an ephemeral environment
 
 - GIVEN an unretained pull request whose environment becomes ready
 - WHEN the workflow edits the access comment
@@ -869,7 +873,7 @@ public artifact.
 - AND it SHALL state that `/pr-extend` redeploys the environment if it has
   already been destroyed
 
-#### Scenario: Comment reflects a retained environment
+#### Scenario: CICD-PREN-07.06 -- Comment reflects a retained environment
 
 - GIVEN a pull request has been `/pr-extend`ed
 - WHEN the workflow next edits the access comment
@@ -879,7 +883,7 @@ public artifact.
 - AND it SHALL include the inactivity expiry as an RFC 3339 timestamp labelled UTC
 - AND it SHALL NOT tell the reader the environment is about to be destroyed
 
-#### Scenario: Comment reflects a destroyed environment
+#### Scenario: CICD-PREN-07.07 -- Comment reflects a destroyed environment
 
 - GIVEN a pull request has a marked access comment
 - AND an unretained in-run teardown or an authorized `/pr-destroy` has
@@ -892,7 +896,7 @@ public artifact.
 - AND the comment SHALL NOT claim the environment is live
 - AND the comment SHALL NOT keep the access-fact table
 
-### Requirement: Pull-Request Trust Boundary
+### Requirement: CICD-PREN-08 -- Pull-Request Trust Boundary
 
 The workflow SHALL run only on `pull_request` events from the origin repository
 (the repository that holds the workflow). Cluster login and the GitHub OAuth App
@@ -910,14 +914,14 @@ and allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
 login to an already-deployed origin-repo environment; they SHALL NOT be used as
 a reason to deploy untrusted pull-request trees with cluster credentials.
 
-#### Scenario: Origin pull request is deployed
+#### Scenario: CICD-PREN-08.01 -- Origin pull request is deployed
 
 - GIVEN a pull request opened against the origin repository by a repository
   collaborator
 - WHEN the workflow runs
 - THEN it SHALL deploy the environment with the cluster credentials
 
-#### Scenario: Fork pull request is not deployed
+#### Scenario: CICD-PREN-08.02 -- Fork pull request is not deployed
 
 - GIVEN a pull request whose head branch lives in a fork
 - WHEN GitHub evaluates Deploy OpenShift Environment
@@ -925,7 +929,7 @@ a reason to deploy untrusted pull-request trees with cluster credentials.
 - AND cluster login SHALL NOT assume the CI IAM role
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
-### Requirement: GitHub-Brokered Keycloak Authentication
+### Requirement: CICD-PREN-09 -- GitHub-Brokered Keycloak Authentication
 
 The per-pull-request environment's Keycloak SHALL broker interactive
 authentication to GitHub, and SHALL NOT broker to Red Hat SSO, so an allowlisted
@@ -1037,13 +1041,13 @@ cluster-level OAuth flow (against the OpenShift built-in OAuth server, not
 `hypershell-frontend` or `hypershell-cli`) and is not gated by this check
 either, for the same reason.
 
-#### Scenario: Organization member authenticates
+#### Scenario: CICD-PREN-09.01 -- Organization member authenticates
 
 - GIVEN a GitHub user who is a member of `openshift-online`
 - WHEN they log in to a pull-request environment through GitHub
 - THEN the web console SHALL create their HyperShell session
 
-#### Scenario: Allowlisted non-member authenticates
+#### Scenario: CICD-PREN-09.02 -- Allowlisted non-member authenticates
 
 - GIVEN a GitHub user who is not a member of `openshift-online`
 - AND that username is on the environment's allowlist
@@ -1052,7 +1056,7 @@ either, for the same reason.
 - THEN the web console SHALL create their HyperShell session
 - AND that allowlist entry SHALL NOT have caused CI to deploy a fork pull request
 
-#### Scenario: Non-member, non-allowlisted user is denied
+#### Scenario: CICD-PREN-09.03 -- Non-member, non-allowlisted user is denied
 
 - GIVEN a GitHub user who is neither an `openshift-online` member nor allowlisted
 - WHEN they attempt to log in through GitHub
@@ -1061,7 +1065,7 @@ either, for the same reason.
 - AND SHALL show an access-denied error in the console
 - AND SHALL NOT forward an API bearer on later `/api/*` calls from that login
 
-#### Scenario: GitHub redirects to the stable callback
+#### Scenario: CICD-PREN-09.04 -- GitHub redirects to the stable callback
 
 - GIVEN a pull-request environment's Keycloak brokers to GitHub
 - AND the target cluster provides the configured stable callback URL
@@ -1071,7 +1075,7 @@ either, for the same reason.
 - AND the callback SHALL complete the broker login against that pull request's
   Keycloak
 
-#### Scenario: Keycloak recycle keeps the console redirect URIs
+#### Scenario: CICD-PREN-09.05 -- Keycloak recycle keeps the console redirect URIs
 
 `start-dev --import-realm` only loads the rendered realm into an empty data
 dir. Recycle after an OAuth-secret change SHALL re-import
@@ -1089,28 +1093,29 @@ annotation already matches.
 - AND Keycloak SHALL NOT reject the BFF `redirect_uri` with
   `Invalid parameter: redirect_uri`
 
-#### Scenario: Missing GitHub OAuth configuration fails bring-up
+#### Scenario: CICD-PREN-09.06 -- Missing GitHub OAuth configuration fails bring-up
 
 - GIVEN the GitHub OAuth client id, client secret, or stable callback URL is unset
 - WHEN the workflow deploys the environment
 - THEN the job SHALL fail before posting an access comment
 - AND it SHALL NOT leave an environment that nobody can log into
 
-#### Scenario: No Red Hat SSO brokering
+#### Scenario: CICD-PREN-09.07 -- No Red Hat SSO brokering
 
 - GIVEN a pull-request environment's Keycloak
 - WHEN a maintainer inspects its identity providers
 - THEN GitHub SHALL be the brokered identity provider
 - AND Red Hat SSO SHALL NOT be configured as an identity provider
 
-### Requirement: Admin Authorization and Self-Service Role Assumption by Impersonation
+### Requirement: CICD-PREN-10 -- Admin Authorization and Self-Service Role Assumption by Impersonation
 
 Every GitHub identity that authenticates to a pull-request environment (whether
 by organization membership or by allowlist) SHALL be granted the realm roles
 needed to fully drive the environment: `platform:admin` and `gateway:creator`,
 as `../security/rbac-enforcement.spec.md` defines those roles.
-`platform:admin` grants global gateway view and delete; it does not grant
-gateway create. `gateway:creator` grants gateway create. The realm SHALL assign
+`platform:admin` grants global gateway view, delete, and access management
+(grant/change/revoke any tier, owner-equivalent, via the access facade, without
+gateway login); it does not grant gateway create. `gateway:creator` grants gateway create. The realm SHALL assign
 both roles to brokered GitHub users on first broker login, so no manual role
 assignment is required after login. That is the same HyperShell API capability
 as the seeded `admin` test-tier principal (`ephemeral-test-credentials.spec.md`
@@ -1176,7 +1181,7 @@ Those principals exist after CI seed and until the environment is destroyed
 and other automation against a live environment SHALL still be able to impersonate
 `developer` and `platform-admin` after e2e has finished.
 
-#### Scenario: GitHub user logs into the Keycloak admin console
+#### Scenario: CICD-PREN-10.01 -- GitHub user logs into the Keycloak admin console
 
 - GIVEN a pull-request environment whose Keycloak brokers to GitHub
 - WHEN a GitHub user opens `https://<keycloak-route>/admin/hypershell/console/`
@@ -1187,7 +1192,7 @@ and other automation against a live environment SHALL still be able to impersona
 - AND they SHALL NOT have used master-realm `/admin/` or the bootstrap admin
   password
 
-#### Scenario: Login page keeps username/password alongside GitHub
+#### Scenario: CICD-PREN-10.02 -- Login page keeps username/password alongside GitHub
 
 - GIVEN a pull-request environment whose Keycloak brokers to GitHub
 - AND the environment has seeded the test-tier principals from Secret
@@ -1201,7 +1206,7 @@ and other automation against a live environment SHALL still be able to impersona
 - AND signing in as `admin`/`admin`, `developer`/`developer`, or
   `platform-admin`/`platform-admin` SHALL fail
 
-#### Scenario: Authenticated GitHub user can fully drive the environment
+#### Scenario: CICD-PREN-10.03 -- Authenticated GitHub user can fully drive the environment
 
 - GIVEN a GitHub user authenticates to a pull-request environment
 - WHEN their HyperShell session is created
@@ -1211,7 +1216,7 @@ and other automation against a live environment SHALL still be able to impersona
 - AND viewing or deleting any gateway SHALL succeed because they hold
   `platform:admin`
 
-#### Scenario: Any authenticated user tests the developer HyperShell API boundary by impersonation
+#### Scenario: CICD-PREN-10.04 -- Any authenticated user tests the developer HyperShell API boundary by impersonation
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `developer` test-tier principal
@@ -1221,7 +1226,7 @@ and other automation against a live environment SHALL still be able to impersona
 - THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 - AND the user SHALL NOT have needed the `developer` principal's password to do so
 
-#### Scenario: Human self-service does not include per-gateway sandbox create
+#### Scenario: CICD-PREN-10.05 -- Human self-service does not include per-gateway sandbox create
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `developer` test-tier principal
@@ -1234,7 +1239,7 @@ and other automation against a live environment SHALL still be able to impersona
   remains the e2e driver's `assign_gateway_client_role` grant in Automated E2E
   Authentication
 
-#### Scenario: GitHub users cannot token-exchange as each other
+#### Scenario: CICD-PREN-10.06 -- GitHub users cannot token-exchange as each other
 
 - GIVEN GitHub user A and GitHub user B are both authenticated to a pull-request
   environment
@@ -1244,7 +1249,7 @@ and other automation against a live environment SHALL still be able to impersona
 - AND user A SHALL still be able to impersonate `developer` and `platform-admin`
   through the admin console and through `hypershell-e2e` token exchange
 
-#### Scenario: Any authenticated user tests the platform-admin boundary by impersonation
+#### Scenario: CICD-PREN-10.07 -- Any authenticated user tests the platform-admin boundary by impersonation
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `platform-admin` test-tier
@@ -1255,7 +1260,7 @@ and other automation against a live environment SHALL still be able to impersona
 - THEN viewing or deleting any gateway SHALL succeed
 - AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 
-#### Scenario: Impersonation still works after e2e on a live environment
+#### Scenario: CICD-PREN-10.08 -- Impersonation still works after e2e on a live environment
 
 - GIVEN a CI e2e run has finished against a still-live PR environment
 - WHEN a GitHub-authenticated user requests an impersonated token for `developer`
@@ -1263,7 +1268,7 @@ and other automation against a live environment SHALL still be able to impersona
 - THEN Keycloak SHALL issue that token
 - AND `/pr-extend` SHALL NOT need to re-seed those principals
 
-### Requirement: Automated E2E Authentication
+### Requirement: CICD-PREN-11 -- Automated E2E Authentication
 
 Because the pull-request environment's interactive login is GitHub-brokered and
 brokered users have no resource-owner password grant, the e2e suite SHALL NOT
@@ -1323,7 +1328,7 @@ Area 10 SHALL acquire the platform-admin token through the
 The `hypershell-e2e` client secret and any impersonation credential SHALL NOT
 appear in logs, the pull-request comment, or public artifacts.
 
-#### Scenario: CI acquires the admin token without a GitHub login
+#### Scenario: CICD-PREN-11.01 -- CI acquires the admin token without a GitHub login
 
 - GIVEN a pull-request environment whose interactive login is GitHub-brokered
 - WHEN the e2e suite acquires its admin token in CI
@@ -1335,7 +1340,7 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND CI SHALL have read that client secret from the Keycloak namespace after
   `make openshift-up`
 
-#### Scenario: Kind and hub omit the e2e identity
+#### Scenario: CICD-PREN-11.02 -- Kind and hub omit the e2e identity
 
 - GIVEN Kind, local OpenShift without `hypershell-github-oauth`, or hub/ibm
 - WHEN Keycloak imports the rendered realm
@@ -1343,7 +1348,7 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND SHALL NOT contain user `service-account-hypershell-e2e`
 - AND SHALL NOT contain `clientScopeMappings` for `hypershell-e2e`
 
-#### Scenario: Present-but-disabled e2e client does not mutate production realms
+#### Scenario: CICD-PREN-11.03 -- Present-but-disabled e2e client does not mutate production realms
 
 - GIVEN a Keycloak realm that still has client `hypershell-e2e` with `enabled: false`
 - WHEN the control plane reconciles a gateway client
@@ -1351,7 +1356,7 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND it SHALL NOT enable `admin-fine-grained-authz` on `realm-management`
 - AND it SHALL NOT attach a token-exchange policy to the gateway or frontend client
 
-#### Scenario: CI acquires the developer HyperShell API token by impersonation
+#### Scenario: CICD-PREN-11.04 -- CI acquires the developer HyperShell API token by impersonation
 
 - GIVEN the seeded developer-tier principal exists in the realm
 - WHEN the e2e suite needs a developer-scoped HyperShell API token
@@ -1359,7 +1364,7 @@ appear in logs, the pull-request comment, or public artifacts.
   through token exchange
 - AND the token SHALL NOT carry `platform:admin` or `gateway:creator`
 
-#### Scenario: Area 9 grants openshell-user before token exchange
+#### Scenario: CICD-PREN-11.05 -- Area 9 grants openshell-user before token exchange
 
 - GIVEN a reachable gateway with a per-gateway Keycloak client
 - AND the seeded `developer` principal exists
@@ -1369,7 +1374,7 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND only then SHALL `acquire_gateway_token_with_role` token-exchange onto
   that client
 
-#### Scenario: CI acquires the developer gateway token by impersonation
+#### Scenario: CICD-PREN-11.06 -- CI acquires the developer gateway token by impersonation
 
 - GIVEN the seeded developer-tier principal exists in the realm
 - AND a gateway with a per-gateway Keycloak client is running
@@ -1379,7 +1384,7 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND it SHALL NOT use a password grant
 - AND the token SHALL carry `openshell-user` for that gateway
 
-#### Scenario: CI acquires a per-gateway admin token as the e2e service account
+#### Scenario: CICD-PREN-11.07 -- CI acquires a per-gateway admin token as the e2e service account
 
 - GIVEN CI authenticates as the `hypershell-e2e` service account
 - AND that service account created the gateway under test
@@ -1391,97 +1396,73 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND the token SHALL carry `openshell-admin` for that gateway once the
   RoleBinding reconciler has assigned the owner role to the service account
 
-#### Scenario: Automation credentials do not leak
+#### Scenario: CICD-PREN-11.08 -- Automation credentials do not leak
 
 - GIVEN CI holds the `hypershell-e2e` client secret
 - WHEN a reader inspects the job logs, the pull-request comment, and public artifacts
 - THEN that secret does not appear in any of them
 
-### Requirement: Legacy pr-test Deprecation
+### Requirement: CICD-PREN-12 -- Legacy pr-test Removal
 
-This spec's workflow SHALL be the canonical pull-request e2e path, superseding the
-legacy `components/pr-test/e2e-openshell.sh` script. That script is a hardcoded
-OpenShift pull-request e2e script that predates the infra-agnostic suite and does
-the job this workflow now owns. Some team members still run it directly, so it
-SHALL NOT be removed yet; it SHALL be marked deprecated and kept working, and it
-SHALL be removed in the future once that manual usage has migrated to the shared
-harness. `openshift-development.spec.md` and `e2e-testing.spec.md` now defer this
-deprecation window to this spec: removal of `e2e-openshell.sh` remains the
-eventual goal; this spec is the living document that times it. During the
-window those specs SHALL NOT require the script or the `pr_test` component to
-already be gone.
+This spec's workflow is the canonical pull-request e2e path, superseding the
+legacy `components/pr-test/e2e-openshell.sh` script that predated the
+infra-agnostic suite. That script has been removed (HYPERSHELL-250) now that
+this workflow and the shared harness (`tests/e2e/e2e-openshell.sh` with
+`E2E_INFRA_DRIVER=openshift`) cover the same ground and manual usage has
+migrated. `openshift-development.spec.md` and `e2e-testing.spec.md` defer to
+this spec as the record of that removal.
 
 The ROKS variant `components/pr-test/e2e-openshell-roks.sh` is OUT OF SCOPE for
-this spec. It targets IBM ROKS, which this pull-request ephemeral-environment
-workflow does not cover, so this spec neither supersedes nor deprecates it. The
-`pr_test` component and its CI wiring (`.github/component-paths.json` `pr_test`
-entry, the `lint-pr-test` job, and component detection) SHALL remain in place --
-both because the deprecated `e2e-openshell.sh` is retained and because the ROKS
-script continues to live under the same component.
+this spec and is NOT removed: it targets IBM ROKS, which this pull-request
+ephemeral-environment workflow does not cover. The `pr_test` component and its
+CI wiring (`.github/component-paths.json` `pr_test` entry, the `lint-pr-test`
+job, and component detection) SHALL remain in place solely because the ROKS
+script still lives under that component; the `lint-pr-test` job SHALL syntax-check
+`e2e-openshell-roks.sh` instead of the removed script.
 
-Deprecation of `e2e-openshell.sh` means it stays in place and runnable and every
-authoritative reference marks it deprecated in favor of the shared harness and this
-workflow. The script SHALL carry a deprecation notice at the top of the file that
-names the canonical replacement (`tests/e2e/e2e-openshell.sh` with
-`E2E_INFRA_DRIVER=openshift`, driven for pull requests by this workflow), and the
-prose that documents it -- `CLAUDE.md`, `DEVELOPMENT.md`, and the skills that
-mention `components/pr-test` (for example the deploy-cluster skills and
-`skills/RECONCILE.md`) -- SHALL mark the pull-request OpenShift e2e usage
-deprecated and point at the replacement, while leaving ROKS guidance unchanged.
+Every authoritative reference to the removed script -- `CLAUDE.md`,
+`DEVELOPMENT.md`, and the skills that mentioned `components/pr-test/e2e-openshell.sh`
+(for example `skills/RECONCILE.md` and `skills/build/full-stack-pipeline/SKILL.md`)
+-- SHALL point at the shared harness and this workflow as the canonical
+pull-request e2e path, while leaving ROKS guidance unchanged.
 
-New work SHALL NOT depend on `components/pr-test/e2e-openshell.sh`. The
-pull-request e2e path, new CI jobs, and new documentation SHALL use the shared
-harness and this workflow, not the legacy script. The deprecated script SHALL NOT
-be extended with new test areas; area coverage grows in the shared harness
-(`tests/e2e/`) so the two paths do not diverge further. During the deprecation window,
-this spec does NOT require consolidating its logic into
-`tests/e2e/drivers/openshift.sh`. Removal is deferred, not cancelled: once manual
-usage has migrated, a later change SHALL remove `e2e-openshell.sh`, and it SHALL
-remove the `pr_test` component and its CI wiring only once the ROKS variant is also
-retired or rehomed (the ROKS script is the other reason the component still
-exists).
+New work SHALL NOT depend on `components/pr-test/e2e-openshell.sh` (it no longer
+exists). The pull-request e2e path, new CI jobs, and new documentation SHALL use
+the shared harness and this workflow.
 
-#### Scenario: Legacy OpenShift script remains runnable but deprecated
+#### Scenario: CICD-PREN-12.01 -- Legacy OpenShift script has been removed
 
-- GIVEN a team member still runs `components/pr-test/e2e-openshell.sh` directly
+- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
 - WHEN this spec is in effect
-- THEN the script SHALL remain present and runnable
-- AND it SHALL carry a deprecation notice naming the canonical replacement
-- AND the `pr_test` CI wiring SHALL remain intact so the script does not rot
+- THEN the script SHALL NOT be present in the repository
+- AND no CI workflow or component registration SHALL reference it
 
-#### Scenario: ROKS script is untouched
+#### Scenario: CICD-PREN-12.02 -- ROKS script is untouched
 
 - GIVEN `components/pr-test/e2e-openshell-roks.sh` targets IBM ROKS
 - WHEN this spec is in effect
-- THEN the ROKS script SHALL be neither deprecated nor removed by this spec
+- THEN the ROKS script SHALL be neither removed nor modified by this spec
 - AND its documentation and usage guidance SHALL remain unchanged
+- AND the `pr_test` component and `lint-pr-test` CI job SHALL remain, scoped to
+  that script
 
-#### Scenario: Documentation marks the OpenShift pr-test script deprecated
+#### Scenario: CICD-PREN-12.03 -- Documentation points only at the canonical path
 
-- GIVEN `CLAUDE.md`, `DEVELOPMENT.md`, and the skills reference
+- GIVEN `CLAUDE.md`, `DEVELOPMENT.md`, and the skills that used to reference
   `components/pr-test/e2e-openshell.sh`
 - WHEN a reader consults them
-- THEN those references SHALL mark that OpenShift pull-request script deprecated
-- AND SHALL point at the shared harness and this workflow as the canonical
-  pull-request e2e path
+- THEN those references SHALL point at the shared harness and this workflow as
+  the canonical pull-request e2e path
 - AND ROKS references to `e2e-openshell-roks.sh` SHALL remain unchanged
-- AND the `pr_test` component SHALL NOT be marked deprecated while the ROKS
-  script still lives there
+- AND the `pr_test` component SHALL NOT be described as deprecated while the
+  ROKS script still lives there
 
-#### Scenario: Removal is deferred, not cancelled
-
-- GIVEN `e2e-openshell.sh` is deprecated but still in manual use
-- WHEN the deprecation window is in effect
-- THEN the script SHALL remain until that usage migrates to the shared harness
-- AND removal SHALL remain the eventual goal, consistent with
-  `openshift-development.spec.md` and `e2e-testing.spec.md`
-
-#### Scenario: New work uses the canonical path
+#### Scenario: CICD-PREN-12.04 -- New work uses the canonical path
 
 - GIVEN a change adds a pull-request e2e test area or CI job
 - WHEN the change is made
 - THEN it SHALL use `tests/e2e/` and this spec's workflow
-- AND it SHALL NOT extend `components/pr-test/e2e-openshell.sh` with new coverage
+- AND it SHALL NOT depend on or recreate `components/pr-test/e2e-openshell.sh`
 
 ## Design Decisions
 
@@ -1504,13 +1485,13 @@ exists).
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
+| Deploy lives in the e2e stage, concurrent with Unit, not a parallel PR Environment workflow | A separate workflow would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate lets OpenShift `needs:` deploy and teardown be a last step of the suite job. It starts without waiting for Unit so the slow deploy overlaps the unit stage, at the cost of deploying for a SHA whose unit tests later fail |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view, delete, and access management (not create; create requires `gateway:creator`). A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
-| Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |
+| Remove `e2e-openshell.sh` (HYPERSHELL-250); leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded and, with manual usage migrated, removed outright rather than kept deprecated indefinitely. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component and `lint-pr-test` job stay, rescoped to `e2e-openshell-roks.sh`, until that script is also retired or rehomed |

@@ -12,6 +12,7 @@ import { IntlProvider } from "react-intl";
 import { createHttpFleetApi } from "./adapters/api/http-fleet-api";
 import { App } from "./adapters/presentation/app";
 import { FleetApiProvider } from "./adapters/query/api-context";
+import { RouterProvider } from "./adapters/routing/router";
 import { resolveLocale } from "./composition/intl";
 import { createQueryClient } from "./composition/query-client";
 
@@ -29,7 +30,9 @@ createRoot(rootElement).render(
     <IntlProvider locale={locale} defaultLocale="en">
       <QueryClientProvider client={queryClient}>
         <FleetApiProvider value={api}>
-          <App />
+          <RouterProvider>
+            <App />
+          </RouterProvider>
         </FleetApiProvider>
       </QueryClientProvider>
     </IntlProvider>

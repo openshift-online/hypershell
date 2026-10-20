@@ -52,8 +52,8 @@ describe("routeTemplateFrom", () => {
   });
 
   it("collapses a numeric id and keeps a trailing action literal", () => {
-    expect(routeTemplateFrom("/api/hypershell/v1/fleets/42/rename")).toBe(
-      "/api/hypershell/v1/fleets/{id}/rename",
+    expect(routeTemplateFrom("/api/hypershell/v1/gateways/42/rename")).toBe(
+      "/api/hypershell/v1/gateways/{id}/rename",
     );
   });
 

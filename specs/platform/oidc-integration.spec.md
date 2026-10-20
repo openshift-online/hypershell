@@ -60,17 +60,28 @@ The API server uses the upstream rh-trex-ai framework for JWT validation. When e
 | `--jwk-cert-url` | Red Hat SSO JWKS | JWKS endpoint URL(s) for JWT signature validation |
 | `--grpc-jwk-cert-url` | (inherits `--jwk-cert-url`) | Override JWKS URL for gRPC validation |
 | `--jwt-issuer` | empty | Exact expected `iss` claim; required by HyperShell OIDC deployments |
-| `--jwt-audience` | empty | Required `aud` value; HyperShell uses `hypershell-frontend` as the management API resource audience |
+| `--jwt-audience` | empty | Required `aud` value; HyperShell uses `hypershell-api` as the management API resource audience |
 | `--enable-authz` | `true` (framework default) | Enable authorization middleware |
 | `--auth-bypass-paths` | `/healthcheck`, `/metrics`, `/openapi` | HTTP paths exempt from JWT validation |
 | `--auth-bypass-methods` | Health, Reflection | gRPC methods exempt from JWT validation |
 
-`hypershell-frontend` identifies the management API as the token resource; it is
-not a restriction to the web-console OAuth client. First-party callers such as
-hsctl and the control plane receive that audience from dedicated Keycloak
-mappers and remain distinguishable through `azp`. Per-gateway clients receive
-only their gateway audience, so their tokens SHALL be rejected by management
-API endpoints.
+`hypershell-api` is the management API resource audience: `aud` names the
+resource server a token is intended for, and `azp` names the OAuth client that
+requested it. `hypershell-api` is a custom audience value, not an OAuth client;
+nobody logs in as `hypershell-api`. Every first-party caller of the management
+API (the web console through `hypershell-frontend`, hsctl through
+`hypershell-cli`, the control plane through `hypershell-control-plane`, and CI
+through `hypershell-e2e`) receives `hypershell-api` in `aud` from a dedicated
+audience mapper on its own client and remains distinguishable through `azp`.
+
+The API server accepts a token when `hypershell-api` is any element of its
+`aud` array (`jwt.MapClaims.VerifyAudience`), so a caller MAY carry additional
+audiences next to it. Because any correctly issued token carrying
+`hypershell-api` is accepted, the audience mapper SHALL be attached only to
+clients that are meant to call the management API. It SHALL NOT be attached to
+`hypershell-provisioner` (the API server's own Keycloak admin client) or to
+per-gateway clients. Per-gateway clients receive only their gateway audience,
+so their tokens SHALL be rejected by management API endpoints.
 
 ### Environment System
 
@@ -101,7 +112,7 @@ When JWT is enabled, only the framework's health and reflection services SHALL b
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
 
-The control plane's gRPC watch streams (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways` and `WatchRoleBindings` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
+The control plane's gRPC watch streams (`WatchGateways`, `WatchManagedClusters`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways`, `WatchRoleBindings`, and `WatchAgentRuntimes` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.
 
@@ -122,7 +133,7 @@ The BFF SHALL implement WEB-AUTH-01 through WEB-AUTH-03 from `specs/web-console/
 | `SESSION_SECRET` | Yes | - | 32-byte hex-encoded key for cookie encryption |
 | `SESSION_TTL_SECONDS` | No | `28800` (8 hours) | Session cookie max age |
 
-When `OIDC_ISSUER` is unset, the BFF SHALL operate in no-auth mode (WEB-AUTH-00)  -- identical to today's behavior. When `OIDC_ISSUER` is set, `SESSION_SECRET` and `OIDC_CLIENT_ID` SHALL be required; missing values SHALL fail BFF startup with a clear error message.
+When `OIDC_ISSUER` is unset, the BFF SHALL operate in no-auth mode (WEB-AUTH-04)  -- identical to today's behavior. When `OIDC_ISSUER` is set, `SESSION_SECRET` and `OIDC_CLIENT_ID` SHALL be required; missing values SHALL fail BFF startup with a clear error message.
 
 ### OIDC Endpoints
 
@@ -220,14 +231,23 @@ The `hypershell-frontend` client SHALL be used by the web console BFF for the au
 | `directAccessGrantsEnabled` | `true` | Retained for CLI password-grant testing |
 | `redirectUris` | Deployment-specific console origins | Restrict redirect targets; wildcard is an open redirect vulnerability |
 | `webOrigins` | Deployment-specific console origins | Restrict CORS |
-| `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
+| `defaultClientScopes` | `openid`, `email`, `profile`; the in-repo realm (Kind, local OpenShift, PR environments) adds `broker-roles` | Standard OIDC scopes; `broker-roles` lets a GitHub-brokered session present the broker `read-token` role |
 
 Protocol mappers (retained as-is):
-- **Audience mapper**  -- includes `hypershell-frontend` in the `aud` claim of the access token
+- **Audience mapper**  -- includes the custom audience `hypershell-api` in the `aud` claim of the access token (`included.custom.audience`)
 - **Sub mapper**  -- includes `sub` in the access token
 - **Realm roles mapper**  -- maps realm roles to the `groups` claim in all token types
 
-The BFF validates the `aud` claim matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`).
+The BFF validates that the ID token `aud` matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`). The access token it forwards to the API server carries `azp=hypershell-frontend` and `aud` including `hypershell-api`.
+
+The `hypershell-frontend` client SHALL NOT use Keycloak's built-in `roles` client scope. That scope's client-roles and audience-resolve mappers copy every client role the user holds, and every such client's ID, into the access token. Each gateway adds its own client roles to its creator and to users granted access, so the token grows with every gateway. The BFF stores the access token in its session cookie, and once that cookie passes the browser's 4096-byte limit the browser drops it and login loops between `/auth/callback` and `/auth/login`. Where the GitHub broker needs `resource_access.broker.roles`, the realm SHALL provide it through a dedicated `broker-roles` client scope whose client-role mapper is restricted to the `broker` client (`usermodel.clientRoleMapping.clientId = broker`) and which has no audience-resolve mapper.
+
+#### Scenario: Console access token does not grow with gateway count
+- GIVEN a user who holds `openshell-user` and `openshell-admin` client roles on several gateway clients
+- WHEN the user signs in to the console through `hypershell-frontend`
+- THEN the access token's `aud` SHALL NOT include any gateway client ID
+- AND the access token SHALL NOT include `resource_access` entries for gateway clients
+- AND a GitHub-brokered user who holds broker `read-token` SHALL still have `resource_access.broker.roles` containing `read-token`
 
 ### `hypershell-cli` Client
 
@@ -245,7 +265,7 @@ The `hypershell-cli` client is used by the `hsctl` CLI for interactive user auth
 | `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
 
 Protocol mappers (same as `hypershell-frontend`):
-- **Audience mapper** -- includes `hypershell-frontend` in the `aud` claim so the API server's JWT validator accepts CLI-issued tokens
+- **Audience mapper** -- includes `hypershell-api` in the `aud` claim so the API server's JWT validator accepts CLI-issued tokens
 - **Sub mapper** -- includes `sub` in the access token
 - **Realm roles mapper** -- maps realm roles to the `groups` claim
 
@@ -265,7 +285,7 @@ The `hypershell-provisioner` client is a confidential service account used for a
 
 | Component | Configuration |
 |-----------|--------------|
-| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--jwt-issuer=<production issuer>`, `--jwt-audience=hypershell-frontend`, `--enable-authz=true` |
+| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--jwt-issuer=<production issuer>`, `--jwt-audience=hypershell-api`, `--enable-authz=true` |
 | BFF | `OIDC_ISSUER=<production issuer>`, `OIDC_CLIENT_ID=hypershell-frontend`, `SESSION_SECRET=<managed secret>` |
 | Gateway | OIDC configured per `openshell-gateway-oidc.spec.md` |
 | Keycloak | Downstream Keycloak brokering to Red Hat SSO |
@@ -274,8 +294,12 @@ The `hypershell-provisioner` client is a confidential service account used for a
 **Rollout prerequisite:** issuer and audience validation fail closed. Before, or
 together with, the release that sets `--jwt-issuer` and `--jwt-audience`, the
 production SSO MUST issue tokens whose `iss` equals the configured issuer and
-whose `aud` includes `hypershell-frontend` for every first-party caller of the
-management API (web console, hsctl, control plane). Otherwise all authenticated HTTP and
+whose `aud` includes `hypershell-api` for every first-party caller of the
+management API (the `hypershell-frontend`, `hypershell-cli`, and
+`hypershell-control-plane` clients), typically through an audience mapper
+emitting the custom audience `hypershell-api` on each of those clients. The
+callers stay identified by `azp`; `hypershell-api` does not need to exist as an
+OAuth client. Otherwise all authenticated HTTP and
 gRPC calls from those clients are rejected with 401 immediately after the upgrade,
 including control-plane writes that `RBAC_SERVICE_ACCOUNTS` exempts from RBAC.
 
@@ -287,7 +311,7 @@ OIDC is always enabled in the Kind cluster. `make kind-up` configures all compon
 
 `make kind-up` SHALL:
 
-1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell`, `--jwt-audience=hypershell-frontend`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
+1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell`, `--jwt-audience=hypershell-api`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
 2. Deploy the web console BFF with:
    - `OIDC_ISSUER=https://keycloak.hypershell.localhost/realms/hypershell`
    - `OIDC_CLIENT_ID=hypershell-frontend`
@@ -320,76 +344,76 @@ The ephemeral port variant (`console.hypershell.localhost:*`) covers Kind setups
 
 ## Requirements
 
-### Requirement: API Server JWT Validation
+### Requirement: SEC-OIDC-01 -- API Server JWT Validation
 
 The API server SHALL support JWT validation against a configurable JWKS endpoint. The `development_oidc` environment SHALL enable JWT while retaining development-mode conveniences.
 
-#### Scenario: JWT Validation Enabled
+#### Scenario: SEC-OIDC-01.01 -- JWT Validation Enabled
 - GIVEN the API server is started with `API_ENV=development_oidc`
 - WHEN a request arrives without a valid Bearer token
 - THEN the API server SHALL reject the request with 401 Unauthorized
 - AND the response SHALL include a `WWW-Authenticate` header
 
-#### Scenario: Valid Token Accepted
+#### Scenario: SEC-OIDC-01.02 -- Valid Token Accepted
 - GIVEN the API server is started with JWT enabled
 - AND a valid JWT is obtained from the configured IdP
 - WHEN a request is made with `Authorization: Bearer <token>`
 - THEN the API server SHALL validate the JWT signature against the JWKS endpoint
 - AND the token `iss` SHALL exactly match the configured issuer
-- AND the token `aud` SHALL contain `hypershell-frontend`
+- AND the token `aud` SHALL contain `hypershell-api`
 - AND the request SHALL be processed normally
 
-#### Scenario: Token Issued for Another Resource Is Rejected
+#### Scenario: SEC-OIDC-01.03 -- Token Issued for Another Resource Is Rejected
 - GIVEN the API server is started with issuer and audience validation enabled
 - AND a correctly signed token has a missing or different `iss`
-- OR its `aud` does not contain `hypershell-frontend`
+- OR its `aud` does not contain `hypershell-api`
 - WHEN the token is presented to an HTTP or gRPC management endpoint
 - THEN the API server SHALL reject the request as unauthenticated
 
-#### Scenario: gRPC Watch Streams Bypass JWT
+#### Scenario: SEC-OIDC-01.04 -- gRPC Watch Streams Bypass JWT
 - GIVEN the API server is started with JWT enabled
 - WHEN the control plane connects via gRPC watch streams
 - THEN the gRPC methods SHALL be exempted from JWT validation
 - AND the control plane SHALL function without an IdP token
 
-#### Scenario: Development Environment Unchanged
+#### Scenario: SEC-OIDC-01.05 -- Development Environment Unchanged
 - GIVEN the API server is started with `API_ENV=development` (default)
 - THEN JWT validation SHALL remain disabled
 - AND all existing no-auth behavior SHALL be preserved
 
-#### Scenario: Health and OpenAPI Bypass JWT
+#### Scenario: SEC-OIDC-01.06 -- Health and OpenAPI Bypass JWT
 - GIVEN the API server is started with JWT enabled
 - WHEN a request is made to `/healthcheck` or `/api/hypershell/v1/openapi`
 - THEN the request SHALL be processed without JWT validation
 
-### Requirement: Control Plane Service Token Reuse
+### Requirement: SEC-OIDC-02 -- Control Plane Service Token Reuse
 
 The control plane SHALL cache the access token that it gets with its Client Credentials grant. It SHALL interpret the token response's `expires_in` value as seconds. It SHALL reuse the token until 80 percent of its lifetime has passed. Concurrent calls SHALL use the same cached token.
 
-#### Scenario: Repeated gRPC calls reuse one token
+#### Scenario: SEC-OIDC-02.01 -- Repeated gRPC calls reuse one token
 
 - GIVEN Keycloak returns a control-plane access token with `expires_in=300`
 - WHEN the control plane makes two gRPC calls before 240 seconds have passed
 - THEN it SHALL make one Client Credentials grant
 - AND both gRPC calls SHALL use the same access token
 
-#### Scenario: The refresh threshold has passed
+#### Scenario: SEC-OIDC-02.02 -- The refresh threshold has passed
 
 - GIVEN the cached control-plane access token has passed 80 percent of its lifetime
 - WHEN the control plane makes another authenticated gRPC call
 - THEN it SHALL get a new access token before it makes the call
 
-### Requirement: BFF OIDC Authorization Code Flow
+### Requirement: SEC-OIDC-03 -- BFF OIDC Authorization Code Flow
 
 The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE when configured with an OIDC issuer. This fulfills WEB-AUTH-01.
 
-#### Scenario: Unauthenticated Browser Access
+#### Scenario: SEC-OIDC-03.01 -- Unauthenticated Browser Access
 - GIVEN the BFF is configured with `OIDC_ISSUER`
 - WHEN an unauthenticated browser requests any application route
 - THEN the BFF SHALL redirect to `/auth/login`
 - AND `/auth/login` SHALL redirect to the IdP authorization endpoint with PKCE parameters
 
-#### Scenario: Successful Authentication
+#### Scenario: SEC-OIDC-03.02 -- Successful Authentication
 - GIVEN the user has authenticated at the IdP
 - WHEN the IdP redirects to `/auth/callback` with an authorization code
 - THEN the BFF SHALL exchange the code for tokens
@@ -397,14 +421,14 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND set an encrypted session cookie
 - AND redirect to the application
 
-#### Scenario: Authenticated API Proxy
+#### Scenario: SEC-OIDC-03.03 -- Authenticated API Proxy
 - GIVEN the browser has a valid session cookie
 - WHEN the browser requests `/api/hypershell/v1/gateways`
 - THEN the BFF SHALL decrypt the session cookie
 - AND set `Authorization: Bearer <access_token>` on the upstream request
 - AND proxy the response back to the browser
 
-#### Scenario: Silent Token Refresh
+#### Scenario: SEC-OIDC-03.04 -- Silent Token Refresh
 - GIVEN the access token has expired or is within the skew window
 - AND the refresh token is still valid
 - WHEN the browser makes an API request
@@ -412,178 +436,178 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND persist the rotated refresh token
 - AND the request SHALL succeed without any browser-visible interruption
 
-#### Scenario: Full RP-Initiated Logout
+#### Scenario: SEC-OIDC-03.05 -- Full RP-Initiated Logout
 - GIVEN the browser has an active session
 - WHEN the user navigates to `/auth/logout`
 - THEN the BFF SHALL clear the session cookie
 - AND redirect to the IdP `end_session_endpoint` with `id_token_hint`
 - AND the IdP session SHALL be terminated
 
-#### Scenario: No-Auth Mode Preserved
+#### Scenario: SEC-OIDC-03.06 -- No-Auth Mode Preserved
 - GIVEN the BFF is started without `OIDC_ISSUER`
 - THEN the BFF SHALL operate in no-auth mode
 - AND no session, cookie, or authentication logic SHALL be active
 - AND the `/api/*` proxy SHALL forward requests without auth headers
 
-### Requirement: BFF Session Security
+### Requirement: SEC-OIDC-04 -- BFF Session Security
 
 The BFF session SHALL meet the security requirements in WEB-AUTH-02.
 
-#### Scenario: Cookie Attributes
+#### Scenario: SEC-OIDC-04.01 -- Cookie Attributes
 - GIVEN the BFF is configured with OIDC
 - WHEN a session cookie is set
 - THEN the cookie SHALL be `HttpOnly`, `Secure`, `SameSite=Lax`
 - AND the cookie SHALL use the narrowest practical path (`/`)
 - AND JavaScript SHALL NOT be able to read the session identifier
 
-#### Scenario: Session Rotation on Login
+#### Scenario: SEC-OIDC-04.02 -- Session Rotation on Login
 - GIVEN a browser has an existing session cookie
 - WHEN the user completes a new login flow
 - THEN the old session SHALL be replaced with a new encrypted cookie
 - AND the previous cookie value SHALL NOT be valid
 
-#### Scenario: CSRF Protection
+#### Scenario: SEC-OIDC-04.03 -- CSRF Protection
 - GIVEN the BFF is configured with OIDC
 - WHEN a POST/PATCH/PUT/DELETE request arrives without a valid same-origin `Origin` header
 - THEN the request SHALL be rejected with 403
 - AND the response SHALL NOT include any protected data
 
-### Requirement: BFF Browser Session Contract
+### Requirement: SEC-OIDC-05 -- BFF Browser Session Contract
 
 The BFF SHALL expose a session resource per WEB-AUTH-03.
 
-#### Scenario: Authenticated Session Resource
+#### Scenario: SEC-OIDC-05.01 -- Authenticated Session Resource
 - GIVEN the browser has a valid session
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain display identity, roles, and expiry
 - AND the response SHALL NOT contain access tokens, refresh tokens, or provider secrets
 
-#### Scenario: Unauthenticated Session Resource
+#### Scenario: SEC-OIDC-05.02 -- Unauthenticated Session Resource
 - GIVEN the browser has no session
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain `{ "authenticated": false }`
 
-### Requirement: Browser Identity and Sign-Out
+### Requirement: SEC-OIDC-06 -- Browser Identity and Sign-Out
 
 The console SHALL display the authenticated user's identity in the masthead and provide a sign-out control that performs full RP-initiated logout. Identity SHALL come from the `/auth/session` resource; the browser SHALL NOT read tokens.
 
-#### Scenario: Authenticated Identity in the Masthead
+#### Scenario: SEC-OIDC-06.01 -- Authenticated Identity in the Masthead
 - GIVEN an authenticated session
 - WHEN the console shell renders
 - THEN the masthead SHALL show an identity menu labeled with the user's display name from `/auth/session`
 - AND no token SHALL be exposed to the browser
 
-#### Scenario: Sign Out Performs Full Logout
+#### Scenario: SEC-OIDC-06.02 -- Sign Out Performs Full Logout
 - GIVEN the user opens the identity menu
 - WHEN the user selects sign out
 - THEN the browser SHALL navigate to `/auth/logout`
 - AND the BFF SHALL clear both session cookies and redirect to the IdP `end_session_endpoint` with `id_token_hint`
 - AND the IdP session SHALL be terminated
 
-#### Scenario: No Identity Menu When Unauthenticated
+#### Scenario: SEC-OIDC-06.03 -- No Identity Menu When Unauthenticated
 - GIVEN no session, or the BFF running in no-auth mode
 - WHEN the console shell renders
 - THEN no identity menu SHALL be shown
 
-### Requirement: Silent Token Refresh and Rotation
+### Requirement: SEC-OIDC-07 -- Silent Token Refresh and Rotation
 
 The BFF SHALL maintain a valid access token without user interaction while the refresh token is valid, rotating refresh tokens and coalescing concurrent refreshes.
 
-#### Scenario: Proactive Refresh Before Expiry
+#### Scenario: SEC-OIDC-07.01 -- Proactive Refresh Before Expiry
 - GIVEN a session whose access token is within 30 seconds of expiry
 - WHEN the browser makes an `/api/*` request
 - THEN the BFF SHALL refresh the token before forwarding
 - AND set the new access token on the upstream request
 
-#### Scenario: Reactive Refresh on Upstream 401
+#### Scenario: SEC-OIDC-07.02 -- Reactive Refresh on Upstream 401
 - GIVEN the upstream API rejects a proxied request with 401
 - AND the refresh token is valid
 - WHEN the BFF receives the 401
 - THEN the BFF SHALL refresh once and retry the request
 - AND return the retried response on success
 
-#### Scenario: Refresh Token Rotation Persisted
+#### Scenario: SEC-OIDC-07.03 -- Refresh Token Rotation Persisted
 - GIVEN a successful refresh that returns a new refresh token
 - WHEN the BFF stores the token set
 - THEN the rotated refresh token SHALL replace the previous one in `session_tok`
 - AND the previous refresh token SHALL NOT be reused
 
-#### Scenario: Concurrent Requests Coalesce
+#### Scenario: SEC-OIDC-07.04 -- Concurrent Requests Coalesce
 - GIVEN several `/api/*` requests carrying the same expired session arrive together at one BFF instance
 - WHEN the BFF refreshes
 - THEN a single refresh exchange SHALL occur
 - AND all coalesced requests SHALL proceed with the refreshed token
 
-### Requirement: Re-authentication Without Dead Ends
+### Requirement: SEC-OIDC-08 -- Re-authentication Without Dead Ends
 
 An invalid, expired, or unrefreshable session SHALL route the user to the identity provider to re-authenticate and SHALL NOT surface as a generic application error. This refines WEB-AUTH-03.
 
-#### Scenario: Expired Session on Navigation
+#### Scenario: SEC-OIDC-08.01 -- Expired Session on Navigation
 - GIVEN a browser whose session cannot be refreshed
 - WHEN the browser requests an application route
 - THEN the BFF SHALL redirect to `/auth/login`
 - AND `/auth/login` SHALL redirect to the IdP with the current route preserved as `return_to`
 
-#### Scenario: Expired Session on API Request
+#### Scenario: SEC-OIDC-08.02 -- Expired Session on API Request
 - GIVEN a browser whose session cannot be refreshed
 - WHEN the browser makes an `/api/*` request
 - THEN the BFF SHALL respond 401 with a re-authentication signal (`reauth_required` and a `login_url`)
 - AND the browser SHALL perform a full-page navigation to the login URL
 - AND no generic error or permission-denied message SHALL be shown
 
-#### Scenario: Return To Original Route
+#### Scenario: SEC-OIDC-08.03 -- Return To Original Route
 - GIVEN a user was on `/gateways/{id}` when the session expired
 - WHEN re-authentication completes
 - THEN the browser SHALL land back on `/gateways/{id}`
 
-#### Scenario: Open-Redirect Rejected
+#### Scenario: SEC-OIDC-08.04 -- Open-Redirect Rejected
 - GIVEN a `return_to` value that is not a same-origin absolute path (an absolute URL, a scheme, or a protocol-relative `//host`)
 - WHEN `/auth/login` processes it
 - THEN the BFF SHALL ignore it and use the default post-login path
 
-#### Scenario: Authorization Denial Is Not Re-authentication
+#### Scenario: SEC-OIDC-08.05 -- Authorization Denial Is Not Re-authentication
 - GIVEN an authenticated user without access to a resource
 - WHEN the API returns 403
 - THEN the console SHALL show a denied state
 - AND SHALL NOT redirect to the identity provider
 
-### Requirement: Chunked Session Cookies Within Browser Limits
+### Requirement: SEC-OIDC-09 -- Chunked Session Cookies Within Browser Limits
 
 Session state SHALL be split so that no single cookie exceeds the browser per-cookie size limit, even with refresh and ID tokens stored server-side.
 
-#### Scenario: Two Encrypted Cookies
+#### Scenario: SEC-OIDC-09.01 -- Two Encrypted Cookies
 - GIVEN a completed login
 - WHEN the BFF sets the session
 - THEN identity and access-token state SHALL be written to the `session` cookie
 - AND the refresh and ID tokens SHALL be written to the `session_tok` cookie
 - AND each cookie SHALL remain under the 4KB browser limit after encryption
 
-#### Scenario: Tokens Never Reach the Browser
+#### Scenario: SEC-OIDC-09.02 -- Tokens Never Reach the Browser
 - GIVEN a valid session
 - WHEN the browser reads `GET /auth/session` or inspects cookies via JavaScript
 - THEN no access token, refresh token, or ID token SHALL be observable
 
-### Requirement: Kind OIDC Always-On
+### Requirement: SEC-OIDC-10 -- Kind OIDC Always-On
 
 OIDC in the local Kind cluster SHALL always be enabled. `make kind-up` configures all components for OIDC authentication automatically.
 
-#### Scenario: OIDC Configured on kind-up
+#### Scenario: SEC-OIDC-10.01 -- OIDC Configured on kind-up
 - WHEN a developer runs `make kind-up`
 - THEN the API server SHALL use `API_ENV=development_oidc`
 - AND the BFF SHALL be configured with OIDC env vars
 - AND the gateway SHALL be created with OIDC configuration
 - AND the banner SHALL display OIDC connection information
 
-#### Scenario: OIDC Status Reporting
+#### Scenario: SEC-OIDC-10.02 -- OIDC Status Reporting
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL show OIDC as active
 - AND display the IdP URL and test user credentials
 
-### Requirement: Identity Provider Client Security
+### Requirement: SEC-OIDC-11 -- Identity Provider Client Security
 
 The `hypershell-frontend` client SHALL be configured with deployment-appropriate redirect URI restrictions.
 
-#### Scenario: Redirect URI Restricted
+#### Scenario: SEC-OIDC-11.01 -- Redirect URI Restricted
 - GIVEN a Keycloak realm is configured for HyperShell
 - THEN `hypershell-frontend` redirect URIs SHALL be restricted to the console origin for that deployment
 - AND wildcard redirect URIs SHALL NOT be used
@@ -599,9 +623,9 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
 | Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
-| Shared management API resource audience | Web-console, hsctl, and control-plane tokens carry `aud=hypershell-frontend` because they call the same management API; `azp` identifies the OAuth client. Gateway-specific tokens carry only their gateway audience and cannot be replayed against the management API. |
+| Dedicated `hypershell-api` management API audience | Web-console, hsctl, and control-plane tokens carry `hypershell-api` in `aud` because they call the same management API; `azp` identifies the OAuth client. Reusing a client ID such as `hypershell-frontend` as the API audience would make every non-browser caller look like it impersonates the web console. A custom audience (`included.custom.audience`) is used instead of a bearer-only `hypershell-api` client because no client representation, secret, or login surface is needed to name a resource server, and external SSOs express the same thing as a plain audience value. Gateway-specific tokens carry only their gateway audience and cannot be replayed against the management API. |
 | OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
-| `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
+| `hypershell-frontend` client reused for BFF | The client already exists with the `hypershell-api` audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
 | `directAccessGrantsEnabled` retained on `hypershell-frontend` | Password grant is retained on the web console client for `curl`-based testing and E2E test token acquisition. The `hypershell-cli` client disables it -- the CLI now uses Authorization Code + PKCE or Device Authorization Grant. |
 | Separate `hypershell-cli` client instead of reusing `hypershell-frontend` | The CLI's redirect URI (`http://127.0.0.1:*`) and the BFF's redirect URIs (HTTPS console origin) are incompatible on a single client. A separate public client also lets device flow be enabled for CLI only, without exposing it on the BFF client. |
@@ -614,7 +638,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 
 ## References
 
-- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-00 through WEB-AUTH-03, WEB-BFF-01
+- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-01 through WEB-AUTH-04, WEB-BFF-01
 - `specs/platform/local-development.spec.md`  -- Kind cluster environment, Keycloak configuration
 - `specs/platform/openshell-gateway-oidc.spec.md`  -- Gateway OIDC configuration and CLI auth flow
 - `specs/platform/openshell-gateway-credentials.spec.md`  -- Per-gateway Keycloak client provisioning

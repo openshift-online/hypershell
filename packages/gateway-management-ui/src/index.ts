@@ -5,7 +5,15 @@ export {
   type GatewayUiNavigation,
 } from "./gateway-ui-provider";
 export type {
+  GatewayAccessCapabilities,
+  GatewayAccessGrantInput,
+  GatewayAccessGrantRecord,
+  GatewayAccessListRequest,
+  GatewayAccessPage,
+  GatewayAccessRole,
+  GatewayAccessSortField,
   GatewayControlPlane,
+  GatewayDirectoryUser,
   GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
@@ -13,6 +21,8 @@ export type {
   GatewayOperations,
   GatewayPage as GatewayPageResult,
   GatewayPlacement,
+  GatewayPlacementAvailability,
+  GatewayPlacementAvailabilityItem,
   GatewayPlacementOptions,
   GatewayProvisionInput,
   ProvisioningCondition,
@@ -20,6 +30,7 @@ export type {
   GatewayRecord,
   GatewaySortDirection,
   GatewaySortField,
+  GatewayVersionDrift,
   GatewayWorkflowRuntime,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -36,8 +47,10 @@ export type {
   OpenShellGatewayServiceAccountStatus,
 } from "./application/gateway-types";
 export {
+  defaultGatewayAccessListRequest,
   defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,
+  gatewayAccessPageSizes,
   gatewayListPageSizes,
   GatewayOperationError,
   openShellGatewayServiceAccountPageSizes,
@@ -51,7 +64,10 @@ export {
   type GatewayProbePublisher,
 } from "./application/gateway-probes";
 export {
+  compareGatewayVersions,
   createGatewayOperations,
+  deriveGatewayVersionDrift,
+  parseGatewayVersion,
   type GatewayOperationDependencies,
 } from "./application/gateway-operations";
 export { normalizeGatewayPlacementClusterIds } from "./application/gateway-placement";
@@ -89,6 +105,7 @@ export {
   buildOpenShellServiceAccountScript,
   serviceAccountGatewayAlias,
 } from "./service-accounts/service-account-commands";
+export { AccessPage, type AccessPageProps } from "./access/access-page";
 export {
   ServiceAccountsPage,
   type ServiceAccountsPageProps,
@@ -103,5 +120,6 @@ export {
   gatewayPhases,
   emptyGatewayPhaseCounts,
   type GatewayPhaseCounts,
+  type GatewayMetrics,
 } from "./metrics/gateway-metrics-data";
 export { GatewayMetricsDashboard } from "./metrics/gateway-metrics-dashboard";

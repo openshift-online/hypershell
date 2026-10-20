@@ -1,10 +1,15 @@
 import type {
+  GatewayAccessCapabilities,
+  GatewayAccessGrantRecord,
+  GatewayAccessPage,
   GatewayControlPlane,
+  GatewayDirectoryUser,
   GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
   GatewayListRequest,
   GatewayPlacement,
+  GatewayPlacementAvailability,
   GatewayRecord,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -21,6 +26,9 @@ import {
 import {
   SDKAPIError,
   type Gateway,
+  type GatewayAccessCapabilities as ApiGatewayAccessCapabilities,
+  type GatewayAccessListItem as ApiGatewayAccessListItem,
+  type GatewayDirectoryUser as ApiGatewayDirectoryUser,
   type ManagedCluster,
   type OpenShellGatewayServiceAccountCapabilities as ApiServiceAccountCapabilities,
   type OpenShellGatewayServiceAccountConnection as ApiServiceAccountConnection,
@@ -34,13 +42,19 @@ import {
 type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
->;
+> &
+  Partial<Pick<SDKClient["gateways"], "placementAvailability">>;
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
 type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
   "create" | "delete" | "get" | "list" | "revoke"
 >;
+type GatewayAccessApi = Pick<
+  SDKClient["gatewayAccesses"],
+  "create" | "delete" | "list" | "searchDirectory" | "update"
+>;
 interface GatewayApiClient {
+  gatewayAccesses: GatewayAccessApi;
   gateways: GatewayApi;
   managedClusters: ManagedClusterApi;
   openShellGatewayServiceAccounts: ServiceAccountApi;
@@ -57,6 +71,7 @@ const gatewaySortFields = {
   name: "name",
   owner: "created_by",
   status: "status",
+  version: "gateway_version",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
 function escapeIlikeLiteral(value: string): string {
@@ -163,12 +178,19 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
   const gatewayVersion = optionalString(gateway.gateway_version);
+  const provisioningVersion = optionalString(gateway.provisioning_version);
   const provisioningConditions = parseProvisioningConditions(
     gateway.provisioning_conditions,
   );
 
   return {
     ...(activeSandboxCount !== undefined ? { activeSandboxCount } : {}),
+    ...(typeof gateway.can_delete === "boolean"
+      ? { canDelete: gateway.can_delete }
+      : {}),
+    ...(typeof gateway.can_edit === "boolean"
+      ? { canEdit: gateway.can_edit }
+      : {}),
     clusterId: gateway.cluster_id,
     ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
@@ -177,6 +199,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
+    ...(typeof gateway.image_pinned === "boolean"
+      ? { imagePinned: gateway.image_pinned }
+      : {}),
     name: gateway.name,
     namespace: gateway.namespace,
     ...(oidcAudience ? { oidcAudience } : {}),
@@ -184,7 +209,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
-    releaseId: gateway.release_id,
+    ...(provisioningVersion ? { provisioningVersion } : {}),
     status: gateway.status,
   };
 }
@@ -197,6 +222,46 @@ type ApiServiceAccountRecord =
   | OpenShellGatewayServiceAccountCreateResponse
   | OpenShellGatewayServiceAccountGetResponse
   | OpenShellGatewayServiceAccountListItem;
+
+function toAccessGrantRecord(
+  item: ApiGatewayAccessListItem,
+): GatewayAccessGrantRecord {
+  const email = optionalString(item.email);
+  const name = optionalString(item.name);
+  return {
+    ...(email ? { email } : {}),
+    grantedAt: item.granted_at,
+    ...(name ? { name } : {}),
+    role: item.role,
+    roleBindingId: item.role_binding_id,
+    userId: item.user_id,
+    username: item.username,
+  };
+}
+
+function toAccessCapabilities(
+  capabilities: ApiGatewayAccessCapabilities,
+): GatewayAccessCapabilities {
+  return {
+    ...(capabilities.caller_role
+      ? { callerRole: capabilities.caller_role }
+      : {}),
+    canManageAccess: capabilities.can_manage_access,
+    canManageOwners: capabilities.can_manage_owners,
+  };
+}
+
+function toDirectoryUser(user: ApiGatewayDirectoryUser): GatewayDirectoryUser {
+  const email = optionalString(user.email);
+  const name = optionalString(user.name);
+  const subject = optionalString(user.subject);
+  return {
+    ...(email ? { email } : {}),
+    ...(name ? { name } : {}),
+    ...(subject ? { subject } : {}),
+    username: user.username,
+  };
+}
 
 function toServiceAccountRecord(
   account: ApiServiceAccountRecord,
@@ -268,6 +333,25 @@ function optionalNumber(value: unknown): number | undefined {
 
 const registeredPlacementFilter = "oidc_subject <> ''";
 
+const gatewayVersionCapabilityPrefix = "gateway-version/";
+
+// The managed-cluster capabilities field is a set of `namespace/value` labels.
+// The API contract uses an array. Retain the comma-joined string fallback for
+// compatibility with responses from older API server deployments.
+function clusterCapabilityLabels(cluster: ManagedCluster): string[] {
+  const raw: unknown = cluster.capabilities;
+  if (Array.isArray(raw)) {
+    return raw.filter((label): label is string => typeof label === "string");
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const region = optionalString(cluster.region);
   const status = optionalString(cluster.status);
@@ -322,6 +406,83 @@ export function createGatewayControlPlaneAdapter(
   apiFactory: GatewayApiFactory,
 ): GatewayControlPlane {
   return {
+    async changeGatewayAccessRole(gatewayId, userId, role, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.update(
+          gatewayId,
+          userId,
+          { role },
+          { signal: context.signal },
+        );
+        return toAccessGrantRecord(response);
+      });
+    },
+    async grantGatewayAccess(gatewayId, input, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.create(
+          gatewayId,
+          {
+            role: input.role,
+            ...(input.subject === undefined ? {} : { subject: input.subject }),
+            username: input.username,
+          },
+          { signal: context.signal },
+        );
+        return toAccessGrantRecord(response);
+      });
+    },
+    async listGatewayAccess(gatewayId, request, context) {
+      return mapFailure(async (): Promise<GatewayAccessPage> => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.list(
+          gatewayId,
+          {
+            order: request.order,
+            page: request.page,
+            ...(request.role ? { role: request.role } : {}),
+            ...(request.search ? { search: request.search } : {}),
+            size: request.size,
+            sort: request.sort,
+          },
+          { signal: context.signal },
+        );
+        return {
+          capabilities: toAccessCapabilities(response.capabilities),
+          items: response.items.map(toAccessGrantRecord),
+          page: response.page,
+          size: response.size,
+          total: response.total,
+        };
+      });
+    },
+    async revokeGatewayAccess(gatewayId, userId, context) {
+      await mapFailure(() =>
+        apiClient(apiFactory, context).gatewayAccesses.delete(
+          gatewayId,
+          userId,
+          { signal: context.signal },
+        ),
+      );
+    },
+    async searchGatewayDirectory(gatewayId, search, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.searchDirectory(gatewayId, search, {
+          signal: context.signal,
+        });
+        return response.items.map(toDirectoryUser);
+      });
+    },
     async createOpenShellGatewayServiceAccount(gatewayId, input, context) {
       return mapFailure(async () => {
         const response = await apiClient(
@@ -394,6 +555,72 @@ export function createGatewayControlPlaneAdapter(
           hasMore: result.total > result.items.length,
           items: result.items.map(toGatewayPlacement),
         };
+      });
+    },
+    async getGatewayPlacementAvailability(selectors, context) {
+      return mapFailure(async () => {
+        const gatewaysApi = apiClient(apiFactory, context).gateways;
+        if (!gatewaysApi.placementAvailability) {
+          throw new Error("placement availability API is unavailable");
+        }
+        const availability = await gatewaysApi.placementAvailability(
+          { selectors: selectors.map((selector) => [...selector]) },
+          { signal: context.signal },
+        );
+        return {
+          localKind: availability.local_kind,
+          placements: availability.placements.map((placement) => ({
+            available: placement.available,
+            reason: placement.reason,
+            selector: placement.selector,
+          })),
+        } satisfies GatewayPlacementAvailability;
+      });
+    },
+    async getGatewayProvisioningVersions(context) {
+      return mapFailure(async () => {
+        const clustersApi = apiClient(apiFactory, context).managedClusters;
+        const versions = new Set<string>();
+        // A version advertised only by a cluster beyond the first page must still
+        // be offered, so page through every registered cluster rather than
+        // reading only the first page.
+        for (let page = 1; ; page += 1) {
+          const result = await clustersApi.list(
+            {
+              orderBy: "name asc",
+              page,
+              // Only a cluster whose control plane has self-registered can host a
+              // gateway, so only its advertised version is a real provisioning
+              // choice. Connectedness and network/provider eligibility are
+              // confirmed separately by getGatewayPlacementAvailability.
+              search: registeredPlacementFilter,
+              size: placementPageSize,
+            },
+            { signal: context.signal },
+          );
+          if (result.page !== page || result.total < 0) {
+            throw new GatewayOperationError("unavailable");
+          }
+          for (const cluster of result.items) {
+            for (const label of clusterCapabilityLabels(cluster)) {
+              if (label.startsWith(gatewayVersionCapabilityPrefix)) {
+                const tag = label.slice(gatewayVersionCapabilityPrefix.length);
+                if (tag) {
+                  versions.add(tag);
+                }
+              }
+            }
+          }
+          // A short page is the last page; the >= guard also terminates when the
+          // reported total shrinks between pages (clusters disconnecting).
+          if (
+            result.items.length < placementPageSize ||
+            page * placementPageSize >= result.total
+          ) {
+            break;
+          }
+        }
+        return [...versions].sort();
       });
     },
     async getGatewayPlacement(clusterId, context) {
@@ -542,13 +769,18 @@ export function createGatewayControlPlaneAdapter(
       });
     },
     async provisionGateway(input, context) {
+      if (input.placement === undefined) {
+        throw new GatewayOperationError("unknown", {
+          cause: new Error("gateway placement intent is required"),
+        });
+      }
+      const placement = input.placement;
       return mapFailure(async () =>
         toGatewayRecord(
           await apiClient(apiFactory, context).gateways.create(
             {
-              cluster_id: input.clusterId,
               name: input.name,
-              release_id: "",
+              placement,
               route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },

@@ -59,7 +59,6 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		))
 		return
 	}
-
 	ctx := r.Context()
 	token, tokenErr := auth.TokenFromContext(ctx)
 	if tokenErr != nil || token == nil {
@@ -77,12 +76,17 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	description := ""
-	if req.Description != nil {
-		description = *req.Description
+	// A capability-less heartbeat is accepted (requireNonEmpty=false) for backward
+	// compatibility with control planes that have not yet rolled to a
+	// capability-aware image; Register treats the empty set as a no-op and
+	// preserves any stored capabilities. See managed-cluster-registration.spec.md,
+	// "Capability Deployment Convergence".
+	capabilities, svcErr := NormalizeCapabilities(req.Capabilities, false)
+	if svcErr != nil {
+		handlers.HandleError(r.Context(), w, svcErr)
+		return
 	}
-
-	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, description, oidcSubject)
+	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, capabilities, oidcSubject)
 	if svcErr != nil {
 		handlers.HandleError(r.Context(), w, svcErr)
 		return

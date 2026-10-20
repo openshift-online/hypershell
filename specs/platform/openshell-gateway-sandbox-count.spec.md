@@ -50,7 +50,7 @@ provisioning mechanics are defined in
 
 ## Requirements
 
-### Requirement: Event-Driven Active Sandbox Accounting
+### Requirement: OSG-SBX-01 -- Event-Driven Active Sandbox Accounting
 
 The control plane SHALL maintain each Gateway's `active_sandbox_count` from a
 watch on sandbox pods in that gateway's namespace. When a sandbox pod becomes
@@ -61,52 +61,52 @@ between two active phases (for example `Pending` to `Running`) SHALL NOT change
 the count. In steady state the control plane SHALL NOT depend on a periodic
 full-namespace pod LIST to keep the count current.
 
-#### Scenario: Sandbox pod becomes active
+#### Scenario: OSG-SBX-01.01 -- Sandbox pod becomes active
 
 - GIVEN a Gateway whose `active_sandbox_count` is 2
 - WHEN a new sandbox pod in that gateway's namespace enters `Pending` or `Running`
 - THEN the control plane SHALL report `active_sandbox_count = 3` on the Gateway
 
-#### Scenario: Sandbox pod is deleted
+#### Scenario: OSG-SBX-01.02 -- Sandbox pod is deleted
 
 - GIVEN a Gateway whose `active_sandbox_count` is 3
 - WHEN one of its active sandbox pods terminates or is deleted
 - THEN the control plane SHALL report `active_sandbox_count = 2` on the Gateway
 
-#### Scenario: Active-to-active transition does not double-count
+#### Scenario: OSG-SBX-01.03 -- Active-to-active transition does not double-count
 
 - GIVEN an active sandbox pod already counted for its Gateway
 - WHEN that pod transitions from `Pending` to `Running`
 - THEN the control plane SHALL NOT change the Gateway's `active_sandbox_count`
 
-#### Scenario: Non-sandbox pod is ignored
+#### Scenario: OSG-SBX-01.04 -- Non-sandbox pod is ignored
 
 - GIVEN a pod in a gateway namespace that does not carry a sandbox label
 - WHEN that pod is created, changes phase, or is deleted
 - THEN the control plane SHALL NOT change any Gateway's `active_sandbox_count`
 
-### Requirement: Atomic, Non-Negative Updates
+### Requirement: OSG-SBX-02 -- Atomic, Non-Negative Updates
 
 Sandbox count adjustments SHALL be applied atomically at the source of truth (the
 API server database) so that concurrent adjustments do not lose updates. The
 stored count SHALL NOT go below zero, and an unset (NULL) count SHALL be treated
 as zero for the purpose of an adjustment.
 
-#### Scenario: Concurrent increments do not lose updates
+#### Scenario: OSG-SBX-02.01 -- Concurrent increments do not lose updates
 
 - GIVEN a Gateway whose `active_sandbox_count` is 0
 - WHEN two sandbox pods become active at nearly the same time, each applying a +1
   adjustment
 - THEN the resulting `active_sandbox_count` SHALL be 2, not 1
 
-#### Scenario: Count floors at zero
+#### Scenario: OSG-SBX-02.02 -- Count floors at zero
 
 - GIVEN a Gateway whose `active_sandbox_count` is 0 (or unset)
 - WHEN a decrement adjustment is applied (for example from a duplicate delete
   event)
 - THEN the stored `active_sandbox_count` SHALL remain 0 and SHALL NOT go negative
 
-### Requirement: Convergence and Self-Heal
+### Requirement: OSG-SBX-03 -- Convergence and Self-Heal
 
 The control plane SHALL periodically reconcile each Gateway's stored
 `active_sandbox_count` to the number of active sandbox pods observed for that
@@ -116,7 +116,7 @@ than poll the Kubernetes API. Because it sets the count to an observed absolute
 value, it SHALL be the mechanism that recovers an accurate count after a restart,
 without requiring any intervening sandbox create or delete.
 
-#### Scenario: Count converges after a control-plane restart
+#### Scenario: OSG-SBX-03.01 -- Count converges after a control-plane restart
 
 - GIVEN a gateway namespace with N active sandbox pods
 - AND the control plane restarts, losing any in-flight incremental state
@@ -125,7 +125,7 @@ without requiring any intervening sandbox create or delete.
 - THEN it SHALL set the Gateway's `active_sandbox_count` to N without any
   intervening sandbox create or delete event
 
-#### Scenario: Drift from a missed event is corrected
+#### Scenario: OSG-SBX-03.02 -- Drift from a missed event is corrected
 
 - GIVEN a Gateway whose stored `active_sandbox_count` has drifted from the actual
   number of active sandbox pods (for example an event was missed)
@@ -133,21 +133,21 @@ without requiring any intervening sandbox create or delete.
 - THEN it SHALL set the Gateway's `active_sandbox_count` to the observed number of
   active sandbox pods
 
-### Requirement: Control-Plane-Owned, Read-Only Surfacing
+### Requirement: OSG-SBX-04 -- Control-Plane-Owned, Read-Only Surfacing
 
 `active_sandbox_count` SHALL be owned and written only by the control plane. It
 SHALL be read-only over the REST API (OpenAPI `readOnly`), SHALL be excluded from
 the Gateway patch request, and SHALL be written only over the control plane's
 gRPC path. A client SHALL NOT be able to set or alter the count.
 
-#### Scenario: REST client cannot modify the count
+#### Scenario: OSG-SBX-04.01 -- REST client cannot modify the count
 
 - GIVEN a Gateway with a reported `active_sandbox_count`
 - WHEN a client submits a REST update or patch that attempts to set
   `active_sandbox_count`
 - THEN the API server SHALL NOT change the stored count from that request
 
-### Requirement: Console Surfaces the Count in the Gateways Table
+### Requirement: OSG-SBX-05 -- Console Surfaces the Count in the Gateways Table
 
 The web console SHALL display `active_sandbox_count` as a column in the main
 gateways table, adjacent to the gateway name, so an operator can see the active
@@ -156,21 +156,21 @@ advisory recent count. When the count is not available for a gateway (unset), th
 console SHALL render a localized not-available fallback rather than a misleading
 zero or a blank cell.
 
-#### Scenario: Count shown in the gateways table
+#### Scenario: OSG-SBX-05.01 -- Count shown in the gateways table
 
 - GIVEN a Gateway reporting `active_sandbox_count = 3`
 - WHEN the gateways table is rendered in the console
 - THEN the row for that gateway SHALL show `3` in the active sandboxes column,
   adjacent to the gateway name
 
-#### Scenario: Unknown count shows a fallback
+#### Scenario: OSG-SBX-05.02 -- Unknown count shows a fallback
 
 - GIVEN a Gateway whose `active_sandbox_count` has not been reported (unset)
 - WHEN the gateways table is rendered
 - THEN the active sandboxes cell SHALL show a localized not-available fallback,
   not `0`
 
-### Requirement: Advisory Semantics
+### Requirement: OSG-SBX-06 -- Advisory Semantics
 
 The reported `active_sandbox_count` reflects the control plane's most recent
 observation and MAY lag real time; consumers SHALL treat it as an advisory recent
@@ -179,18 +179,18 @@ including gateway deletion or namespace deletion (see
 [`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md)).
 It surfaces load to operators; it never blocks an action.
 
-#### Scenario: Count never blocks deletion
+#### Scenario: OSG-SBX-06.01 -- Count never blocks deletion
 
 - GIVEN a Gateway reporting a non-zero `active_sandbox_count`
 - WHEN the gateway (and its namespace) is deleted
 - THEN the deletion SHALL proceed regardless of the reported count, which is used
   only to warn the operator beforehand
 
-### Requirement: Operational Dashboard Fleet Aggregate
+### Requirement: OSG-SBX-07 -- Operational Dashboard Fleet Aggregate
 
-The API server SHALL expose a Prometheus gauge `hypershell_gateways_active_sandboxes_total` that sums `active_sandbox_count` across all gateways on each scrape. The operational dashboard loads this fleet-wide total through BFF `GET /api/metrics/gateway-sandboxes` (`web-console/operational-dashboard.spec.md` OP-DASH-06). Optional 24-hour hourly and 7-day daily fleet totals for trend sparklines in the usage summary are defined in `platform/gateway-sandbox-active-trends.spec.md`. This aggregate is dashboard-operator scoped and is independent of per-gateway RBAC visibility on the gateway collection table.
+The API server SHALL expose a Prometheus gauge `hypershell_gateways_active_sandboxes_total` that sums `active_sandbox_count` across all gateways on each scrape. The operational dashboard loads this fleet-wide total through BFF `GET /api/metrics/gateway-sandboxes` (`web-console/operational-dashboard.spec.md` WEB-OPS-06). Optional 24-hour hourly and 7-day daily fleet totals for trend sparklines in the usage summary are defined in `platform/gateway-sandbox-active-trends.spec.md`. This aggregate is dashboard-operator scoped and is independent of per-gateway RBAC visibility on the gateway collection table.
 
-#### Scenario: Fleet sandbox gauge reflects database sum
+#### Scenario: OSG-SBX-07.01 -- Fleet sandbox gauge reflects database sum
 
 - GIVEN three gateways report `active_sandbox_count` values of `2`, `0`, and `3`
 - WHEN Prometheus scrapes the API server `/metrics` endpoint

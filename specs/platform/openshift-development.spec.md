@@ -20,17 +20,19 @@ deploys a complete HyperShell environment to an ephemeral namespace on an
 OpenShift cluster. The developer can swap one component at a time from the working
 tree, exactly as `make kind-<component>-up` does today.
 
-This spec owns the OpenShift lifecycle, the `deploy/openshift/` overlay, the
-cluster bootstrap, and the OpenShift side of the e2e driver contract.
-`e2e-testing.spec.md` owns the e2e driver interface and the
-`tests/e2e/drivers/openshift.sh` file that implements the OpenShift side of that
-contract. Automated pull-request CI on OpenShift -- namespace naming, continuous
-deployment, timebox, access comment, GitHub-brokered Keycloak, and the
-deprecation of `components/pr-test/e2e-openshell.sh` -- is owned by
+This spec owns the OpenShift lifecycle (`make openshift-up` / `make openshift-down`,
+the `scripts/cluster/drivers/openshift.sh` lifecycle driver), the `deploy/openshift/`
+overlay, and the cluster bootstrap. It does **not** own the e2e driver: the e2e
+suite is now Go (`testify/suite`), and `e2e-testing.spec.md` owns both the
+`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`),
+which replaced the former shell `tests/e2e/drivers/openshift.sh`. This spec
+supplies the OpenShift environment facts that Go driver depends on (the Routes,
+the shared Gateway base domain, the Keycloak Route issuer, RBAC and SCC posture).
+Automated pull-request CI on OpenShift -- namespace naming, continuous
+deployment, timebox, access comment, GitHub-brokered Keycloak -- is owned by
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). This spec supplies the
 lifecycle that workflow runs (`make openshift-up` / `make openshift-down`, the
-overlay, and the OpenShift e2e driver) so a local deployment and a CI
-deployment cannot drift.
+overlay) so a local deployment and a CI deployment cannot drift.
 
 HyperShell uses one ephemerality model -- an ephemeral namespace on an existing
 OpenShift cluster -- in two contexts:
@@ -49,19 +51,19 @@ provisioned through the
 or an equivalent mechanism.
 
 Both contexts use the same lifecycle driver -- `make openshift-up` and the same
-driver functions -- and the same e2e driver, so that a local deployment and a CI
-deployment cannot drift.
+lifecycle driver functions -- and the same Go e2e suite, so that a local
+deployment and a CI deployment cannot drift.
 
 ### Scope
 
-This spec covers the OpenShift lifecycle driver, the OpenShift e2e driver, and
-the reconciliation of the OpenShift deploy overlay against a production
-reference. Pull-request CI, the access handoff comment, the timebox, and the
-`e2e-openshell.sh` deprecation window are specified in
-`ephemeral-pr-environments.spec.md`.
+This spec covers the OpenShift lifecycle driver, the OpenShift environment facts
+the Go e2e driver depends on, and the reconciliation of the OpenShift deploy
+overlay against a production reference. Pull-request CI, the access handoff
+comment, and the timebox are specified in `ephemeral-pr-environments.spec.md`.
 This spec does not change the Kind driver, the Kind lifecycle scripts, or the Kind
-CI job. This spec does not redesign the e2e driver interface contract that
-`e2e-testing.spec.md` defines; it implements the OpenShift side of that contract.
+CI job. This spec does not define the e2e driver: `e2e-testing.spec.md` owns the
+Go `E2EInfraDriver` interface and its Kind and OpenShift implementations. This
+spec only guarantees the OpenShift environment those implementations run against.
 
 This spec is a behavior contract. It does not contain the driver code or the CI
 YAML. Those are follow-up implementation work.
@@ -69,8 +71,7 @@ YAML. Those are follow-up implementation work.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
-provisions one.
+ManagedCluster) only where a scenario provisions one.
 
 ## Architecture
 
@@ -92,22 +93,24 @@ Makefile (single entry point)
     │               ├── scripts/cluster/drivers/kind.sh       (wraps today's scripts/kind/)
     │               └── scripts/cluster/drivers/openshift.sh  (this spec)
     │
-    └── e2e tests (infra-agnostic, unchanged contract)
+    └── e2e tests (Go testify/suite; e2e-testing.spec.md)
             │
-            └── selects driver by auto-detecting the KUBECONFIG context
+            └── E2EInfraDriver resolved by auto-detecting the KUBECONFIG context
                     (E2E_INFRA_DRIVER overrides detection)
-                    ├── tests/e2e/drivers/kind.sh
-                    └── tests/e2e/drivers/openshift.sh         (this spec)
+                    ├── tests/e2e/driver/kind.go
+                    └── tests/e2e/driver/openshift.go          (e2e-testing.spec.md)
 ```
 
 The lifecycle driver and the e2e driver are two different interfaces for two
-different jobs. The lifecycle driver creates and removes the environment. The e2e
-driver discovers and drives the running environment during tests. A single
-infrastructure target supplies one of each.
+different jobs. The lifecycle driver (shell, this spec) creates and removes the
+environment. The e2e driver (Go `E2EInfraDriver`, `e2e-testing.spec.md`) discovers
+and drives the running environment during tests. A single infrastructure target
+supplies one of each; this spec owns the OpenShift lifecycle driver, and
+`e2e-testing.spec.md` owns the OpenShift e2e driver.
 
 ## Requirements
 
-### Requirement: Cluster Lifecycle Driver Abstraction
+### Requirement: DEV-OCP-01 -- Cluster Lifecycle Driver Abstraction
 
 The lifecycle scripts SHALL separate infrastructure-agnostic logic from
 infrastructure-specific logic through a driver model. The make target name SHALL
@@ -127,11 +130,12 @@ infrastructure, the same way `scripts/kind/lib.sh` centralizes the Kubernetes
 context and the swap tracking today. The Kind driver SHALL reuse the existing
 `scripts/kind/` logic without behavior change.
 
-Each infrastructure target SHALL use its own driver for both lifecycle operations
-and e2e operations. The Kind target SHALL use the Kind lifecycle driver and the
-Kind e2e driver (`tests/e2e/drivers/kind.sh`). The OpenShift target SHALL use the
-OpenShift lifecycle driver and the OpenShift e2e driver
-(`tests/e2e/drivers/openshift.sh`).
+Each infrastructure target SHALL use its own lifecycle driver (this spec) and its
+own e2e driver (the Go `E2EInfraDriver` implementation owned by
+`e2e-testing.spec.md`). The Kind target SHALL use the Kind lifecycle driver and
+the Kind e2e driver (`tests/e2e/driver/kind.go`). The OpenShift target SHALL use
+the OpenShift lifecycle driver and the OpenShift e2e driver
+(`tests/e2e/driver/openshift.go`).
 
 The lifecycle driver and the e2e driver for a target SHALL select the same
 infrastructure. The lifecycle driver comes from the make target name. The e2e
@@ -144,14 +148,14 @@ openshift-up` and left their `oc` context pointed at that cluster gets the
 OpenShift e2e driver with no extra selector. The lifecycle targets do not need
 a selector either, because the target name already fixes the infrastructure.
 
-#### Scenario: Default driver preserves Kind behavior
+#### Scenario: DEV-OCP-01.01 -- Default driver preserves Kind behavior
 
 - GIVEN a developer runs `make kind-up`
 - WHEN the lifecycle scripts run
 - THEN the scripts use the Kind driver
 - AND the deployment result is identical to the current Kind behavior
 
-#### Scenario: A new infrastructure target adds only a driver
+#### Scenario: DEV-OCP-01.02 -- A new infrastructure target adds only a driver
 
 - GIVEN the lifecycle driver contract is defined
 - WHEN a developer adds support for a new infrastructure target
@@ -159,7 +163,7 @@ a selector either, because the target name already fixes the infrastructure.
   operations
 - AND the developer does not change the infrastructure-agnostic lifecycle logic
 
-#### Scenario: OpenShift teardown is an alias of down
+#### Scenario: DEV-OCP-01.03 -- OpenShift teardown is an alias of down
 
 - GIVEN an OpenShift environment exists
 - WHEN the developer runs `make openshift-teardown` or `make openshift-down`
@@ -167,7 +171,7 @@ a selector either, because the target name already fixes the infrastructure.
   project and the `${OPENSHIFT_NAMESPACE}-keycloak` project)
 - AND neither command attempts to destroy the OpenShift cluster
 
-### Requirement: OpenShift Lifecycle Up and Down
+### Requirement: DEV-OCP-02 -- OpenShift Lifecycle Up and Down
 
 The `make openshift-up` command SHALL deploy the full HyperShell stack to an
 ephemeral namespace on a target OpenShift cluster with a single command, the same
@@ -196,17 +200,14 @@ component's entry in the per-namespace swap state, so the state cannot keep clai
 the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
-developer needs for a working gateway -- a GatewayRelease and a Gateway -- with the
+developer needs for a working gateway -- a Gateway -- with the
 OpenShift Route and OIDC values for the environment, so that one command produces a
 working gateway and the OpenShift workflow matches the Kind workflow. The
 ManagedCluster is NOT seeded: the overlay runs the control plane with
 `HYPERSHELL_MANAGED_CLUSTER_NAME=local-openshift` and the control plane registers
 that record itself (`managed-cluster-registration.spec.md`). Seeding SHALL wait for
 the `local-openshift` ManagedCluster to appear in `GET /managed_clusters` and use its
-id for the Gateway; it SHALL NOT `POST /managed_clusters`. Seeding SHALL be
-reuse-or-create for the named seed resource `dev-release`: when a resource with that
-name already exists, the command SHALL reuse its id and SHALL NOT POST a second
-copy. Gateway names are not unique in the API, so a second
+id for the Gateway; it SHALL NOT `POST /managed_clusters`. Gateway names are not unique in the API, so a second
 `make openshift-up` or `make openshift-seed` against a namespace that already has a
 `dev-gateway` SHALL leave a single Gateway with that name -- but for `dev-gateway`
 specifically, "leave a single Gateway with that name" SHALL mean deleting the
@@ -298,18 +299,18 @@ complete until that port is listening. The wait SHALL NOT probe OpenShift
 Routes for `/healthcheck`, `/openapi`, or an OIDC token; seeding already retries
 those from the developer machine.
 
-#### Scenario: Deploy the full stack to OpenShift
+#### Scenario: DEV-OCP-02.01 -- Deploy the full stack to OpenShift
 
 - GIVEN a developer has a kubeconfig context for an OpenShift cluster
 - AND the developer has permission to create a namespace
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster, a GatewayRelease, and a Gateway
+- AND the scripts seed a ManagedCluster and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
-#### Scenario: Wait until the stack can serve
+#### Scenario: DEV-OCP-02.02 -- Wait until the stack can serve
 
 - GIVEN overlay apply, swap restore, and Route-derived environment updates have
   triggered rollouts
@@ -318,7 +319,7 @@ those from the developer machine.
   succeeds for Keycloak, the API server, the control plane, and the web console
 - AND the command does not skip that wait for a swapped component
 
-#### Scenario: Console login and API seeding use the OpenShift Routes
+#### Scenario: DEV-OCP-02.03 -- Console login and API seeding use the OpenShift Routes
 
 The API server image does not include `curl`. Token grants, Keycloak Admin
 updates, and seed POSTs SHALL run from the developer machine against the
@@ -348,14 +349,14 @@ get-modify-replace of the live Deployment races status updates and fails with
 - AND Keycloak still accepts that `redirect_uri` after a pod recycle that
   re-runs `--import-realm`
 
-#### Scenario: Seeding reuses existing named resources
+#### Scenario: DEV-OCP-02.04 -- Seeding reuses existing named resources
 
 - GIVEN the environment's control plane has registered the ManagedCluster named
-  `local-openshift` and a GatewayRelease named `dev-release` already exists
+  `local-openshift`
 - WHEN the developer runs `make openshift-up` or `make openshift-seed`
-- THEN the command reuses those existing resources and does not POST a ManagedCluster
+- THEN the command reuses the existing ManagedCluster and does not POST a ManagedCluster
 
-#### Scenario: Seeding always recreates dev-gateway
+#### Scenario: DEV-OCP-02.05 -- Seeding always recreates dev-gateway
 
 - GIVEN the environment already has a Gateway named `dev-gateway`
 - WHEN the developer runs `make openshift-up` or `make openshift-seed`
@@ -363,7 +364,7 @@ get-modify-replace of the live Deployment races status updates and fails with
 - AND it creates a new Gateway named `dev-gateway`
 - AND it does not leave two Gateways named `dev-gateway`
 
-#### Scenario: Remove the deployment
+#### Scenario: DEV-OCP-02.06 -- Remove the deployment
 
 - GIVEN a HyperShell deployment exists from `make openshift-up`
 - AND that environment has created gateway namespaces labeled
@@ -382,7 +383,7 @@ get-modify-replace of the live Deployment races status updates and fails with
 - AND the scripts do not delete resources that belong to other environments or to
   cluster infrastructure
 
-#### Scenario: Down reaps leftover instance namespaces after the project is gone
+#### Scenario: DEV-OCP-02.07 -- Down reaps leftover instance namespaces after the project is gone
 
 - GIVEN the platform project `hypershell-ci-pr-267` is already absent
 - AND gateway namespaces remain labeled `hypershell.redhat.io/instance=hypershell-ci-pr-267`
@@ -390,7 +391,7 @@ get-modify-replace of the live Deployment races status updates and fails with
 - THEN the scripts delete those leftover instance-managed namespaces
 - AND the scripts do not delete namespaces labeled `hyp4` or `hyp5`
 
-#### Scenario: No target cluster is available
+#### Scenario: DEV-OCP-02.08 -- No target cluster is available
 
 - GIVEN the developer has no reachable OpenShift cluster in the current kubeconfig
   context
@@ -398,7 +399,7 @@ get-modify-replace of the live Deployment races status updates and fails with
 - THEN the command stops with an error that asks for an OpenShift cluster target
 - AND the command does not deploy any resources
 
-### Requirement: Standalone Seed Command
+### Requirement: DEV-OCP-03 -- Standalone Seed Command
 
 The `make openshift-seed` command SHALL seed (or re-seed) the domain resources
 into an environment that `make openshift-up` already created, without re-applying
@@ -407,7 +408,7 @@ after a partial `make openshift-up` or refresh seed data against a running stack
 The command SHALL be a subset of `make openshift-up`: it SHALL require a reachable
 cluster, resolve and validate the namespace group, derive the environment's Route
 and OIDC values, and then seed the same domain resources `make openshift-up` seeds
--- a GatewayRelease and a Gateway, against the `local-openshift` ManagedCluster the
+-- a Gateway, against the `local-openshift` ManagedCluster the
 control plane registered. The command SHALL NOT create the projects, apply
 cluster-scoped RBAC, apply the overlay, or `POST /managed_clusters`.
 
@@ -420,23 +421,23 @@ SHALL NOT honor `SKIP_SEED`, because seeding is the command's only job. It SHALL
 honor `SEED_STRICT`: with strict seeding a seed failure SHALL fail the command,
 otherwise a failure SHALL warn and print manual-remediation guidance.
 
-#### Scenario: Re-seed an existing environment
+#### Scenario: DEV-OCP-03.01 -- Re-seed an existing environment
 
 - GIVEN `make openshift-up` deployed the stack but seeding was skipped or failed
 - WHEN the developer runs `make openshift-seed`
-- THEN the command seeds a GatewayRelease and a Gateway using the environment's
+- THEN the command seeds a Gateway using the environment's
   Routes and OIDC values and the control plane's registered `local-openshift` id
 - AND the command does not re-apply the overlay or re-create the namespace group
 - AND resources that already exist are left unchanged
 
-#### Scenario: Seed before the environment exists
+#### Scenario: DEV-OCP-03.02 -- Seed before the environment exists
 
 - GIVEN no HyperShell deployment exists in the target namespace group
 - WHEN the developer runs `make openshift-seed`
 - THEN the command stops with an error rather than seed against a missing
   environment
 
-### Requirement: Ephemeral Namespace Isolation
+### Requirement: DEV-OCP-04 -- Ephemeral Namespace Isolation
 
 Each `make openshift-up` deployment SHALL isolate into an environment namespace
 group so that more than one developer can share one OpenShift cluster without
@@ -500,7 +501,7 @@ HyperShell resources inside the platform and keycloak projects and SHALL leave
 the projects.
 `make openshift-teardown` SHALL perform the same steps.
 
-#### Scenario: Two developers share one cluster
+#### Scenario: DEV-OCP-04.01 -- Two developers share one cluster
 
 - GIVEN developer A runs `make openshift-up` with `OPENSHIFT_NAMESPACE=alice`
 - AND developer B runs `make openshift-up` with `OPENSHIFT_NAMESPACE=bob`
@@ -511,7 +512,7 @@ the projects.
 - AND each environment's ClusterRole and ClusterRoleBinding names are prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
 - AND neither environment patches unprefixed names such as `hypershell-controller` that another instance (for example stage) already owns
 
-#### Scenario: Namespace cleanup removes only one deployment
+#### Scenario: DEV-OCP-04.02 -- Namespace cleanup removes only one deployment
 
 - GIVEN two HyperShell environment namespace groups exist on one cluster
 - WHEN a developer runs `make openshift-down` for one environment
@@ -519,7 +520,7 @@ the projects.
 - AND the scripts delete that environment's instance-labeled gateway namespaces
 - AND the other environment stays intact, including its instance-labeled namespaces
 
-#### Scenario: Deployment refuses a foreign namespace
+#### Scenario: DEV-OCP-04.03 -- Deployment refuses a foreign namespace
 
 - GIVEN a namespace with the name `OPENSHIFT_NAMESPACE` already exists and carries a
   different environment identifier
@@ -527,7 +528,7 @@ the projects.
 - THEN the command refuses to adopt the namespace
 - AND the command deploys nothing into, and deletes nothing in, that namespace
 
-#### Scenario: Existing unlabeled project is used without labeling
+#### Scenario: DEV-OCP-04.04 -- Existing unlabeled project is used without labeling
 
 - GIVEN the current oc project already exists and is not HyperShell-labeled
 - AND the developer cannot patch namespace objects
@@ -535,21 +536,21 @@ the projects.
 - THEN the command deploys into that project without prompting
 - AND the command does not stop because namespace labeling is forbidden
 
-#### Scenario: FORCE deletes an unlabeled leftover
+#### Scenario: DEV-OCP-04.05 -- FORCE deletes an unlabeled leftover
 
 - GIVEN the current oc project already exists and is not HyperShell-labeled
 - WHEN the developer runs `FORCE=true make openshift-down`
 - THEN the scripts delete the platform and `-keycloak` projects, or the HyperShell resources in them
 - AND reserved names SHALL still be refused even with `FORCE=true`
 
-#### Scenario: Down without FORCE refuses an unlabeled project
+#### Scenario: DEV-OCP-04.06 -- Down without FORCE refuses an unlabeled project
 
 - GIVEN the current oc project already exists and is not HyperShell-labeled
 - WHEN the developer runs `make openshift-down` without `FORCE=true`
 - THEN the command refuses to delete
 - AND it tells the developer to re-run with `FORCE=true` to override
 
-### Requirement: Keycloak Namespace
+### Requirement: DEV-OCP-05 -- Keycloak Namespace
 
 The deployment SHALL place Keycloak in its own namespace, separate from the other
 HyperShell components, the same way the Kind environment runs Keycloak in a
@@ -612,7 +613,7 @@ This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
 their own namespaces is out of scope here and belongs to a separate spec.
 
-#### Scenario: Keycloak runs in its own namespace
+#### Scenario: DEV-OCP-05.01 -- Keycloak runs in its own namespace
 
 - GIVEN a developer runs `make openshift-up` with `OPENSHIFT_NAMESPACE=alice`
 - AND the `alice-keycloak` project does not exist
@@ -623,7 +624,7 @@ their own namespaces is out of scope here and belongs to a separate spec.
 - AND the current oc project is `alice` after Keycloak is applied
 - AND the OIDC issuer points at the Keycloak route in `alice-keycloak`
 
-#### Scenario: API_ENV is declared in the OpenShift overlay
+#### Scenario: DEV-OCP-05.02 -- API_ENV is declared in the OpenShift overlay
 
 - GIVEN `deploy/openshift/kustomization.yaml` is built
 - WHEN the rendered API server Deployment is inspected
@@ -633,7 +634,7 @@ their own namespaces is out of scope here and belongs to a separate spec.
   `POD_NAMESPACE` from the downward API (`metadata.namespace`)
 - AND `make openshift-up` SHALL NOT set `API_ENV` with `oc set env`
 
-#### Scenario: Platform workloads can reach Keycloak across the namespace group
+#### Scenario: DEV-OCP-05.03 -- Platform workloads can reach Keycloak across the namespace group
 
 `oc new-project` installs default-deny Ingress NetworkPolicies in each
 project (same-namespace pods and the `openshift-ingress` namespace). Keycloak
@@ -648,14 +649,14 @@ hangs while loading JWKS and the rollout never completes.
 - AND the API server can load JWKS from `keycloak-service.alice-keycloak`
 - AND the control plane can reach the Keycloak Admin API on that Service
 
-#### Scenario: The namespace group shares one lifecycle
+#### Scenario: DEV-OCP-05.04 -- The namespace group shares one lifecycle
 
 - GIVEN a deployment has a platform namespace and its `-keycloak` namespace
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
 - THEN every namespace in the group is removed together
 - AND the `-keycloak` namespace is not left behind
 
-### Requirement: Component Swap on OpenShift
+### Requirement: DEV-OCP-06 -- Component Swap on OpenShift
 
 A developer SHALL be able to swap one component at a time from the working tree
 into the OpenShift deployment, the same way `make kind-<component>-up` swaps a
@@ -724,7 +725,7 @@ tracks the Kind swap state, and SHALL record the exact image identity that is
 deployed, so that `make openshift-status` reports which components run a working-tree
 build, which run the baseline image, and the exact image each one runs.
 
-#### Scenario: Swap the API server from the working tree
+#### Scenario: DEV-OCP-06.01 -- Swap the API server from the working tree
 
 - GIVEN a HyperShell deployment exists on OpenShift with baseline images
 - WHEN the developer runs `make openshift-api-server-up`
@@ -740,7 +741,7 @@ build, which run the baseline image, and the exact image each one runs.
 - AND `make openshift-status` reports the API server as a working-tree build with
   its exact image identity
 
-#### Scenario: Swap pins the registry digest from the push
+#### Scenario: DEV-OCP-06.02 -- Swap pins the registry digest from the push
 
 - GIVEN the container engine's local image digest differs from the digest the
   registry stored for the pushed tag
@@ -750,7 +751,7 @@ build, which run the baseline image, and the exact image each one runs.
 - AND they SHALL NOT pin a digest from `inspect` of the local image
 - AND they SHALL NOT scrape blob or config SHAs from push progress
 
-#### Scenario: Swap builds for the cluster architecture
+#### Scenario: DEV-OCP-06.03 -- Swap builds for the cluster architecture
 
 - GIVEN the developer laptop is arm64
 - AND the OpenShift nodes are amd64
@@ -760,7 +761,7 @@ build, which run the baseline image, and the exact image each one runs.
 - AND the Dockerfiles select the amd64 HI digest pins for the runtime
 - AND the migrate init container SHALL start without `Exec format error`
 
-#### Scenario: Swap web console compiles Vite natively
+#### Scenario: DEV-OCP-06.04 -- Swap web console compiles Vite natively
 
 - GIVEN the developer laptop is arm64
 - AND the OpenShift nodes are amd64
@@ -771,7 +772,7 @@ build, which run the baseline image, and the exact image each one runs.
 - AND the runtime image SHALL be linux/amd64 with production native addons
   installed for amd64
 
-#### Scenario: Swap without SWAP_REGISTRY stops
+#### Scenario: DEV-OCP-06.05 -- Swap without SWAP_REGISTRY stops
 
 - GIVEN a HyperShell deployment exists on OpenShift with baseline images
 - AND `SWAP_REGISTRY` is unset
@@ -780,7 +781,7 @@ build, which run the baseline image, and the exact image each one runs.
 - AND it SHALL NOT push to `IMAGE_REGISTRY`
 - AND it SHALL NOT push to the OpenShift internal registry
 
-#### Scenario: Revert a swapped component
+#### Scenario: DEV-OCP-06.06 -- Revert a swapped component
 
 - GIVEN the API server runs a working-tree build on OpenShift
 - WHEN the developer runs `make openshift-api-server-down`
@@ -788,125 +789,112 @@ build, which run the baseline image, and the exact image each one runs.
   image
 - AND `make openshift-status` reports the API server as a baseline image
 
-### Requirement: OpenShift E2E Driver
+### Requirement: DEV-OCP-07 -- OpenShift E2E Driver Environment
 
-The `tests/e2e/drivers/openshift.sh` file SHALL implement the e2e driver interface
-that `e2e-testing.spec.md` defines. The driver SHALL implement every required
-function: `discover_api_host`, `discover_gateway_endpoint`, `get_cluster_domain`,
-`get_cli_binary`, `wait_for_gateway_route`, `acquire_oidc_token`, and `api_curl`.
-The driver SHALL return values through the global variables that the contract
-defines (`_DISCOVER_API_HOST`, `_DISCOVER_GW_ENDPOINT`, `_OIDC_ACCESS_TOKEN`), so
-that background processes survive in the parent shell.
+The OpenShift e2e driver is the Go `driver/openshift.go` implementation of the
+`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md` (it
+replaced the former shell `tests/e2e/drivers/openshift.sh`). This spec does not
+re-specify that interface; it records the OpenShift environment facts the Go driver
+depends on, which `make openshift-up` and the cluster bootstrap guarantee. The Go
+driver reaches the cluster through the shared `client-go`/controller-runtime client
+built from the current KUBECONFIG context (it SHALL NOT shell out to `oc`), and
+SHALL scope every resource lookup to the target namespace so concurrent environments
+on one cluster do not read each other's resources.
 
-The driver SHALL implement each function with OpenShift constructs, and SHALL scope
-every resource lookup to the target namespace, so that concurrent environments on
-one cluster do not read each other's resources:
+The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
 
-- `discover_api_host` SHALL read the `hypershell-api` Route host in the platform
-  namespace with `oc get route hypershell-api -n "${OPENSHIFT_NAMESPACE}"
-  -o jsonpath='{.spec.host}'`, and SHALL set `_DISCOVER_API_HOST` to the HTTPS URL.
-- `discover_gateway_endpoint` SHALL take the gateway name and the gateway namespace
-  as arguments, the same as the Kind driver, and SHALL discover the endpoint the
-  same way: read the tenant GRPCRoute hostname and confirm the parent Gateway
-  reports `Programmed=True`, then set `_DISCOVER_GW_ENDPOINT` to
-  `https://<grpc-host>:443`. The driver SHALL NOT expect a per-gateway OpenShift
-  Route; per-tenant gateway traffic uses Gateway API, as
-  `openshell-gateway-routing.spec.md` defines.
-- `get_cluster_domain` SHALL return the configured gateway base domain -- the same
-  `GATEWAY_API_BASE_DOMAIN` value the control plane uses -- so that the driver
-  builds gateway hostnames that match the tenant GRPCRoute hostname and the wildcard
-  certificate on the shared Gateway. The driver SHALL NOT read the cluster apps
-  domain from `ingresses.config.openshift.io`: that value is not the gateway base
-  domain, and a namespace-scoped ephemeral environment does not have permission to
-  read that cluster-scoped resource.
-- `get_cli_binary` SHALL return `oc`.
-- `wait_for_gateway_route` SHALL take the gateway name and the gateway namespace as
-  arguments and SHALL wait, up to `E2E_PROVISION_TIMEOUT`, until the parent Gateway
-  reports `Programmed=True` and the tenant GRPCRoute parent reports `Accepted=True`,
-  the same two conditions the Kind driver waits for. The driver SHALL NOT wait for an
-  OpenShift Route `Admitted` condition, because no per-gateway Route exists.
+- **API host** (`DiscoverAPIHost`) -- a `hypershell-api` Route in the platform
+  namespace (`OPENSHIFT_NAMESPACE`); the driver reads its host via the route client
+  and forms the HTTPS URL.
+- **Gateway endpoint** (`DiscoverGatewayEndpoint`) -- per-tenant gateway traffic uses
+  Gateway API, not a per-gateway OpenShift Route (`openshell-gateway-routing.spec.md`);
+  the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
+  `Programmed=True`.
+- **Cluster domain** (`ClusterDomain`) -- the configured gateway base domain (the same
+  `GATEWAY_API_BASE_DOMAIN` the control plane uses), so gateway hostnames match the
+  tenant GRPCRoute and the wildcard certificate on the shared Gateway. The driver
+  SHALL NOT read the cluster apps domain from `ingresses.config.openshift.io`: that
+  value is not the gateway base domain, and a namespace-scoped ephemeral environment
+  cannot read that cluster-scoped resource.
+- **Platform namespace** (`PlatformNamespace`) -- `OPENSHIFT_NAMESPACE` (the current
+  `oc` project when unset), where the driver inspects platform resources.
+- **Gateway readiness** (`WaitForGatewayRoute`) -- the driver waits, up to
+  `E2E_PROVISION_TIMEOUT`, until the parent Gateway is `Programmed=True` and the tenant
+  GRPCRoute parent is `Accepted=True`, the same two conditions the Kind driver waits
+  for. It SHALL NOT wait for an OpenShift Route `Admitted` condition, because no
+  per-gateway Route exists.
+- **OIDC issuer** -- the Keycloak Route in the `-keycloak` namespace (the Keycloak
+  Namespace requirement), not the Kind default `keycloak.hypershell.localhost`.
+- **Per-gateway client token** -- per-gateway audience is production behavior, not a
+  Kind-only path: a token minted for the shared frontend client carries the wrong
+  `aud` claim and the control plane rejects it. The environment SHALL expose the same
+  Keycloak admin and role surface the Kind path uses, so `AssignRealmRole`,
+  `AssignGatewayClientRole`, and `AcquireGatewayTokenWithRole` acquire a
+  per-gateway-client token with the required role the same way on both targets, with
+  no weaker OpenShift OIDC path.
+- **Trusted TLS** -- no insecure bypass (`e2e-testing.spec.md`). When the shared
+  Gateway serves a publicly trusted or cluster-wildcard certificate, the suite relies
+  on the system trust store; when it serves a private CA, the driver extracts that CA
+  and points `SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
 
-The driver SHALL set the OIDC issuer from the Keycloak Route in the `-keycloak`
-namespace, as the Keycloak Namespace requirement defines, rather than the Kind
-default `keycloak.hypershell.localhost`.
+The OpenShift e2e suite SHALL run with `go -C tests/e2e test . -run TestE2E` against a
+KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects the
+OpenShift driver from that context, or a caller MAY force it explicitly with
+`E2E_INFRA_DRIVER=openshift go -C tests/e2e test . -run TestE2E` -- and SHALL exercise
+the same phases (P0--P3) the Kind suite exercises, so one suite validates both targets.
 
-The OpenShift suite SHALL use the same per-gateway Keycloak client and role wait
-that the Kind suite uses, because per-gateway audience is production behavior, not a
-Kind-only path: a token minted for the shared frontend client carries the wrong
-`aud` claim and the control plane rejects it. The driver SHALL provide the same
-Keycloak admin and role helpers the Kind driver provides -- `assign_realm_role`,
-`assign_gateway_client_role`, and `acquire_gateway_token_with_role` -- so that the
-OpenShift suite acquires a per-gateway-client token with the required role the same
-way the Kind suite does, and so that no weaker OpenShift OIDC path remains.
-
-The driver SHALL establish trusted TLS without an insecure bypass, the same rule
-`e2e-testing.spec.md` sets. When the shared Gateway serves a publicly trusted or
-cluster-wildcard certificate, the suite SHALL rely on the system trust store. When
-the shared Gateway serves a private CA, the driver SHALL extract that CA and point
-`SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
-
-The OpenShift e2e suite SHALL run with `bash tests/e2e/e2e-openshell.sh` against
-a KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects
-the OpenShift driver from that context, or a caller MAY force it explicitly
-with `E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh` -- and SHALL
-exercise the same test areas that the Kind suite exercises, so that a single
-suite validates both infrastructure targets.
-
-#### Scenario: Discover the API host on OpenShift
+#### Scenario: DEV-OCP-07.01 -- Discover the API host on OpenShift
 
 - GIVEN a HyperShell deployment is ready on OpenShift
-- WHEN the e2e suite calls `discover_api_host` with `E2E_INFRA_DRIVER=openshift`
-- THEN the driver sets `_DISCOVER_API_HOST` to the HTTPS URL of the API Route
+- WHEN the Go suite's `DiscoverAPIHost` runs with `E2E_INFRA_DRIVER=openshift`
+- THEN the driver returns the HTTPS URL of the `hypershell-api` Route read via the route client
 - AND a request to the API URL returns an HTTP response
 
-#### Scenario: Same suite runs on both drivers
+#### Scenario: DEV-OCP-07.02 -- Same suite runs on both drivers
 
-- GIVEN the e2e test logic is infrastructure-agnostic
-- WHEN a developer runs the suite with `E2E_INFRA_DRIVER=openshift`
-- THEN the suite runs the same test areas that it runs with
-  `E2E_INFRA_DRIVER=kind`
+- GIVEN the Go e2e suite is infrastructure-agnostic
+- WHEN a developer runs `go -C tests/e2e test . -run TestE2E` with `E2E_INFRA_DRIVER=openshift`
+- THEN the suite runs the same phases (P0--P3) it runs with `E2E_INFRA_DRIVER=kind`
 - AND the test logic is not changed between the two runs
 
-#### Scenario: Gateway readiness uses Gateway API status
+#### Scenario: DEV-OCP-07.03 -- Gateway readiness uses Gateway API status
 
 - GIVEN the control plane provisions a Gateway and a tenant GRPCRoute
-- WHEN the e2e suite calls `wait_for_gateway_route` with the gateway name and
-  namespace
+- WHEN the Go suite's `WaitForGatewayRoute` runs for the gateway
 - THEN the driver waits until the parent Gateway reports `Programmed=True`
 - AND the driver waits until the tenant GRPCRoute parent reports `Accepted=True`
 - AND the driver does not wait for an OpenShift Route `Admitted` condition
 - AND the driver returns success only when both conditions are true, or fails after
   `E2E_PROVISION_TIMEOUT`
 
-#### Scenario: OpenShift uses the per-gateway client token
+#### Scenario: DEV-OCP-07.04 -- OpenShift uses the per-gateway client token
 
 - GIVEN a gateway has its own Keycloak client with a scoped audience
-- WHEN the e2e suite acquires a token on OpenShift
-- THEN the suite uses `acquire_gateway_token_with_role` with the per-gateway client
+- WHEN the Go suite acquires a token on OpenShift
+- THEN it uses `AcquireGatewayTokenWithRole` with the per-gateway client
 - AND the token carries the gateway's audience
 - AND the control plane accepts the token
 
-#### Scenario: OpenShift trusts TLS without an insecure bypass
+#### Scenario: DEV-OCP-07.05 -- OpenShift trusts TLS without an insecure bypass
 
 - GIVEN the shared Gateway serves the gateway TLS certificate
-- WHEN the e2e suite connects to a gateway on OpenShift
-- THEN the suite verifies the certificate through the system trust store or an
-  extracted CA
-- AND the suite does not set `OPENSHELL_GATEWAY_INSECURE`
+- WHEN the Go suite connects to a gateway on OpenShift
+- THEN it verifies the certificate through the system trust store or an extracted CA
+- AND it does not set `OPENSHELL_GATEWAY_INSECURE`
 
-### Requirement: Lifecycle Library Unit Tests
+### Requirement: DEV-OCP-08 -- Lifecycle Library Unit Tests
 
 The `make openshift-test` command SHALL run the lifecycle library's unit and static
 test harness (`scripts/cluster/lib_test.sh`) without a live cluster, so the shared
-lifecycle seams and the OpenShift driver's pure helpers are verified in CI and
-locally without provisioning infrastructure. This command is distinct from the
-OpenShift E2E Driver: `make openshift-test` validates the driver's logic in
-isolation with stubbed cluster access, while the e2e suite drives a running
-environment. The harness SHALL exit non-zero when any check fails, so it can gate
-CI, and SHALL report pass and fail counts.
+lifecycle seams and the OpenShift lifecycle driver's pure helpers are verified in CI
+and locally without provisioning infrastructure. This command covers the shell
+lifecycle driver only; the Go e2e driver (`driver/openshift.go`) is unit-tested in Go
+as `e2e-testing.spec.md` defines, and the e2e suite drives a running environment. The
+harness SHALL exit non-zero when any check fails, so it can gate CI, and SHALL report
+pass and fail counts.
 
-The harness SHALL cover the pure helpers whose correctness gates the driver without
-a cluster: DNS-label sanitization and RFC-1123 label validation, the swap-registry
+The harness SHALL cover the pure helpers whose correctness gates the lifecycle driver
+without a cluster: DNS-label sanitization and RFC-1123 label validation, the swap-registry
 rules (rejecting an unset, org-less, or cluster-local registry, and refusing to fall
 back to the baseline `IMAGE_REGISTRY`), target-architecture selection for the swap
 build, image-digest capture from a registry push log, pull-secret parsing, and the
@@ -917,14 +905,14 @@ DNS, and prefixes cluster-scoped names without corrupting `roleRef`s or hyphenat
 image names.
 
 The harness SHALL assert the safety invariants of the destructive paths by
-inspecting the driver source, so a regression that weakens them fails the build
-rather than data in a cluster: `cluster_teardown` SHALL be the same command as
+inspecting the lifecycle driver source, so a regression that weakens them fails the
+build rather than data in a cluster: `cluster_teardown` SHALL be the same command as
 `cluster_down`; the down path SHALL refuse unlabeled and foreign-environment
 namespaces and SHALL NOT delete the unprefixed `hypershell-controller`
 cluster-scoped RBAC; and the swap path SHALL push to an external registry and SHALL
 NOT use the internal image registry (`oc registry`, `oc start-build`).
 
-#### Scenario: Unit tests run without a cluster
+#### Scenario: DEV-OCP-08.01 -- Unit tests run without a cluster
 
 - GIVEN no OpenShift cluster is reachable
 - WHEN a developer or CI runs `make openshift-test`
@@ -932,50 +920,49 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 - AND the harness reports pass and fail counts
 - AND the command exits non-zero if any check fails
 
-#### Scenario: Safety invariants are guarded statically
+#### Scenario: DEV-OCP-08.02 -- Safety invariants are guarded statically
 
-- GIVEN the OpenShift driver source is present
+- GIVEN the OpenShift lifecycle driver source is present
 - WHEN `make openshift-test` runs
 - THEN the harness fails if `cluster_teardown` diverges from `cluster_down`
 - AND the harness fails if the down path would delete the unprefixed
   `hypershell-controller` cluster-scoped RBAC
 - AND the harness fails if the swap path uses the internal image registry
 
-### Requirement: E2E Script Consolidation
+### Requirement: DEV-OCP-09 -- E2E Script Consolidation
 
-The legacy `components/pr-test/e2e-openshell.sh` script SHALL be superseded by the
+The legacy `components/pr-test/e2e-openshell.sh` script has been superseded by the
 shared e2e harness and the pull-request workflow in
-`ephemeral-pr-environments.spec.md`. That spec owns the deprecation window:
-the script SHALL stay present and runnable, SHALL carry a deprecation notice,
-and SHALL be removed only after manual usage has migrated. The ROKS variant
-`components/pr-test/e2e-openshell-roks.sh` is out of scope there and SHALL remain.
-The `pr_test` component and its CI wiring SHALL remain until both scripts are
-gone.
+`ephemeral-pr-environments.spec.md`, which owns the record of its removal
+(HYPERSHELL-250). The ROKS variant `components/pr-test/e2e-openshell-roks.sh` was
+out of scope for that removal and remains. The `pr_test` component and its CI
+wiring remain, rescoped to the ROKS script, until it is also retired or rehomed.
 
-The eventual end state is unchanged: OpenShift-specific logic lives in
-`tests/e2e/drivers/openshift.sh`, infrastructure-agnostic tests live in
-`tests/e2e/e2e-openshell.sh`, and no OpenShift e2e logic remains hardcoded
-outside the driver model. This spec SHALL NOT require the script or the
-`pr_test` component to already be removed.
+The end state after the Go rewrite: OpenShift-specific e2e logic lives in the Go
+`tests/e2e/driver/openshift.go` (`e2e-testing.spec.md`), the infrastructure-agnostic
+suite is the Go `E2ESuite`, and no OpenShift e2e logic remains hardcoded outside the
+`E2EInfraDriver` model. The former Bash `tests/e2e/e2e-openshell.sh` and
+`tests/e2e/drivers/openshift.sh` are removed by that rewrite's cutover (see Shell
+Suite Removal in `e2e-testing.spec.md`). This spec SHALL NOT require the ROKS script
+or the `pr_test` component to already be removed.
 
-#### Scenario: Legacy script is deprecated, not yet removed
+#### Scenario: DEV-OCP-09.01 -- Legacy OpenShift script has been removed
 
-- GIVEN `components/pr-test/e2e-openshell.sh` still has manual users
+- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
 - WHEN this spec is in effect
-- THEN the script remains present and runnable
-- AND `ephemeral-pr-environments.spec.md` is the contract for when it is removed
+- THEN the script SHALL NOT be present in the repository
+- AND `ephemeral-pr-environments.spec.md` is the contract that recorded its removal
 - AND `components/pr-test/` is not removed while the ROKS variant still lives there
 
-#### Scenario: No dangling references after eventual removal
+#### Scenario: DEV-OCP-09.02 -- No dangling references after eventual ROKS retirement
 
-- GIVEN `e2e-openshell.sh` has been removed after the deprecation window
-- AND the ROKS variant has been retired or rehomed
+- GIVEN the ROKS variant has been retired or rehomed in the future
 - WHEN a maintainer inspects CI configuration and component registration
 - THEN no workflow references the removed path
 - AND `.github/component-paths.json` no longer contains a `pr_test` entry that
   points to a removed path
 
-### Requirement: Pull-Request CI Uses This Lifecycle
+### Requirement: DEV-OCP-10 -- Pull-Request CI Uses This Lifecycle
 
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
@@ -986,9 +973,10 @@ requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the
-`deploy/openshift/` overlay, the namespace-group derivation, the ownership
-labels `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment`, and
-the OpenShift e2e driver. A local `make openshift-up` and a CI deploy SHALL NOT
+`deploy/openshift/` overlay, the namespace-group derivation, and the ownership
+labels `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment`. The Go
+e2e suite then runs against that environment with the OpenShift `E2EInfraDriver`
+(`e2e-testing.spec.md`). A local `make openshift-up` and a CI deploy SHALL NOT
 drift. `make openshift-up` SHALL NOT stamp a pull-request timebox; expiry is a
 CI annotation defined in `ephemeral-pr-environments.spec.md`.
 
@@ -1003,23 +991,23 @@ or retainment label on. `e2e-testing.spec.md` separately runs the same
 without any of those pull-request-only features, as its own CI E2E Workflow
 requirement defines.
 
-#### Scenario: CI reuses the local-dev lifecycle
+#### Scenario: DEV-OCP-10.01 -- CI reuses the local-dev lifecycle
 
 - GIVEN an origin pull request that triggers this workflow
 - WHEN the workflow deploys the environment
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE` set as
   `ephemeral-pr-environments.spec.md` defines
-- AND it SHALL run the OpenShift e2e driver this spec defines
+- AND the Go e2e suite SHALL run against it with the OpenShift `E2EInfraDriver` (`e2e-testing.spec.md`)
 - AND it SHALL NOT use a second OpenShift bring-up path
 
-#### Scenario: Merge-queue stays on Kind
+#### Scenario: DEV-OCP-10.02 -- Merge-queue stays on Kind
 
 - GIVEN a pull request enters the GitHub merge queue
 - WHEN CI evaluates which jobs to run
 - THEN the Kind e2e job SHALL run as `e2e-testing.spec.md` defines
 - AND the OpenShift pull-request environment workflow SHALL NOT run
 
-### Requirement: Cluster Infrastructure Prerequisites
+### Requirement: DEV-OCP-11 -- Cluster Infrastructure Prerequisites
 
 The ephemeral-namespace workflow SHALL treat the cluster infrastructure as a
 precondition that the target cluster provides. This infrastructure is the shared
@@ -1042,14 +1030,14 @@ deploy a broken environment. The pull-request workflow in
 `ephemeral-pr-environments.spec.md` SHALL run against a target cluster that
 already provides the Gateway infrastructure and the GitHub OAuth callback.
 
-#### Scenario: Missing infrastructure fails fast
+#### Scenario: DEV-OCP-11.01 -- Missing infrastructure fails fast
 
 - GIVEN an OpenShift cluster without the shared Gateway
 - WHEN a developer runs `make openshift-up`
 - THEN the command reports that the required infrastructure is missing
 - AND the command does not deploy a broken environment
 
-#### Scenario: CI target provides the infrastructure
+#### Scenario: DEV-OCP-11.02 -- CI target provides the infrastructure
 
 - GIVEN the CI workflow deploys into an ephemeral environment
 - WHEN the workflow prepares the environment for deployment
@@ -1059,7 +1047,7 @@ already provides the Gateway infrastructure and the GitHub OAuth callback.
 - AND the workflow does not attempt to create that cluster infrastructure from the
   ephemeral namespaces
 
-### Requirement: Cluster-Scoped Resource Permissions
+### Requirement: DEV-OCP-12 -- Cluster-Scoped Resource Permissions
 
 The OpenShift overlay grants SecurityContextConstraints through the built-in SCC
 ClusterRoles, not through custom SCC objects. Two different grants are involved, and
@@ -1117,7 +1105,7 @@ cluster-scoped `bind` through a namespace-scoped RoleBinding, and SHALL NOT assu
 namespace-scoped RoleBindings alone let the controller bind the privileged SCC per
 namespace.
 
-#### Scenario: Ephemeral namespace has the permissions the overlay needs
+#### Scenario: DEV-OCP-12.01 -- Ephemeral namespace has the permissions the overlay needs
 
 - GIVEN the developer can create ClusterRoles and ClusterRoleBindings prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
 - AND the developer can apply the privileged SCC RoleBinding in that namespace
@@ -1128,7 +1116,7 @@ namespace.
 - AND the controller can create the per-namespace privileged RoleBinding for a sandbox because it was granted `bind`
 - AND the deployment does not attempt to grant the cluster-scoped `bind` through a namespace-scoped RoleBinding
 
-#### Scenario: Prefixed ClusterRole is forbidden, existing ClusterRole is used
+#### Scenario: DEV-OCP-12.02 -- Prefixed ClusterRole is forbidden, existing ClusterRole is used
 
 - GIVEN the developer cannot create ClusterRole `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` because of escalation prevention
 - AND ClusterRole `hypershell-controller` already exists on the cluster
@@ -1139,7 +1127,7 @@ namespace.
 - AND the command does not create a ClusterRole
 - AND the command does not create or patch ClusterRoleBinding `hypershell-controller`
 
-#### Scenario: Cluster-scoped RBAC cannot be applied
+#### Scenario: DEV-OCP-12.03 -- Cluster-scoped RBAC cannot be applied
 
 - GIVEN the current user cannot create ClusterRoles or ClusterRoleBindings
 - WHEN the developer runs `make openshift-up`
@@ -1147,7 +1135,7 @@ namespace.
 - AND the command continues and applies the namespaced overlay
 - AND gateways and sandboxes will not provision until this environment's controller is bound
 
-### Requirement: OpenShift Security Context and RBAC Parity
+### Requirement: DEV-OCP-13 -- OpenShift Security Context and RBAC Parity
 
 The OpenShift deployment SHALL keep the security posture that the OpenShift overlay
 defines: the controller bound to the built-in `system:openshift:scc:restricted-v2`
@@ -1164,7 +1152,7 @@ bypass list. The e2e suite on OpenShift SHALL validate the same RBAC scenarios t
 the Kind suite validates, including the developer role enforcement and the
 platform admin role.
 
-#### Scenario: Sandbox privilege is scoped per namespace
+#### Scenario: DEV-OCP-13.01 -- Sandbox privilege is scoped per namespace
 
 - GIVEN a HyperShell deployment on OpenShift provisions a gateway sandbox
 - WHEN the controller reconciles the sandbox
@@ -1172,14 +1160,14 @@ platform admin role.
   binding
 - AND no other workload in the namespace gains privileged access
 
-#### Scenario: RBAC is enforced on OpenShift
+#### Scenario: DEV-OCP-13.02 -- RBAC is enforced on OpenShift
 
 - GIVEN the OpenShift deployment runs with `RBAC_ENFORCE=true`
 - WHEN a developer without the required role calls a protected API
 - THEN the API denies the request
 - AND the e2e suite validates the denial the same way it does on Kind
 
-### Requirement: Blessed OpenShift Overlay
+### Requirement: DEV-OCP-14 -- Blessed OpenShift Overlay
 
 The `deploy/openshift/` overlay SHALL derive from `deploy/base/` and SHALL NOT
 duplicate the base resources. The `deploy/base/` overlay is the independent baseline
@@ -1222,14 +1210,14 @@ changes an overlay cannot merge an unintended drift. Because both overlays are
 checked against the same independent base, `deploy/openshift/` and `deploy/hub/`
 cannot silently diverge on any resource that neither allowlist covers.
 
-#### Scenario: Base domain comes from configuration
+#### Scenario: DEV-OCP-14.01 -- Base domain comes from configuration
 
 - GIVEN the overlay needs a gateway base domain
 - WHEN a developer deploys to a cluster with a different base domain
 - THEN the deployment reads the base domain from configuration
 - AND the developer does not edit the overlay to change the base domain
 
-#### Scenario: Drift check fails on unintended drift
+#### Scenario: DEV-OCP-14.02 -- Drift check fails on unintended drift
 
 - GIVEN `deploy/base/` is the independent baseline for the overlays
 - WHEN a pull request changes `deploy/openshift/` outside its declared allowlist

@@ -47,7 +47,7 @@ observe the same queue this specification tunes.
 
 ## Requirements
 
-### Requirement: CP-CONC-01 -- Configurable Gateway Reconcile Worker Count
+### Requirement: GTW-CONC-01 -- Configurable Gateway Reconcile Worker Count
 
 The control plane SHALL make the size of the gateway reconcile worker pool
 deployment configuration, supplied through an environment variable, so the
@@ -56,7 +56,7 @@ rebuild. Configuration SHALL be separate from code.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `GATEWAY_RECONCILE_WORKERS` | (bounded default, see CP-CONC-03) | Maximum number of *distinct* gateways reconciled concurrently by the control-plane worker pool |
+| `GATEWAY_RECONCILE_WORKERS` | (bounded default, see GTW-CONC-03) | Maximum number of *distinct* gateways reconciled concurrently by the control-plane worker pool |
 
 The configured value SHALL flow from configuration load through the control-plane
 entrypoint into the gateway reconcile queue construction, so the running pool size
@@ -68,7 +68,7 @@ value greater than the default; create a burst of gateways larger than the defau
 confirm more than the default number of gateways are in `Provisioning` at once,
 bounded by the configured value. Start it unset and confirm the default applies.
 
-#### Scenario: Worker count raised via configuration
+#### Scenario: GTW-CONC-01.01 -- Worker count raised via configuration
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is set to `8`
 - AND ten gateways are created within a short window
@@ -76,14 +76,14 @@ bounded by the configured value. Start it unset and confirm the default applies.
 - THEN up to eight gateways SHALL be in `Provisioning` simultaneously
 - AND the remaining gateways SHALL wait in the queue until a worker frees
 
-#### Scenario: Default applies when unset
+#### Scenario: GTW-CONC-01.02 -- Default applies when unset
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is not set
 - WHEN the control plane starts
 - THEN the gateway reconcile pool SHALL use the bounded default worker count
 - AND cross-gateway concurrency SHALL behave as it did before this configuration existed
 
-### Requirement: CP-CONC-02 -- Preserved Concurrency Invariants
+### Requirement: GTW-CONC-02 -- Preserved Concurrency Invariants
 
 Regardless of the configured worker count, the control plane SHALL preserve the
 invariants the pool exists to enforce:
@@ -102,7 +102,7 @@ never per-gateway parallelism.
 gateway and confirm only one reconcile for that gateway runs at a time while
 different gateways reconcile in parallel up to the cap.
 
-#### Scenario: Per-gateway serialization holds under a raised cap
+#### Scenario: GTW-CONC-02.01 -- Per-gateway serialization holds under a raised cap
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is set above one
 - AND multiple events arrive for the same gateway
@@ -110,13 +110,13 @@ different gateways reconcile in parallel up to the cap.
 - THEN at most one reconcile for that gateway SHALL run at any instant
 - AND reconciles for different gateways MAY run concurrently up to the configured cap
 
-#### Scenario: Concurrency stays bounded
+#### Scenario: GTW-CONC-02.02 -- Concurrency stays bounded
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is set to `N`
 - WHEN more than `N` gateways are ready to reconcile
 - THEN no more than `N` gateway reconciles SHALL run concurrently
 
-### Requirement: CP-CONC-03 -- Bounded Default and Input Validation
+### Requirement: GTW-CONC-03 -- Bounded Default and Input Validation
 
 The control plane SHALL use a bounded, positive default worker count when the
 variable is unset or empty, preserving today's behavior. The default SHALL be a
@@ -139,7 +139,7 @@ be clamped with a logged warning rather than rejected.
 invalid value (`abc`, `0`, `-3`); confirm a warning is logged and the default pool
 size is used, and that reconciliation proceeds normally.
 
-#### Scenario: Invalid value falls back to the default
+#### Scenario: GTW-CONC-03.01 -- Invalid value falls back to the default
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is set to `abc`
 - WHEN the control plane starts
@@ -147,7 +147,7 @@ size is used, and that reconciliation proceeds normally.
 - AND it SHALL use the bounded default worker count
 - AND reconciliation SHALL proceed normally
 
-#### Scenario: Non-positive value falls back to the default
+#### Scenario: GTW-CONC-03.02 -- Non-positive value falls back to the default
 
 - GIVEN `GATEWAY_RECONCILE_WORKERS` is set to `0`
 - WHEN the control plane starts

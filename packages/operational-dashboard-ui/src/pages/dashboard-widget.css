@@ -2,6 +2,50 @@
   flex-shrink: 0;
 }
 
+.hypershell-dashboard-navigation {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--xs);
+  justify-content: space-between;
+}
+
+.hypershell-dashboard-navigation > .pf-v6-l-flex {
+  flex-wrap: wrap;
+}
+
+.hypershell-dashboard-purpose {
+  background: var(--pf-t--global--background--color--primary--default);
+  border-inline-start: 4px solid var(--pf-t--global--color--brand--default);
+  font-size: var(--pf-t--global--font--size--sm);
+  margin-block: var(--pf-t--global--spacer--md);
+  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
+}
+
+.hypershell-dashboard-purpose > div {
+  margin-block-start: var(--pf-t--global--spacer--xs);
+}
+
+.hypershell-dashboard-data-alert {
+  margin-block: var(--pf-t--global--spacer--md);
+}
+
+.hypershell-dashboard-widget-layout,
+.hypershell-dashboard-widget-layout .react-grid-layout {
+  min-height: 240px;
+}
+
+.hypershell-dashboard-compact-row {
+  display: flex;
+  font-size: var(--pf-t--global--font--size--sm);
+  justify-content: space-between;
+}
+
+.hypershell-dashboard-compact-list .pf-v6-c-description-list__group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .hypershell-dashboard-last-refreshed {
   color: var(--pf-t--global--text--color--subtle);
   font-size: var(--pf-t--global--font--size--sm);
@@ -15,10 +59,95 @@
   --pf-v6-c-card__body--PaddingInlineStart: var(--pf-t--global--spacer--sm);
 }
 
+.hypershell-dashboard-summary-list {
+  display: grid;
+  gap: var(--pf-t--global--spacer--sm);
+  width: 100%;
+}
+
+.hypershell-dashboard-summary-list .pf-v6-c-description-list__group {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+.hypershell-dashboard-attention-required .pf-v6-c-description-list__group {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+.hypershell-dashboard-summary-list .pf-v6-c-description-list__term {
+  font-weight: var(--pf-t--global--font--weight--body--default);
+}
+
+.hypershell-dashboard-attention-required .pf-v6-c-description-list__term {
+  font-weight: var(--pf-t--global--font--weight--body--default);
+}
+
+.hypershell-dashboard-summary-list .pf-v6-c-description-list__description {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  justify-self: end;
+  text-align: right;
+}
+
+.hypershell-dashboard-attention-required
+  .pf-v6-c-description-list__description {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  justify-self: end;
+  text-align: right;
+}
+
+.hypershell-dashboard-attention-required
+  .pf-v6-c-description-list__group
+  + .pf-v6-c-description-list__group {
+  margin-block-start: 0.25rem;
+}
+
+.hypershell-dashboard-attention-required .pf-v6-c-description-list__group {
+  padding-block: 0;
+}
+
+.hypershell-dashboard-summary-list__value {
+  align-items: center;
+  display: grid;
+  gap: var(--pf-t--global--spacer--xs);
+  grid-template-columns: 1.25rem minmax(3rem, auto);
+}
+
+.hypershell-dashboard-summary-list__indicator {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  min-width: 1.25rem;
+}
+
+.hypershell-dashboard-summary-list__value > :last-child {
+  text-align: end;
+}
+
+.hypershell-dashboard-summary-list__indicator--positive {
+  color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.hypershell-dashboard-summary-list__indicator--negative {
+  color: var(--pf-t--global--icon--color--status--danger--default);
+}
+
+.hypershell-dashboard-summary-list__indicator--warning {
+  color: var(--pf-t--global--icon--color--status--warning--default);
+}
+
 .hypershell-dashboard-widget-help-text {
   color: var(--pf-t--global--text--color--subtle);
   font-size: var(--pf-t--global--font--size--sm);
-  margin-block: var(--pf-t--global--spacer--sm) 0;
+  margin-block: 0;
+}
+
+.hypershell-dashboard-widget-card > .pf-v6-c-divider {
+  margin-block: var(--pf-t--global--spacer--sm);
 }
 
 .hypershell-dashboard-metric-card {
@@ -108,6 +237,44 @@
   .pf-v6-c-data-list__item-row
   + .pf-v6-c-data-list__item-row {
   margin-block-start: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-gateway-releases__stats
+  .pf-v6-c-data-list__item-row
+  + .pf-v6-c-data-list__item-row {
+  margin-block-start: var(--pf-t--global--spacer--xs);
+}
+
+.hypershell-dashboard-gateway-releases__stats {
+  --pf-v6-c-data-list--BorderBlockEndWidth: 0;
+  --pf-v6-c-data-list--BorderBlockStartWidth: 0;
+  --pf-v6-c-data-list__item--BorderBlockEndWidth: 0;
+  --pf-v6-c-data-list__item--BorderBlockStartWidth: 0;
+  --pf-v6-c-data-list__item--PaddingBlockEnd: 0;
+  --pf-v6-c-data-list__item--PaddingBlockStart: 0;
+  --pf-v6-c-data-list__item-row--BorderBlockStartWidth: 0;
+  --pf-v6-c-data-list__item-row--PaddingBlockEnd: 0;
+  --pf-v6-c-data-list__item-row--PaddingBlockStart: 0;
+}
+
+.hypershell-dashboard-provisioning-snapshot .pf-v6-c-description-list__term {
+  font-weight: var(--pf-t--global--font--weight--body--default);
+}
+
+.hypershell-dashboard-provisioning-snapshot
+  .pf-v6-c-description-list__description {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.hypershell-dashboard-provisioning-snapshot
+  .pf-v6-c-description-list__group
+  + .pf-v6-c-description-list__group {
+  margin-block-start: 0.25rem;
+}
+
+.hypershell-dashboard-provisioning-snapshot .pf-v6-c-description-list__group {
+  line-height: 1.25;
+  padding-block: 0;
 }
 
 .hypershell-dashboard-users-stat-cell {
@@ -323,8 +490,8 @@
 }
 
 .hypershell-dashboard-reliability-summary {
+  column-gap: 32px;
   display: grid;
-  gap: var(--pf-t--global--spacer--lg);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -357,4 +524,40 @@
   --pf-v6-chart-donut--label--title--Fill: var(
     --pf-t--global--icon--color--status--danger--default
   );
+}
+
+.hypershell-adoption-dashboard__summary {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.hypershell-adoption-dashboard__summary > div {
+  align-items: start;
+  display: grid;
+  font-size: 12px;
+  gap: 8px;
+  grid-template-columns: minmax(120px, 40%) 1fr;
+  justify-content: space-between;
+}
+
+.hypershell-adoption-dashboard__summary dd {
+  font-weight: 600;
+  margin: 0;
+  text-align: right;
+}
+
+.hypershell-adoption-dashboard__unavailable {
+  color: var(--pf-t--global--text--color--subtle);
+  display: grid;
+  font-weight: 400;
+  gap: 2px;
+  justify-items: end;
+  text-align: right;
+}
+
+.hypershell-adoption-dashboard__trends {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
 }

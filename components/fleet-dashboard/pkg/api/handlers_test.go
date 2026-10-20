@@ -3,14 +3,32 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/cache"
+	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/sources"
 )
+
+// fakeE2E is a minimal E2ERunPlane for handler tests.
+type fakeE2E struct {
+	detail *sources.E2ERunDetail
+	err    error
+}
+
+func (f *fakeE2E) RunDetail(context.Context, string) (*sources.E2ERunDetail, error) {
+	return f.detail, f.err
+}
+
+func (f *fakeE2E) Stream(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = w.Write([]byte("data: {\"kind\":\"status\"}\n\n"))
+}
 
 // oneShotSource returns a cache.Source whose single refresh yields data, so its
 // snapshot is populated (GeneratedAt set) without a running refresh loop.
@@ -46,6 +64,145 @@ func TestServeEncodeErrorIsVisible(t *testing.T) {
 	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
+}
+
+// TestServeSDLCColdIs503 confirms the SDLC route returns 503 before its first
+// successful refresh (never-refreshed), distinguishing cold-start from stale
+// (SDLC-VIS-01).
+func TestServeSDLCColdIs503(t *testing.T) {
+	cold := cache.NewSource("sdlc", time.Hour, func(context.Context) (any, error) {
+		return nil, context.DeadlineExceeded
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cold.Run(ctx) // one failed refresh: GeneratedAt stays zero
+	h := &Handlers{SDLC: cold}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cold SDLC status = %d, want 503", rr.Code)
+	}
+}
+
+// TestSDLCRouteNotMountedWhenNil confirms the optional SDLC plane leaves no route
+// behind when it is disabled (no source repo), so a request 404s rather than
+// panicking on a nil source.
+func TestSDLCRouteNotMountedWhenNil(t *testing.T) {
+	h := &Handlers{} // SDLC nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disabled SDLC route status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunsFeatureOff confirms the always-mounted recent-runs route reports
+// the feature off (not an error) when the plane is unconfigured (E2E-LOG-01/02).
+func TestE2ERunsFeatureOff(t *testing.T) {
+	h := &Handlers{} // E2ERuns + E2E nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (feature off, not error)", rr.Code)
+	}
+	var snap cache.Snapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, _ := snap.Data.(map[string]any)
+	if enabled, _ := data["enabled"].(bool); enabled {
+		t.Error("disabled feature should report enabled=false")
+	}
+}
+
+// TestE2ERunsHealthy confirms a configured recent-runs source serves 200.
+func TestE2ERunsHealthy(t *testing.T) {
+	src := oneShotSource(t, sources.E2ERunsPayload{Enabled: true, Runs: []sources.E2ERunSummary{{ID: "hub-00/ns/run-1"}}})
+	h := &Handlers{E2ERuns: src}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+// TestE2ERunDetailNotFound confirms an absent run addressed by id returns 404.
+func TestE2ERunDetailNotFound(t *testing.T) {
+	h := &Handlers{E2E: &fakeE2E{err: sources.ErrRunNotFound}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/missing", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunDetailDegradedDoesNotLeakError confirms a Loki failure degrades the
+// detail pane (stale 200) without echoing the raw error, which could carry the
+// internal Loki identity, to the browser (E2E-LOG-08).
+func TestE2ERunDetailDegradedDoesNotLeakError(t *testing.T) {
+	leaky := errors.New(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range?query={log_type=\"application\"}&X-Scope-OrgID=hub-00": refused`)
+	h := &Handlers{E2E: &fakeE2E{err: leaky}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded, not blanked)", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, leak := range []string{"e2e-loki", "svc:3100", "query_range", "log_type", "X-Scope-OrgID", "hub-00"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("response leaked internal Loki identity %q: %s", leak, body)
+		}
+	}
+}
+
+// TestE2ERunDetailHealthy confirms a found run returns 200 with the detail.
+func TestE2ERunDetailHealthy(t *testing.T) {
+	detail := &sources.E2ERunDetail{E2ERunSummary: sources.E2ERunSummary{ID: "hub-00/ns/run-1", Verdict: "passed"}}
+	h := &Handlers{E2E: &fakeE2E{detail: detail}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+// TestE2EStreamContentType confirms the stream route produces an SSE response.
+func TestE2EStreamContentType(t *testing.T) {
+	h := &Handlers{E2E: &fakeE2E{}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/stream?run=hub-00/ns/run-1", nil))
+	if ct := rr.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	if !contains(rr.Body.String(), "data:") {
+		t.Error("expected at least one SSE data frame")
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.

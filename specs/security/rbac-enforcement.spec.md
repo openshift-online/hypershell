@@ -28,8 +28,9 @@ stranding users before Keycloak is fully configured. It SHALL NOT be set in any
 production or staging overlay.
 
 Users gain gateway access by being assigned `gateway:creator` or `platform:admin` in
-Keycloak, or by being granted a per-gateway binding (`gateway:owner`, `gateway:viewer`)
-by an existing gateway owner.
+Keycloak, or by being granted a per-gateway binding (`gateway:owner`, `gateway:admin`,
+`gateway:viewer`). Owners can grant any of the three; admins can grant only
+`gateway:admin` and `gateway:viewer`. See `platform/gateway-access-management.spec.md`.
 
 ---
 
@@ -75,8 +76,8 @@ Role {
 ### RoleBinding
 
 Binds a Role to a User at a given scope. For `gateway:creator`, scope is `global` with
-no resource FK. For `gateway:owner` and `gateway:viewer`, scope is `gateway` with
-`gateway_id` identifying the bound gateway.
+no resource FK. For `gateway:owner`, `gateway:admin`, and `gateway:viewer`, scope is
+`gateway` with `gateway_id` identifying the bound gateway.
 
 ```
 RoleBinding {
@@ -105,9 +106,10 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Scope | Source | Purpose |
 |------|-------|--------|---------|
-| `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway |
+| `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway, and manage any gateway's access (grant/change/revoke any tier, including owner) via the access facade -- without gaining gateway login |
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
-| `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
+| `gateway:owner` | per gateway | DB (app logic) | Gateway owner; one or more; grantable and removable (but a gateway always keeps at least one owner). Full CRUD including delete; can grant/change/revoke any role including `gateway:owner`. The creator is the first owner |
+| `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Read/update the gateway (no delete); can grant/change/revoke `gateway:admin` and `gateway:viewer` only (not `gateway:owner`) |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
@@ -115,32 +117,40 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts | ManagedCluster Registration |
 |------|----------|-------------|-------------|-------------------|-----------------|-----------------|
-| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding | View all records; create, update, or delete any record |
-| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding | View all records; no writes |
-| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
+| `platform:admin` | view all, delete any | view all + delete any | grant/change/revoke owner/admin/viewer on any gateway (via the access facade, GTW-ACC-04/05/06) | None without a gateway binding | None without a gateway binding | View all records; create, update, or delete any record |
+| `gateway:creator` | create + own gateways | full (as owner) | grant owner/admin/viewer on own gateways | `openshell-admin` + `openshell-user` on own gateways | Through the resulting owner binding | View all records; no writes |
+| `gateway:owner` | full (one gateway) | full incl. delete | grant owner/admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
+| `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 
 ### OpenShell Role Bridge
 
-When a user accesses a gateway directly via the `openshell` CLI, the gateway's OIDC
-configuration maps HyperShell roles to OpenShell roles:
+When a user accesses a gateway directly via the `openshell` CLI, the control plane
+projects HyperShell roles onto per-gateway Keycloak client roles. A gateway
+administrator (owner or admin) receives both client roles; a standard user receives
+only `openshell-user`:
 
-| HyperShell Role | OpenShell Role |
-|-----------------|----------------|
-| `gateway:owner` | `openshell-admin` |
+| HyperShell Role | OpenShell (Keycloak client) roles |
+|-----------------|-----------------------------------|
+| `gateway:owner` | `openshell-admin`, `openshell-user` |
+| `gateway:admin` | `openshell-admin`, `openshell-user` |
 | `gateway:viewer` | `openshell-user` |
+
+The control plane reconciles each user's client roles to the union implied by their
+surviving bindings on every RoleBinding event; see
+`platform/gateway-access-management.spec.md` and `platform/openshell-gateway-keycloak.spec.md`.
 
 The `platform:admin` role provides visibility and lifecycle management through the
 HyperShell web console but does NOT grant OpenShell CLI access to gateways. Platform
 administrators who need to use the `openshell` CLI for a specific gateway must be
-granted `gateway:owner` or `gateway:viewer` on that gateway.
+granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ---
 
 ## Requirements
 
-### Requirement: Keycloak as Authority for Platform Roles
+### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
 Keycloak is the source of truth for the `gateway:creator` and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
@@ -153,14 +163,14 @@ RoleBinding records in the database on each authenticated request.
 This ensures that Keycloak role changes take effect on the next API request without
 requiring a separate sync process.
 
-#### Scenario: Keycloak admin assigns gateway:creator
+#### Scenario: SEC-RBAC-01.01 -- Keycloak admin assigns gateway:creator
 
 - GIVEN a Keycloak admin assigns the `gateway:creator` realm role to user A
 - WHEN user A makes their first API request with a JWT containing `gateway:creator`
 - THEN the middleware creates a User record and a `gateway:creator` RoleBinding
 - AND user A can create gateways
 
-#### Scenario: Keycloak admin revokes gateway:creator
+#### Scenario: SEC-RBAC-01.02 -- Keycloak admin revokes gateway:creator
 
 - GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
 - AND user A previously had `gateway:creator` assigned in Keycloak
@@ -170,7 +180,7 @@ requiring a separate sync process.
 - AND user A can no longer create new gateways
 - AND existing `gateway:owner` bindings on previously-created gateways are unaffected
 
-### Requirement: Service Account Support
+### Requirement: SEC-RBAC-02 -- Service Account Support
 
 Service accounts (e.g., the control plane) are Keycloak clients using the
 `client_credentials` grant. They receive the same JWT structure and role claims as
@@ -180,7 +190,7 @@ for the service account's client ID, and RoleBindings are created from their JWT
 The control plane service account SHALL be assigned `gateway:creator` in Keycloak,
 enabling it to create, watch, and manage all gateways it creates.
 
-#### Scenario: Control plane authenticates and operates
+#### Scenario: SEC-RBAC-02.01 -- Control plane authenticates and operates
 
 - GIVEN the control plane service account has `gateway:creator` in Keycloak
 - AND its client ID and secret are stored in a Kubernetes Secret
@@ -189,7 +199,7 @@ enabling it to create, watch, and manage all gateways it creates.
 - AND creates a `gateway:creator` RoleBinding
 - AND the control plane can create and manage gateways
 
-### Requirement: User Auto-Provisioning
+### Requirement: SEC-RBAC-03 -- User Auto-Provisioning
 
 The middleware SHALL automatically create a User record when a JWT-authenticated caller
 is seen for the first time. The User record SHALL be populated from standard OIDC claims
@@ -202,7 +212,7 @@ The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator
 `platform:admin`) from the JWT on every request, creating or removing bindings as
 needed to match the JWT claims.
 
-#### Scenario: First-time user auto-provisioned
+#### Scenario: SEC-RBAC-03.01 -- First-time user auto-provisioned
 
 - GIVEN a user authenticates via SSO for the first time
 - WHEN any authenticated API request is processed
@@ -210,15 +220,20 @@ needed to match the JWT claims.
 - AND RoleBindings are created to match the JWT's role claims
 - AND the request proceeds to authorization evaluation
 
-### Requirement: Gateway Creation Bootstrap
+### Requirement: SEC-RBAC-04 -- Gateway Creation Bootstrap
 
 Any authenticated user with the `gateway:creator` role SHALL be able to create gateways.
 On successful gateway creation, the system SHALL automatically create a `gateway:owner`
-RoleBinding for the authenticated user, scoped to the new gateway.
+RoleBinding for the authenticated user, scoped to the new gateway. This user is the
+creator and the first owner. Owners MAY subsequently grant `gateway:owner`,
+`gateway:admin`, or `gateway:viewer` to others, so a gateway may have multiple owners;
+a gateway SHALL always retain at least one owner (last-owner protection -- see
+`platform/gateway-access-management.spec.md` GTW-ACC-07). The creator holds no capability
+beyond any other owner and is tracked only for display/audit.
 
 This binding is created in the same database transaction as the gateway.
 
-#### Scenario: Creator creates a gateway and becomes owner
+#### Scenario: SEC-RBAC-04.01 -- Creator creates a gateway and becomes owner
 
 - GIVEN user A has `gateway:creator` (from Keycloak)
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
@@ -226,14 +241,14 @@ This binding is created in the same database transaction as the gateway.
 - AND a `gateway:owner` RoleBinding is created for user A on the new gateway
 - AND user A can immediately manage the gateway
 
-#### Scenario: User without creator role cannot create gateways
+#### Scenario: SEC-RBAC-04.02 -- User without creator role cannot create gateways
 
 - GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
 - AND user A has only `gateway:viewer` on some gateway
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the request returns 403 Forbidden
 
-### Requirement: Per-Gateway Authorization
+### Requirement: SEC-RBAC-05 -- Per-Gateway Authorization
 
 The authorization middleware SHALL evaluate permissions against the binding's gateway
 scope. A binding with `scope=gateway` and `gateway_id=gw-1` SHALL only authorize
@@ -242,85 +257,109 @@ access to gateway `gw-1`.
 `gateway:creator` grants the ability to create new gateways and acts as `gateway:owner`
 on all gateways the user owns (has a `gateway:owner` binding for).
 
-#### Scenario: Gateway owner can manage their gateway
+#### Scenario: SEC-RBAC-05.01 -- Gateway owner can manage their gateway
 
 - GIVEN user A has `gateway:owner` on gw-1
 - WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1`
 - THEN the request is authorized
 
-#### Scenario: Gateway viewer cannot modify
+#### Scenario: SEC-RBAC-05.02 -- Gateway viewer cannot modify
 
 - GIVEN user A has `gateway:viewer` on gw-1
 - WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1`
 - THEN the response is 403 Forbidden
 
-#### Scenario: No binding returns 404
+#### Scenario: SEC-RBAC-05.03 -- No binding returns 404
 
 - GIVEN user A has no binding covering gw-2
 - WHEN user A calls `GET /api/hypershell/v1/gateways/gw-2`
 - THEN the response is 404 (existence not disclosed)
 
-### Requirement: RoleBinding Grants
+### Requirement: SEC-RBAC-06 -- RoleBinding Grants
 
-Gateway owners can grant `gateway:owner` or `gateway:viewer` to other users on gateways
-they own. There is no hierarchy restriction -- owners can make more owners.
+Grants follow the hierarchy **owner > admin > viewer**. Gateway owners can grant, change,
+or revoke any role -- `gateway:owner`, `gateway:admin`, or `gateway:viewer` -- on gateways
+they own. Gateway admins can grant, change, or revoke only `gateway:admin` and
+`gateway:viewer`; they SHALL NOT assign, change, or revoke the owner tier. A gateway SHALL
+always retain at least one owner (last-owner protection, GTW-ACC-07). The console performs
+these grants through the gateway access facade (`GTW-ACC-04`/`GTW-ACC-05`/`GTW-ACC-06`), which writes
+the same RoleBinding records.
 
-#### Scenario: Owner invites a viewer
+#### Scenario: SEC-RBAC-06.01 -- Owner invites a viewer
 
 - GIVEN user A has `gateway:owner` on gw-1
-- WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `role=gateway:viewer`, `gateway_id=gw-1`, `user_id=B`
+- WHEN user A grants `role=gateway:viewer`, `gateway_id=gw-1`, `user_id=B`
 - THEN the binding is created
 - AND user B gains read-only access to gw-1
 
-#### Scenario: Owner invites a co-owner
+#### Scenario: SEC-RBAC-06.02 -- Owner assigns a co-owner
 
 - GIVEN user A has `gateway:owner` on gw-1
-- WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `role=gateway:owner`, `gateway_id=gw-1`, `user_id=B`
+- WHEN user A grants `role=gateway:owner`, `gateway_id=gw-1`, `user_id=B`
 - THEN the binding is created
-- AND user B gains full access to gw-1
+- AND user B gains full owner access to gw-1 (including deleting the gateway and assigning owners)
 
-#### Scenario: Viewer cannot grant
+#### Scenario: SEC-RBAC-06.03 -- Admin can grant admin and viewer
+
+- GIVEN user B has `gateway:admin` on gw-1
+- WHEN user B grants `role=gateway:viewer` (or `gateway:admin`), `gateway_id=gw-1`, `user_id=D`
+- THEN the binding is created
+
+#### Scenario: SEC-RBAC-06.04 -- Admin cannot assign an owner
+
+- GIVEN user B has `gateway:admin` on gw-1 (not an owner)
+- WHEN user B attempts to grant `role=gateway:owner` on gw-1
+- THEN the request returns 403 Forbidden
+
+#### Scenario: SEC-RBAC-06.05 -- Viewer cannot grant
 
 - GIVEN user A has only `gateway:viewer` on gw-1
-- WHEN user A calls `POST /api/hypershell/v1/role_bindings` with any role on gw-1
+- WHEN user A attempts to grant any role on gw-1
 - THEN the request returns 403 Forbidden
 
-#### Scenario: Cannot grant on a gateway you don't own
+#### Scenario: SEC-RBAC-06.06 -- Cannot grant on a gateway you don't administer
 
-- GIVEN user A has `gateway:owner` on gw-1 only
-- WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `gateway_id=gw-2`
+- GIVEN user A administers gw-1 only
+- WHEN user A attempts to grant a binding with `gateway_id=gw-2`
 - THEN the request returns 403 Forbidden
 
-### Requirement: Platform Admin Global Access
+### Requirement: SEC-RBAC-07 -- Platform Admin Global Access
 
-Users with the `platform:admin` role SHALL have global view and delete permissions across
-all gateways in the platform, regardless of per-gateway RoleBindings. This role is assigned
-via Keycloak and synced to the database identically to `gateway:creator`.
+Users with the `platform:admin` role SHALL have global view, delete, and access-management
+permissions across all gateways in the platform, regardless of per-gateway RoleBindings.
+Access management (grant/change/revoke any tier, including owner, and directory search)
+is owner-equivalent and exercised through the access facade; it creates no gateway-scoped
+binding for the platform admin, so it confers no gateway login
+(`platform/gateway-access-management.spec.md` GTW-ACC-08). This role is assigned via Keycloak
+and synced to the database identically to `gateway:creator`.
 
 Platform administrators SHALL be able to:
 
 - List all gateways across the platform (GET `/api/hypershell/v1/gateways` returns all)
 - View any specific gateway (GET `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
 - Delete any gateway (DELETE `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
+- Manage any gateway's access through the access facade (`/api/hypershell/v1/gateways/{id}/access`): list, grant, change, and revoke any tier including `gateway:owner`, and search the directory -- owner-equivalent, without holding a per-gateway binding, and subject to last-owner protection (`platform/gateway-access-management.spec.md` GTW-ACC-07/GTW-ACC-08)
 
 Platform administrators SHALL NOT be able to:
 
-- Modify gateway configuration (PATCH/PUT operations require `gateway:owner`)
-- Grant or revoke RoleBindings (requires `gateway:owner` on that specific gateway)
+- Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
+- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that endpoint still requires `gateway:owner` or `gateway:admin` on the gateway; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
+- Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
 
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
 `gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
 
-In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
+The `platform:admin` role covers gateway **view**, **delete**, and **access management** (the access facade; `platform/gateway-access-management.spec.md`). It does NOT grant permissions to:
 
-- View or modify GatewayNetworks, GatewayReleases, or ManagedClusters
-- View or modify Users or RoleBindings
+- Modify gateway configuration (PATCH), or create gateways (requires `gateway:creator`)
+- View or modify ManagedClusters
+- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (access is managed through the access facade instead)
 - Access platform-level configuration or system administration functions
 
 Future iterations may expand platform:admin permissions to include these resources.
 
-#### Scenario: Platform admin views all gateways
+#### Scenario: SEC-RBAC-07.01 -- Platform admin views all gateways
 
 - GIVEN user A has `platform:admin` (from Keycloak)
 - AND there are 50 gateways in the platform owned by various users
@@ -329,14 +368,14 @@ Future iterations may expand platform:admin permissions to include these resourc
 - AND the response is paginated
 - AND includes metadata for total count and pagination
 
-#### Scenario: Platform admin views a specific gateway
+#### Scenario: SEC-RBAC-07.02 -- Platform admin views a specific gateway
 
 - GIVEN user A has `platform:admin`
 - AND user A has no `gateway:owner` or `gateway:viewer` binding for gw-1
 - WHEN user A calls `GET /api/hypershell/v1/gateways/gw-1`
 - THEN the response is 200 OK with the gateway details
 
-#### Scenario: Platform admin deletes any gateway
+#### Scenario: SEC-RBAC-07.03 -- Platform admin deletes any gateway
 
 - GIVEN user A has `platform:admin`
 - AND user B owns gw-1 (has `gateway:owner` binding)
@@ -345,28 +384,37 @@ Future iterations may expand platform:admin permissions to include these resourc
 - THEN the gateway is deleted
 - AND the response is 204 No Content
 
-#### Scenario: Platform admin cannot modify gateways without ownership
+#### Scenario: SEC-RBAC-07.04 -- Platform admin manages gateway access without a binding
+
+- GIVEN user A has `platform:admin`
+- AND user A has no binding for gw-1 (owned by user B)
+- WHEN user A grants user C the `owner` role on gw-1 via `POST /api/hypershell/v1/gateways/gw-1/access`
+- THEN the grant SHALL succeed
+- AND no gateway-scoped binding SHALL be created for user A (user A gains no `openshell` login on gw-1)
+
+#### Scenario: SEC-RBAC-07.05 -- Platform admin cannot modify gateways without ownership
 
 - GIVEN user A has `platform:admin` only
 - AND user A has no `gateway:owner` binding for gw-1
 - WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1`
 - THEN the response is 403 Forbidden
 
-#### Scenario: Platform admin cannot create gateways without creator role
+#### Scenario: SEC-RBAC-07.06 -- Platform admin cannot create gateways without creator role
 
 - GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
 - AND user A has `platform:admin` only (no `gateway:creator` in Keycloak)
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the response is 403 Forbidden
 
-#### Scenario: Platform admin cannot grant role bindings
+#### Scenario: SEC-RBAC-07.07 -- Platform admin cannot use the low-level role_bindings resource
 
 - GIVEN user A has `platform:admin` only
 - AND user A has no `gateway:owner` binding for gw-1
 - WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `gateway_id=gw-1`
 - THEN the response is 403 Forbidden
+- (platform administrators manage access through the access facade `/gateways/{id}/access`, not this generic resource)
 
-#### Scenario: User with platform:admin and gateway:creator can create and view all
+#### Scenario: SEC-RBAC-07.08 -- User with platform:admin and gateway:creator can create and view all
 
 - GIVEN user A has both `platform:admin` and `gateway:creator`
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
@@ -374,15 +422,15 @@ Future iterations may expand platform:admin permissions to include these resourc
 - AND user A becomes `gateway:owner` of the new gateway
 - AND user A can still view all other gateways via `platform:admin`
 
-### Requirement: Platform Admin UI Experience
+### Requirement: SEC-RBAC-08 -- Platform Admin UI Experience
 
-The web UI SHALL support `platform:admin` users as defined in `web-console/architecture.spec.md` requirement WEB-ARCH-02 and WEB-UI-03A.
+The web UI SHALL support `platform:admin` users as defined in `web-console/architecture.spec.md` requirement WEB-ARCH-02 and WEB-UIEX-06.
 
 Platform administrators SHALL see all gateways in the gateway list, which SHALL use API-backed pagination and search as specified in WEB-DATA-01.
 
 Each gateway row SHALL display a delete action for platform administrators. Delete actions SHALL require confirmation via a modal dialog before calling `DELETE /api/hypershell/v1/gateways/{id}`.
 
-### Requirement: gRPC Authorization
+### Requirement: SEC-RBAC-09 -- gRPC Authorization
 
 gRPC handlers SHALL enforce the same authorization rules as HTTP handlers. The gRPC
 authorization interceptor SHALL extract the caller identity from the request metadata
@@ -411,23 +459,80 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - `ManagedClusterService`: reads for `gateway:creator` or `platform:admin`; writes for
   `platform:admin` (`platform/managed-cluster-registration.spec.md`, "Record Writes and
   Deregistration").
-- `GatewayReleaseService` and `GatewayNetworkService`: as their HTTP resources.
 - `RoleBindingService`: denied. Its list and watch are not filtered by user or gateway;
   users manage bindings over HTTP.
+- Platform-wide ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
+  `ProviderBindingService`, `InferenceRouteService`, `SecretSourceService`): list, watch,
+  and get for `platform:admin`; all writes (create/update/delete) denied for user callers.
+  These kinds are platform-wide, so a user caller never writes them over gRPC. For the
+  import-write kinds among them (all except `RepositoryService`), declarative-import writes
+  are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
+  on the import-write path because the import never upserts `Repository` resources.
 - Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": its own
-cluster's gateways, fleet-wide reads, status-only writes to releases and networks, and
-deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
+cluster's gateways, platform-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
 registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
 allowlisted account that is registered is scoped as a control plane.
+
+**Declarative-import writes (control-plane identity only).** The control-plane
+declarative `.hypershell` import reconciler (see
+[`platform/control-plane.spec.md`](../platform/control-plane.spec.md), "Declarative
+`.hypershell` Import Reconciliation") is the single bounded path by which the control
+plane writes HyperShell API desired state. The gRPC `Create`, `Update`, and `Delete`
+methods for the import-write kinds (`SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`) SHALL be authorized for the
+control-plane identity and SHALL remain denied for every other caller. `Repository`
+is NOT an import-write kind: the import reconciler reconciles the `Repository` Kind but
+SHALL NEVER upsert `Repository` resources discovered in an import (it is excluded from
+the canonical importable set in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) to prevent recursive
+import), so the import write path SHALL NOT create, update, or delete `Repository`
+resources. These writes
+are `Repository`-scoped through the `repository_id` ownership mark, not an open
+bootstrap bypass:
+
+- On create the server SHALL set `repository_id` from the `Repository` the reconciler
+  is reconciling and SHALL ignore any client-supplied `repository_id`, so a caller
+  cannot forge ownership of an imported resource.
+- A create, update, or delete SHALL act only on resources owned by the reconciled
+  `Repository`; a write that would affect a resource owned by a different
+  `Repository`, or a resource created directly through the REST API or `hsctl apply`
+  (no ownership mark), SHALL be refused.
+- The bootstrap-service-account allowlist exemption remains a distinct, pre-existing
+  mechanism for fully-trusted internal identities; the import write authority derives
+  from the control-plane identity and `Repository` ownership, not from that allowlist.
+  A bootstrap service account that is not a registered control plane SHALL NOT be
+  treated as an import reconciler.
+
+The remaining importable Kinds, `Gateway` and `AgentRuntime`, are cluster-assigned and
+their gRPC `Create`, `Update`, and `Delete` are also authorized for the control-plane
+identity on the same `Repository`-scoped import terms: a write marked with the
+reconciled `Repository` id in trusted metadata is authorized as an import write, the
+server SHALL set `repository_id` from that metadata (ignoring any client value), and a
+write to a `Gateway` or `AgentRuntime` owned by a different `Repository`, or unowned,
+SHALL be refused. A `Gateway` or `AgentRuntime` write that carries NO import metadata
+stays on its existing non-import path (the control plane's cluster-scoped health and
+status write-backs), unchanged.
+
+**Declarative-import reads (control-plane identity only).** `Gateway` and
+`AgentRuntime` list reads are normally held to the caller's own `cluster_id` by the
+watch-stream caller binding. Because the single import reconciler must enumerate and
+prune a `Repository`'s gateways and agent runtimes across clusters, a `ListGateways`
+or `ListAgentRuntimes` read SHALL be exempted from the own-cluster requirement, and
+served across clusters, ONLY when ALL hold: the caller is the registered
+control-plane identity; the call carries the reconciled-`Repository` id in trusted
+metadata; the request sets the `repository_id` read filter equal to that id; and the
+named `Repository` exists. The server then filters the result to that `Repository`
+server-side. Any other read keeps the own-cluster binding, so this exemption does not
+widen a tenant's or a spoke's view beyond one named `Repository` it is reconciling.
 
 The hub's gRPC API is reachable from outside the cluster (`platform/hub-grpc-tls.spec.md`),
 so these rules are the only boundary between tenants, and between clusters, on that API.
 
-#### Scenario: Platform admin watches gateways via gRPC
+#### Scenario: SEC-RBAC-09.01 -- Platform admin watches gateways via gRPC
 
 - GIVEN user A has `platform:admin` (from Keycloak)
 - AND the control plane watches gateway events via gRPC
@@ -435,14 +540,14 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - THEN the stream includes events for all gateways in the platform
 - AND the authorization interceptor evaluates `platform:admin` identically to HTTP handlers
 
-#### Scenario: Platform admin cannot modify via gRPC without ownership
+#### Scenario: SEC-RBAC-09.02 -- Platform admin cannot modify via gRPC without ownership
 
 - GIVEN user A has `platform:admin` but no `gateway:owner` binding for gateway gw-1
 - WHEN a gRPC client with user A's credentials attempts to update gateway gw-1
 - THEN the request returns PermissionDenied
 - AND the response does not leak that gw-1 exists
 
-#### Scenario: Gateway creator cannot touch another tenant's gateway via gRPC
+#### Scenario: SEC-RBAC-09.03 -- Gateway creator cannot touch another tenant's gateway via gRPC
 
 - GIVEN user B holds `gateway:creator` and no binding on gateway gw-1, owned by user A
 - WHEN user B calls `UpdateGateway` (for example setting `image`) or `DeleteGateway` for gw-1
@@ -450,13 +555,33 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - AND `GetGateway` for gw-1 returns NotFound
 - AND `ListGateways` returns PermissionDenied
 
-#### Scenario: Users cannot read role bindings over gRPC
+#### Scenario: SEC-RBAC-09.04 -- Users cannot read role bindings over gRPC
 
 - GIVEN any user without a control-plane identity
 - WHEN they call `ListRoleBindings` or `WatchRoleBindings`
 - THEN the request returns PermissionDenied
 
-### Requirement: Error Response Opacity
+#### Scenario: SEC-RBAC-09.05 -- User cannot write an import ext kind over gRPC
+
+- GIVEN a caller that is not a control-plane identity
+- WHEN they call `CreateSandboxTemplate`, `UpdateProviderSpec`, or `DeleteSecretSource` over gRPC
+- THEN the request returns PermissionDenied
+- AND `platform:admin` MAY still list, watch, and get those kinds
+
+#### Scenario: SEC-RBAC-09.06 -- Import reconciler writes an owned ext resource and ownership cannot be forged
+
+- GIVEN the control-plane import reconciler reconciling `Repository` R1
+- WHEN it calls `CreateSandboxTemplate` with a client-supplied `repository_id` of R2
+- THEN the server SHALL set `repository_id` to R1 from the reconciled `Repository`
+- AND it SHALL ignore the client-supplied R2 value
+
+#### Scenario: SEC-RBAC-09.07 -- Import write is refused outside the owning Repository
+
+- GIVEN a `SandboxTemplate` owned by `Repository` R2 or created directly with no ownership mark
+- WHEN the import reconciler for `Repository` R1 attempts to update or delete it
+- THEN the write SHALL be refused
+
+### Requirement: SEC-RBAC-10 -- Error Response Opacity
 
 For singleton resource endpoints (`GET /gateways/{id}`), the middleware SHALL return 404
 when the caller has no binding that covers the requested resource. Returning 403 on a
@@ -470,7 +595,7 @@ and who has no `gateway:creator`, `platform:admin`, or per-gateway RoleBinding
 Denying that list with 403 is a product bug: the web console treats it as
 "Gateways could not be loaded".
 
-#### Scenario: Developer with no gateway bindings lists gateways
+#### Scenario: SEC-RBAC-10.01 -- Developer with no gateway bindings lists gateways
 
 - GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
 - AND user A is authenticated
@@ -483,7 +608,7 @@ Denying that list with 403 is a product bug: the web console treats it as
 For mutation endpoints where the caller lacks write permission, the middleware SHALL
 return 403.
 
-### Requirement: Auth-Exempt Endpoints
+### Requirement: SEC-RBAC-11 -- Auth-Exempt Endpoints
 
 The following endpoints SHALL require only authentication (valid JWT), not authorization:
 
@@ -495,7 +620,7 @@ The following endpoints SHALL require only authentication (valid JWT), not autho
 Health, metrics, and version endpoints are already bypassed at the authentication
 layer.
 
-### Requirement: Audit Logging
+### Requirement: SEC-RBAC-12 -- Audit Logging
 
 Platform administrator actions SHALL be logged with:
 
@@ -507,7 +632,7 @@ Platform administrator actions SHALL be logged with:
 High-privilege operations (gateway deletion by platform:admin) SHALL be logged at INFO
 level or higher to ensure visibility in operational monitoring and security audits.
 
-### Requirement: Default Role Bootstrap (Development Mode Only)
+### Requirement: SEC-RBAC-13 -- Default Role Bootstrap (Development Mode Only)
 
 The API server supports a configurable set of default roles applied to every authenticated
 user, controlled by `RBAC_DEFAULT_ROLES` (comma-separated role names). This feature
@@ -521,7 +646,7 @@ exists solely as a local-development convenience.
 - Because defaults re-apply on every request, Keycloak cannot revoke a role that is also
   a default. This is the defining reason defaults must be disabled in production.
 
-#### Scenario: Local development with defaults (NOT for production)
+#### Scenario: SEC-RBAC-13.01 -- Local development with defaults (NOT for production)
 
 - GIVEN `RBAC_DEFAULT_ROLES=gateway:creator` (local dev only)
 - AND a developer authenticates with a JWT carrying no Keycloak realm roles
@@ -529,7 +654,7 @@ exists solely as a local-development convenience.
 - THEN the middleware creates a `gateway:creator` RoleBinding automatically
 - AND the developer can create gateways without Keycloak configuration
 
-#### Scenario: Production mode -- no defaults, Keycloak is authoritative
+#### Scenario: SEC-RBAC-13.02 -- Production mode -- no defaults, Keycloak is authoritative
 
 - GIVEN `RBAC_DEFAULT_ROLES=` (production)
 - AND `RBAC_ENFORCE=true`
@@ -538,7 +663,7 @@ exists solely as a local-development convenience.
 - THEN no default binding is created
 - AND the user cannot create gateways until a Keycloak admin assigns `gateway:creator`
 
-### Requirement: Production Rollout
+### Requirement: SEC-RBAC-14 -- Production Rollout
 
 RBAC enforcement SHALL be gated behind the `RBAC_ENFORCE` configuration flag. When
 disabled, all authenticated requests pass. When enabled, all requests are evaluated
@@ -553,7 +678,7 @@ records are seeded via migration; RoleBindings are created dynamically from JWT 
 on every authenticated request. The first privileged users are provisioned by assigning
 `gateway:creator` or `platform:admin` in Keycloak before enforcement is enabled.
 
-### Requirement: Database Migration
+### Requirement: SEC-RBAC-15 -- Database Migration
 
 A database migration SHALL seed the `platform:admin` role record with:
 
@@ -597,7 +722,7 @@ With `RBAC_DEFAULT_ROLES=` set, no authenticated principal receives any role
 automatically. Every permission flows exclusively from Keycloak. Callers without an
 appropriate role receive 403 on mutation endpoints and 404 on singleton GETs.
 
-### Requirement: Managed Cluster Self-Registration RBAC
+### Requirement: SEC-RBAC-16 -- Managed Cluster Self-Registration RBAC
 
 The `POST /api/hypershell/v1/managed_clusters/registration` endpoint SHALL require the
 `managed-cluster-registrar` role in the caller's JWT `realm_access.roles` claim.
@@ -633,7 +758,7 @@ spoke registers, its JWT `sub` is a control-plane identity on the gRPC API: the 
 interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry (see
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity").
 
-#### Scenario: Spoke with role can self-register
+#### Scenario: SEC-RBAC-16.01 -- Spoke with role can self-register
 
 - GIVEN a spoke service account with `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `POST /managed_clusters/registration`
@@ -641,14 +766,14 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 - AND the request proceeds to the handler
 - AND a `ManagedCluster` record is created (or the existing one is returned)
 
-#### Scenario: Spoke without role is rejected
+#### Scenario: SEC-RBAC-16.02 -- Spoke without role is rejected
 
 - GIVEN a spoke service account without `managed-cluster-registrar` in Keycloak
 - WHEN it calls `POST /managed_clusters/registration`
 - THEN the RBAC middleware returns 403 Forbidden
 - AND no `ManagedCluster` record is created or modified
 
-#### Scenario: managed-cluster-registrar grants no gateway access
+#### Scenario: SEC-RBAC-16.03 -- managed-cluster-registrar grants no gateway access
 
 - GIVEN production deployment with `RBAC_DEFAULT_ROLES=` and `RBAC_ENFORCE=true`
 - AND a spoke service account has only `managed-cluster-registrar` assigned in Keycloak
@@ -656,7 +781,7 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 - THEN the response is 200 with an empty items array
 - AND the spoke cannot create, modify, or delete any gateway through the HTTP API
 
-### Requirement: Integration Test Coverage
+### Requirement: SEC-RBAC-17 -- Integration Test Coverage
 
 Integration tests SHALL exercise RBAC enforcement with the new five-role model, including
 `managed-cluster-registrar` grant and deny scenarios, and the JWT-direct enforcement path.
@@ -698,7 +823,6 @@ gRPC writes (`components/api-server/test/authz`).
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` assigned exclusively via Keycloak in production | Production deployments set `RBAC_DEFAULT_ROLES=` so only Keycloak-assigned roles apply. `RBAC_DEFAULT_ROLES=gateway:creator` exists as a local-dev escape hatch only. The role cannot be self-assigned via the API. |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
-| No resource grouping as a security boundary | The Sector/Fleet grouping was removed. RBAC operates at platform level (creator) and gateway level (owner/viewer); there is no fleet-scoped isolation. |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
 | OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |

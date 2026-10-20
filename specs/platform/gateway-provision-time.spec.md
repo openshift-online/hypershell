@@ -1,7 +1,7 @@
 # Gateway Provision Time
 
 **Status:** Active
-**Applies to:** `deploy/base` and `deploy/kind` control-plane metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/control-plane` (`gateway.provision.duration` histogram per `platform/control-plane-observability.spec.md` CP-OBS-07)
+**Applies to:** `deploy/base` and `deploy/kind` control-plane metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/control-plane` (`gateway.provision.duration` histogram per `platform/control-plane-observability.spec.md` OBS-CPL-07)
 
 ## Purpose
 
@@ -17,14 +17,14 @@ Version 2 aggregates three fleet-wide statistics from the control-plane histogra
 | **P50 (median)** | 50th percentile of recorded provision durations |
 | **P95** | 95th percentile of recorded provision durations |
 
-All three values SHALL be presented in **seconds** on the dashboard, matching the underlying histogram unit (CP-OBS-07).
+All three values SHALL be presented in **seconds** on the dashboard, matching the underlying histogram unit (OBS-CPL-07).
 
-The operational dashboard `system-summary` card already renders provision-duration rows (OP-DASH-13). Version 2 extends that card with separate rows for mean, median (P50), and P95. The default layout also includes a standalone `provision-time` widget (OP-DASH-10).
+The operational dashboard `system-summary` card already renders provision-duration rows (WEB-OPS-13). Version 2 extends that card with separate rows for mean, median (P50), and P95. The default layout also includes a standalone `provision-time` widget (WEB-OPS-10).
 
 ### Relationship to other specifications
 
-- **Control-plane observability** (`platform/control-plane-observability.spec.md` CP-OBS-07) owns recording `gateway.provision.duration` as an OTLP histogram in seconds with explicit bucket boundaries from 1 second through 15 minutes and the companion `gateway.provision.outcomes` counter (`platform/gateway-provision-outcomes.spec.md`).
-- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-time` system-summary rows, refresh policy (OP-DASH-09), independent metric sources (OP-DASH-19), and dashboard-operator access (OP-DASH-04).
+- **Control-plane observability** (`platform/control-plane-observability.spec.md` OBS-CPL-07) owns recording `gateway.provision.duration` as an OTLP histogram in seconds with explicit bucket boundaries from 1 second through 15 minutes and the companion `gateway.provision.outcomes` counter (`platform/gateway-provision-outcomes.spec.md`).
+- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-time` system-summary rows, refresh policy (WEB-OPS-09), independent metric sources (WEB-OPS-19), and dashboard-operator access (WEB-OPS-04).
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
 - **Gateway list metrics** (`provisioned-gateways`, `provisioned-sandboxes`) remain REST-driven and are unrelated to provision duration.
 - **Gateway metrics dashboard** (`platform/gateway-metrics-dashboard.spec.md`) exposes Prometheus gateway phase counts, not provision duration.
@@ -37,24 +37,24 @@ Historical trend series, per-gateway duration breakdown, and gateway-list timest
 
 ## Requirements
 
-### Requirement: GPT-00 -- Prometheus Histogram Availability
+### Requirement: OBS-GPT-09 -- Prometheus Histogram Availability
 
 The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the control-plane provision-duration histogram in Prometheus exposition format.
 
-The canonical series prefix SHALL be `gateway_provision_duration_seconds` with the standard histogram suffixes `_bucket`, `_count`, and `_sum`, derived from the OTLP metric `gateway.provision.duration` (CP-OBS-07).
+The canonical series prefix SHALL be `gateway_provision_duration_seconds` with the standard histogram suffixes `_bucket`, `_count`, and `_sum`, derived from the OTLP metric `gateway.provision.duration` (OBS-CPL-07).
 
-Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per GPT-07 rather than synthesizing values.
+Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per OBS-GPT-07 rather than synthesizing values.
 
 `DATA_SOURCES.md` SHALL document the canonical PromQL expressions once scrape or collector wiring is chosen during implementation.
 
-#### Scenario: Histogram present after gateway provisions
+#### Scenario: OBS-GPT-09.01 -- Histogram present after gateway provisions
 
 - GIVEN the control plane has recorded at least one `gateway.provision.duration` observation
 - AND the metrics pipeline exposes `gateway_provision_duration_seconds_count` greater than zero
 - WHEN the BFF evaluates provision-time PromQL
 - THEN mean, P50, and P95 SHALL be computable from the histogram series
 
-#### Scenario: Zero observations fails collection
+#### Scenario: OBS-GPT-09.02 -- Zero observations fails collection
 
 - GIVEN `gateway_provision_duration_seconds_count` is zero or absent
 - WHEN a dashboard operator loads operational metrics
@@ -63,7 +63,7 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 
 ---
 
-### Requirement: GPT-01 -- Provision Duration Measurement Contract
+### Requirement: OBS-GPT-01 -- Provision Duration Measurement Contract
 
 The platform SHALL compute three non-negative durations in **seconds** from the fleet-wide histogram at a single Prometheus instant-evaluation time:
 
@@ -87,9 +87,9 @@ The adapter SHALL expose the result on the `provision-time` `OperationalMetric` 
 
 Version 2 SHALL NOT emit `total`, `status`, or `trend` on the `provision-time` metric.
 
-When `gateway_provision_duration_seconds_count` is zero, any PromQL result is non-finite (`NaN` or `+Inf`), or any formatted second value is non-finite, collection SHALL fail (GPT-07).
+When `gateway_provision_duration_seconds_count` is zero, any PromQL result is non-finite (`NaN` or `+Inf`), or any formatted second value is non-finite, collection SHALL fail (OBS-GPT-07).
 
-#### Scenario: Histogram yields mean three fifteen, P50 two eighty-eight, P95 seven twenty-six seconds
+#### Scenario: OBS-GPT-01.01 -- Histogram yields mean three fifteen, P50 two eighty-eight, P95 seven twenty-six seconds
 
 - GIVEN Prometheus returns `mean_seconds = 315`, `p50_seconds = 288`, and `p95_seconds = 726`
 - WHEN the adapter maps the BFF response
@@ -100,9 +100,9 @@ When `gateway_provision_duration_seconds_count` is zero, any PromQL result is no
 
 ---
 
-### Requirement: GPT-02 -- Control-Plane Semantics
+### Requirement: OBS-GPT-02 -- Control-Plane Semantics
 
-Provision-duration samples SHALL follow CP-OBS-07:
+Provision-duration samples SHALL follow OBS-CPL-07:
 
 - One observation per gateway on its **first** successful transition to `Running`
 - Duration computed from API-server `created_at` and `updated_at` on the successful phase update
@@ -111,7 +111,7 @@ Provision-duration samples SHALL follow CP-OBS-07:
 
 The dashboard SHALL NOT recompute provision duration from gateway list timestamps. The gateway-list `updated_at - created_at` proxy used in the superseded version 1 approach is retired.
 
-#### Scenario: Degraded recovery does not shift percentiles
+#### Scenario: OBS-GPT-02.01 -- Degraded recovery does not shift percentiles
 
 - GIVEN a gateway already contributed one provision-duration observation when it first reached `Running`
 - WHEN that gateway later recovers from `Degraded` to `Running`
@@ -120,29 +120,29 @@ The dashboard SHALL NOT recompute provision duration from gateway list timestamp
 
 ---
 
-### Requirement: GPT-03 -- Prometheus Data Source
+### Requirement: OBS-GPT-03 -- Prometheus Data Source
 
-Hub-cluster provision duration SHALL be derived from Prometheus instant queries executed by the web-console BFF against `PROMETHEUS_URL` (same configuration as `platform/cluster-memory.spec.md` CM-03).
+Hub-cluster provision duration SHALL be derived from Prometheus instant queries executed by the web-console BFF against `PROMETHEUS_URL` (same configuration as `platform/cluster-memory.spec.md` OBS-MEM-03).
 
-The BFF SHALL evaluate the three PromQL expressions in GPT-01 as instant queries. Queries SHALL aggregate with `sum(...)` across all histogram series so unlabeled control-plane replicas contribute to one fleet-wide histogram.
+The BFF SHALL evaluate the three PromQL expressions in OBS-GPT-01 as instant queries. Queries SHALL aggregate with `sum(...)` across all histogram series so unlabeled control-plane replicas contribute to one fleet-wide histogram.
 
 The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly for provision duration in version 2.
 
-#### Scenario: Prometheus unavailable fails collection
+#### Scenario: OBS-GPT-03.01 -- Prometheus unavailable fails collection
 
 - GIVEN Prometheus is unreachable from the BFF within the query timeout
 - WHEN a dashboard operator loads operational metrics
 - THEN the BFF provision-duration route SHALL respond with HTTP `502`
-- AND the `provision-time` metric SHALL be omitted from the adapter response (OP-DASH-19)
+- AND the `provision-time` metric SHALL be omitted from the adapter response (WEB-OPS-19)
 
 ---
 
-### Requirement: GPT-04 -- BFF Gateway Provision Duration Route
+### Requirement: OBS-GPT-04 -- BFF Gateway Provision Duration Route
 
 The web-console BFF SHALL expose `GET /api/metrics/gateway-provision-duration` as a same-origin route that:
 
 1. Requires an authenticated session when OIDC is enabled (same session gate as `GET /api/metrics/cluster-memory`)
-2. Executes Prometheus instant queries for mean, P50, and P95 (GPT-01)
+2. Executes Prometheus instant queries for mean, P50, and P95 (OBS-GPT-01)
 3. Returns JSON:
 
 ```json
@@ -160,14 +160,14 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, non-success Prometheus response status, zero observation count, or non-finite computed quantiles, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed duration figures as a fallback.
 
-#### Scenario: Authenticated dashboard operator receives duration seconds
+#### Scenario: OBS-GPT-04.01 -- Authenticated dashboard operator receives duration seconds
 
 - GIVEN OIDC is enabled and the caller has a valid session
 - AND Prometheus returns successful instant-query results with `observation_count` greater than zero
 - WHEN the caller sends `GET /api/metrics/gateway-provision-duration`
-- THEN the BFF SHALL respond with HTTP `200` and the GPT-04 JSON body
+- THEN the BFF SHALL respond with HTTP `200` and the OBS-GPT-04 JSON body
 
-#### Scenario: Unauthenticated caller is rejected
+#### Scenario: OBS-GPT-04.02 -- Unauthenticated caller is rejected
 
 - GIVEN OIDC is enabled and the caller has no session
 - WHEN the caller sends `GET /api/metrics/gateway-provision-duration`
@@ -175,9 +175,9 @@ On Prometheus failure, timeout, non-success Prometheus response status, zero obs
 
 ---
 
-### Requirement: GPT-05 -- Operational Dashboard Metric Mapping
+### Requirement: OBS-GPT-05 -- Operational Dashboard Metric Mapping
 
-The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SHALL fetch `GET /api/metrics/gateway-provision-duration` as an independent metric source (OP-DASH-19) and emit a `provision-time` `OperationalMetric` per GPT-01.
+The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SHALL fetch `GET /api/metrics/gateway-provision-duration` as an independent metric source (WEB-OPS-19) and emit a `provision-time` `OperationalMetric` per OBS-GPT-01.
 
 The `OperationalMetric` type SHALL include an optional `provisionDuration` object:
 
@@ -189,7 +189,7 @@ interface OperationalMetricProvisionDuration {
 }
 ```
 
-The `system-summary` card SHALL render **three** provision-duration rows sourced from this metric (OP-DASH-13):
+The `system-summary` card SHALL render **three** provision-duration rows sourced from this metric (WEB-OPS-13):
 
 | Row label (localized) | Field |
 | --- | --- |
@@ -199,7 +199,7 @@ The `system-summary` card SHALL render **three** provision-duration rows sourced
 
 When `provisionDuration` is absent but `value` and `unit` are present, the UI MAY render only the mean row for backward compatibility during rollout.
 
-#### Scenario: System summary shows three second-labeled rows
+#### Scenario: OBS-GPT-05.01 -- System summary shows three second-labeled rows
 
 - GIVEN `provisionDuration` is `{ mean: "315.00", p50: "288.00", p95: "726.00" }` and `unit` is `"sec"`
 - WHEN the system-summary provision-duration rows render
@@ -208,15 +208,15 @@ When `provisionDuration` is absent but `value` and `unit` are present, the UI MA
 
 ---
 
-### Requirement: GPT-06 -- Decoupling from Gateway List
+### Requirement: OBS-GPT-06 -- Decoupling from Gateway List
 
 Provision-time collection SHALL NOT depend on the paginated gateway list (`GET /api/hypershell/v1/gateways`).
 
-A non-success BFF response for `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes` SHALL fail the entire `gateway-metrics` source and omit `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, and `provision-reliability`, even when provision-duration or provision-outcomes routes would have succeeded on their own (OP-DASH-23).
+A non-success BFF response for `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes` SHALL fail the entire `gateway-metrics` source and omit `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, and `provision-reliability`, even when provision-duration or provision-outcomes routes would have succeeded on their own (WEB-OPS-23).
 
-Conversely, provision-duration BFF failure SHALL omit only `provision-time`. Provision-outcomes BFF failure SHALL omit only `provision-reliability`. It SHALL NOT omit `provisioned-gateways` or `provisioned-sandboxes` when their BFF routes succeed (OP-DASH-19, OP-DASH-23).
+Conversely, provision-duration BFF failure SHALL omit only `provision-time`. Provision-outcomes BFF failure SHALL omit only `provision-reliability`. It SHALL NOT omit `provisioned-gateways` or `provisioned-sandboxes` when their BFF routes succeed (WEB-OPS-19, WEB-OPS-23).
 
-#### Scenario: Prometheus gateway counts down omits entire gateway-metrics source
+#### Scenario: OBS-GPT-06.01 -- Prometheus gateway counts down omits entire gateway-metrics source
 
 - GIVEN `GET /api/metrics/gateways` returns HTTP `502`
 - AND `GET /api/metrics/gateway-provision-duration` would succeed if queried
@@ -227,13 +227,13 @@ Conversely, provision-duration BFF failure SHALL omit only `provision-time`. Pro
 
 ---
 
-### Requirement: GPT-07 -- Refresh and Error Semantics
+### Requirement: OBS-GPT-07 -- Refresh and Error Semantics
 
-Provision time SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
+Provision time SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (WEB-OPS-09).
 
-When provision-duration collection fails (BFF `502`, zero observations, non-finite quantiles, or adapter validation error), the adapter SHALL omit only the `provision-time` metric. Other metric sources SHALL still contribute when they succeed (OP-DASH-19). The dashboard SHALL NOT display `0` seconds as a fallback.
+When provision-duration collection fails (BFF `502`, zero observations, non-finite quantiles, or adapter validation error), the adapter SHALL omit only the `provision-time` metric. Other metric sources SHALL still contribute when they succeed (WEB-OPS-19). The dashboard SHALL NOT display `0` seconds as a fallback.
 
-#### Scenario: No histogram observations omits provision time only
+#### Scenario: OBS-GPT-07.01 -- No histogram observations omits provision time only
 
 - GIVEN every other metric source succeeds
 - AND `gateway_provision_duration_seconds_count` is zero
@@ -244,18 +244,18 @@ When provision-duration collection fails (BFF `502`, zero observations, non-fini
 
 ---
 
-### Requirement: GPT-08 -- Verification
+### Requirement: OBS-GPT-08 -- Verification
 
 The web console SHALL include unit tests for:
 
 - BFF route PromQL mapping and JSON response formatting (including `observation_count`)
 - BFF `502` on zero count, Prometheus errors, and non-finite quantiles
 - Adapter mapping from BFF JSON to `provision-time` with `provisionDuration.mean`, `.p50`, and `.p95`
-- Partial gateway-metrics source behavior: gateway-count or sandbox route failure omits the entire gateway-metrics source; provision-duration or provision-outcomes route failure omits only the corresponding metric (GPT-06)
+- Partial gateway-metrics source behavior: gateway-count or sandbox route failure omits the entire gateway-metrics source; provision-duration or provision-outcomes route failure omits only the corresponding metric (OBS-GPT-06)
 
 The operational dashboard package SHALL include unit tests or Storybook fixtures for the three-row system-summary presentation when `provisionDuration` is present.
 
-#### Scenario: CI exercises adapter mapping
+#### Scenario: OBS-GPT-08.01 -- CI exercises adapter mapping
 
 - GIVEN a mocked BFF response with `mean_seconds: 315`, `p50_seconds: 288`, `p95_seconds: 726`, and `observation_count: 2`
 - WHEN dashboard adapter unit tests run
@@ -274,11 +274,11 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 
 ## Supersedes
 
-Version 1 of this spec (gateway-list mean from `updated_at - created_at`, GPT-01 through GPT-04 and GPT-06 list-consistency requirements) is superseded by version 2. Implementation that still uses the gateway-list proxy SHALL be treated as drift until GPT-W2 lands.
+Version 1 of this spec (gateway-list mean from `updated_at - created_at`, OBS-GPT-01 through OBS-GPT-04 and OBS-GPT-06 list-consistency requirements) is superseded by version 2. Implementation that still uses the gateway-list proxy SHALL be treated as drift until GPT-W2 lands.
 
 ## Primary Basis
 
-- `platform/control-plane-observability.spec.md` (CP-OBS-07)
-- `web-console/operational-dashboard.spec.md` (OP-DASH-08, OP-DASH-13, OP-DASH-19)
+- `platform/control-plane-observability.spec.md` (OBS-CPL-07)
+- `web-console/operational-dashboard.spec.md` (WEB-OPS-08, WEB-OPS-13, WEB-OPS-19)
 - `platform/cluster-memory.spec.md` (BFF Prometheus proxy pattern)
 - `platform/gateway-metrics-dashboard.spec.md` (`PROMETHEUS_URL` configuration)

@@ -14,7 +14,7 @@ graph LR
   SG --> ROUTE[GRPCRoute<br/>per tenant namespace]
   ROUTE --> SVC[openshell-gateway<br/>Service :8080]
   SVC --> POD[Gateway Pod<br/>TLS backend]
-  CA[BackendTLSPolicy +<br/>openshell-backend-ca] -.-> POD
+  CA[BackendTLSPolicy +<br/>openshell-gateway-backend-ca] -.-> POD
   CERT[Wildcard cert-manager<br/>Certificate] -.-> SG
   style DNS fill:#fff3cd
   style LB fill:#f8d7da

@@ -12,7 +12,7 @@
 
 The Gateway Console is the OpenShell dashboard for one gateway. The control plane deploys a console with each gateway that has a route. The console runs in the gateway namespace (`openshell-<id-hex-8>`). The console connects to the gateway through the in-cluster Service. A user opens the console in a browser at a per-gateway hostname.
 
-An oauth2-proxy sidecar authenticates the browser against a dedicated Keycloak client. The access token carries the gateway audience (`aud = {name}-{id}`) and the user roles (`hypershell.roles`). The dashboard sends this token to the gateway. The gateway validates the token with the rules that it applies to the CLI. The OIDC Role Bridge controls access. A user operates the console only where a `gateway:owner` or `gateway:viewer` RoleBinding exists.
+An oauth2-proxy sidecar authenticates the browser against a dedicated Keycloak client. The access token carries the gateway audience (`aud = {name}-{id}`) and the user roles (`hypershell.roles`). The dashboard sends this token to the gateway. The gateway validates the token with the rules that it applies to the CLI. The OIDC Role Bridge controls access. A user operates the console only where a `gateway:owner`, `gateway:admin`, or `gateway:viewer` RoleBinding exists.
 
 This spec covers Option 1: one oauth2-proxy for each gateway, real tokens with the correct audience, no token exchange, and no shared credential across gateways.
 
@@ -41,7 +41,7 @@ A console needs external ingress. Browser traffic reaches the console through an
 
 ## Requirements
 
-### Requirement: Console Enablement Tied to Routing
+### Requirement: OSG-CON-01 -- Console Enablement Tied to Routing
 
 The reconciler SHALL deploy the console when all of these conditions are true:
 
@@ -51,7 +51,7 @@ The reconciler SHALL deploy the console when all of these conditions are true:
 
 The console has no separate configuration field. The console SHALL use the same effective `GATEWAY_INGRESS_MODE` as the gateway. The console SHALL follow the route lifecycle.
 
-#### Scenario: Gateway API mode creates a console
+#### Scenario: OSG-CON-01.01 -- Gateway API mode creates a console
 
 - GIVEN a gateway with an enabled route
 - AND the selected ingress mode is `gateway-api`
@@ -60,7 +60,7 @@ The console has no separate configuration field. The console SHALL use the same 
 - THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, the HTTPRoute, and the NetworkPolicies
 - AND the console must answer at `https://console-<ns>.<base-domain>`
 
-#### Scenario: OpenShift Route mode creates a console
+#### Scenario: OSG-CON-01.02 -- OpenShift Route mode creates a console
 
 - GIVEN a gateway with an enabled route
 - AND the selected ingress mode is `route`
@@ -70,14 +70,14 @@ The console has no separate configuration field. The console SHALL use the same 
 - AND it must not create a console HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`
 
-#### Scenario: Non-routed gateway gets no console
+#### Scenario: OSG-CON-01.03 -- Non-routed gateway gets no console
 
 - GIVEN a gateway with no route
 - WHEN the reconciler reconciles the gateway
 - THEN it must not create console resources
 - AND it must not create a console client
 
-#### Scenario: Prerequisite is absent
+#### Scenario: OSG-CON-01.04 -- Prerequisite is absent
 
 - GIVEN a routed gateway with no selected ingress mode or with no Keycloak configuration
 - WHEN the reconciler reconciles the gateway
@@ -87,7 +87,7 @@ The console has no separate configuration field. The console SHALL use the same 
 
 ---
 
-### Requirement: Confidential Console Keycloak Client
+### Requirement: OSG-CON-02 -- Confidential Console Keycloak Client
 
 The reconciler must create one confidential OIDC client for each console. The reconciler creates this client in the same reconciliation pass that provisions the gateway CLI client, and it reuses the same Keycloak Admin REST API access. This client is separate from the CLI client.
 
@@ -122,7 +122,7 @@ The client-role mapper reads the user roles for the named client. It adds the ga
 
 Because `fullScopeAllowed` is `false`, Keycloak filters every role mapper's output to the console client's scope. A client role that is not in scope is silently dropped from the token, even when the mapper targets it and the user holds it. The reconciler MUST therefore grant the console client scope for the gateway client's roles by adding client scope-mappings for `openshell-admin` and `openshell-user` (the gateway client's roles) to the console client. Without this grant the access token omits `hypershell.roles` and the gateway denies every request with `role 'openshell-user' required`, even though `aud` (which is not scope-filtered) is present. The grant is scoped to this one gateway client's roles, so per-gateway isolation is preserved. The reconciler reconciles the scope-mappings on every pass so a console provisioned before this grant existed is healed.
 
-#### Scenario: Console token has the gateway audience and roles
+#### Scenario: OSG-CON-02.01 -- Console token has the gateway audience and roles
 
 - GIVEN a routed gateway `my-gateway` (id `2FhMpQzXBz`) with gateway client `my-gateway-2FhMpQzXBz`
 - AND user-a has `gateway:owner` on the gateway, which gives `openshell-admin`
@@ -131,7 +131,7 @@ Because `fullScopeAllowed` is `false`, Keycloak filters every role mapper's outp
 - AND the token must not contain any other gateway audience or role
 - AND the gateway must give admin access
 
-#### Scenario: User without a RoleBinding is denied
+#### Scenario: OSG-CON-02.02 -- User without a RoleBinding is denied
 
 - GIVEN user-c is a realm user with no RoleBinding on the gateway
 - WHEN user-c signs in through oauth2-proxy
@@ -140,7 +140,7 @@ Because `fullScopeAllowed` is `false`, Keycloak filters every role mapper's outp
 
 ---
 
-### Requirement: Console Credential Secret
+### Requirement: OSG-CON-03 -- Console Credential Secret
 
 The reconciler must store two values in one Secret named `openshell-console-oauth2` in the gateway namespace.
 
@@ -151,7 +151,7 @@ The reconciler must store two values in one Secret named `openshell-console-oaut
 
 The reconciler must create the Secret before the Deployment. The reconciler must use update-or-create. The control plane must not write either value to a log.
 
-#### Scenario: Cookie secret is stable
+#### Scenario: OSG-CON-03.01 -- Cookie secret is stable
 
 - GIVEN an `openshell-console-oauth2` Secret with a `cookie-secret`
 - WHEN the reconciler reconciles the gateway again
@@ -161,7 +161,7 @@ The reconciler must create the Secret before the Deployment. The reconciler must
 
 ---
 
-### Requirement: Console Deployment
+### Requirement: OSG-CON-04 -- Console Deployment
 
 The reconciler must create one Deployment named `openshell-console` in the gateway namespace. The Deployment has two containers: the dashboard and the oauth2-proxy sidecar. The dashboard listens on loopback. The Service exposes only oauth2-proxy.
 
@@ -218,7 +218,7 @@ oauth2-proxy must expose readiness and liveness probes on `/ready` and `/ping` (
 
 ---
 
-### Requirement: Console Service and Mode-Selected HTTP Exposure
+### Requirement: OSG-CON-05 -- Console Service and Mode-Selected HTTP Exposure
 
 The reconciler SHALL create a `ClusterIP` Service named `openshell-console` on port `4180`. It SHALL create only the console exposure resource for the selected ingress mode. It SHALL remove an exposure resource from the inactive mode when one exists.
 
@@ -267,7 +267,7 @@ spec:
 
 The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on Service port `http`. The Route SHALL use the OpenShift router certificate when no Route certificate is set.
 
-#### Scenario: HTTP listener absent on the shared Gateway
+#### Scenario: OSG-CON-05.01 -- HTTP listener absent on the shared Gateway
 
 - GIVEN a shared Gateway with no listener that matches `GATEWAY_API_HTTP_LISTENER_NAME`
 - WHEN the reconciler creates the HTTPRoute
@@ -275,14 +275,14 @@ The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on 
 - AND the reconciler must write a warning that names the missing listener
 - AND it must not fail the gateway reconciliation
 
-#### Scenario: OpenShift Route is admitted
+#### Scenario: OSG-CON-05.02 -- OpenShift Route is admitted
 
 - GIVEN the selected ingress mode is `route`
 - AND the console Deployment is Ready
 - WHEN an OpenShift router reports `Admitted=True` for the console Route
 - THEN the console exposure must be Ready
 
-#### Scenario: OpenShift Route is not admitted
+#### Scenario: OSG-CON-05.03 -- OpenShift Route is not admitted
 
 - GIVEN the selected ingress mode is `route`
 - WHEN no OpenShift router reports `Admitted=True` for the console Route
@@ -292,14 +292,14 @@ The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on 
 
 ---
 
-### Requirement: Console NetworkPolicies
+### Requirement: OSG-CON-06 -- Console NetworkPolicies
 
 The reconciler must create two NetworkPolicies. Existing gateway policies already select the gateway pod for ingress, so the namespace denies traffic by default from any other source. The ingress controller namespace is `GATEWAY_API_GATEWAY_NAMESPACE`, with the default value `openshift-ingress`. This namespace applies to the shared Gateway proxy and to the OpenShift router.
 
 1. **`openshell-console-allow-router`** -- selects the console pod (`app.kubernetes.io/instance: openshell-console`); allows ingress on TCP `4180` from the selected ingress controller namespace.
 2. **`openshell-gateway-allow-console`** -- selects the gateway pod (`app.kubernetes.io/instance: openshell-gateway`); allows ingress on TCP `8080` from the console pod in the same namespace.
 
-#### Scenario: Console reaches the gateway
+#### Scenario: OSG-CON-06.01 -- Console reaches the gateway
 
 - GIVEN a routed gateway with the console deployed
 - WHEN the dashboard connects to `openshell-gateway:8080`
@@ -308,11 +308,11 @@ The reconciler must create two NetworkPolicies. Existing gateway policies alread
 
 ---
 
-### Requirement: Console Lifecycle and Cleanup
+### Requirement: OSG-CON-07 -- Console Lifecycle and Cleanup
 
 The reconciler must reconcile and remove the console together with the route and the gateway. The reconciler must use update-or-create for all console resources.
 
-#### Scenario: Route removed from a gateway
+#### Scenario: OSG-CON-07.01 -- Route removed from a gateway
 
 - GIVEN a gateway that had a route and a console
 - WHEN the route field is removed
@@ -320,7 +320,7 @@ The reconciler must reconcile and remove the console together with the route and
 - AND it must delete the console client `{name}-{id}-console`
 - AND it must clear the `consoleAddress` field on the gateway
 
-#### Scenario: Gateway deleted
+#### Scenario: OSG-CON-07.02 -- Gateway deleted
 
 - GIVEN a gateway with a console
 - WHEN the reconciler gets a Gateway DELETED event
@@ -328,7 +328,7 @@ The reconciler must reconcile and remove the console together with the route and
 - AND the console namespaced resources go away with the other gateway resources
 - AND Keycloak deletes the console mappers with the client
 
-#### Scenario: Cleanup failure does not block
+#### Scenario: OSG-CON-07.03 -- Cleanup failure does not block
 
 - GIVEN the reconciler removes a console
 - WHEN it cannot delete the console client, because Keycloak is unavailable
@@ -337,11 +337,11 @@ The reconciler must reconcile and remove the console together with the route and
 
 ---
 
-### Requirement: Console Provisioning Atomicity and Idempotency
+### Requirement: OSG-CON-08 -- Console Provisioning Atomicity and Idempotency
 
 The reconciler must treat the console Keycloak work (client, mappers, secret) as one atomic step. When a step fails, the reconciler must delete the console client and retry on the next cycle. Repeated reconciliation must not create duplicate resources.
 
-#### Scenario: Mapper creation fails
+#### Scenario: OSG-CON-08.01 -- Mapper creation fails
 
 - GIVEN the reconciler created the console client
 - WHEN a mapper fails
@@ -351,7 +351,7 @@ The reconciler must treat the console Keycloak work (client, mappers, secret) as
 
 ---
 
-### Requirement: Console Address Discovery
+### Requirement: OSG-CON-09 -- Console Address Discovery
 
 The reconciler must PATCH the console URL into a read-only `consoleAddress` field on the gateway. The management web-console and the CLI use this field to link to the console.
 
@@ -361,7 +361,7 @@ The reconciler must PATCH the console URL into a read-only `consoleAddress` fiel
 - The reconciler clears it when the console pod is not Ready, when the console is removed, or when the base domain is unknown (for example, `GATEWAY_API_BASE_DOMAIN` is unset). A console that later goes unready has its address retracted, hiding the button.
 - Readiness is observed both during provisioning (a prompt check once the gateway's route is ready) and continuously by the health reconciler, so the field self-heals as the console pod's readiness changes.
 
-#### Scenario: Console button gated on console readiness
+#### Scenario: OSG-CON-09.01 -- Console button gated on console readiness
 
 - GIVEN a routed gateway whose console resources are applied but whose console pod is not yet Ready
 - THEN `consoleAddress` stays empty and the web-console does not offer the console button

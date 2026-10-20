@@ -24,6 +24,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousGatewaySandboxOrphaned := gatewaySandboxOrphaned
 	previousGatewaySandboxExpiring := gatewaySandboxExpiring
 	previousGatewaySandboxIdle := gatewaySandboxIdle
+	previousGatewaySandboxTotal := gatewaySandboxTotal
+	previousGatewaySandboxLifetime := gatewaySandboxLifetime
 	previousReconcileErrors := reconcileErrors
 	previousReconciliationFailures := reconciliationFailures
 	previousReconciliationRetries := reconciliationRetries
@@ -44,6 +46,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewaySandboxOrphaned = nil
 	gatewaySandboxExpiring = nil
 	gatewaySandboxIdle = nil
+	gatewaySandboxTotal = nil
+	gatewaySandboxLifetime = nil
 	reconcileErrors = nil
 	reconciliationFailures = nil
 	reconciliationRetries = nil
@@ -62,6 +66,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		gatewaySandboxOrphaned = previousGatewaySandboxOrphaned
 		gatewaySandboxExpiring = previousGatewaySandboxExpiring
 		gatewaySandboxIdle = previousGatewaySandboxIdle
+		gatewaySandboxTotal = previousGatewaySandboxTotal
+		gatewaySandboxLifetime = previousGatewaySandboxLifetime
 		reconcileErrors = previousReconcileErrors
 		reconciliationFailures = previousReconciliationFailures
 		reconciliationRetries = previousReconciliationRetries
@@ -251,6 +257,77 @@ func TestAttentionClusterID(t *testing.T) {
 	}
 	if got := AttentionClusterID("spoke-1"); got != "spoke-1" {
 		t.Fatalf("AttentionClusterID(spoke-1) = %q, want spoke-1", got)
+	}
+}
+
+func TestRecordSandboxUsageMetrics(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordSandboxTotal(context.Background(), "cluster-a", "openshell-live", 4)
+	RecordSandboxLifetime(context.Background(), "cluster-a", "openshell-live", 3*time.Hour)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	var foundTotal, foundLifetime bool
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			switch gotMetric.Name {
+			case "gateway.sandbox.total":
+				foundTotal = true
+				if gotMetric.Unit != "{sandbox}" {
+					t.Fatalf("total unit = %q, want {sandbox}", gotMetric.Unit)
+				}
+				gauge, ok := gotMetric.Data.(metricdata.Gauge[int64])
+				if !ok {
+					t.Fatalf("total data type = %T, want int64 gauge", gotMetric.Data)
+				}
+				if len(gauge.DataPoints) != 1 || gauge.DataPoints[0].Value != 4 {
+					t.Fatalf("total data points = %#v, want one point with value 4", gauge.DataPoints)
+				}
+				assertSandboxUsageAttributes(t, "gateway.sandbox.total", gauge.DataPoints[0].Attributes)
+			case "gateway.sandbox.lifetime":
+				foundLifetime = true
+				if gotMetric.Unit != "s" {
+					t.Fatalf("lifetime unit = %q, want s", gotMetric.Unit)
+				}
+				histogram, ok := gotMetric.Data.(metricdata.Histogram[float64])
+				if !ok {
+					t.Fatalf("lifetime data type = %T, want float64 histogram", gotMetric.Data)
+				}
+				if len(histogram.DataPoints) != 1 {
+					t.Fatalf("lifetime data points = %#v, want one", histogram.DataPoints)
+				}
+				wantBounds := []float64{60, 300, 900, 1800, 3600, 7200, 14400, 28800, 43200, 86400, 172800, 259200, 604800, 1209600, 2592000}
+				if !reflect.DeepEqual(histogram.DataPoints[0].Bounds, wantBounds) {
+					t.Fatalf("lifetime bounds = %v, want %v", histogram.DataPoints[0].Bounds, wantBounds)
+				}
+				assertSandboxUsageAttributes(t, "gateway.sandbox.lifetime", histogram.DataPoints[0].Attributes)
+			}
+		}
+	}
+	if !foundTotal {
+		t.Fatal("gateway.sandbox.total metric was not collected")
+	}
+	if !foundLifetime {
+		t.Fatal("gateway.sandbox.lifetime metric was not collected")
+	}
+}
+
+func assertSandboxUsageAttributes(t *testing.T, metricName string, attrs attribute.Set) {
+	t.Helper()
+	if attrs.Len() != 2 {
+		t.Fatalf("%s attributes = %v, want namespace and hypershell.cluster_id", metricName, attrs)
+	}
+	namespace, ok := attrs.Value(attribute.Key("namespace"))
+	if !ok || namespace.AsString() != "openshell-live" {
+		t.Fatalf("%s namespace = %v, want openshell-live", metricName, namespace)
+	}
+	clusterID, ok := attrs.Value(attribute.Key("hypershell.cluster_id"))
+	if !ok || clusterID.AsString() != "cluster-a" {
+		t.Fatalf("%s hypershell.cluster_id = %v, want cluster-a", metricName, clusterID)
 	}
 }
 

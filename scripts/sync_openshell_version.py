@@ -11,6 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "OPENSHELL_VERSION"
+CHART_VALUES_FILE = REPO_ROOT / "charts" / "openshell" / "values.yaml"
 
 # Manifests that embed OPENSHELL_TAG as an image tag in GATEWAY_IMAGE or
 # GATEWAY_SUPERVISOR_IMAGE env var values.  Each entry maps a file to the
@@ -29,6 +30,22 @@ MANAGED_FILES: list[tuple[Path, list[str]]] = [
         ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
 ]
+
+# Manifests that advertise the control plane's provisioning version through the
+# single-valued gateway-version capability in HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES.
+# The label value is rendered from OPENSHELL_TAG so the advertised provisioning
+# version always matches the images the overlay deploys, with no runtime image-tag
+# parsing (managed-cluster-registration.spec.md, gateway-version-visibility.spec.md).
+CAPABILITY_FILES: list[Path] = [
+    REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml",
+    REPO_ROOT / "deploy" / "gitops" / "platform" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "kind" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "openshift" / "kustomization.yaml",
+]
+
+CAPABILITY_ENV = "HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES"
+GATEWAY_VERSION_NAMESPACE = "gateway-version"
 
 # Go source file containing the defaultConsoleImage constant, pinned by
 # digest (image@sha256:...).  OPENSHELL_CONSOLE_IMAGE and
@@ -59,6 +76,67 @@ def parse_openshell_version() -> dict[str, str]:
             key, _, value = line.partition("=")
             variables[key.strip()] = value.strip()
     return variables
+
+
+def chart_sandbox_image(path: Path) -> str:
+    """Read the chart's plain sandbox.image mapping without a YAML dependency.
+
+    Fail on schema or scalar-format changes so an upgrade cannot silently keep
+    using the previous workload image. This is deliberately not a YAML parser.
+    """
+    sandbox = re.search(
+        r"(?m)^sandbox:[ \t]*\n((?:[ \t].*\n|\n)*)", path.read_text() + "\n"
+    )
+    image = (
+        re.search(r"(?m)^  image:[ \t]*\n((?: {4}.*\n|\n)*)", sandbox[1])
+        if sandbox else None
+    )
+    if not image:
+        raise ValueError(f"{path}: expected sandbox.image mapping; review the chart schema")
+    keys = set(re.findall(r"(?m)^    ([\w-]+):", image[1]))
+    unexpected = keys - {"repository", "tag", "digest", "pullPolicy"}
+    if unexpected:
+        raise ValueError(f"{path}: unsupported sandbox.image keys {sorted(unexpected)}; review the chart schema")
+    fields: dict[str, str] = {}
+    for key in ("repository", "tag", "digest"):
+        line = re.search(rf"(?m)^    {key}:([^\n]*)$", image[1])
+        if not line:
+            continue
+        scalar = re.fullmatch(
+            r'''[ \t]*(?:"([^"\\]*)"|'([^']*)'|([^\s#'"\[\]{}&*!]+))?[ \t]*(?:#.*)?''',
+            line[1],
+        )
+        if not scalar:
+            raise ValueError(f"{path}: unsupported sandbox.image.{key}; review the chart schema")
+        value = next((value for value in scalar.groups() if value is not None), "")
+        fields[key] = "" if scalar[3] in ("null", "Null", "NULL", "~") else value
+    repository = fields.get("repository", "")
+    if not repository:
+        raise ValueError(f"{path}: sandbox.image.repository must be nonempty")
+    digest = fields.get("digest", "")
+    if digest:
+        return f"{repository}@{digest}"
+    return f"{repository}:{fields.get('tag') or 'latest'}"
+
+
+def sync_sandbox_image(
+    version_file: Path, chart_values: Path, *, check_only: bool
+) -> list[str]:
+    """Keep the explicit e2e/preload image aligned with the vendored chart."""
+    expected = f"OPENSHELL_SANDBOX_IMAGE={chart_sandbox_image(chart_values)}"
+    text = version_file.read_text()
+    pattern = re.compile(r"(?m)^OPENSHELL_SANDBOX_IMAGE=[^\n]*$")
+    current = pattern.search(text)
+    if current and current[0] == expected:
+        return []
+    if not check_only:
+        if current:
+            text = pattern.sub(lambda _: expected, text)
+        else:
+            text = text.rstrip("\n") + "\n" + expected + "\n"
+        version_file.write_text(text)
+    previous = current[0] if current else "missing sandbox image"
+    return [f"  {version_file.name}: {previous}, expected {expected}"]
 
 
 # Matches a YAML env-var value line whose image reference ends with a
@@ -128,6 +206,60 @@ def stamp_file(
     return mismatches
 
 
+def stamp_capabilities(
+    path: Path, tag: str, *, check_only: bool
+) -> list[str]:
+    """Stamp or verify the gateway-version capability label in a manifest's
+    HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES value so it carries exactly one
+    gateway-version/<tag> label matching OPENSHELL_TAG."""
+    lines = path.read_text().splitlines(keepends=True)
+    mismatches: list[str] = []
+    expected_label = f"{GATEWAY_VERSION_NAMESPACE}/{tag}"
+    try:
+        rel = path.relative_to(REPO_ROOT)
+    except ValueError:
+        rel = path
+
+    for i, line in enumerate(lines):
+        if not re.search(rf"name:\s*{CAPABILITY_ENV}\s*$", line):
+            continue
+        if i + 1 >= len(lines):
+            continue
+        value_line = lines[i + 1]
+        m = re.search(r'(value:\s*")([^"]*)(")', value_line)
+        if not m:
+            raise RuntimeError(
+                f"{rel}: {CAPABILITY_ENV} value must be a double-quoted "
+                "comma-separated label string"
+            )
+        labels = [lbl for lbl in m.group(2).split(",") if lbl]
+        rebuilt = [
+            lbl for lbl in labels
+            if not lbl.startswith(f"{GATEWAY_VERSION_NAMESPACE}/")
+        ]
+        rebuilt.append(expected_label)
+        new_value = ",".join(rebuilt)
+        if new_value != m.group(2):
+            mismatches.append(
+                f"  {rel}: {CAPABILITY_ENV} has {m.group(2)!r}, "
+                f"expected {new_value!r}"
+            )
+            if not check_only:
+                lines[i + 1] = (
+                    value_line[: m.start()]
+                    + m.group(1) + new_value + m.group(3)
+                    + value_line[m.end():]
+                )
+        # Stamp every HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES block in the file,
+        # not just the first: a manifest that patches more than one controller
+        # must have each block's gateway-version label kept in sync.
+
+    if not check_only and mismatches:
+        path.write_text("".join(lines))
+
+    return mismatches
+
+
 def stamp_console_image(
     path: Path,
     image: str,
@@ -175,11 +307,25 @@ def main() -> int:
         return 1
 
     all_mismatches: list[str] = []
+    try:
+        all_mismatches.extend(
+            sync_sandbox_image(VERSION_FILE, CHART_VALUES_FILE, check_only=check_only)
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     for path, env_names in MANAGED_FILES:
         if not path.exists():
             continue
         all_mismatches.extend(
             stamp_file(path, env_names, tag, check_only=check_only)
+        )
+
+    for path in CAPABILITY_FILES:
+        if not path.exists():
+            continue
+        all_mismatches.extend(
+            stamp_capabilities(path, tag, check_only=check_only)
         )
 
     console_image = env.get("OPENSHELL_CONSOLE_IMAGE", "")
@@ -197,8 +343,7 @@ def main() -> int:
     if all_mismatches:
         if check_only:
             print(
-                "Kustomize manifests out of sync with OPENSHELL_VERSION "
-                f"(expected tag {tag}):"
+                "OpenShell version pins out of sync with OPENSHELL_VERSION or the vendored chart:"
             )
             for m in all_mismatches:
                 print(m)
@@ -208,12 +353,12 @@ def main() -> int:
             )
             return 1
         else:
-            print(f"Stamped {len(all_mismatches)} image tag(s) to {tag}:")
+            print(f"Stamped {len(all_mismatches)} OpenShell version value(s):")
             for m in all_mismatches:
                 print(m.replace("has", "was").replace(", expected", " ->"))
     else:
         if not check_only:
-            print(f"All manifests already at {tag}")
+            print("All OpenShell version pins match OPENSHELL_VERSION and the vendored chart")
 
     return 0
 

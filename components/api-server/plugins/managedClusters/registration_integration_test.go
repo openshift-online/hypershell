@@ -23,7 +23,7 @@ func controlPlaneContext(h *test.Helper, subject string) context.Context {
 
 func register(client *openapi.APIClient, ctx context.Context, name string) (*openapi.ManagedClusterRegistrationResponse, *http.Response, error) {
 	return client.DefaultAPI.RegisterManagedCluster(ctx).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Capabilities: []string{"network/public", "provider/aws"}}).
 		Execute()
 }
 
@@ -56,6 +56,102 @@ func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	_, resp, err = register(client, ctx, uniqueName("hyp0-mc"))
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+}
+
+// Backward compatibility: a capability-less heartbeat (an older control plane
+// that predates the capability model) is accepted rather than rejected, and it
+// does not clobber capabilities a later heartbeat already stored. This keeps a
+// mixed-version rolling upgrade from disconnecting the cluster or dropping its
+// placement data. See managed-cluster-registration.spec.md, "Capability
+// Deployment Convergence".
+func TestManagedClusterRegistrationAcceptsCapabilityLessHeartbeat(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	// A fresh capability-less registration is accepted.
+	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	// A capability-bearing heartbeat then populates the capability set.
+	_, resp, err = register(client, ctx, name)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	// A later capability-less heartbeat is a no-op for capabilities: it is
+	// accepted and the stored set is preserved, not wiped.
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Capabilities).To(Equal([]string{"network/public", "provider/aws"}))
+	Expect(cluster.LastSeenAt).NotTo(BeNil())
+}
+
+func TestManagedClusterRegistrationRestoreRefreshesCapabilities(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	first, resp, err := register(client, ctx, name)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	resp, err = client.DefaultAPI.DeleteManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	restored, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/ibm"},
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(restored.ClusterId).To(Equal(first.ClusterId))
+
+	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, restored.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Capabilities).To(Equal([]string{"network/public", "provider/ibm"}))
+	Expect(cluster.LastSeenAt).NotTo(BeNil())
+}
+
+// A capability-less heartbeat that restores a soft-deleted record preserves the
+// record's last stored capabilities rather than clearing them, mirroring the
+// live-record no-op. See managed-cluster-registration.spec.md, "Capability
+// Deployment Convergence".
+func TestManagedClusterRegistrationRestorePreservesCapabilitiesOnCapabilityLessHeartbeat(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	first, resp, err := register(client, ctx, name)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	resp, err = client.DefaultAPI.DeleteManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	// A downgraded control plane re-registers within the deletion window with no
+	// capabilities: the record is restored with its pre-deletion set intact.
+	restored, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(restored.ClusterId).To(Equal(first.ClusterId))
+
+	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, restored.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Capabilities).To(Equal([]string{"network/public", "provider/aws"}))
 }
 
 // Name Collision Is a Conflict: a name held by a manually created record (empty

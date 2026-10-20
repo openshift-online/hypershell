@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The basic agent: shared platform kinds plus one complete AgentRuntime graph.
+# Apply directly with `hsctl apply -k .hypershell/base`.
+resources:
+  - platform
+  - agent.yaml

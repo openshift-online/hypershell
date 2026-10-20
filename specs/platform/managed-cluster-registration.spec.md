@@ -11,7 +11,7 @@
 
 Every control plane must determine its own `cluster_id` at runtime without requiring a human to pre-register it and distribute the resulting KSUID out-of-band. The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
 
-The same endpoint serves as a health ping. The control plane calls it on a loop; registration calls after the first are no-ops that update `last_seen_at`, giving the hub passive fleet-health visibility with no additional infrastructure.
+The same endpoint serves as a health ping and capability reconciliation point. The control plane calls it on a loop; registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`, giving the hub passive fleet-health and current placement data with no additional infrastructure.
 
 Because every control plane is identified, the API server can enforce cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for. That binding is specified here too.
 
@@ -32,9 +32,31 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 ```json
 {
   "name": "hyp0-mc1",
-  "description": "optional"
+  "capabilities": [
+    "provider/aws",
+    "network/vpn",
+    "region/us-east-1",
+    "runtime/kata",
+    "gateway-version/v0.1.2-rhaiv.7"
+  ]
 }
 ```
+
+`capabilities` is the placement-facing description of the cluster. The control
+plane SHALL source it from deployment configuration and SHALL send the complete
+set on initial registration and every heartbeat. A successful heartbeat SHALL
+replace the stored set atomically, so a GitOps configuration change converges
+without an API-server code change.
+
+The single-valued `gateway-version` namespace declares the gateway version this
+control plane provisions onto new gateways. The control plane does not parse it
+from a running image tag; the deploy-time overlay renders `gateway-version/<tag>`
+from the repository's `OPENSHELL_TAG`, the one value that names the version this
+checkout ships. It is the displayed provisioning version and never tracks a
+floating tag such as `latest`. See "Requirement: Self-Declared Capability
+Labels" for its relaxed value syntax and
+[`gateway-version-visibility.spec.md`](../web-console/gateway-version-visibility.spec.md)
+for how it is surfaced and used in placement.
 
 **Response (201 Created on first call, 200 OK on subsequent calls):**
 
@@ -50,12 +72,13 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 
 ## Data Model Impact
 
-`ManagedCluster` gains two fields to support self-registration and fleet health:
+`ManagedCluster` carries these registration and fleet-health fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `oidc_subject` | string | OIDC `sub` claim of the service account that registered this cluster. Set server-side; not writable via PATCH. Unique index with `name`. |
 | `last_seen_at` | timestamp | Updated on every `/registration` call. Null until first registration. |
+| `capabilities` | string set | Capability labels self-declared by the control plane and replaced on each registration call. Used by placement selectors. |
 
 `name` SHALL be unique across all `ManagedCluster` records, registered or not, so that discovery by name (seed scripts, e2e, operators) is unambiguous.
 
@@ -69,7 +92,7 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 
 These thresholds are informational and may be tuned per deployment. The `status` field on `ManagedCluster` continues to reflect the control-plane reconciler's view of cluster state; `last_seen_at` is a separate, spoke-reported liveness signal.
 
-**Manually created records.** `POST /api/hypershell/v1/managed_clusters` still creates a record with an empty `oidc_subject`. No control plane serves such a record: gateways assigned to it are never reconciled, and the control plane that later wants that name receives 409 until an operator deletes the manual record. Manual creation is therefore an inert placeholder, not a way to add a cluster to the fleet; the fleet grows only through registration.
+**Manually created records.** `POST /api/hypershell/v1/managed_clusters` still creates a record with an empty `oidc_subject`. No control plane serves such a record, and a gateway cannot be assigned to one: a gateway create (or a `PATCH` that sets `cluster_id`) referencing a record with an empty `oidc_subject` is rejected with 400 (see "Requirement: Gateways Reference a Registered Cluster"), so the placeholder never holds gateways and never has any to reconcile. The control plane that later wants that name receives 409 until an operator deletes the manual record. Manual creation is therefore an inert placeholder, not a way to add a cluster to the fleet; the fleet grows only through registration.
 
 ---
 
@@ -77,11 +100,11 @@ These thresholds are informational and may be tuned per deployment. The `status`
 
 ```
 startup:
-  cluster_id = POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME }
+  cluster_id = POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME, capabilities: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES }
   open WatchGateways(cluster_id=cluster_id)
 
 loop every 60s:
-  POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME }
+  POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME, capabilities: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES }
   # returns same cluster_id; API updates last_seen_at
 ```
 
@@ -90,6 +113,7 @@ Gitops configuration required for every control plane, the hub's co-located one 
 | Env var | Description |
 |---------|-------------|
 | `HYPERSHELL_MANAGED_CLUSTER_NAME` | Human-readable name, unique per control plane (e.g. `hyp0-mc1` for a remote spoke, `hyp0-hub` for the control plane co-located with hub `hyp0`; `local-kind` / `local-openshift` in the development overlays) |
+| `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` | Comma-separated capability labels supplied by GitOps, for example `provider/aws,network/vpn,region/us-east-1,runtime/kata,gateway-version/v0.1.2-rhaiv.7`. The `gateway-version/<tag>` label is rendered into the overlay from the repository's `OPENSHELL_TAG` at deploy time, so the advertised provisioning version matches the images the overlay deploys without any runtime image-tag parsing |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | One OIDC client per control plane, holding `managed-cluster-registrar`; no new secret types |
 | `HYPERSHELL_API_SERVER_URL` | REST endpoint used for `/registration` (e.g. `https://api.hyp0.infra.hypershell.app`; the in-cluster `http://hypershell-api-server:8000` only where TLS is off) |
 | `HYPERSHELL_GRPC_SERVER_ADDR` | gRPC endpoint the watch streams dial. On a production hub every control plane, co-located or remote, dials the hub's external passthrough Route (e.g. `grpc.hyp0.infra.hypershell.app:443`) with TLS, because the hub's gRPC listener is TLS-only (`hub-grpc-tls.spec.md`). In development environments with gRPC TLS off, an in-cluster address (e.g. `hypershell-api-server:9000`) dialed with plaintext. The control plane selects the transport from this address -- see `control-plane.spec.md` ("gRPC Transport Security"). |
@@ -114,7 +138,7 @@ An administrator assigns `managed-cluster-registrar` to each control plane's OID
 
 ## Requirements
 
-### Requirement: Idempotent Registration
+### Requirement: PLAT-CLUS-01 -- Idempotent Registration
 
 `POST /managed_clusters/registration` SHALL be idempotent on the `(oidc_subject, name)` key.
 
@@ -125,7 +149,7 @@ An administrator assigns `managed-cluster-registrar` to each control plane's OID
 
 The upsert SHALL use database-level locking to handle concurrent first-time requests safely.
 
-#### Scenario: First-time registration
+#### Scenario: PLAT-CLUS-01.01 -- First-time registration
 
 - GIVEN a control plane with `managed-cluster-registrar` that has never registered
 - WHEN it calls `POST /managed_clusters/registration` with `name: hyp0-mc1`
@@ -134,7 +158,7 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 - AND `last_seen_at` is set to now
 - AND the response is 201 with `cluster_id`
 
-#### Scenario: Re-registration is idempotent
+#### Scenario: PLAT-CLUS-01.02 -- Re-registration is idempotent
 
 - GIVEN a control plane that previously registered and received `cluster_id: X`
 - WHEN it calls `POST /managed_clusters/registration` again with the same `name`
@@ -142,7 +166,7 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 - AND `last_seen_at` is updated to now
 - AND the response is 200 with `cluster_id: X`
 
-#### Scenario: Re-registration after deletion restores the record
+#### Scenario: PLAT-CLUS-01.03 -- Re-registration after deletion restores the record
 
 - GIVEN a control plane registered as `cluster_id: X` whose record was deleted
 - WHEN it calls `POST /managed_clusters/registration` with the same `name`
@@ -150,41 +174,41 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 - AND the response is 201 with `cluster_id: X`
 - AND gateways assigned to `X` are served by that control plane again
 
-#### Scenario: Name change rejected
+#### Scenario: PLAT-CLUS-01.04 -- Name change rejected
 
 - GIVEN a control plane already registered as `hyp0-mc1`
 - WHEN it calls `POST /managed_clusters/registration` with `name: hyp0-mc2`
 - THEN the response is 409 Conflict
 - AND no record is created or modified
 
-### Requirement: Name Collision Is a Conflict
+### Requirement: PLAT-CLUS-02 -- Name Collision Is a Conflict
 
 A registration whose `name` matches an existing `ManagedCluster` record with a different `oidc_subject`, or with an empty `oidc_subject` (a record created through `POST /managed_clusters`), SHALL return 409 Conflict and SHALL NOT create, adopt, or modify any record. The conflict message SHALL name the existing record's id and state that an operator must delete it (and re-point any gateways that reference it) before this control plane can register under that name.
 
 This is deliberate: registration never silently takes over a record, because gateways may already reference its id and a takeover would move them to a different control plane without anyone deciding so.
 
-#### Scenario: Name held by a manually created record
+#### Scenario: PLAT-CLUS-02.01 -- Name held by a manually created record
 
 - GIVEN a `ManagedCluster` named `local-openshift` created via `POST /managed_clusters` (empty `oidc_subject`)
 - WHEN a control plane calls `POST /managed_clusters/registration` with `name: local-openshift`
 - THEN the response is 409 Conflict naming the existing record's id
 - AND no record is created or modified
 
-#### Scenario: Name held by another control plane
+#### Scenario: PLAT-CLUS-02.02 -- Name held by another control plane
 
 - GIVEN a `ManagedCluster` named `hyp0-mc1` registered by OIDC subject `A`
 - WHEN a control plane with OIDC subject `B` calls `POST /managed_clusters/registration` with `name: hyp0-mc1`
 - THEN the response is 409 Conflict
 - AND no record is created or modified
 
-#### Scenario: Operator resolves a collision
+#### Scenario: PLAT-CLUS-02.03 -- Operator resolves a collision
 
 - GIVEN the 409 from the scenario above
 - WHEN an operator deletes the manually created `local-openshift` record
 - AND the control plane retries registration
 - THEN the response is 201 with a new `cluster_id`
 
-### Requirement: Record Writes and Deregistration
+### Requirement: PLAT-CLUS-03 -- Record Writes and Deregistration
 
 Creating, updating, and deleting `ManagedCluster` records (`POST`, `PATCH`, and `DELETE` on `/managed_clusters`, and `CreateManagedCluster`, `UpdateManagedCluster`, `DeleteManagedCluster` on gRPC) SHALL require `platform:admin`, with one exception: a registered control plane MAY delete the record whose `oidc_subject` is its own JWT `sub` (self-deregistration). `gateway:creator`, a gateway binding, and the `RBAC_SERVICE_ACCOUNTS` allowlist SHALL NOT authorize any record write. Reads (`GET` on the collection and by id, `List`/`Get`/`Watch` on gRPC) remain available to `gateway:creator` and `platform:admin`, which gateway placement and the dashboard inventory need.
 
@@ -192,85 +216,204 @@ The reasons are concrete. A placeholder created with a control plane's name make
 
 Deleting the record of a running control plane is undone by its next registration (at most one heartbeat interval later), which restores the same record. To decommission a control plane, stop it or revoke its OIDC client first, then delete the record. `bin/teardown-cluster` in hypershell-gitops follows that order and deregisters each spoke with the spoke's own client.
 
-#### Scenario: Control plane deregisters itself
+#### Scenario: PLAT-CLUS-03.01 -- Control plane deregisters itself
 
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it calls `DELETE /managed_clusters/X` with its own token
 - THEN the record is deleted
 
-#### Scenario: Deleting another cluster's record is refused
+#### Scenario: PLAT-CLUS-03.02 -- Deleting another cluster's record is refused
 
 - GIVEN control planes registered as `X` and `Y`, and a user holding only `gateway:creator`
 - WHEN the user, or the control plane registered as `Y`, calls `DELETE /managed_clusters/X` or gRPC `DeleteManagedCluster` for `X`
 - THEN the api-server returns 403 (HTTP) or `PERMISSION_DENIED` (gRPC)
 - AND the record is unchanged
 
-#### Scenario: Operator deletes a record
+#### Scenario: PLAT-CLUS-03.03 -- Operator deletes a record
 
 - GIVEN a user with `platform:admin`
 - WHEN they delete any `ManagedCluster` record
 - THEN the record is deleted
 
-### Requirement: Role Enforcement
+### Requirement: PLAT-CLUS-04 -- Role Enforcement
 
 The `/registration` endpoint SHALL require the `managed-cluster-registrar` role in the caller's JWT. A caller without the role SHALL receive 403 Forbidden before any database operation.
 
-#### Scenario: Missing role rejected
+#### Scenario: PLAT-CLUS-04.01 -- Missing role rejected
 
 - GIVEN a control plane service account without `managed-cluster-registrar` in Keycloak
 - WHEN it calls `POST /managed_clusters/registration`
 - THEN the response is 403 Forbidden
 - AND no `ManagedCluster` record is created
 
-### Requirement: last_seen_at Updated on Every Call
+### Requirement: PLAT-CLUS-05 -- last_seen_at Updated on Every Call
 
 Every successful call to `/registration` SHALL update `last_seen_at` on the matching `ManagedCluster` record, including calls that are no-ops for the registration data itself.
 
-#### Scenario: Heartbeat loop updates last_seen_at
+#### Scenario: PLAT-CLUS-05.01 -- Heartbeat loop updates last_seen_at
 
 - GIVEN a registered control plane calling `/registration` every 60 seconds
 - WHEN each call completes successfully
 - THEN `last_seen_at` on the `ManagedCluster` record is updated to the call time
 - AND the response returns the same `cluster_id` each time
 
-### Requirement: oidc_subject Is Server-Assigned and Immutable
+### Requirement: PLAT-CLUS-06 -- Self-Declared Capability Labels
+
+A registered `ManagedCluster` SHALL expose a deduplicated set of capability
+labels. Each label SHALL use the form `<namespace>/<value>`. The namespace
+segment SHALL always use lowercase DNS-label syntax. The API SHALL recognize the
+namespaces `provider`, `network`, `region`, `runtime`, `environment`, and
+`gateway-version`; adding a value inside a recognized namespace SHALL be
+configuration, not an API schema or server-code change. Unknown namespaces,
+malformed labels, duplicate labels, an empty set, and more than one label in the
+single-valued `provider`, `region`, `environment`, or `gateway-version`
+namespaces SHALL return 400.
+
+The value segment SHALL use lowercase DNS-label syntax in every namespace except
+`gateway-version`. Because a gateway version tag carries dots and a release
+suffix (for example `v0.1.2-rhaiv.7`), the `gateway-version` value segment SHALL
+instead accept a lowercase version string of alphanumerics, dots, and hyphens
+that both begins and ends with an alphanumeric (for example matching
+`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`). This relaxation SHALL apply only to the
+`gateway-version` value segment; every other namespace's value segment stays
+DNS-label strict, and the namespace segment stays DNS-label strict for all.
+
+The registering control plane SHALL be the only writer of `capabilities`.
+Generic ManagedCluster create and patch requests SHALL NOT assign or modify
+them. A heartbeat SHALL replace the prior set in one transaction and update
+`last_seen_at`; a rejected set SHALL change neither field.
+
+#### Scenario: PLAT-CLUS-06.01 -- GitOps changes a cluster capability
+
+- GIVEN a registered cluster has `provider/ibm` and `network/public`
+- AND GitOps changes its configured capabilities to add `runtime/kata`
+- WHEN its next registration heartbeat succeeds
+- THEN the ManagedCluster SHALL expose all three labels
+- AND selector-based placement SHALL use the replacement set
+
+#### Scenario: PLAT-CLUS-06.02 -- Gateway-version label accepts a dotted suffixed tag
+
+- GIVEN a control plane configured with `gateway-version/v0.1.2-rhaiv.7`
+- WHEN it registers
+- THEN the label SHALL be accepted and exposed unchanged
+- AND a second `gateway-version` label in the same request SHALL return 400
+
+#### Scenario: PLAT-CLUS-06.03 -- Capability input is rejected atomically
+
+- GIVEN a registered cluster has a valid capability set
+- WHEN it registers with an unknown namespace or malformed label
+- THEN the API SHALL return 400
+- AND its prior capabilities and `last_seen_at` SHALL remain unchanged
+
+### Requirement: PLAT-CLUS-07 -- Capability Deployment Convergence
+
+Every deployed control plane SHALL send its complete GitOps-configured capability
+set on registration and each heartbeat. The registration request SHALL NOT derive
+capabilities from the legacy `provider`, `visibility`, or `region` fields.
+
+For backward compatibility during a rolling upgrade, a capability-less heartbeat
+(omitted, `null`, or empty `capabilities`) from a control plane that predates the
+capability model SHALL be accepted rather than rejected, and SHALL be a no-op for
+the capability set: it SHALL update `last_seen_at` and SHALL preserve the stored
+capabilities instead of clearing them. This prevents a mixed-version upgrade from
+disconnecting the cluster or dropping its placement data. A malformed or
+unknown-namespace label is still rejected with 400 (see "Capability input is
+rejected atomically").
+
+Existing gateway records require no migration because they continue to persist
+the resolved `cluster_id`. A control plane restart SHALL upsert its configured
+capabilities without changing those gateway assignments.
+
+#### Scenario: PLAT-CLUS-07.01 -- Capability-less heartbeat preserves the stored set
+
+- GIVEN a registered cluster has `provider/aws` and `network/public`
+- WHEN a heartbeat arrives with omitted or empty `capabilities`
+- THEN the API SHALL accept it and update `last_seen_at`
+- AND the stored capabilities SHALL remain `provider/aws` and `network/public`
+
+#### Scenario: PLAT-CLUS-07.02 -- Restart publishes configured capabilities
+
+- GIVEN a registered cluster has existing gateway assignments
+- WHEN its control plane restarts with its GitOps-configured capabilities
+- THEN its registration SHALL replace the stored capability set
+- AND its existing gateway assignments SHALL remain unchanged
+
+### Requirement: PLAT-CLUS-08 -- oidc_subject Is Server-Assigned and Immutable
 
 `oidc_subject` SHALL be set by the API server from the validated JWT `sub` claim. It SHALL NOT be accepted as an input field on any request. It SHALL NOT be modifiable via `PATCH /managed-clusters/{id}`.
 
-### Requirement: Gateways Reference a Registered Cluster
+### Requirement: PLAT-CLUS-09 -- Gateways Reference a Registered Cluster
 
-`POST /api/hypershell/v1/gateways` and any `PATCH` that sets `cluster_id` SHALL reject (400 Bad Request) an empty `cluster_id` and a `cluster_id` that does not reference a `ManagedCluster` with a non-empty `oidc_subject`. Because every control plane is registered and filters by its own id, a gateway without a registered cluster would never be reconciled by anyone. Callers that want "the local cluster" discover it by name from `GET /managed_clusters`; on any running environment the co-located control plane's record always exists.
+`cluster_id` is OPTIONAL on `POST /api/hypershell/v1/gateways`: a Gateway MAY be
+pinned to a cluster through `cluster_id`, or left late-bound through a capability-label
+`placement` selector that the API server resolves to a concrete cluster
+(see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement
+and Late Binding", and [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)).
 
-#### Scenario: Empty cluster_id rejected
+Referential integrity for a PINNED `cluster_id` is UNCHANGED. `POST /api/hypershell/v1/gateways`
+and any `PATCH` that SETS a non-empty `cluster_id` SHALL reject (400 Bad Request)
+a `cluster_id` that does not reference a `ManagedCluster` with a non-empty
+`oidc_subject`. An empty-string `cluster_id` SUBMITTED ALONGSIDE no `placement`
+SHALL still be rejected, so a caller cannot pin a Gateway to "nowhere": omitting
+`cluster_id` requires a `placement` selector instead. Because every control plane
+is registered and filters by its own id, a gateway pinned to an unregistered
+cluster would never be reconciled by anyone. Callers that want "the local cluster"
+discover it by name from `GET /managed_clusters`; on any running environment the
+co-located control plane's record always exists. A late-bound Gateway whose
+selector matches no eligible cluster holds in `Pending` with an awaiting-placement
+status rather than being rejected, and the API server assigns `cluster_id` when a
+matching cluster appears (late binding).
 
-- GIVEN a gateway create request with `cluster_id: ""`
+#### Scenario: PLAT-CLUS-09.01 -- Empty cluster_id with no placement rejected
+
+- GIVEN a gateway create request with `cluster_id: ""` and no `placement`
 - WHEN it is submitted
 - THEN the response is 400 Bad Request naming `cluster_id`
 - AND no Gateway is created
 
-#### Scenario: Unregistered cluster rejected
+#### Scenario: PLAT-CLUS-09.02 -- Omitted cluster_id with a placement selector accepted
+
+- GIVEN a gateway create request with no `cluster_id` and a valid `placement.selector`
+- WHEN it is submitted
+- THEN the request SHALL NOT be rejected for a missing `cluster_id`
+- AND the API server SHALL resolve or late-bind the cluster from the selector
+
+#### Scenario: PLAT-CLUS-09.03 -- Unregistered cluster rejected
 
 - GIVEN a `ManagedCluster` created via `POST /managed_clusters` (empty `oidc_subject`)
 - WHEN a gateway create request references its id
 - THEN the response is 400 Bad Request stating the cluster has no registered control plane
 - AND no Gateway is created
 
-### Requirement: Watch Stream Caller Binding
+### Requirement: PLAT-CLUS-10 -- Watch Stream Caller Binding
 
-The five gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
+The four gRPC watch RPCs (`WatchGateways`, `WatchManagedClusters`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
-For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, and `ListRoleBindings`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+
+For `WatchGateways` and `ListGateways` the scoping key is the gateway's assigned `cluster_id`. A late-bound gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") matches no `cluster_id` filter and SHALL NOT be delivered to any filtered stream until the API server assigns it a `cluster_id`; at that point it is delivered to the owning cluster's stream like any pinned gateway.
 
 For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_id` of the binding's gateway: under a `cluster_id` filter the api-server SHALL deliver (in the watch replay, in live watch events, and in list results) only bindings whose gateway is assigned to that cluster, and SHALL NOT deliver global bindings (no `gateway_id`). A binding delete is attributed through its gateway even when that gateway is already soft-deleted, so the delete still reaches the owning cluster; a binding whose gateway cannot be found at all is not delivered to any filtered stream.
 
-#### Scenario: Registered control plane watches its own cluster
+For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRuntime`'s effective cluster: its own `cluster_id` when set, or, when `cluster_id` is omitted, the cluster derived from its referenced `Gateway`'s capability-label placement (`data-model.spec.md`, "AgentRuntime as a Top-Level Resource"). The api-server SHALL resolve this derived placement server-side and under a `cluster_id` filter SHALL deliver (in the watch replay, in live watch events, and in list results) only the `AgentRuntime` records whose effective cluster matches the filter. Resolving the derived placement server-side keeps this caller binding authoritative: a control plane never receives an `AgentRuntime` scheduled on another cluster. An `AgentRuntime` that omits `cluster_id` and whose referenced gateway cannot be found is not delivered to any filtered stream.
+
+#### Scenario: PLAT-CLUS-10.01 -- Registered control plane watches agent runtimes by derived placement
+
+- GIVEN a control plane registered as `cluster_id: X`
+- AND an `AgentRuntime` with explicit `cluster_id: X`, and an `AgentRuntime` with no `cluster_id` whose referenced gateway is placed on `Y`
+- WHEN it opens `WatchAgentRuntimes` with its bearer token and `cluster_id: X`
+- THEN the stream is accepted
+- AND only the `AgentRuntime` whose effective cluster is `X` is delivered, in the replay and as live events
+- AND the `AgentRuntime` whose effective cluster resolves to `Y` is not delivered
+
+#### Scenario: PLAT-CLUS-10.02 -- Registered control plane watches its own cluster
 
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it opens `WatchGateways` with its bearer token and `cluster_id: X`
 - THEN the stream is accepted
 - AND only events for gateways with `cluster_id: X` are delivered
 
-#### Scenario: Registered control plane watches role bindings
+#### Scenario: PLAT-CLUS-10.03 -- Registered control plane watches role bindings
 
 - GIVEN a control plane registered as `cluster_id: X`
 - AND gateways assigned to `X` and to `Y`, each with a RoleBinding, and a global RoleBinding
@@ -279,31 +422,30 @@ For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_i
 - AND only bindings for gateways assigned to `X` are delivered, in the replay and as live events
 - AND bindings for gateways assigned to `Y` and global bindings are not delivered
 
-#### Scenario: Registered control plane asks for another cluster
+#### Scenario: PLAT-CLUS-10.04 -- Registered control plane asks for another cluster
 
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it opens `WatchGateways` with `cluster_id: Y`
 - THEN the api-server returns `PERMISSION_DENIED`
 
-#### Scenario: Registered control plane omits the filter
+#### Scenario: PLAT-CLUS-10.05 -- Registered control plane omits the filter
 
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it opens `WatchGateways` with no `cluster_id`
 - THEN the api-server returns `INVALID_ARGUMENT`
 
-#### Scenario: Anonymous watch rejected
+#### Scenario: PLAT-CLUS-10.06 -- Anonymous watch rejected
 
 - GIVEN a gRPC client with no bearer token
 - WHEN it opens any `Watch*` RPC
 - THEN the api-server returns `UNAUTHENTICATED`
 
-### Requirement: Control-Plane Identity
+### Requirement: PLAT-CLUS-11 -- Control-Plane Identity
 
 A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
 
-- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on releases, networks, and managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
+- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
 - It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, and `SetActiveSandboxCount` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through.
-- It MAY update only the `status` of a `GatewayRelease` or `GatewayNetwork`. Changing a release's image, rollout, or name, a network's topology, or creating or deleting either SHALL be refused: those records are fleet-wide, and a control plane only reports on them.
 - It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
 - Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
@@ -315,66 +457,78 @@ The identity SHALL apply only to a caller the gRPC auth interceptor authenticate
 
 The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so these rules, not network placement, keep a compromised or misbehaving control plane inside its own cluster.
 
-#### Scenario: New spoke reports sandbox counts with no hub change
+#### Scenario: PLAT-CLUS-11.01 -- New spoke reports sandbox counts with no hub change
 
 - GIVEN a spoke control plane whose OIDC client is not on `RBAC_SERVICE_ACCOUNTS`
 - AND it has registered, so its `sub` is the `oidc_subject` of cluster `X`
 - WHEN it calls `SetActiveSandboxCount` for the namespace of a gateway assigned to `X`
 - THEN the call is authorized without any role binding
 
-#### Scenario: Control plane writes another cluster's gateway
+#### Scenario: PLAT-CLUS-11.02 -- Control plane writes another cluster's gateway
 
 - GIVEN control planes registered as `X` and `Y`, and a gateway assigned to `X`
 - WHEN `Y` calls `UpdateGateway`, `SetGatewayVersion`, or `AdjustActiveSandboxCount` for that gateway, or `UpdateGateway` on its own gateway with `cluster_id: X`
 - THEN the api-server returns `PERMISSION_DENIED`
 - AND `GetGateway` for that gateway returns `NOT_FOUND`
 
-#### Scenario: Control plane rewrites a release
-
-- GIVEN a registered control plane
-- WHEN it calls `UpdateGatewayRelease` setting `image`
-- THEN the api-server returns `PERMISSION_DENIED`
-- AND a call setting only `status` is authorized
-
-#### Scenario: Unregistered caller cannot use control-plane-only writes
+#### Scenario: PLAT-CLUS-11.03 -- Unregistered caller cannot use control-plane-only writes
 
 - GIVEN a caller that is neither on `RBAC_SERVICE_ACCOUNTS` nor registered, holding `gateway:owner`
 - WHEN it calls `AdjustActiveSandboxCount`
 - THEN the api-server returns `PERMISSION_DENIED`
 
-#### Scenario: Registry lookup fails
+#### Scenario: PLAT-CLUS-11.04 -- Registry lookup fails
 
 - GIVEN the ManagedCluster lookup for the caller's `sub` returns a database error
 - WHEN a caller calls any gRPC method under `RBAC_ENFORCE=true`
 - THEN the api-server returns `UNAVAILABLE`
 - AND the control plane retries
 
-### Requirement: Fail-Closed Startup
+### Requirement: PLAT-CLUS-12 -- Fail-Closed Startup
 
 The control plane SHALL NOT open the `WatchGateways` gRPC stream until a successful `/registration` response has been received. On registration failure at startup, the control plane SHALL retry with exponential backoff indefinitely, logging the error on each attempt. It SHALL NOT proceed with an unresolved `cluster_id`.
 
 The exceptions are the non-retryable responses. On 403 Forbidden the control plane lacks the required Keycloak role; on 409 Conflict its name is taken or its subject is registered under another name. In both cases retrying will not help: the control plane SHALL log the error and exit, surfacing a clear message (the missing `managed-cluster-registrar` role, or the API's conflict message naming the record an operator must remove).
 
-#### Scenario: Transient failure retried with backoff
+#### Scenario: PLAT-CLUS-12.01 -- Transient failure retried with backoff
 
 - GIVEN the API server is temporarily unreachable (network partition, restart)
 - WHEN the control plane attempts to register at startup
 - THEN it SHALL retry with exponential backoff
 - AND it SHALL NOT open `WatchGateways` until registration succeeds
 
-#### Scenario: 403 exits immediately
+#### Scenario: PLAT-CLUS-12.02 -- 403 exits immediately
 
 - GIVEN the API server returns 403 (role not yet assigned in Keycloak)
 - WHEN the control plane attempts to register at startup
 - THEN it SHALL NOT retry
 - AND it SHALL log a clear error identifying the missing `managed-cluster-registrar` role and exit
 
-#### Scenario: 409 exits immediately
+#### Scenario: PLAT-CLUS-12.03 -- 409 exits immediately
 
 - GIVEN the API server returns 409 (name collision)
 - WHEN the control plane attempts to register at startup
 - THEN it SHALL NOT retry
 - AND it SHALL log the API's conflict message and exit
+
+### Requirement: PLAT-CLUS-13 -- E2E Coverage
+
+The e2e suite SHALL directly validate this spec's behavior as area 12 of
+`e2e-testing.spec.md` (ManagedCluster Registration Coverage and Multi-Cluster
+Fleet Coverage), rather than only consuming the registered cluster for gateway
+placement: the co-located control plane's self-registration (non-empty
+`oidc_subject`, fresh `last_seen_at`, and declared capabilities), idempotent
+`/registration`, capability replacement and validation, the
+`managed-cluster-registrar` 403 and name-collision 409 paths, and the gateway
+create 400 for an empty or unregistered `cluster_id`. Under `E2E_MULTICLUSTER=1`
+a second registered cluster SHALL be exercised for cross-cluster placement and
+release promotion.
+
+#### Scenario: PLAT-CLUS-13.01 -- Registration behavior is exercised end to end
+
+- GIVEN a running environment
+- WHEN the e2e suite runs area 12
+- THEN it SHALL assert the registration, idempotency, RBAC, and collision behavior above against the live API
 
 ---
 
@@ -393,6 +547,10 @@ The exceptions are the non-retryable responses. On 403 Forbidden the control pla
 | Re-registration restores a deleted record instead of creating one | The soft-deleted row keeps its `(oidc_subject, name)` index entry, so a fresh insert failed with a permanent 409; a new id instead would orphan every gateway on the cluster and let the namespace GC reap them. Restoring keeps gateways attached, makes an accidental delete self-healing, and leaves decommissioning to revoking the client. |
 | Record writes need `platform:admin`; a control plane may delete only its own | Records gate placement and registration for a whole cluster. `gateway:creator` is held by every signed-in user on the GitOps hubs, so it cannot authorize them; self-deregistration keeps the teardown path working without an admin token. |
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
+| Namespaced string capabilities with match-all selectors | Provider, network, runtime, and future dimensions remain independent and extensible without a provider-by-network schema matrix. |
+| Provisioning version is a single-valued `gateway-version` capability | A control plane provisions exactly one version at a time, so one value per spoke matches reality and rides the existing heartbeat, atomic replacement, and match-all placement with no new placement code. Its value segment is relaxed because a version tag is not a DNS label, while the namespace segment and every other namespace stay strict. |
+| `gateway-version` rendered from `OPENSHELL_TAG` at deploy time | `OPENSHELL_TAG` is the repository's single source of truth for the shipped version and already feeds the image env vars, so rendering the label from it keeps the advertised value identical to the deployed images with no runtime image-tag parsing and no coupling to a floating tag. |
+| Registration replaces the complete capability set | GitOps remains the source of truth, removed capabilities do not linger, and one heartbeat converges deployment configuration into placement state. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
 | `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |

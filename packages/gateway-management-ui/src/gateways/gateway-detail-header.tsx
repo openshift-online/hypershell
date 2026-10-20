@@ -14,14 +14,17 @@ import {
   DropdownList,
   Flex,
   FlexItem,
+  Label,
   MenuToggle,
+  Popover,
   Title,
   Tooltip,
 } from "@patternfly/react-core";
-import { ExternalLinkAltIcon } from "@patternfly/react-icons";
+import { ExternalLinkAltIcon, InfoCircleIcon } from "@patternfly/react-icons";
 import { type ReactNode, useId, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
+import type { GatewayVersionDrift } from "../application/gateway-types";
 import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
@@ -119,6 +122,11 @@ function GatewayDetailActions({
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
+  // Disable delete/rename only when the server has explicitly told us the caller
+  // cannot. An absent capability (older server) leaves it enabled; the API 403
+  // remains authoritative either way.
+  const canDelete = gateway.canDelete !== false;
+  const canEdit = gateway.canEdit !== false;
 
   return (
     <>
@@ -188,18 +196,44 @@ function GatewayDetailActions({
           >
             <DropdownList>
               <DropdownItem
+                isAriaDisabled={!canEdit}
                 onClick={() => {
+                  if (!canEdit) {
+                    return;
+                  }
                   setIsRenameOpen(true);
                 }}
+                tooltipProps={
+                  canEdit
+                    ? undefined
+                    : {
+                        content: intl.formatMessage(
+                          messages.renameGatewayNotPermitted,
+                        ),
+                      }
+                }
               >
                 <FormattedMessage {...messages.renameGateway} />
               </DropdownItem>
               <Divider component="li" />
               <DropdownItem
-                isDanger
+                isAriaDisabled={!canDelete}
+                isDanger={canDelete}
                 onClick={() => {
+                  if (!canDelete) {
+                    return;
+                  }
                   setIsDeleteOpen(true);
                 }}
+                tooltipProps={
+                  canDelete
+                    ? undefined
+                    : {
+                        content: intl.formatMessage(
+                          messages.deleteGatewayNotPermitted,
+                        ),
+                      }
+                }
               >
                 <FormattedMessage {...messages.deleteGateway} />
               </DropdownItem>
@@ -237,18 +271,68 @@ function GatewayDetailActions({
   );
 }
 
+function GatewayVersionBadges({
+  versionDrift,
+  version,
+}: {
+  versionDrift: GatewayVersionDrift;
+  version?: string;
+}) {
+  const intl = useIntl();
+  const runningVersion = version?.trim();
+
+  // Omit the chip entirely when no running version has been observed (GVV-02).
+  if (!runningVersion) {
+    return null;
+  }
+
+  return (
+    <>
+      <FlexItem>
+        <Label
+          aria-label={intl.formatMessage(messages.versionChipAriaLabel, {
+            version: runningVersion,
+          })}
+          color="grey"
+        >
+          {runningVersion}
+        </Label>
+      </FlexItem>
+      {versionDrift === "behind" ? (
+        <FlexItem>
+          <Popover
+            aria-label={intl.formatMessage(messages.newerVersionAvailable)}
+            bodyContent={
+              <FormattedMessage {...messages.newerVersionAvailableTooltip} />
+            }
+            headerContent={
+              <FormattedMessage {...messages.newerVersionAvailable} />
+            }
+          >
+            <Label color="blue" icon={<InfoCircleIcon />} isClickable>
+              <FormattedMessage {...messages.newerVersionAvailable} />
+            </Label>
+          </Popover>
+        </FlexItem>
+      ) : null}
+    </>
+  );
+}
+
 export function GatewayDetailHeader({
   consoleWaitStartedAt,
   description,
   gateway,
   onDeleted,
   onRenamed,
+  versionDrift = "none",
 }: {
   consoleWaitStartedAt?: number;
   description?: ReactNode;
   gateway: GatewayConnection;
   onDeleted: () => void;
   onRenamed: (gatewayName: string) => void;
+  versionDrift?: GatewayVersionDrift;
 }) {
   return (
     <Flex
@@ -266,6 +350,10 @@ export function GatewayDetailHeader({
           <FlexItem>
             <GatewayStatus status={gateway.status} />
           </FlexItem>
+          <GatewayVersionBadges
+            version={gateway.gatewayVersion}
+            versionDrift={versionDrift}
+          />
         </Flex>
         <Content>{description && <p>{description}</p>}</Content>
       </FlexItem>

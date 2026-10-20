@@ -140,7 +140,7 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		}
 
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
-			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
+			if resource == "service_accounts" || resource == "access" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -280,6 +280,15 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/service_accounts") {
 		return "service_accounts", mux.Vars(r)["service_account_id"]
 	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/access") {
+		// Collection, item (/access/{user_id}), and directory (/access/directory)
+		// all resolve to the "access" resource; user_id is empty for the
+		// collection and directory sub-paths.
+		return "access", mux.Vars(r)["user_id"]
+	}
+	if strings.HasSuffix(pathTemplate, "/gateways/placement-availability") {
+		return "gateway_placement_availability", ""
+	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -311,10 +320,23 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 	}
 
 	parts := strings.Split(remainder, "/")
+	if remainder == "gateways/placement-availability" {
+		return "gateway_placement_availability", ""
+	}
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/service_accounts") {
 		for i, part := range parts {
 			if part == "service_accounts" && i+1 < len(parts) {
 				return "service_accounts", parts[i+1]
+			}
+		}
+	}
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/access") {
+		for i, part := range parts {
+			if part == "access" {
+				if i+1 < len(parts) && parts[i+1] != "directory" {
+					return "access", parts[i+1]
+				}
+				return "access", ""
 			}
 		}
 	}
@@ -327,7 +349,7 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
-	if resource == "service_accounts" {
+	if resource == "service_accounts" || resource == "access" {
 		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
 			return gatewayID
 		}
@@ -369,6 +391,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}
 
+	if resource == "gateway_placement_availability" {
+		return method == http.MethodPost && hasGatewayCreator(bindings)
+	}
+
 	if resource == "managed_clusters" {
 		// Reads back gateway placement (the console's cluster picker) and the
 		// dashboard inventory. Writes are operator functions: a placeholder
@@ -403,31 +429,45 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "service_accounts" && gatewayID != "" {
-		// Both gateway roles can create service accounts. The handler applies the
-		// finer owner-all/viewer-own visibility and role-cap rules.
+		// Any gateway role can reach the service-accounts API. The handler applies
+		// the finer owner/admin-all vs viewer-own visibility and role-cap rules
+		// (admins are capped like owners -- GAM-11).
 		for _, binding := range bindings {
 			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
-				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:viewer") {
+				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" || binding.RoleName == "gateway:viewer") {
 				return true
 			}
 		}
 		return false
 	}
 
+	if resource == "access" && gatewayID != "" {
+		return isAccessFacadeAuthorized(gatewayID, bindings)
+	}
+
 	if resource == "role_bindings" {
 		return len(bindings) > 0
 	}
 
-	if resource == "gateway_releases" {
-		if hasPlatformAdmin(bindings) {
-			if method == http.MethodGet || method == http.MethodDelete {
-				return true
-			}
-		}
-		return hasGatewayCreator(bindings)
-	}
-
 	return hasGatewayCreator(bindings)
+}
+
+// CanDeleteGateway reports whether a caller holding bindings may DELETE the
+// gateway. It is the single source of truth shared by the DELETE authorization
+// middleware (isGatewayAuthorized) and the Gateway.can_delete capability the REST
+// API advertises, so a client's delete affordance never diverges from the check
+// the server actually enforces.
+func CanDeleteGateway(bindings []BindingSummary, gatewayID string) bool {
+	return isGatewayAuthorized(http.MethodDelete, gatewayID, bindings)
+}
+
+// CanEditGateway reports whether a caller holding bindings may modify (PATCH) the
+// gateway, e.g. rename it. Like CanDeleteGateway it mirrors the enforced check
+// (isGatewayAuthorized) so the Gateway.can_edit capability the REST API advertises
+// never diverges from authorization: gateway:owner and gateway:admin may edit;
+// gateway:viewer and a platform:admin without a per-gateway binding may not.
+func CanEditGateway(bindings []BindingSummary, gatewayID string) bool {
+	return isGatewayAuthorized(http.MethodPatch, gatewayID, bindings)
 }
 
 func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSummary) bool {
@@ -442,10 +482,35 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 		switch b.RoleName {
 		case "gateway:owner":
 			return true
+		case "gateway:admin":
+			// Granted administrator: read and update, but never delete the
+			// gateway (GAM-01). Delete requires gateway:owner.
+			if method != http.MethodDelete {
+				return true
+			}
 		case "gateway:viewer":
 			if method == http.MethodGet {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// isAccessFacadeAuthorized is the coarse gate for the gateway access facade
+// (/gateways/{gateway_id}/access...). Any caller with a binding on the gateway
+// (owner, admin, or viewer) or platform:admin passes; everyone else gets 404
+// (existence is not disclosed, per rbac-enforcement.spec.md). The fine-grained
+// rules -- owner/admin-only management, owner-tier gating, and last-owner
+// protection -- are enforced in the access facade service (403/409), which can
+// return descriptive messages the middleware cannot.
+func isAccessFacadeAuthorized(gatewayID string, bindings []BindingSummary) bool {
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil && *b.GatewayID == gatewayID {
+			return true
 		}
 	}
 	return false

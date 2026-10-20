@@ -1,0 +1,33 @@
+queue_rules:
+  - name: agent/review-code-approved
+    queue_conditions:
+      - label = agent/review-code-approved
+    commit_message_format:
+      title: pr-title
+      body: inherit
+      trailers: []
+merge_queue:
+  max_parallel_checks: 10
+scopes:
+  source:
+    files:
+      api-server:
+        include:
+          - components/api-server/**/*
+      cli:
+        include:
+          - components/cli/**/*
+      control-plane:
+        include:
+          - components/control-plane/**/*
+      fleet-dashboard:
+        include:
+          - components/fleet-dashboard/**/*
+          - components/sdk-typescript/**/*
+          - packages/fleet-dashboard-ui/**/*
+      web-console:
+        include:
+          - components/web-console/**/*
+          - components/sdk-typescript/**/*
+          - packages/gateway-management-ui/**/*
+          - packages/operational-dashboard-ui/**/*

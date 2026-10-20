@@ -7,19 +7,24 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	provisionerpb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/directory"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/grpctransport"
@@ -145,6 +150,17 @@ func main() {
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(grpctransport.Credentials(cfg.GRPCServerAddr)),
 		grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tokenProvider)),
+		// HTTP/2 keepalive on the one shared client connection all watch streams
+		// multiplex over. Without it a wedged or half-open connection carrying only
+		// idle watch streams never surfaces an error, so a blocked Recv waits
+		// forever and the owner Keycloak grant is never reassigned. PermitWithoutStream
+		// keeps the probe running even when no RPC is active. See
+		// specs/platform/control-plane.spec.md ("Watch Stream Liveness").
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                cfg.GRPCKeepaliveTime,
+			Timeout:             cfg.GRPCKeepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
 	}
 	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
 
@@ -213,7 +229,6 @@ func main() {
 	}
 
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
 	// Initialize Helm client for gateway deployments
 	helmClient := &helm.ShellClient{
@@ -278,8 +293,18 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
+		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// in-cluster channel. It needs Keycloak, so it is served only when a
+		// Keycloak client is configured; the API server dials this one address for
+		// both the provisioner and the directory.
+		var directorySvc provisionerpb.DirectoryServiceServer
+		if kcClient != nil {
+			projection := directory.NewProjection(kcClient, cfg.DirectoryRefreshInterval)
+			directorySvc = directory.NewServer(projection)
+			supervise("keycloak directory projection", projection.Run)
+		}
 		supervise("service-account provisioner", func(ctx context.Context) error {
-			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
+			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer, directorySvc)
 		})
 		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {
@@ -292,7 +317,7 @@ func main() {
 	// service-account provisioner above is not cluster-scoped and is already
 	// serving, so the pod's probes stay green while registration retries (for
 	// example while the hub API server is still starting).
-	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, cfg.ManagedClusterCapabilities, tokenProvider)
 	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
 	if regErr != nil {
 		if ctx.Err() != nil {
@@ -302,7 +327,7 @@ func main() {
 		}
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, release fan-out, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, and namespace GC to it", clusterID, cfg.ManagedClusterName)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -318,6 +343,7 @@ func main() {
 			databaseConfig,
 			clusterID,
 			cfg.GatewayResources,
+			cfg.SandboxRuntimeClass,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
@@ -330,14 +356,13 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	// The gateway reconcile queue is shared: the gateway watch stream drives it,
-	// and the GatewayRelease reconciler enqueues referencing gateways into it when
-	// a release image changes. It is created after registration so the reconciler
-	// and all queued work use the registered cluster identity.
+	// The gateway reconcile queue is driven by the gateway watch stream. It is
+	// created after registration so the reconciler and all queued work use the
+	// registered cluster identity.
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 
-	watchCount := 4 // managed clusters, gateway releases, gateways, networks
+	watchCount := 3 // managed clusters, gateways, agent runtimes
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
@@ -374,30 +399,121 @@ func main() {
 		}
 	}()
 
-	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, clusterID)
 	if kcClient != nil {
 		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
 	}
 
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
-		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
-	})
-	supervise("GatewayRelease watch", func(ctx context.Context) error {
-		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
+		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler, cfg.WatchIdleTimeout)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID)
-	})
-	supervise("GatewayNetwork watch", func(ctx context.Context) error {
-		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)
+		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID, cfg.WatchIdleTimeout)
 	})
 	if roleBindingReconciler != nil {
 		supervise("RoleBinding watch", func(ctx context.Context) error {
-			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID)
+			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID, cfg.WatchIdleTimeout, cfg.RoleBindingResyncInterval)
 		})
 	}
 
+	// AgentRuntime watch (issue #521): cluster-scoped, seed-on-reconnect transport
+	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
+	// (Namespace, ServiceAccount, NetworkPolicy, one Kubernetes Secret per
+	// SecretSource placed directly from the read-only secret store, coordinator
+	// CronJob) and drives the status lifecycle. clientset may be nil on a control
+	// plane without cluster access, in which case the reconciler skips cluster-side
+	// provisioning.
+	//
+	// Gateway-side workspace provisioning (HYPERSHELL-412): the control plane realizes each
+	// HyperShell ext kind as its OpenShell native kind by consuming OpenShell's EXISTING
+	// provisioning API (the operations the `openshell` CLI drives), through the
+	// reconciler.NewOpenShellProviderRealizer adapter over the gateway.OpenShellProvisioner.
+	// The superseded bespoke AgentWorkspaceProvisioning gRPC contract and its
+	// HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT gate have been removed. The AgentRuntime
+	// watch payload embeds the workspace name, ProviderBindings, memberships, and inference
+	// route (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"), so the
+	// realizer can provision from a single event. It is activated through SetProviderRealizer
+	// once a live OpenShell API session factory is wired; until then it stays nil and the
+	// reconciler keeps the transitional raw-Secret placement so the live fleet does not
+	// regress.
+	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
+	// reconciler's nil check works (a nil pointer in an interface is not == nil).
+	var agentRuntimeKube kubernetes.Interface
+	if clientset != nil {
+		agentRuntimeKube = clientset
+	}
+	// Read-only secret-store client: the control plane reads each SecretSource value
+	// and places a Kubernetes Secret directly (no ExternalSecret/ESO). Configuration,
+	// not code, selects the backend (HYPERSHELL_SECRET_STORE_*); the default is a
+	// disabled reader that rejects reads, so a runtime declaring a SecretSource is
+	// degraded until a store is configured.
+	secretReader, secretReaderErr := secretstore.NewReaderFromEnv()
+	if secretReaderErr != nil {
+		log.Printf("WARN secret store reader misconfigured, SecretSource placement will fail: %v", secretReaderErr)
+		secretReader = secretstore.NewErrorReader(secretReaderErr)
+	}
+	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, secretReader, conn, clusterID)
+
+	// Gateway-side provider realization over OpenShell's EXISTING API is wired through the
+	// gateway.OpenShellProvisioner + reconciler.NewOpenShellProviderRealizer seam (with the
+	// bounded control-plane GitHub rotator for app-installation-token credentials). Live
+	// activation needs a gateway.OpenShellSessionFactory that opens a session to OpenShell's
+	// provisioning API as the gateway admin identity. That live adapter depends on the
+	// OpenShell upstream client surface, which is NOT reachable from this repository (only
+	// the pinned ref and the `openshell` CLI are present); it is tracked as a follow-up. Until
+	// that adapter is wired the realizer stays nil and the reconciler keeps the transitional
+	// raw-Secret placement so the live fleet does not regress (realize-before-prune applies
+	// once the realizer is set).
+	log.Printf("INFO gateway-side provider realization over OpenShell's existing API is not yet active (live OpenShell API session factory pending upstream); using transitional raw-Secret placement")
+
+	supervise("AgentRuntime watch", func(ctx context.Context) error {
+		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
+	})
+
 	log.Printf("INFO all %d watch streams launched", watchCount)
+
+	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the
+	// single git-to-API sync component: for each registered Repository it reads only
+	// the import_path subtree over the GitHub API, renders it in memory through the
+	// shared pkg/kustomize library, and reconciles (create/update/prune) the
+	// Repository-owned ext resources into the API over the gRPC write path. It does
+	// NOT provision cluster-side; each imported Kind is reconciled into the cluster
+	// by its own per-Kind reconciler. It is OFF unless explicitly enabled and a
+	// platform GitHub App credential is provisioned, so an unconfigured control
+	// plane stays inert. See specs/platform/control-plane.spec.md.
+	if cfg.RepositoryImportEnabled {
+		platformToken := ""
+		if cfg.GitHubTokenFile != "" {
+			tokenBytes, tokenErr := os.ReadFile(cfg.GitHubTokenFile)
+			if tokenErr != nil {
+				log.Printf("WARN repository import: reading GitHub token file %s failed; default platform credential unavailable (private repositories with a secret_source_id still work): %v", cfg.GitHubTokenFile, tokenErr)
+			} else {
+				platformToken = strings.TrimSpace(string(tokenBytes))
+			}
+		} else {
+			log.Printf("INFO repository import: no HYPERSHELL_GITHUB_TOKEN_FILE set; only repositories with a per-Repository secret_source_id credential (or public repositories) can be read")
+		}
+		importResolver := reconciler.NewSecretStoreCredentialResolverWithGitHubApp(secretReader, pb.NewSecretSourceServiceClient(conn), platformToken, nil, cfg.GitHubAPIBase)
+		importFetcher := reconciler.NewGitHubSubtreeFetcher(nil, cfg.GitHubAPIBase)
+		importWriter := reconciler.NewGRPCImportWriter(conn)
+		repositoryReconciler := reconciler.NewRepositoryReconciler(
+			pb.NewRepositoryServiceClient(conn),
+			importResolver,
+			importFetcher,
+			importWriter,
+			cfg.RepositoryImportInterval,
+		)
+		supervise("repository import reconciler", repositoryReconciler.Run)
+		// Event-driven import: the Repository watch stream reconciles a created or
+		// changed Repository in real time, so the reconciler above only has to run a
+		// slow periodic drift re-check for upstream changes that emit no Repository
+		// event. See specs/platform/control-plane.spec.md.
+		supervise("Repository watch", func(ctx context.Context) error {
+			return watcher.WatchRepositories(ctx, conn, repositoryReconciler, cfg.WatchIdleTimeout)
+		})
+		log.Printf("INFO repository import reconciler launched (drift re-check interval=%s, event-driven via Repository watch)", cfg.RepositoryImportInterval)
+	} else {
+		log.Printf("INFO repository import reconciler disabled (HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false)")
+	}
 
 	// The continuous gateway health reconciler keeps each Gateway's phase and
 	// status synchronized with observed workload health (Running <-> Degraded).

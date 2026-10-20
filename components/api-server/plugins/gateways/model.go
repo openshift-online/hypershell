@@ -15,10 +15,16 @@ const gatewayNamespacePrefix = "openshell-"
 type Gateway struct {
 	api.Meta
 	hypershellapi.TraceMeta
-	Name                   string  `json:"name"`
-	ClusterId              string  `json:"cluster_id"`
-	ReleaseId              string  `json:"release_id"`
-	Namespace              string  `json:"namespace"`
+	Name      string `json:"name"`
+	ClusterId string `json:"cluster_id"`
+	Namespace string `json:"namespace"`
+	// Placement is the persisted capability-label placement selector for a
+	// late-bound gateway, stored as a JSON-encoded GatewayPlacementIntent
+	// ({"selector":[...]} or {"mode":"local-kind"}). NULL for a gateway pinned with
+	// an explicit ClusterId. The API server resolves it to a concrete ClusterId at
+	// create time and re-evaluates it for late binding. See data-model.spec.md,
+	// "Requirement: Gateway Placement and Late Binding".
+	Placement              *string `json:"placement" gorm:"type:jsonb"`
 	ExternalDns            *string `json:"external_dns"`
 	TlsMode                *string `json:"tls_mode"`
 	ServiceType            *string `json:"service_type"`
@@ -30,7 +36,6 @@ type Gateway struct {
 	RouteAddress           *string `json:"route_address"`
 	ConsoleAddress         *string `json:"console_address"`
 	GatewayVersion         *string `json:"gateway_version"`
-	ObservedReleaseId      *string `json:"observed_release_id"`
 	Oidc                   *string `json:"oidc" gorm:"type:jsonb"`
 	Route                  *string `json:"route" gorm:"type:jsonb"`
 	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`
@@ -38,6 +43,11 @@ type Gateway struct {
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`
 	ObservedGeneration     int64   `json:"observed_generation" gorm:"not null;default:0"`
+	// RepositoryId is the control-plane import ownership mark: the Repository that
+	// owns this gateway through the declarative .hypershell import. NULL for gateways
+	// created directly through the REST API or hsctl apply. Read-only in the client
+	// contract; set server-side from the import binding, never from a client body.
+	RepositoryId *string `json:"repository_id"`
 }
 
 type GatewayList []*Gateway
@@ -67,7 +77,6 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 type GatewayPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
 	ClusterId        *string `json:"cluster_id,omitempty"`
-	ReleaseId        *string `json:"release_id,omitempty"`
 	ExternalDns      *string `json:"external_dns,omitempty"`
 	TlsMode          *string `json:"tls_mode,omitempty"`
 	ServiceType      *string `json:"service_type,omitempty"`

@@ -13,12 +13,14 @@ type ManagedCluster struct {
 	hypershellapi.TraceMeta
 	Name             string     `json:"name"`
 	Provider         string     `json:"provider"`
+	Visibility       string     `json:"visibility" gorm:"column:visibility"`
 	Region           *string    `json:"region"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	Status           *string    `json:"status"`
 	ApiServerUrl     *string    `json:"api_server_url"`
 	OIDCSubject      string     `json:"oidc_subject" gorm:"column:oidc_subject"`
 	LastSeenAt       *time.Time `json:"last_seen_at" gorm:"column:last_seen_at"`
+	Capabilities     []string   `json:"capabilities" gorm:"serializer:json;type:jsonb"`
 }
 
 type ManagedClusterList []*ManagedCluster

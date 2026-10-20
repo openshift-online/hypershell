@@ -372,7 +372,7 @@ describe("metrics sources", () => {
       expect(gateway.json()).toMatchObject({ counts: { Running: 3 } });
       expect(clusterQueries).toHaveLength(2);
       expect(applicationQueries).toEqual([
-        'max by (phase) (hypershell_gateways_total{namespace="hyp1"})',
+        'sum by (phase) (max by (phase, managed_cluster) (hypershell_gateways_total{namespace="hyp1"}))',
       ]);
       expect(JSON.stringify(browserRuntimeConfig(config))).not.toContain(
         "cluster-token",

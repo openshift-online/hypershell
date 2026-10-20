@@ -8,54 +8,54 @@ This spec defines the behavior for including the full resource snapshot in delet
 
 ## Requirements
 
-### Requirement: Delete Events SHALL Include the Resource Snapshot
+### Requirement: CTRL-WDEL-01 -- Delete Events SHALL Include the Resource Snapshot
 
 The gRPC watch handler for each Kind SHALL include the full resource in delete events, matching the behavior of create and update events. The resource snapshot SHALL reflect the state of the resource immediately before deletion.
 
-#### Scenario: Gateway delete event carries the resource
+#### Scenario: CTRL-WDEL-01.01 -- Gateway delete event carries the resource
 
 - GIVEN a Gateway exists with `id=gw-1`, `namespace=openshell-tenant-a`, `cluster_id=cluster-1`
 - WHEN the Gateway is deleted via `DELETE /api/hypershell/v1/gateways/gw-1`
 - THEN the `WatchGatewaysResponse` event SHALL have `type=DELETED`, `resource_id=gw-1`
 - AND the `gateway` field SHALL be populated with the full Gateway resource (name, namespace, cluster_id, etc.)
 
-#### Scenario: Control plane cleans up after restart
+#### Scenario: CTRL-WDEL-01.02 -- Control plane cleans up after restart
 
 - GIVEN the control plane has restarted and has no in-memory state
 - WHEN it receives a Gateway delete event with the resource populated
 - THEN it SHALL read the namespace from `event.Resource.Namespace`
 - AND it SHALL clean up all associated K8s resources in that namespace
 
-### Requirement: Soft-Deleted Records SHALL Be Readable for Event Enrichment
+### Requirement: CTRL-WDEL-02 -- Soft-Deleted Records SHALL Be Readable for Event Enrichment
 
 The API server's gRPC watch handler processes events asynchronously from the event broker. Because the `Delete()` service method soft-deletes the database row before creating the event, the watch handler SHALL use an unscoped query (bypassing the `deleted_at IS NULL` filter) to load the resource for delete events. A new `GetUnscoped` method on the DAO SHALL provide this capability.
 
-#### Scenario: Watch handler loads soft-deleted gateway
+#### Scenario: CTRL-WDEL-02.01 -- Watch handler loads soft-deleted gateway
 
 - GIVEN a Gateway has been soft-deleted (row exists with `deleted_at` set)
 - WHEN the watch handler receives the delete event for that Gateway
 - THEN it SHALL load the Gateway using an unscoped query
 - AND include it in the `WatchGatewaysResponse`
 
-#### Scenario: Soft-deleted record no longer exists
+#### Scenario: CTRL-WDEL-02.02 -- Soft-deleted record no longer exists
 
 - GIVEN a Gateway's row has been hard-deleted or is otherwise missing
 - WHEN the watch handler receives a delete event for that Gateway
 - THEN it SHALL log a warning
 - AND send the delete event without the resource payload (graceful degradation)
 
-### Requirement: Control Plane SHALL Prefer Event Resource Over In-Memory Cache
+### Requirement: CTRL-WDEL-03 -- Control Plane SHALL Prefer Event Resource Over In-Memory Cache
 
 The GatewayReconciler SHALL read the namespace (and other fields) from `event.Resource` when available. The in-memory `namespaces` map SHALL be removed because it is unreliable across restarts and adds complexity.
 
-#### Scenario: Delete event with resource populated
+#### Scenario: CTRL-WDEL-03.01 -- Delete event with resource populated
 
 - GIVEN a Gateway delete event where `event.Resource` is non-nil
 - WHEN the GatewayReconciler processes it
 - THEN it SHALL use `event.Resource.Namespace` to locate the K8s resources to delete
 - AND it SHALL NOT depend on any in-memory cache
 
-#### Scenario: Delete event with nil resource (graceful degradation)
+#### Scenario: CTRL-WDEL-03.02 -- Delete event with nil resource (graceful degradation)
 
 - GIVEN a Gateway delete event where `event.Resource` is nil (e.g., hard-deleted before event processed)
 - WHEN the GatewayReconciler processes it

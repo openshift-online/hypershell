@@ -216,28 +216,10 @@ else
   PASS=$((PASS + 1))
 fi
 
-if awk '/^cleanup\(\) \{/,/^}/' "${SCRIPT_DIR}/e2e-openshell.sh" | grep -q 'de_seed_test_users'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: e2e cleanup trap does not call de_seed_test_users'
-fi
-
-if grep -A20 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" \
-  | grep -q 'Skipping namespace GC timing restore; moving to teardown'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift e2e cleanup does not skip GC restore on failure'
-fi
-
-if grep -A25 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" \
-  | grep -q 'dump_provision_diagnostics'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: e2e cleanup does not dump controller/postgres logs before GC restore'
-fi
+# The Bash functional suite (e2e-openshell.sh) was removed in the Go e2e cutover
+# (specs/platform/e2e-testing.spec.md, Shell Suite Removal); its cleanup-trap
+# assertions now live in the Go suite. This file retains the OpenShift driver
+# unit coverage (discovery, OIDC grant dispatch, GC timing, route mode).
 
 # Route ingress mode (GATEWAY_INGRESS_MODE=route, e.g. IBM Cloud ROKS): no
 # GRPCRoute exists; readiness is the OpenShift router admitting the per-tenant

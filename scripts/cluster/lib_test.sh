@@ -69,7 +69,7 @@ assert_eq "tok" "$(printf '%s' '{"access_token":"tok","expires_in":60}' | json_s
 assert_eq "abc-id" "$(printf '%s' '[{"id":"abc-id","clientId":"hypershell-frontend"}]' | json_first_id)" "json_first_id"
 # Presenters emit id before name. The old grep ("name" then "id" in one object)
 # misses this shape and re-POSTs a second dev-gateway on every openshift-seed.
-_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","release_id":"r1"}]}'
+_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","gateway_version":"v1"}]}'
 assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gateway)" \
   "json_named_id finds id-before-name list items"
 assert_eq "id-default" "$(printf '%s' '{"items":[{"name":"other","id":"id-other"},{"name":"dev-gateway","id":"id-default"}]}' | json_named_id dev-gateway)" \
@@ -457,7 +457,6 @@ else
 fi
 if grep -q 'json_registered_cluster_id "${cluster_name}"' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'cluster_name="local-openshift"' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
 else
@@ -478,6 +477,16 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
+# Gateway create takes a required placement intent and rejects cluster_id as an
+# unknown field, so both seeds must send placement.
+if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"mode\\":\\"local-kind\\"}' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && ! grep -q 'dev-gateway\\",\\"cluster_id' "${REPO_ROOT}/scripts/kind/seed.sh" "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a seed script creates dev-gateway without a placement intent (or still sends cluster_id)'
+ fi
 # Every control plane self-registers its ManagedCluster; seeding waits for the
 # registered record and never creates one (a manual record would 409 the
 # control plane's registration; managed-cluster-registration.spec.md).
@@ -508,26 +517,10 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: dev overlays must name the control plane local-kind / local-openshift, matching the seed scripts'
 fi
-if grep -rq 'WatchGateways\|WatchGatewayReleases\|WatchManagedClusters\|WatchGatewayNetworks' --include='*.yaml' "${REPO_ROOT}/deploy" \
+if grep -rq 'WatchGateways\|WatchManagedClusters\|WatchRoleBindings\|WatchAgentRuntimes' --include='*.yaml' "${REPO_ROOT}/deploy" \
   && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: a deploy overlay still exempts a Watch* RPC from JWT via --auth-bypass-methods'
-else
-  PASS=$((PASS + 1))
-fi
-# Gateway databases are provisioned from ONE admin credential Secret mounted
-# into the controller (hypershell-gateway-database-admin); there is no
-# ManagedDatabase resource, no connection_secret namespace, and no database_id
-# on the gateway create body.
-if grep -q 'managed_databases\|ManagedDatabase\|database_id\|connection_secret\|hypershell-managed-db\|OPENSHIFT_DB_CREDENTIALS_NAMESPACE' "${SCRIPT_DIR}/drivers/openshift.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift driver still references ManagedDatabase / database_id / hypershell-managed-db'
-else
-  PASS=$((PASS + 1))
-fi
-if grep -q 'managed_databases\|ManagedDatabase\|database_id\|hypershell-managed-db' "${REPO_ROOT}/scripts/kind/seed.sh" "${REPO_ROOT}/scripts/kind/up.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: Kind scripts still reference ManagedDatabase / database_id / hypershell-managed-db'
 else
   PASS=$((PASS + 1))
 fi

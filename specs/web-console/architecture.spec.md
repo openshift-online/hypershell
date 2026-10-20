@@ -65,7 +65,7 @@ Direct dependency declarations SHALL use exact versions selected when the implem
 
 ## Requirements
 
-### Requirement WEB-ARCH-01: Client-Rendered Application
+### Requirement: WEB-ARCH-01 -- Client-Rendered Application
 
 The web console SHALL use React Router Framework Mode configured with `ssr: false`. Routes SHALL use route modules, lazy code splitting, route error boundaries, loading behavior, and document metadata provided by the selected framework. Production delivery SHALL support direct navigation and refresh of every application route without returning a false 404.
 
@@ -73,7 +73,7 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 
 **Verification:** Inspect the React Router configuration and production artifact. Open, refresh, and recover from an injected failure on representative nested routes. Confirm that the client bundle does not contain server-only code or secrets.
 
-#### Scenario: Deep Link
+#### Scenario: WEB-ARCH-01.01 -- Deep Link
 
 - GIVEN an authenticated user opens `/gateways/{gateway_id}` directly
 - WHEN the BFF receives the browser request
@@ -81,19 +81,19 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 - AND React Router SHALL render the gateway route after checking session and resource access
 - AND API and asset paths SHALL NOT fall back to the SPA document
 
-### Requirement WEB-ARCH-02: Gateway Management Experience
+### Requirement: WEB-ARCH-02 -- Gateway Management Experience
 
 HyperShell SHALL provide one focused application experience. Its landing page SHALL list every gateway visible to the authenticated user and provide gateway provisioning without a separate directory, administration shell, overview, or cluster collection. Gateway details SHALL combine operational configuration with direct OpenShell console and CLI connection actions.
 
 The API server SHALL scope gateway visibility by per-gateway RBAC RoleBindings and the platform:admin global role -- users see gateways where they have a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if they have the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) for scope-aware filtering, platform:admin global access, and the UI pagination/search requirements, and [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge). The console SHALL present exactly the gateways the API returns without additional client-side filtering. The API SHALL remain the authorization boundary for every read and mutation; route presence and visible controls SHALL NOT grant access. Capability-based UI controls (such as delete actions for platform:admin users) MAY be introduced when the API exposes an authorization contract, without adding a separate `/admin` route hierarchy.
 
-The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application. The authenticated identity menu SHALL display the web console build version and the API server build version as non-interactive entries, so an operator can identify the exact deployed builds without shell or cluster access. Both versions SHALL be sourced from the allowlisted runtime configuration (see WEB-DEPLOY-02) and SHALL render an `unknown` placeholder when not stamped.
+The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application. The authenticated identity menu SHALL display the web console build version and the API server build version as non-interactive entries, so an operator can identify the exact deployed builds without shell or cluster access. Both versions SHALL be sourced from the allowlisted runtime configuration (see WEB-DPLY-02) and SHALL render an `unknown` placeholder when not stamped.
 
-Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name, ID, or fleet, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name or ID, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
 
 The gateway collection SHALL expose the Created by column as an authoritative sortable column. The console SHALL preserve this sort in URL collection state and request creator username ordering from the API. The API SHALL apply creator ordering before pagination so that each page is part of one globally ordered result set.
 
-#### Scenario: Sort Gateways by Creator
+#### Scenario: WEB-ARCH-02.01 -- Sort Gateways by Creator
 
 - GIVEN the gateway collection contains gateways created by different users
 - WHEN the user sorts the Created by column
@@ -118,7 +118,7 @@ The `gatewayId` SHALL be included in gateway-detail query keys, mutations, autho
 
 **Verification:** Inspect route definitions and query keys. Confirm that `/` is the only gateway collection, provides provisioning, and does not expose a separate directory, administration shell, or cluster collection. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
 
-### Requirement WEB-ARCH-03: Source and Runtime Boundaries
+### Requirement: WEB-ARCH-03 -- Source and Runtime Boundaries
 
 Browser host, gateway management UI package, BFF, shared, generated SDK, and test code SHALL have explicit module boundaries and TypeScript configurations. Browser modules SHALL NOT import Node.js APIs, server environment access, OIDC tokens, session implementation, or server-only dependencies. BFF modules SHALL NOT import browser component code. The gateway management UI package SHALL NOT import application route modules, application-shell components, BFF modules, authentication/session implementations, deployment configuration, or the generated SDK.
 
@@ -126,7 +126,7 @@ TypeScript SHALL use strict checking. Browser and server compilation SHALL use m
 
 **Verification:** Run browser host, gateway management UI package, and server type checks independently, inspect build outputs, and use boundary lint rules or equivalent tests to reject prohibited imports.
 
-### Requirement WEB-PKG-01: pnpm Workspace
+### Requirement: WEB-PKG-01 -- pnpm Workspace
 
 HyperShell JavaScript packages SHALL use one repository-root pnpm workspace. The workspace SHALL include `components/sdk-typescript`, `packages/gateway-management-ui`, `components/web-console`, the web-console BFF, and the web-console domain probes; use one root `pnpm-lock.yaml`; and use the `workspace:` protocol for internal package dependencies. The root `package.json` SHALL be private and SHALL declare an exact pnpm version in `packageManager`.
 
@@ -134,21 +134,21 @@ After migration, npm, Yarn, Bun, nested lockfiles, and per-package installation 
 
 **Verification:** Run a clean root install, enumerate workspace projects, and inspect manifests and tracked files. Confirm that the web console resolves the local SDK through `workspace:` and that no npm/Yarn/Bun lockfile remains.
 
-#### Scenario: Workspace SDK Consumption
+#### Scenario: WEB-PKG-01.01 -- Workspace SDK Consumption
 
 - GIVEN the console declares the generated SDK as a workspace dependency
 - WHEN a clean frozen install runs
 - THEN pnpm SHALL resolve the repository SDK rather than a registry package
 - AND a missing or incompatible local SDK version SHALL fail resolution
 
-#### Scenario: Workspace Gateway Management UI Package Consumption
+#### Scenario: WEB-PKG-01.02 -- Workspace Gateway Management UI Package Consumption
 
 - GIVEN the web console declares the gateway management UI package as a workspace dependency
 - WHEN a clean frozen install and production build run
 - THEN the console SHALL resolve the repository gateway management UI implementation through its declared public exports
 - AND a missing or incompatible local gateway management UI version SHALL fail resolution
 
-### Requirement WEB-PKG-04: Reusable Gateway Feature Package
+### Requirement: WEB-PKG-04 -- Reusable Gateway Feature Package
 
 The canonical gateway management interface SHALL live in the private `packages/gateway-management-ui` workspace package. The package SHALL expose an explicit, documented public surface for its gateway collection, gateway detail, and gateway provisioning pages and for the typed host integration contract they require. The standalone web console SHALL consume those public exports and SHALL NOT retain copied gateway page, mutation, query, table, dialog, or gateway-specific presentation implementations.
 
@@ -173,21 +173,21 @@ The internal package MAY expose TypeScript source to workspace consumers while i
 
 **Verification:** Build and test the gateway management UI package independently, inspect its public exports and dependency graph, and search both packages for duplicate gateway implementations and generated-SDK imports. Render its collection, detail, and provisioning pages in the standalone console through the public package API. Substitute a test gateway entry port and navigation adapter without React Router or a live BFF, and verify that gateway queries and mutations use the injected services and the host's Query client and localization context. Run every gateway application use case in isolation with a fake control-plane port, deterministic workflow runtime, and recording probe publisher; verify one workflow terminal fact and one dependency terminal fact for success, failure, and cancellation. Contract-test the host SDK adapter for DTO mapping, typed failures, pagination, cancellation, and reconciler-owned request defaults, and test the production probe publisher with two sinks plus a failing sink.
 
-#### Scenario: Standalone Console Hosts the Gateway Management UI Package
+#### Scenario: WEB-PKG-04.01 -- Standalone Console Hosts the Gateway Management UI Package
 
 - GIVEN the standalone console has constructed its SDK-backed gateway adapter, Query client, localization provider, and route adapter
 - WHEN a user opens a gateway route
 - THEN the route SHALL pass the gateway identifier and host integrations to the gateway management UI package
 - AND the package SHALL render the canonical gateway workflow without creating competing provider or router state
 
-#### Scenario: A Second Product Embeds Gateway Management
+#### Scenario: WEB-PKG-04.02 -- A Second Product Embeds Gateway Management
 
 - GIVEN another React product uses compatible shared runtime dependencies and implements the documented gateway entry-port and navigation contracts
 - WHEN it mounts a gateway management UI page within its own shell
 - THEN the page SHALL use that product's navigation, localization, Query client, and gateway entry-port implementation
 - AND it SHALL NOT require the HyperShell masthead, route tree, BFF implementation, or build-time source aliases
 
-### Requirement WEB-PKG-02: Reproducible and Defensive Resolution
+### Requirement: WEB-PKG-02 -- Reproducible and Defensive Resolution
 
 The repository SHALL pin pnpm and all direct npm dependencies exactly. CI and container builds SHALL install with the committed lockfile in frozen mode. The workspace configuration SHALL enforce:
 
@@ -208,7 +208,7 @@ The build SHALL NOT depend on Node's bundled Corepack. Developer tooling MAY use
 
 **Verification:** Modify a manifest without updating the lockfile, introduce an undeclared import, request a too-new version, remove publish-time metadata in the policy test, and add an unapproved lifecycle script. Each case fails before build or merge.
 
-### Requirement WEB-PKG-03: Policy Migration Completeness
+### Requirement: WEB-PKG-03 -- Policy Migration Completeness
 
 Adopting pnpm SHALL NOT reduce existing dependency-policy coverage. The migration that creates `pnpm-lock.yaml` SHALL also:
 
@@ -223,7 +223,7 @@ Until these changes land together, the existing npm SDK workflow remains the act
 
 **Verification:** Run all dependency-policy unit tests and `make check` against a pnpm-only tree. Confirm that a deliberately too-new transitive dependency in `pnpm-lock.yaml` fails the independent repository check.
 
-### Requirement WEB-SDK-01: Browser-Compatible Generated SDK
+### Requirement: WEB-SDK-01 -- Browser-Compatible Generated SDK
 
 The generated TypeScript SDK SHALL publish a modern ESM import and type declaration surface suitable for Vite and Node.js. It SHALL expose an injectable Fetch-compatible transport, a relative base URL, optional credentials/authentication behavior, typed errors, and `AbortSignal` support. Browser-facing modules SHALL NOT read `process.env` or require a bearer token.
 
@@ -231,7 +231,7 @@ The browser SHALL configure the SDK for same-origin `/api` requests with cookie 
 
 **Verification:** Build and import the SDK from both browser and BFF TypeScript configurations. Inspect the browser bundle for `process.env`, embedded API origins, tokens, and CommonJS-only shims. Cancel an in-flight route request and verify upstream cancellation where supported.
 
-### Requirement WEB-AUTH-00: Initial No-Auth Development Mode
+### Requirement: WEB-AUTH-04 -- Initial No-Auth Development Mode
 
 The initial UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
 
@@ -243,7 +243,7 @@ No-auth execution SHALL NOT count as evidence for login, logout, session rotatio
 
 **Verification:** Start the documented local no-auth workflow and complete a representative gateway route without an authorization header. Attempt to start each non-development environment with authentication disabled and confirm that it fails closed. Search browser code and bundles for an authentication-bypass flag, and inspect test evidence so no-auth journeys are not labeled as authentication coverage.
 
-### Requirement WEB-AUTH-01: OIDC Backend-for-Frontend
+### Requirement: WEB-AUTH-01 -- OIDC Backend-for-Frontend
 
 Production authentication SHALL use OAuth 2.0 / OpenID Connect authorization code flow with PKCE through the BFF. The BFF SHALL validate issuer, client configuration, redirect URI, state, nonce, PKCE verifier, token response, and identity claims. Access and refresh tokens SHALL remain server-side and SHALL NOT be returned to browser JavaScript.
 
@@ -251,7 +251,7 @@ The concrete identity provider, issuer, client registration, scopes, claims mapp
 
 **Verification:** Threat-model login, callback, refresh, logout, fixation, replay, redirect, and provider-failure paths. Search source maps, browser storage, DOM, URLs, logs, and network responses for tokens.
 
-### Requirement WEB-AUTH-02: Session and CSRF Protection
+### Requirement: WEB-AUTH-02 -- Session and CSRF Protection
 
 The browser session SHALL use an opaque, rotating identifier in a `Secure`, `HttpOnly`, host-only, `SameSite` cookie with the narrowest practical path and lifetime. A `__Host-` cookie name SHOULD be used where deployment constraints allow it. Session contents and OAuth tokens SHALL be stored server-side in a production-capable shared store when more than one BFF replica may serve traffic.
 
@@ -259,7 +259,7 @@ Every state-changing request SHALL require CSRF protection appropriate to the de
 
 **Verification:** Attempt cross-site form, Fetch, replay, fixation, stale-session, and multi-replica requests. Inspect cookie attributes and confirm that JavaScript cannot read the session identifier.
 
-### Requirement WEB-AUTH-03: Browser Session Contract
+### Requirement: WEB-AUTH-03 -- Browser Session Contract
 
 The BFF SHALL expose a minimal browser session resource containing only display identity, locale preferences, expiry/re-authentication state, and server-derived capabilities needed to render the console. It SHALL NOT expose provider tokens or use browser-supplied roles as authorization evidence.
 
@@ -267,7 +267,7 @@ The React application SHALL distinguish unauthenticated, expired, forbidden, una
 
 **Verification:** Exercise initial load and mid-task expiry for read, edit, create, and destructive flows. Confirm correct recovery without disclosing protected content from a previous session.
 
-### Requirement WEB-BFF-01: Same-Origin Static and API Service
+### Requirement: WEB-BFF-01 -- Same-Origin Static and API Service
 
 The BFF SHALL use Node.js LTS and Fastify to provide:
 
@@ -284,7 +284,7 @@ The production BFF SHALL forward the gateway management UI package's `/api/hyper
 
 **Verification:** Test routing precedence, header sanitation, correlation validation and propagation, timeouts, cancellation, large bodies, upstream failures, and SPA fallback behavior. Start the built production BFF against a recording API and complete a representative gateway list request through `/api/hypershell/v1/gateways`. Request `/`, `/gateways/new`, and a representative `/gateways/{id}` directly from the BFF and verify application HTML; verify unknown API, asset, health, and server paths do not receive the SPA document. Confirm that an arbitrary URL cannot turn the BFF into an open proxy.
 
-### Requirement WEB-DATA-01: Server-State Ownership
+### Requirement: WEB-DATA-01 -- Server-State Ownership
 
 TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
 
@@ -298,7 +298,7 @@ Query and mutation functions SHALL call application use cases through the narrow
 
 **Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries. With an API total larger than one page, verify initial render issues one gateway list request, page/search/sort changes issue one request for the normalized state, Back/Forward restores that state, and an inconsistent response is surfaced rather than presented as a complete collection. Cold-render the maximum gateway page with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests. Repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
 
-### Requirement WEB-DATA-02: URL and Local State
+### Requirement: WEB-DATA-02 -- URL and Local State
 
 Pagination, filtering, search, sorting, selected gateway, and other shareable view state SHALL be encoded in validated URL path or search parameters. Ephemeral interaction state SHALL remain local to the narrowest component. Context SHALL be limited to stable cross-cutting services such as session, locale, feature flags, and the Query client.
 
@@ -306,7 +306,7 @@ Sensitive values, server response caches, bearer tokens, and unsanitized operati
 
 **Verification:** Copy and reopen representative list URLs, use browser back/forward navigation, switch users in one browser profile, and inspect browser storage and cache contents.
 
-### Requirement WEB-DATA-03: Retry, Refresh, and Cancellation
+### Requirement: WEB-DATA-03 -- Retry, Refresh, and Cancellation
 
 Queries SHALL have explicit freshness and retry policies by data class. The client SHALL NOT retry authorization, validation, conflict, or other deterministic 4xx responses. Mutations SHALL NOT retry automatically unless the operation is proven idempotent. Network and eligible 5xx query retries SHALL be bounded, use backoff, and expose final recovery guidance.
 
@@ -318,7 +318,7 @@ Each request path SHALL have one explicit retry owner. A TanStack Query `AbortSi
 
 **Verification:** Simulate offline, reconnect, tab hiding, 400, 401, 403, 409, 429, 500, timeout, and slow cancellation. Inspect request count and user-visible state.
 
-### Requirement WEB-DATA-04: Forms and Runtime Validation
+### Requirement: WEB-DATA-04 -- Forms and Runtime Validation
 
 Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. A form's Zod schema SHALL integrate through the React Hook Form resolver as the single client-side schema-validation path; a successful `handleSubmit` callback SHALL consume resolver output without parsing the same values again. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
 
@@ -328,7 +328,7 @@ Destructive and conflicting changes SHALL follow the interaction and recovery re
 
 **Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission. Lint presentation components against direct schema `safeParse` calls and inspect form setup for a resolver.
 
-### Requirement WEB-UI-01: PatternFly-First Presentation
+### Requirement: WEB-UIEX-01 -- PatternFly-First Presentation
 
 The implementation SHALL follow `standards/ui/patternfly.spec.md`. It SHALL use PatternFly 6 packages from a compatible release set and install optional PatternFly packages only when a feature consumes them. CSS Modules MAY fill product-specific layout or presentation gaps using PatternFly semantic tokens and logical properties.
 
@@ -336,7 +336,7 @@ Tailwind, Bootstrap, Material UI, Chakra UI, another general-purpose component s
 
 **Verification:** Inspect dependencies, imports, rendered class names, tokens, and CSS. Map every custom component to the admission evidence required by the PatternFly standard.
 
-### Requirement WEB-UI-02: Shared Component Evidence
+### Requirement: WEB-UIEX-02 -- Shared Component Evidence
 
 Canonical shared components SHALL have discoverable Storybook stories for applicable default, loading, empty, error, permission, overflow, localization, responsive, and interaction states. Gateway-domain stories SHALL import the canonical gateway management UI package public surface rather than a copied or private console implementation. Storybook SHALL be a development and verification surface, not a separately deployed production dependency unless explicitly required.
 
@@ -344,13 +344,17 @@ React components SHALL be implemented semantically and tested through user-obser
 
 **Verification:** Compare the shared component inventory with stories and interaction tests. Run component accessibility checks and manually verify representative keyboard, screen-reader, zoom, touch, reduced-motion, RTL, and long-content states.
 
-### Requirement WEB-UI-03: Gateway Connection Experience
+### Requirement: WEB-UIEX-03 -- Gateway Connection Experience
 
-The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The gateway detail page SHALL organize these capabilities into the tabbed experience defined in `WEB-UI-05`. The login command SHALL appear in `Connection`, service-account management SHALL appear in `Service accounts`, and operational values SHALL appear in `Details`. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows, and the Open gateway console action SHALL remain a header action.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The gateway detail page SHALL organize these capabilities into the tabbed experience defined in `WEB-UIEX-05`. The login command SHALL appear in `Connection`, service-account management SHALL appear in `Service accounts`, and operational values SHALL appear in `Details`. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows, and the Open gateway console action SHALL remain a header action.
 
 Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send only the trimmed `name` field. Both rename entry points SHALL use the same required-field validation, prevent unchanged or duplicate submission, preserve user input with recovery guidance on failure, update gateway detail and breadcrumb cache state, invalidate the collection, and provide visible success feedback.
 
+Both rename entry points (the row actions menu and the detail header Actions dropdown) SHALL disable the rename action -- rather than hide it -- with an accessible explanation (tooltip) when the gateway's advertised `can_edit` capability is false (the caller is a plain user, i.e. not a `gateway:owner` or `gateway:admin`; see platform `gateway-access-management.spec.md` GTW-ACC-01). A gateway whose `can_edit` is absent or true SHALL leave the action enabled. This mirrors the server authorization; the API remains authoritative and SHALL still reject an unauthorized `PATCH` with `403`.
+
 Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both delete entry points SHALL present the same explicit confirmation before commitment, prevent duplicate submission while deletion is pending, preserve the confirmation with recovery guidance on failure, and provide an accurate success notification after deletion. Successful deletion from a detail page SHALL return the user to the gateway collection and invalidate both collection and deleted-detail query state.
+
+Both delete entry points (the row actions menu and the detail header Actions dropdown) SHALL disable the delete action -- rather than hide it -- with an accessible explanation when the gateway's advertised `can_delete` capability is false (the caller is neither a `gateway:owner` nor a `platform:admin`; see platform `gateway-access-management.spec.md` GTW-ACC-01). A gateway whose `can_delete` is absent or true SHALL leave the action enabled. This mirrors the server authorization rather than replacing it; the API remains authoritative and SHALL still reject an unauthorized `DELETE` with `403`.
 
 The `Connection` tab SHALL show this OpenShell CLI installation command in a code block:
 
@@ -395,7 +399,7 @@ While the active gateway collection page contains a gateway whose lifecycle is p
 
 **Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Verify this command order: OpenShell installation, gateway registration, and provider setup. Verify that gateway registration and provider setup use one code block. Verify that all command code blocks use the same component and shell syntax highlighting. Verify that the installation command uses the reconciled runtime version, removes a postfix that starts with `-`, does not call `openshell` or `jq`, uses the specified continuation lines, and has no line numbers. Verify that the installation documentation link has the specified name, size, destination, and new-tab behavior. Give a `Provisioning` gateway an endpoint and version and verify that the installation prerequisite, documentation link, and command are absent. Give a `Running` gateway an endpoint but no version and verify the same result. Then publish the version and verify that bounded polling shows the command without a manual refresh. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic inline indicators with visible text and no label or chip container. Return an uninitialized lifecycle followed by Pending, Provisioning, and Running responses; verify the active collection page uses one periodic list request, detail uses one periodic detail request, each view updates to Running without user input, and polling then stops. Verify inactive pages and background documents do not poll. Verify creation dates are localized and sort through the API's creation-timestamp field. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior. At the responsive table breakpoint, verify the row actions trigger occupies the top-end action-cell position and does not appear below the labeled row values.
 
-### Requirement WEB-UI-03A: Platform Admin Gateway List
+### Requirement: WEB-UIEX-06 -- Platform Admin Gateway List
 
 Users with the `platform:admin` role SHALL see all gateways in the platform through the gateway collection view. The gateway list SHALL use server-side pagination with API-backed filtering to efficiently handle large gateway collections.
 
@@ -404,16 +408,16 @@ The gateway list SHALL:
 - Display all gateways visible to the authenticated user (scoped per RBAC as defined in `security/rbac-enforcement.spec.md`)
 - Default to 20 items per page
 - Allow page size selection up to 100 items per page
-- Include a search input that filters by gateway name, ID, or fleet
+- Include a search input that filters by gateway name or ID
 - Debounce search input for 300 milliseconds
 - Cancel in-flight search requests when new search input is received
 - Display total gateway count across all pages
 - Show pagination controls (page number, previous/next, items per page selector)
-- Render delete actions on all gateway rows for platform:admin users
+- Render the delete action on every visible gateway row, enabled only where the gateway's `can_delete` capability is true (the caller is a `gateway:owner` or `platform:admin`) and otherwise disabled with an accessible explanation
 - Require confirmation via a modal dialog before deleting any gateway
 - Display a platform:admin indicator (badge or status) when the user has this role
 
-Platform administrators SHALL be able to delete any gateway from the list view. The delete action SHALL:
+Platform administrators (and gateway owners, for gateways they own) SHALL be able to delete a gateway from the list view; the console SHALL gate the affordance on the gateway's `can_delete` capability as defined in WEB-UIEX-03. The delete action SHALL:
 
 - Trigger a confirmation modal with the gateway name
 - On confirmation, call `DELETE /api/hypershell/v1/gateways/{id}`
@@ -421,9 +425,9 @@ Platform administrators SHALL be able to delete any gateway from the list view. 
 - Invalidate the gateway collection query to refresh the list
 - Handle failures with clear error messaging and recovery guidance
 
-**Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are visible and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify delete actions are not visible and the list shows only owned/viewable gateways.
+**Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are enabled and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify the list shows only owned/viewable gateways, the delete action is enabled on gateways they own, and the delete action is disabled with an accessible explanation on gateways they can only view.
 
-#### Scenario: Platform admin sees all gateways with pagination
+#### Scenario: WEB-UIEX-06.01 -- Platform admin sees all gateways with pagination
 
 - GIVEN user A has `platform:admin`
 - AND there are 50 gateways in the platform owned by various users
@@ -432,17 +436,17 @@ Platform administrators SHALL be able to delete any gateway from the list view. 
 - AND the page shows "Showing 1-20 of 50"
 - AND pagination controls allow navigation to additional pages
 
-#### Scenario: Platform admin searches for a gateway
+#### Scenario: WEB-UIEX-06.02 -- Platform admin searches for a gateway
 
 - GIVEN user A has `platform:admin`
 - AND there are 100 gateways in the platform
 - WHEN user A types "prod" in the search input
 - THEN the input is debounced for 300ms
 - AND only one API request is sent after the debounce period
-- AND only gateways matching "prod" in name, ID, or fleet are displayed
+- AND only gateways matching "prod" in name or ID are displayed
 - AND the total count reflects filtered results
 
-#### Scenario: Platform admin deletes a gateway from list
+#### Scenario: WEB-UIEX-06.03 -- Platform admin deletes a gateway from list
 
 - GIVEN user A has `platform:admin`
 - AND user A is viewing the gateway list
@@ -454,68 +458,50 @@ Platform administrators SHALL be able to delete any gateway from the list view. 
 - AND a success notification is displayed
 - AND the list is refreshed
 
-#### Scenario: Non-admin user does not see delete actions
+#### Scenario: WEB-UIEX-06.04 -- Non-admin delete is gated by per-gateway ownership
 
-- GIVEN user A has `gateway:owner` on gw-1 only
+- GIVEN user A has `gateway:owner` on gw-1 and `gateway:viewer` on gw-2
 - AND user A does NOT have `platform:admin`
 - WHEN user A views the gateway list
-- THEN user A sees only gw-1
-- AND the delete action is not visible in the row actions menu
-- AND user A cannot delete gateways they do not own
+- THEN user A sees gw-1 and gw-2
+- AND the delete action for gw-1 (where `can_delete` is true) SHALL be enabled
+- AND the delete action for gw-2 (where `can_delete` is false) SHALL be disabled with an accessible explanation
+- AND the server SHALL reject a delete of gw-2 by user A with `403` regardless of the affordance
 
-### Requirement WEB-UI-04: Gateway Placement Selection
+### Requirement: WEB-UIEX-04 -- Gateway Placement Selection
 
-The gateway provisioning form SHALL collect a gateway name and one placement cluster. It SHALL use the PatternFly searchable single-select pattern and populate remote placement options from the managed-cluster API. The control SHALL display each managed cluster by name, distinguish options with available provider and region context, and SHALL NOT offer cluster creation or registration.
+The gateway provisioning form SHALL collect a gateway name and a network-visibility placement intent rather than a cluster selection. The provision form's placement-intent request contract, its network-visibility choices, and the related provider, version, availability, and local-kind behavior are defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01 Placement Intent Contract and WEB-PLC-02 Network Visibility Selection). The form SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`; the backend resolves and assigns the concrete cluster identifier, or late-binds the gateway (created `Pending` with an empty `cluster_id`) when no cluster matches the selector yet, per [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) WEB-PLC-07. The form SHALL NOT collect a Kubernetes namespace; the host adapter SHALL omit namespace because the API server assigns it.
 
-The gateway collection and gateway details SHALL display the managed-cluster name for every gateway with a non-empty `cluster_id`. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Managed-cluster typeahead results SHALL be bounded by the application-owned default collection page size. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback. Gateways with an empty `cluster_id` SHALL display `Hub cluster` in both experiences.
+The gateway collection and gateway details SHALL display the resolved managed-cluster name for every gateway whose backend-assigned `cluster_id` is present. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback.
 
-`Hub cluster (default)` SHALL be the initially selected placement and SHALL represent the cluster that hosts HyperShell. Selecting this option SHALL send an empty `cluster_id`. Selecting a managed cluster SHALL send that cluster's stable identifier as `cluster_id`. Typing text that does not identify a selected option SHALL NOT silently retain or submit a different placement. Pressing Escape during an uncommitted search SHALL close the popup and restore the input and form value to the last accepted placement.
+**Verification:** Inspect the composed provisioning form, its placement-intent request payload, the SDK adapter, and the managed-cluster name resolution on the gateway collection and gateway details. Confirm the form presents no cluster selector, omits namespace, and submits a placement intent rather than a user-selected `cluster_id`, consistent with `gateway-provision-placement.spec.md` WEB-PLC-01 and WEB-PLC-02, and that the created Gateway response contains the server-assigned namespace and backend-resolved cluster. Cold-render the gateway collection with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests; repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
 
-The form SHALL NOT collect a Kubernetes namespace, fleet identifier, release identifier, or database identifier. The host adapter SHALL omit namespace because the API server assigns it, and SHALL send empty fleet, release, and database identifiers until those values have a user-facing or reconciler-defined contract. Loading, no-match, partial-page, managed-cluster API failure, retry, and cancellation states SHALL be explicit. A managed-cluster API failure SHALL NOT prevent provisioning to the hub cluster, but the interface SHALL explain that remote placements are unavailable and provide a retry action.
-
-Managed-cluster search SHALL execute at the API through the gateway application use case and its application-owned port. Search values SHALL be normalized in the query identity, rapid input SHALL be debounced for 250 milliseconds, obsolete requests SHALL be cancelled, and the query SHALL request only the first bounded result page. Placement results SHALL remain fresh for 60 seconds. Cluster list and gateway provisioning requests SHALL retain one correlation context each and publish their required workflow and dependency probes.
-
-**Verification:** Inspect the composed provisioning form, application port, query key, freshness policy, SDK adapter, request payload, and probe recordings. Exercise keyboard and screen-reader selection, Escape from an uncommitted search, rapid and slow search input, literal `%`, `_`, apostrophe, and backslash search values, warm-cache remount, no-match, more-results, slow load, API failure and retry on both provisioning and gateway details, cancellation, hub provisioning, and managed-cluster provisioning. Confirm that one rapid typing burst produces one API search, warm placement data is reused for 60 seconds, the form contains no namespace or cluster-creation controls, the default payload uses `cluster_id: ""` and omits namespace, the response contains the server-assigned namespace, and a selected managed cluster uses its identifier without changing the other reconciler-owned identifiers.
-
-#### Scenario: Provision on the Hub Cluster
+#### Scenario: WEB-UIEX-04.01 -- Provisioning Submits Placement Intent
 
 - GIVEN the provisioning form has loaded
-- WHEN the user keeps `Hub cluster (default)` selected and provisions a gateway
-- THEN the request SHALL contain an empty `cluster_id`
+- WHEN the user selects a network visibility and provisions a gateway
+- THEN the request SHALL contain the placement intent defined by `gateway-provision-placement.spec.md` WEB-PLC-01
+- AND the request SHALL NOT contain a user-selected `cluster_id`
 - AND the request SHALL omit namespace
 - AND the created Gateway response SHALL contain the server-assigned namespace
 
-#### Scenario: Provision on a Managed Cluster
+#### Scenario: WEB-UIEX-04.02 -- Gateway Collection Shows Placement Names
 
-- GIVEN the managed-cluster API returns an existing cluster
-- WHEN the user searches for and selects that cluster and provisions a gateway
-- THEN the request SHALL contain the selected managed cluster identifier as `cluster_id`
-- AND the interface SHALL NOT offer to create or register a cluster
-
-#### Scenario: Managed Clusters Are Unavailable
-
-- GIVEN the managed-cluster API request fails
-- WHEN the provisioning form reports the failure
-- THEN `Hub cluster (default)` SHALL remain available for selection
-- AND the user SHALL be able to retry loading managed clusters without losing valid gateway form input
-
-#### Scenario: Gateway Collection Shows Placement Names
-
-- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- GIVEN a gateway has a backend-assigned `cluster_id` for an existing managed cluster
 - WHEN the gateway collection renders that row
 - THEN the Cluster column SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
 
-#### Scenario: Gateway Details Show Placement Names
+#### Scenario: WEB-UIEX-04.03 -- Gateway Details Show Placement Names
 
-- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- GIVEN a gateway has a backend-assigned `cluster_id` for an existing managed cluster
 - WHEN the gateway details render
 - THEN the Cluster value SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
 
-### Requirement WEB-UI-05: Gateway Detail Connection and Service Accounts
+### Requirement: WEB-UIEX-05 -- Gateway Detail Connection and Service Accounts
 
-The gateway detail page SHALL present a connection-forward experience. The page header SHALL retain the gateway name, inline status, the Open gateway console action, and the rename/delete Actions dropdown defined in `WEB-UI-03`.
+The gateway detail page SHALL present a connection-forward experience. The page header SHALL retain the gateway name, inline status, the Open gateway console action, and the rename/delete Actions dropdown defined in `WEB-UIEX-03`.
 
 Below the header, the page SHALL use PatternFly Tabs with these primary tabs in order:
 
@@ -525,11 +511,11 @@ Below the header, the page SHALL use PatternFly Tabs with these primary tabs in 
 
 The selected tab SHALL use the validated `tab` search parameter per `WEB-DATA-02`. Its values SHALL be `connection`, `service-accounts`, and `details`. A shared URL and browser refresh SHALL reopen the selected tab. Browser Back and Forward SHALL restore the previous selection. A missing or invalid value SHALL select `Connection`.
 
-The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, namespace, and release identifier), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
+The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, and namespace), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
 
 The `Connection` tab SHALL guide the user through three ordered steps using an accessible ordered structure with a visible label and description for each step:
 
-1. **Log in to the gateway.** The step SHALL present the `openshell gateway add` command produced from the authorized gateway response as a read-only PatternFly Clipboard Copy value, using the same command construction, shell-argument encoding, and missing-value handling required by `WEB-UI-03`. When required connection values are absent, the step SHALL explain that login is unavailable rather than present an incomplete command.
+1. **Log in to the gateway.** The step SHALL present the `openshell gateway add` command produced from the authorized gateway response as a read-only PatternFly Clipboard Copy value, using the same command construction, shell-argument encoding, and missing-value handling required by `WEB-UIEX-03`. When required connection values are absent, the step SHALL explain that login is unavailable rather than present an incomplete command.
 
 2. **Add a Claude on Vertex AI provider.** The step SHALL present, as its primary read-only Clipboard Copy value, one `openshell provider create` command for the `google-vertex-ai` provider that reads credentials and configuration from the user's own environment rather than requiring hand-edited secrets. An expandable details disclosure SHALL document the Application Default Credentials prerequisite, the environment variables the command reads, the command that routes a Claude model through the provider, and the sandbox routing caveats, including reaching Vertex through `inference.local` and not setting `CLAUDE_CODE_USE_VERTEX` inside the sandbox. The step SHALL NOT display, request, or persist Google Cloud credentials, service-account keys, project identifiers, or access tokens in the browser.
 
@@ -547,7 +533,7 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 
 **Verification:** Open a gateway detail page and confirm `Connection` is selected by default. Confirm that `Service accounts` is the second tab and `Details` renders the former description list unchanged. Confirm that the `Connection` tab does not contain a service-account management link. Switch tabs and confirm the URL, refresh, and browser Back and Forward restore selection. Confirm a missing or invalid value selects `Connection`. Copy each interactive command and verify visible feedback and accessible names. Feed a gateway with missing connection values and confirm that the login step reports the problem without a partial command. Confirm that the provider details retain the ADC prerequisite, environment variables, inference-routing command, and `inference.local` and `CLAUDE_CODE_USE_VERTEX` caveats. Confirm that the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials. Exercise the service-account collection, create form, one-time view, setup commands, revoke, delete, loading, empty, no-match, error, and uncertain-create states. Register both an interactive and a service-account connection to one gateway and confirm that their local aliases do not collide. Confirm the client secret never enters query data, navigation state, context, probes, logs, or URLs. Exercise keyboard, screen-reader, zoom, localization, RTL, and narrow-viewport behavior for the complete journey.
 
-#### Scenario: Connection Tab Is the Default
+#### Scenario: WEB-UIEX-05.01 -- Connection Tab Is the Default
 
 - GIVEN an authenticated user opens a gateway detail page
 - WHEN the page renders
@@ -556,14 +542,14 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 - AND the `Service accounts` tab SHALL be available
 - AND the operational description list SHALL be available under the `Details` tab
 
-#### Scenario: Login Command Uses Authorized Values
+#### Scenario: WEB-UIEX-05.02 -- Login Command Uses Authorized Values
 
 - GIVEN a gateway whose response includes endpoint and OIDC connection values
 - WHEN the `Connection` tab renders the login step
 - THEN the `openshell gateway add` command SHALL contain those values encoded as safe shell arguments
 - AND copying it SHALL produce visible success feedback
 
-#### Scenario: Provider Step Reads the Environment
+#### Scenario: WEB-UIEX-05.03 -- Provider Step Reads the Environment
 
 - GIVEN the user has configured Application Default Credentials
 - WHEN the user copies the provider step command
@@ -571,14 +557,14 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 - AND the browser SHALL NOT display or transmit Google Cloud credentials
 - AND the expandable details SHALL document the ADC prerequisite, required environment variables, model routing, and sandbox routing caveats
 
-#### Scenario: Missing Connection Values
+#### Scenario: WEB-UIEX-05.04 -- Missing Connection Values
 
 - GIVEN a gateway whose endpoint or OIDC values are absent
 - WHEN the `Connection` tab renders the login step
 - THEN the step SHALL explain that gateway login is unavailable
 - AND it SHALL NOT present an incomplete `openshell gateway add` command
 
-### Requirement WEB-I18N-01: Localization from First Implementation
+### Requirement: WEB-I18N-01 -- Localization from First Implementation
 
 React Intl / FormatJS SHALL own user-facing application messages from the first implementation. Messages SHALL use complete ICU expressions; concatenated translatable fragments and ad hoc pluralization are prohibited. CI SHALL extract and validate message catalogs and reject missing or malformed messages for supported release locales.
 
@@ -588,7 +574,7 @@ Pseudo-localization and an RTL locale SHALL be part of regular verification even
 
 **Verification:** Extract messages, build with pseudo-localized and RTL catalogs, and test expansion, mixed direction, time-zone transitions, plural categories, and missing translations on critical routes.
 
-### Requirement WEB-QUAL-01: Static Analysis
+### Requirement: WEB-QUAL-01 -- Static Analysis
 
 The web workspace SHALL run:
 
@@ -604,7 +590,7 @@ Lint suppression SHALL be narrow and explain the violated rule's inapplicability
 
 **Verification:** Run all checks from the workspace root and introduce representative type, hook, accessibility, query, and message violations to confirm enforcement.
 
-### Requirement WEB-QUAL-02: Test Layers
+### Requirement: WEB-QUAL-02 -- Test Layers
 
 The web console SHALL use:
 
@@ -622,7 +608,7 @@ At least one production-shaped integration test SHALL start the BFF with a recor
 
 **Verification:** Inspect the test inventory and run representative suites. Confirm that contract drift in an API fixture produces a failure rather than being hidden by permissive mocks.
 
-### Requirement WEB-QUAL-03: Change and Release Gates
+### Requirement: WEB-QUAL-03 -- Change and Release Gates
 
 Every pull request affecting the web workspace SHALL pass frozen installation, dependency policy, formatting, lint, type checks, unit/integration tests, Storybook build and checks, a production build, a production-BFF API and direct-route smoke test, and critical Chromium journeys. The production smoke test SHALL fail when the browser's API namespace is not proxied, when a declared browser route returns a server 404, or when production gateway mapping supplies preview connection constants. Main/release verification SHALL add Firefox, WebKit, visual regression for critical layouts, pseudo-locale/RTL coverage, and the broader accessibility matrix required by `standards/ui/verification.spec.md`.
 
@@ -630,7 +616,7 @@ Automated accessibility checks SHALL use axe-compatible rules but SHALL NOT be r
 
 **Verification:** Inspect component-aware CI, stable summary gates, test artifacts, browser versions, exclusions, and release evidence.
 
-### Requirement WEB-DEPLOY-01: Reproducible Container
+### Requirement: WEB-DPLY-01 -- Reproducible Container
 
 The web console SHALL build in a multi-stage container from digest-pinned images. The build stage SHALL use the pinned Node.js LTS and pnpm versions with a frozen lockfile. The runtime SHALL contain only the BFF production closure, built static assets, required metadata, and trusted certificates.
 
@@ -638,7 +624,7 @@ The runtime container and Kubernetes workload SHALL run as non-root, disallow pr
 
 **Verification:** Rebuild from a clean checkout, inspect image contents and dependency closure, scan the image, start it with the production security context, and exercise probes and graceful shutdown.
 
-### Requirement WEB-DEPLOY-02: Assets and Runtime Configuration
+### Requirement: WEB-DPLY-02 -- Assets and Runtime Configuration
 
 Content-hashed static assets SHALL use long-lived immutable caching and compression. The application HTML and deployment configuration SHALL not use long-lived caching. Source maps SHALL be uploaded privately to the selected error system or retained as protected build artifacts; they SHALL NOT be publicly served by default.
 
@@ -648,7 +634,7 @@ No service worker or offline mutation queue SHALL ship initially. Either feature
 
 **Verification:** Inspect built JavaScript, source maps, cache headers, compressed responses, runtime configuration, and browser caches before and after logout and deployment replacement.
 
-### Requirement WEB-SEC-01: Browser Security Headers
+### Requirement: WEB-SEC-01 -- Browser Security Headers
 
 The BFF SHALL set a reviewed Content Security Policy, frame-ancestor restriction, MIME sniffing protection, referrer policy, permissions policy, and HSTS where TLS deployment permits it. CSP SHALL begin in report-only mode while third-party and framework behavior is inventoried, then become enforcing before production release. Unsafe script execution and unbounded third-party origins SHALL NOT be accepted as permanent defaults.
 
@@ -656,7 +642,7 @@ User- or API-provided text SHALL render as text by default. Raw HTML rendering r
 
 **Verification:** Run header and CSP tests, inject representative markup and URL payloads, and review CSP reports. Confirm that framing and cross-origin data access fail as designed.
 
-### Requirement WEB-OBS-01: User and Web Performance Signals
+### Requirement: WEB-OBS-01 -- User and Web Performance Signals
 
 The browser SHALL report Core Web Vitals using `web-vitals` and SHALL measure critical-task completion, failure, abandonment, client errors, and recovery outcomes required by `standards/ui/trust-performance.spec.md`. Metrics SHALL use stable route templates rather than raw identifiers and SHALL exclude query strings, secrets, user-entered values, tokens, and sensitive resource content.
 
@@ -666,7 +652,7 @@ Performance budgets SHALL cover route JavaScript, CSS, initial data, long tasks,
 
 **Verification:** Inspect emitted events and dimensions, simulate client errors and task failures, and compare field dashboards and lab diagnostics with declared budgets.
 
-### Requirement WEB-OBS-02: Server Telemetry and Correlation
+### Requirement: WEB-OBS-02 -- Server Telemetry and Correlation
 
 The BFF SHALL emit structured logs, metrics, and traces with request and trace correlation. It SHALL propagate W3C trace context to the API, record sanitized route templates and upstream outcome, and export telemetry through the repository's supported OpenTelemetry/OTLP path. Raw session identifiers, authorization headers, cookies, tokens, user input, and sensitive API bodies SHALL NOT be logged or attached to telemetry.
 
@@ -676,13 +662,13 @@ Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint
 
 **Verification:** Follow a request from browser signal through BFF and API telemetry, trigger each failure class, and inspect exported data for correlation and prohibited values.
 
-### Requirement WEB-API-01: UI-Supporting API Contracts
+### Requirement: WEB-API-01 -- UI-Supporting API Contracts
 
 Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, creation timestamp, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
-- gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name, ID, or fleet), sort field and direction, and response metadata (page, size, total count);
-- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner` or `gateway:viewer` bindings;
+- gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name or ID), sort field and direction, and response metadata (page, size, total count);
+- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings;
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - gateway-scoped service-account list, create, get, revoke, and delete contracts;
@@ -697,9 +683,9 @@ The UI SHALL NOT infer authorization solely from object visibility, guess whethe
 
 The API server scopes gateway visibility by per-gateway RoleBindings and the platform:admin global role -- the gateway list returns gateways where the authenticated user has a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if the user has the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)). The provisioning action SHALL be available in the primary gateway experience. The gateway provisioning form SHALL NOT collect OIDC configuration -- the control plane auto-provisions Keycloak OIDC clients and populates OIDC fields when a gateway is created. Gateway provisioning requires the `gateway:creator` role (from Keycloak); the creator automatically becomes `gateway:owner` on the new gateway, which provides admin-tier access via the OIDC Role Bridge (see [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md)).
 
-The gateway table SHALL identify an empty `cluster_id` as `Hub cluster` in a sortable Cluster column. The provisioning form SHALL expose the hub as `Hub cluster (default)` and list existing managed clusters as remote placement choices, without offering cluster creation or registration. Hub placement SHALL send an empty `cluster_id`; managed-cluster placement SHALL send the selected cluster identifier. The form SHALL NOT collect `fleet_id`, `release_id`, or `namespace`; it SHALL send the first two identifiers as empty strings and omit namespace because the API server owns its assignment. The gateway contract has no database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+The gateway table SHALL display each gateway's backend-resolved managed-cluster name in a sortable Cluster column. The provisioning form SHALL submit only a gateway name and a placement intent as defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01); it SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`, and the backend SHALL resolve and assign the concrete cluster identifier, or late-bind the gateway when no cluster matches the selector yet (WEB-PLC-07). The form SHALL NOT collect a Kubernetes namespace because the API server owns its assignment. The gateway provisioning contract has no fleet, release, or database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; hub placement sends an empty cluster identifier; managed placement sends the selected cluster identifier; the create request omits namespace; the response contains an API-assigned namespace; and the provisioning form does not expose fleet, release, or namespace fields.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or fleet, release, or namespace fields.
 
 ## Initial Delivery Sequence
 
@@ -730,7 +716,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 | Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                                                                                                |
 | One gateway management experience                                | A single gateway list makes connection and provisioning workflows easy to find without introducing premature audience or navigation boundaries                                                                                            |
 | Private reusable gateway management UI workspace package         | Establishes one canonical gateway experience that the standalone console hosts today and another product can embed later without coupling feature code to a shell, router, authentication implementation, or mutable global configuration |
-| Local-cluster placement first                                    | The initial form presents local placement and omits fleet and cluster values from its request without changing the API contract; remote placement can be added later                                                                      |
+| Placement intent over cluster selection                          | The provisioning form submits a network-visibility placement intent rather than a user-selected cluster; the backend resolves and assigns the concrete cluster (see `gateway-provision-placement.spec.md`)                                  |
 | No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                                                                                            |
 | No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                                                                 |
 | TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                                                                                              |

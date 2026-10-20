@@ -81,22 +81,32 @@ export async function queryGatewayProvisionDuration(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays?: 7 | 30,
 ): Promise<GatewayProvisionDurationSeconds> {
   // OTLP resource attributes identify the controller namespace. The scrape
   // namespace label identifies the collector, which serves multiple instances.
   const selector = namespaceSelector(namespace, "k8s_namespace_name");
-  const count = namespace
-    ? `sum(gateway_provision_duration_seconds_count${selector})`
-    : gatewayProvisionDurationCountPromql;
-  const mean = namespace
-    ? `sum(gateway_provision_duration_seconds_sum${selector}) / ${count}`
-    : gatewayProvisionDurationMeanPromql;
-  const p50 = namespace
-    ? `histogram_quantile(0.50, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
-    : gatewayProvisionDurationP50Promql;
-  const p95 = namespace
-    ? `histogram_quantile(0.95, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
-    : gatewayProvisionDurationP95Promql;
+  const window = rangeDays === undefined ? undefined : `${String(rangeDays)}d`;
+  const count = window
+    ? `sum(increase(gateway_provision_duration_seconds_count${selector}[${window}]))`
+    : namespace
+      ? `sum(gateway_provision_duration_seconds_count${selector})`
+      : gatewayProvisionDurationCountPromql;
+  const mean = window
+    ? `sum(increase(gateway_provision_duration_seconds_sum${selector}[${window}])) / ${count}`
+    : namespace
+      ? `sum(gateway_provision_duration_seconds_sum${selector}) / ${count}`
+      : gatewayProvisionDurationMeanPromql;
+  const p50 = window
+    ? `histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[${window}])))`
+    : namespace
+      ? `histogram_quantile(0.50, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
+      : gatewayProvisionDurationP50Promql;
+  const p95 = window
+    ? `histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[${window}])))`
+    : namespace
+      ? `histogram_quantile(0.95, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
+      : gatewayProvisionDurationP95Promql;
   const observation_count = Math.round(
     await queryPrometheusInstantNumber(prometheusUrl, count, timeoutMs),
   );

@@ -22,21 +22,26 @@ var _ MappedNullable = &ManagedCluster{}
 
 // ManagedCluster struct for ManagedCluster
 type ManagedCluster struct {
-	Id               *string    `json:"id,omitempty"`
-	Kind             *string    `json:"kind,omitempty"`
-	Href             *string    `json:"href,omitempty"`
-	CreatedAt        *time.Time `json:"created_at,omitempty"`
-	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
-	Name             string     `json:"name"`
-	Provider         string     `json:"provider"`
-	Region           *string    `json:"region,omitempty"`
-	KubeconfigSecret string     `json:"kubeconfig_secret"`
-	Status           *string    `json:"status,omitempty"`
-	ApiServerUrl     *string    `json:"api_server_url,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Name      string     `json:"name"`
+	// Cloud provider capability used for gateway placement.
+	Provider string `json:"provider"`
+	// Network visibility supported by this control plane for gateway placement.
+	Visibility       *string `json:"visibility,omitempty"`
+	Region           *string `json:"region,omitempty"`
+	KubeconfigSecret string  `json:"kubeconfig_secret"`
+	Status           *string `json:"status,omitempty"`
+	ApiServerUrl     *string `json:"api_server_url,omitempty"`
 	// OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable.
 	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Timestamp of the most recent registration call. Updated on every POST /registration.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// Registration-owned capability labels used by match-all placement selectors.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type _ManagedCluster ManagedCluster
@@ -269,6 +274,38 @@ func (o *ManagedCluster) SetProvider(v string) {
 	o.Provider = v
 }
 
+// GetVisibility returns the Visibility field value if set, zero value otherwise.
+func (o *ManagedCluster) GetVisibility() string {
+	if o == nil || IsNil(o.Visibility) {
+		var ret string
+		return ret
+	}
+	return *o.Visibility
+}
+
+// GetVisibilityOk returns a tuple with the Visibility field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetVisibilityOk() (*string, bool) {
+	if o == nil || IsNil(o.Visibility) {
+		return nil, false
+	}
+	return o.Visibility, true
+}
+
+// HasVisibility returns a boolean if a field has been set.
+func (o *ManagedCluster) HasVisibility() bool {
+	if o != nil && !IsNil(o.Visibility) {
+		return true
+	}
+
+	return false
+}
+
+// SetVisibility gets a reference to the given string and assigns it to the Visibility field.
+func (o *ManagedCluster) SetVisibility(v string) {
+	o.Visibility = &v
+}
+
 // GetRegion returns the Region field value if set, zero value otherwise.
 func (o *ManagedCluster) GetRegion() string {
 	if o == nil || IsNil(o.Region) {
@@ -453,6 +490,38 @@ func (o *ManagedCluster) SetLastSeenAt(v time.Time) {
 	o.LastSeenAt = &v
 }
 
+// GetCapabilities returns the Capabilities field value if set, zero value otherwise.
+func (o *ManagedCluster) GetCapabilities() []string {
+	if o == nil || IsNil(o.Capabilities) {
+		var ret []string
+		return ret
+	}
+	return o.Capabilities
+}
+
+// GetCapabilitiesOk returns a tuple with the Capabilities field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetCapabilitiesOk() ([]string, bool) {
+	if o == nil || IsNil(o.Capabilities) {
+		return nil, false
+	}
+	return o.Capabilities, true
+}
+
+// HasCapabilities returns a boolean if a field has been set.
+func (o *ManagedCluster) HasCapabilities() bool {
+	if o != nil && !IsNil(o.Capabilities) {
+		return true
+	}
+
+	return false
+}
+
+// SetCapabilities gets a reference to the given []string and assigns it to the Capabilities field.
+func (o *ManagedCluster) SetCapabilities(v []string) {
+	o.Capabilities = v
+}
+
 func (o ManagedCluster) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -480,6 +549,9 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["name"] = o.Name
 	toSerialize["provider"] = o.Provider
+	if !IsNil(o.Visibility) {
+		toSerialize["visibility"] = o.Visibility
+	}
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region
 	}
@@ -495,6 +567,9 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.LastSeenAt) {
 		toSerialize["last_seen_at"] = o.LastSeenAt
+	}
+	if !IsNil(o.Capabilities) {
+		toSerialize["capabilities"] = o.Capabilities
 	}
 	return toSerialize, nil
 }

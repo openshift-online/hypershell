@@ -38,7 +38,7 @@ func init() {
 	fs := Cmd.Flags()
 	arguments.AddParameterFlag(fs, &args.parameter)
 	arguments.AddNoHeadersFlag(fs, &args.noHeaders)
-	arguments.AddColumnsFlag(fs, &args.columns, "id, active_sandbox_count, cluster_id, console_address, created_by, created_at")
+	arguments.AddColumnsFlag(fs, &args.columns, "id, active_sandbox_count, can_delete, can_edit, cluster_id, created_at")
 	arguments.AddOutputFlag(fs, &args.outputFmt)
 	fs.StringVar(&args.search, "search", "", "Search filter expression.")
 	fs.StringVar(&args.orderBy, "order-by", "", "Order by expression.")
@@ -52,7 +52,7 @@ func run(cmd *cobra.Command, argv []string) error {
 		return err
 	}
 
-	conn, err := connection.NewConnection().Config(cfg).Build()
+	conn, err := connection.NewConnectionBuilder().Config(cfg).Build()
 	if err != nil {
 		return err
 	}

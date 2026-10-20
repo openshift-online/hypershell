@@ -66,9 +66,9 @@ func toEventType(t pb.EventType) EventType {
 	}
 }
 
-func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.ManagedCluster]) error {
+func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.ManagedCluster], idleTimeout time.Duration) error {
 	client := pb.NewManagedClusterServiceClient(conn)
-	return watchLoop(ctx, "ManagedCluster", func(ctx context.Context) error {
+	return watchLoop(ctx, "ManagedCluster", idleTimeout, func(ctx context.Context, heartbeat func()) error {
 		stream, err := client.WatchManagedClusters(ctx, &pb.WatchManagedClustersRequest{})
 		if err != nil {
 			return fmt.Errorf("starting managed cluster watch: %w", err)
@@ -81,6 +81,7 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 			if err != nil {
 				return fmt.Errorf("receiving managed cluster event: %w", err)
 			}
+			heartbeat()
 			if err := handler.Handle(ctx, Event[*pb.ManagedCluster]{
 				Type:       toEventType(event.Type),
 				ResourceID: event.ResourceId,
@@ -92,21 +93,21 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayRelease]) error {
-	client := pb.NewGatewayReleaseServiceClient(conn)
-	// Drive release reconciliation through a per-resource reconcile queue rather
-	// than inline so a failed reconcile (e.g. a transient API-server error writing
-	// the release status, or listing the referencing gateways for fan-out) is
-	// retried with capped backoff instead of being logged and dropped. Releases
-	// own no cluster resources, so -- unlike gateways -- no startup seed or
-	// recovery is needed; the queue exists purely for retry and per-release
-	// serialization.
-	rq := newReconcileQueue(ctx, "GatewayRelease", handler)
-	defer rq.stop()
-	return watchLoop(ctx, "GatewayRelease", func(ctx context.Context) error {
-		stream, err := client.WatchGatewayReleases(ctx, &pb.WatchGatewayReleasesRequest{})
+// WatchRepositories streams Repository events and drives each through the handler.
+// Repository is a platform-level resource, not cluster-scoped, so the watch takes
+// no cluster filter, mirroring WatchManagedClusters. It drives the event-driven
+// declarative `.hypershell` import: a created or changed Repository is reconciled in
+// real time instead of waiting for the slow periodic drift re-check
+// (control-plane.spec.md, "Declarative `.hypershell` Import Reconciliation"). Like
+// the other watches it reconnects with backoff and is covered by the idle watchdog;
+// it does not replay existing Repositories, so the reconciler's periodic pass seeds
+// the ones already registered at startup.
+func WatchRepositories(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Repository], idleTimeout time.Duration) error {
+	client := pb.NewRepositoryServiceClient(conn)
+	return watchLoop(ctx, "Repository", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchRepositories(ctx, &pb.WatchRepositoriesRequest{})
 		if err != nil {
-			return fmt.Errorf("starting gateway release watch: %w", err)
+			return fmt.Errorf("starting repository watch: %w", err)
 		}
 		for {
 			event, err := stream.Recv()
@@ -114,13 +115,16 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("receiving gateway release event: %w", err)
+				return fmt.Errorf("receiving repository event: %w", err)
 			}
-			rq.enqueue(Event[*pb.GatewayRelease]{
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.Repository]{
 				Type:       toEventType(event.Type),
 				ResourceID: event.ResourceId,
-				Resource:   event.GatewayRelease,
-			})
+				Resource:   event.Repository,
+			}); err != nil {
+				log.Printf("ERROR handling repository %s: %v", event.ResourceId, err)
+			}
 		}
 	})
 }
@@ -158,10 +162,9 @@ func gatewayWorkerCount(configured int) int {
 }
 
 // GatewayReconcileQueue is a shareable handle to the gateway reconcile queue. It
-// lets an out-of-band reconciler -- e.g. the GatewayRelease reconciler on an
-// image change -- request a gateway be re-reconciled through the same serialized,
-// retrying, phase-gate-bypassing path the gateway watch stream uses, without
-// blocking the caller on the (potentially multi-minute) reconcile itself.
+// lets an out-of-band reconciler request a gateway be re-reconciled through the
+// same serialized, retrying, phase-gate-bypassing path the gateway watch stream
+// uses, without blocking the caller on the (potentially multi-minute) reconcile.
 type GatewayReconcileQueue struct {
 	q *reconcileQueue[*pb.Gateway]
 }
@@ -194,10 +197,8 @@ func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 // per-resource reconcile queue. The watch and its seed lists are scoped
 // server-side to gateways with this control plane's registered cluster_id, so it
 // only ever reconciles its own gateways (the pull model); an empty clusterID is
-// rejected. The queue is owned and stopped by the caller
-// (main) and shared with out-of-band enqueuers such as the GatewayRelease
-// reconciler, so it is neither created nor stopped here.
-func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue, clusterID string) error {
+// rejected. The queue is owned and stopped by the caller (main).
+func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue, clusterID string, idleTimeout time.Duration) error {
 	clusterFilter, err := ClusterFilter(clusterID)
 	if err != nil {
 		return err
@@ -210,10 +211,9 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 	// The queue serializes work per gateway, coalesces to the latest observed state,
 	// and retries failures indefinitely with capped backoff -- all on the watcher
 	// lifetime context so recovery survives a stream reconnect. The queue is owned
-	// by the caller (main) and shared with out-of-band enqueuers such as the
-	// GatewayRelease reconciler, so it is neither created nor stopped here.
+	// by the caller (main).
 	rq := queue.q
-	return watchLoop(ctx, "Gateway", func(ctx context.Context) error {
+	return watchLoop(ctx, "Gateway", idleTimeout, func(ctx context.Context, heartbeat func()) error {
 		// Derive a cancelable child before creating the stream so either the
 		// receiver or the seed can cancel and join the other without waiting
 		// for watchLoop to cancel the parent attempt ctx.
@@ -237,6 +237,9 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 		if _, err := stream.Header(); err != nil {
 			return fmt.Errorf("awaiting gateway watch subscription header: %w", err)
 		}
+		// The subscription is live: count it as activity so the idle watchdog does
+		// not fire during the seed window before the first event arrives.
+		heartbeat()
 		// Drain the watch stream concurrently while seeding. The API server's
 		// event broker drops events when its per-subscriber buffer (256 slots)
 		// fills, and seeding -- which performs multiple paginated LISTs plus
@@ -270,6 +273,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 					streamErr <- fmt.Errorf("receiving gateway event: %w", err)
 					return
 				}
+				heartbeat()
 				rq.enqueue(Event[*pb.Gateway]{
 					Type:       toEventType(event.Type),
 					ResourceID: event.ResourceId,
@@ -585,38 +589,12 @@ func forceSeedRecovery(gw *pb.Gateway) bool {
 	}
 }
 
-func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayNetwork]) error {
-	client := pb.NewGatewayNetworkServiceClient(conn)
-	return watchLoop(ctx, "GatewayNetwork", func(ctx context.Context) error {
-		stream, err := client.WatchGatewayNetworks(ctx, &pb.WatchGatewayNetworksRequest{})
-		if err != nil {
-			return fmt.Errorf("starting gateway network watch: %w", err)
-		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving gateway network event: %w", err)
-			}
-			if err := handler.Handle(ctx, Event[*pb.GatewayNetwork]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.GatewayNetwork,
-			}); err != nil {
-				log.Printf("ERROR handling gateway network %s: %v", event.ResourceId, err)
-			}
-		}
-	})
-}
-
 // WatchRoleBindings streams the role bindings of this control plane's gateways.
 // clusterID scopes the stream server-side: the api-server delivers only bindings
 // whose gateway is assigned to that cluster (and no global bindings), and
 // requires a registered caller to pass its own id. Like WatchGateways, the filter
 // is mandatory; an empty id is rejected with ErrMissingClusterID.
-func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding], clusterID string) error {
+func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding], clusterID string, idleTimeout, resyncInterval time.Duration) error {
 	clusterFilter, err := ClusterFilter(clusterID)
 	if err != nil {
 		return err
@@ -630,26 +608,286 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 	rq := newReconcileQueue(ctx, "RoleBinding", handler,
 		withRetryIf[*pb.RoleBinding](isRoleBindingRetryable))
 	defer rq.stop()
-	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
-		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{ClusterId: clusterFilter})
+	return watchLoop(ctx, "RoleBinding", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		// Derive a cancelable child so the receiver and the seed/resync goroutines
+		// can cancel and join each other without waiting for watchLoop to cancel the
+		// parent attempt ctx (mirrors WatchGateways).
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+
+		stream, err := client.WatchRoleBindings(runCtx, &pb.WatchRoleBindingsRequest{ClusterId: clusterFilter})
 		if err != nil {
 			return fmt.Errorf("starting role binding watch: %w", err)
 		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving role binding event: %w", err)
-			}
-			rq.enqueue(Event[*pb.RoleBinding]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.RoleBinding,
-			})
+		// Wait for the subscription header before seeding, so a binding event that
+		// fires during the seed LIST is captured by the watch rather than lost -- the
+		// same list-watch gap WatchGateways closes. The api-server flushes the header
+		// only after it subscribes to the broker.
+		if _, err := stream.Header(); err != nil {
+			return fmt.Errorf("awaiting role binding watch subscription header: %w", err)
 		}
+		heartbeat()
+
+		// Drain live events concurrently with the seed so the broker's bounded
+		// per-subscriber buffer does not fill and drop events while the (potentially
+		// slow) seed LIST runs.
+		streamErr := make(chan error, 1)
+		go func() {
+			defer close(streamErr)
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					runCancel()
+					streamErr <- nil
+					return
+				}
+				if err != nil {
+					runCancel()
+					streamErr <- fmt.Errorf("receiving role binding event: %w", err)
+					return
+				}
+				heartbeat()
+				rq.enqueue(Event[*pb.RoleBinding]{
+					Type:       toEventType(event.Type),
+					ResourceID: event.ResourceId,
+					Resource:   event.RoleBinding,
+				})
+			}
+		}()
+
+		// Seed from the current inventory on every (re)connect. The watch stream
+		// sends only future events and never replays existing bindings, so without
+		// this LIST a binding whose create event was missed (or arrived on a stream
+		// that later went silent) never assigns the owner's Keycloak roles and the
+		// gateway console refuses the owner with "role 'openshell-user' required".
+		// See specs/platform/control-plane.spec.md ("Role Binding Resync").
+		if err := seedRoleBindings(runCtx, client, rq, clusterID); err != nil {
+			// Distinguish a receiver-caused cancellation from a genuine seed failure
+			// (same reasoning as WatchGateways) so neither masks the other.
+			if runCtx.Err() != nil {
+				recvErr := <-streamErr
+				if recvErr != nil {
+					return recvErr
+				}
+				return err
+			}
+			runCancel()
+			<-streamErr
+			return err
+		}
+
+		// Periodically re-seed while the stream stays connected, so an owner grant
+		// is recovered even when a single event is missed and the stream never
+		// reconnects on its own. A transient resync LIST failure is logged and
+		// retried on the next tick rather than tearing down a healthy stream.
+		resyncDone := make(chan struct{})
+		go func() {
+			defer close(resyncDone)
+			if resyncInterval <= 0 {
+				return
+			}
+			ticker := time.NewTicker(resyncInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					if err := seedRoleBindings(runCtx, client, rq, clusterID); err != nil && runCtx.Err() == nil {
+						log.Printf("WARN role binding resync failed; retrying next interval: %v", err)
+					}
+				}
+			}
+		}()
+
+		recvErr := <-streamErr
+		runCancel()
+		<-resyncDone
+		return recvErr
 	})
+}
+
+// roleBindingSeedSink is the subset of the reconcile queue that seedRoleBindings
+// drives: enqueue a role binding for reconciliation. A test seam.
+type roleBindingSeedSink interface {
+	enqueue(Event[*pb.RoleBinding])
+}
+
+// The reconcile queue is the production roleBindingSeedSink.
+var _ roleBindingSeedSink = (*reconcileQueue[*pb.RoleBinding])(nil)
+
+// seedRoleBindings lists every role binding for this control plane's cluster and
+// enqueues each for reconciliation, so the owner's Keycloak client roles are
+// (re)assigned even when the WatchRoleBindings stream missed the binding's create
+// event or went silent. It is the LIST half of the list-then-watch pattern the
+// gateway watch already uses (seedGateways).
+//
+// Unlike seedGateways it does NOT prune: a plain ListRoleBindings reports only
+// surviving bindings, so an absence cannot be distinguished from a binding the
+// list simply did not return, and the stream remains the authority for deletions
+// (and thus for revoking roles a deleted binding no longer backs). The resync only
+// restores missing assignments; the per-event union reconcile (GAM-02) makes every
+// enqueue idempotent, so re-seeding bindings already reflected in Keycloak is a
+// no-op. See specs/platform/control-plane.spec.md ("Role Binding Resync").
+func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, sink roleBindingSeedSink, clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
+	resp, err := client.ListRoleBindings(ctx, &pb.ListRoleBindingsRequest{ClusterId: clusterFilter})
+	if err != nil {
+		return fmt.Errorf("listing role bindings to seed reconcile queue: %w", err)
+	}
+	var seeded int
+	for _, rb := range resp.GetItems() {
+		if rb == nil {
+			continue
+		}
+		sink.enqueue(Event[*pb.RoleBinding]{
+			Type:       EventUpdated,
+			ResourceID: rb.GetMetadata().GetId(),
+			Resource:   rb,
+		})
+		seeded++
+	}
+	log.Printf("INFO seeded %d role binding(s) into reconcile queue on role binding watch (re)connect/resync", seeded)
+	return nil
+}
+
+// WatchAgentRuntimes streams AgentRuntime events for this control plane's own
+// cluster and dispatches each to the handler through a reconcile queue. The
+// stream is cluster-scoped: the api-server resolves each AgentRuntime's effective
+// cluster (its own cluster_id, or the cluster of its referenced gateway) and
+// delivers only the records that match this control plane's registered
+// cluster_id (managed-cluster-registration.spec.md, "Watch Stream Caller
+// Binding"). On every (re)connect it seeds from ListAgentRuntimes so an event
+// missed while the stream was down is still reconciled, mirroring WatchGateways
+// and WatchRoleBindings; it reuses the shared watchLoop reconnect/backoff, the
+// idle watchdog, and the connection-level HTTP/2 keepalive.
+//
+// The handler is the Wave A no-op reconciler (issue #521); cluster-side and
+// gateway-side provisioning are deferred to Wave B.
+func WatchAgentRuntimes(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.AgentRuntime], clusterID string, idleTimeout time.Duration) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
+	client := pb.NewAgentRuntimeServiceClient(conn)
+	rq := newReconcileQueue(ctx, "AgentRuntime", handler)
+	defer rq.stop()
+	return watchLoop(ctx, "AgentRuntime", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		// Derive a cancelable child so the receiver and the seed goroutine can
+		// cancel and join each other without waiting for watchLoop to cancel the
+		// parent attempt ctx (mirrors WatchGateways and WatchRoleBindings).
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+
+		stream, err := client.WatchAgentRuntimes(runCtx, &pb.WatchAgentRuntimesRequest{ClusterId: clusterFilter})
+		if err != nil {
+			return fmt.Errorf("starting agent runtime watch: %w", err)
+		}
+		// Wait for the subscription header before seeding, so an AgentRuntime event
+		// that fires during the seed LIST is captured by the watch rather than lost
+		// -- the same list-watch gap WatchGateways closes. The api-server flushes the
+		// header only after it subscribes to the broker.
+		if _, err := stream.Header(); err != nil {
+			return fmt.Errorf("awaiting agent runtime watch subscription header: %w", err)
+		}
+		heartbeat()
+
+		// Drain live events concurrently with the seed so the broker's bounded
+		// per-subscriber buffer does not fill and drop events while the (potentially
+		// slow) seed LIST runs.
+		streamErr := make(chan error, 1)
+		go func() {
+			defer close(streamErr)
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					runCancel()
+					streamErr <- nil
+					return
+				}
+				if err != nil {
+					runCancel()
+					streamErr <- fmt.Errorf("receiving agent runtime event: %w", err)
+					return
+				}
+				heartbeat()
+				rq.enqueue(Event[*pb.AgentRuntime]{
+					Type:       toEventType(event.Type),
+					ResourceID: event.ResourceId,
+					Resource:   event.AgentRuntime,
+				})
+			}
+		}()
+
+		// Seed from the current inventory on every (re)connect. The watch stream
+		// sends only future events and never replays existing runtimes, so without
+		// this LIST an AgentRuntime whose create event was missed (or arrived on a
+		// stream that later went silent) is never reconciled.
+		if err := seedAgentRuntimes(runCtx, client, rq, clusterID); err != nil {
+			// Distinguish a receiver-caused cancellation from a genuine seed failure
+			// (same reasoning as WatchGateways) so neither masks the other.
+			if runCtx.Err() != nil {
+				recvErr := <-streamErr
+				if recvErr != nil {
+					return recvErr
+				}
+				return err
+			}
+			runCancel()
+			<-streamErr
+			return err
+		}
+
+		recvErr := <-streamErr
+		runCancel()
+		return recvErr
+	})
+}
+
+// agentRuntimeSeedSink is the subset of the reconcile queue that
+// seedAgentRuntimes drives: enqueue an AgentRuntime for reconciliation. A test
+// seam.
+type agentRuntimeSeedSink interface {
+	enqueue(Event[*pb.AgentRuntime])
+}
+
+// The reconcile queue is the production agentRuntimeSeedSink.
+var _ agentRuntimeSeedSink = (*reconcileQueue[*pb.AgentRuntime])(nil)
+
+// seedAgentRuntimes lists every AgentRuntime for this control plane's cluster and
+// enqueues each for reconciliation, so a runtime whose create event the watch
+// missed or dropped while silent is still reconciled. It is the LIST half of the
+// list-then-watch pattern the gateway and role-binding watches already use.
+//
+// Like seedRoleBindings it does NOT prune: a plain ListAgentRuntimes reports only
+// surviving runtimes, so an absence cannot be distinguished from a runtime the
+// list simply did not return, and the stream remains the authority for deletions.
+func seedAgentRuntimes(ctx context.Context, client pb.AgentRuntimeServiceClient, sink agentRuntimeSeedSink, clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
+	resp, err := client.ListAgentRuntimes(ctx, &pb.ListAgentRuntimesRequest{ClusterId: clusterFilter})
+	if err != nil {
+		return fmt.Errorf("listing agent runtimes to seed reconcile queue: %w", err)
+	}
+	var seeded int
+	for _, ar := range resp.GetItems() {
+		if ar == nil {
+			continue
+		}
+		sink.enqueue(Event[*pb.AgentRuntime]{
+			Type:       EventUpdated,
+			ResourceID: ar.GetMetadata().GetId(),
+			Resource:   ar,
+		})
+		seeded++
+	}
+	log.Printf("INFO seeded %d agent runtime(s) into reconcile queue on agent runtime watch (re)connect", seeded)
+	return nil
 }
 
 func isMissingKeycloakClient(err error) bool {
@@ -693,7 +931,12 @@ func isRoleBindingRetryable(err error) bool {
 		isKeycloakHTTPNotFound(err)
 }
 
-func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context.Context) error) error {
+// watchLoop connects a watch stream, drives connectAndRecv, and reconnects with
+// exponential backoff on any return. connectAndRecv receives a heartbeat callback
+// it MUST call on every received event (and on the subscription header) so the
+// idle watchdog can tell a healthy-but-quiet stream from a silently wedged one;
+// idleTimeout <= 0 disables the watchdog.
+func watchLoop(ctx context.Context, kind string, idleTimeout time.Duration, connectAndRecv func(ctx context.Context, heartbeat func()) error) error {
 	backoff := time.Second
 	maxBackoff := 30 * time.Second
 	reconnected := false
@@ -721,8 +964,19 @@ func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context
 			cpotel.RecordWatchReconnect(ctx, kind)
 		}
 
-		err := connectAndRecv(streamCtx)
+		// Idle watchdog: a long-lived stream can stop delivering events without
+		// returning an error (an intermediary drops the server-to-client flow of an
+		// otherwise live connection), leaving a blocked Recv that never reconnects
+		// and never re-seeds. gRPC keepalive cannot catch this on its own because
+		// the shared connection stays live. The watchdog cancels this attempt -- which
+		// breaks the Recv and so triggers a reconnect and reseed -- when no activity
+		// is reported for idleTimeout; each received event resets it via heartbeat.
+		// See specs/platform/control-plane.spec.md ("Watch Stream Liveness").
+		heartbeat, stopWatchdog := startIdleWatchdog(streamCtx, kind, idleTimeout, cancel)
+
+		err := connectAndRecv(streamCtx, heartbeat)
 		cancel()
+		stopWatchdog()
 		if ctx.Err() != nil {
 			endSpan(nil)
 			return ctx.Err()
@@ -743,4 +997,51 @@ func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context
 			backoff = maxBackoff
 		}
 	}
+}
+
+// startIdleWatchdog launches a timer that calls cancel when no heartbeat is
+// observed for idleTimeout, so a silent-but-open stream is torn down and the
+// watch loop reconnects. It returns a heartbeat func the caller invokes on every
+// received event (and on the subscription header) to reset the timer, and a stop
+// func the caller MUST invoke once the attempt ends. The caller is expected to
+// cancel ctx before calling stop (watchLoop does), which lets the watchdog
+// goroutine exit; stop then joins it. A non-positive idleTimeout disables the
+// watchdog entirely: heartbeat is a no-op and stop returns immediately.
+func startIdleWatchdog(ctx context.Context, kind string, idleTimeout time.Duration, cancel context.CancelFunc) (heartbeat func(), stop func()) {
+	if idleTimeout <= 0 {
+		return func() {}, func() {}
+	}
+	beat := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		timer := time.NewTimer(idleTimeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-beat:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(idleTimeout)
+			case <-timer.C:
+				log.Printf("WARN %s watch stream idle for %s with no events or error; cancelling the attempt to reconnect and reseed", kind, idleTimeout)
+				cancel()
+				return
+			}
+		}
+	}()
+	heartbeat = func() {
+		select {
+		case beat <- struct{}{}:
+		default:
+		}
+	}
+	stop = func() { <-done }
+	return heartbeat, stop
 }

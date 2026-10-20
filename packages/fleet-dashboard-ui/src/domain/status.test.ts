@@ -1,15 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { gatePhaseBadge, healthBadge, syncBadge } from "./status";
+import {
+  gatePhaseBadge,
+  healthBadge,
+  isHealthUnavailable,
+  syncBadge,
+} from "./status";
 
 describe("gatePhaseBadge", () => {
   it("maps passing phases to success", () => {
     expect(gatePhaseBadge("success").tone).toBe("success");
     expect(gatePhaseBadge("passed").tone).toBe("success");
+    // Argo/Tekton spell a passed analysis "Succeeded"/"Successful".
+    expect(gatePhaseBadge("Succeeded").tone).toBe("success");
+    expect(gatePhaseBadge("Successful").tone).toBe("success");
   });
 
   it("maps failing phases to danger, never brand red", () => {
     expect(gatePhaseBadge("failed").tone).toBe("danger");
+  });
+
+  it("maps in-flight phases to info (blue), not warning", () => {
+    expect(gatePhaseBadge("pending").tone).toBe("info");
+    expect(gatePhaseBadge("running").tone).toBe("info");
   });
 
   it("never infers success from an unrecognized or absent phase", () => {
@@ -30,6 +43,23 @@ describe("healthBadge", () => {
   it("resolves unknown health to neutral", () => {
     expect(healthBadge("").tone).toBe("unknown");
     expect(healthBadge(null).tone).toBe("unknown");
+  });
+});
+
+describe("isHealthUnavailable", () => {
+  it("is true only when health resolves to the neutral/unknown tone", () => {
+    // Unavailable: Argo did not report a health we recognize (null/empty/garbage).
+    expect(isHealthUnavailable(null)).toBe(true);
+    expect(isHealthUnavailable("")).toBe(true);
+    expect(isHealthUnavailable("banana")).toBe(true);
+  });
+
+  it("is false for any known health, including Degraded", () => {
+    // Degraded is a KNOWN-bad health (solid red), not 'not reporting' (dashed red).
+    expect(isHealthUnavailable("Healthy")).toBe(false);
+    expect(isHealthUnavailable("Progressing")).toBe(false);
+    expect(isHealthUnavailable("Degraded")).toBe(false);
+    expect(isHealthUnavailable("Missing")).toBe(false);
   });
 });
 

@@ -139,10 +139,10 @@ describe("ReliabilitySummaryCard", () => {
     ).toBeTruthy();
   });
 
-  it("shows metric unavailable when a summary metric is omitted", () => {
+  it("shows a dash when a summary metric is omitted", () => {
     renderWithIntl(<ReliabilitySummaryCard metrics={[requestRateMetric]} />);
 
-    expect(screen.getAllByText("Metric unavailable")).toHaveLength(7);
+    expect(screen.getAllByText("-")).toHaveLength(7);
   });
 });
 
@@ -176,6 +176,24 @@ describe("ApiReliabilityTrendCard", () => {
         /A resource is stale when its observed release is different from the release currently desired by the control plane/u,
       ),
     ).toBeTruthy();
+  });
+
+  it("labels current reconciliation lag and stale resource status values", () => {
+    renderWithIntl(
+      <ApiReliabilityTrendCard
+        metric={reconciliationLagMetric}
+        title={messages.widgetReconciliationLag.defaultMessage}
+      />,
+    );
+    renderWithIntl(
+      <ApiReliabilityTrendCard
+        metric={staleResourceStatusMetric}
+        title={messages.widgetStaleResourceStatus.defaultMessage}
+      />,
+    );
+
+    expect(screen.getAllByText("Current P50 lag")).toHaveLength(1);
+    expect(screen.getAllByText("Current stale-resource count")).toHaveLength(1);
   });
 
   it("omits the sparkline when hourly trend is absent", () => {

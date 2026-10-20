@@ -96,7 +96,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, expec
 }
 
 func (c *Client) doAny(ctx context.Context, method, path string, body []byte, result interface{}, expectedStatuses ...int) (int, error) {
-	reqURL := c.baseURL + "{{.Spec.APIPrefix}}" + path
+	reqURL := c.baseURL + path
 
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, nil)
 	if err != nil {

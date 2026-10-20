@@ -64,24 +64,17 @@ patches:
             containers:
               - name: controller
                 env:
+                  - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
+                    value: "provider/ibm,network/public,gateway-version/v0.1.3-rhaiv.3"
                   - name: GATEWAY_INGRESS_MODE
                     value: route
                   - name: GATEWAY_API_BASE_DOMAIN
                     # OVERRIDE: set to this cluster's ingress subdomain, e.g.
                     # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
                     value: openshell.ibm.example.com
-                  - name: GATEWAY_SANDBOX_IMAGE
-                    # OVERRIDE: set to the internal-registry pullspec for the
-                    # openshell-sandbox base image (mirror of
-                    # ghcr.io/nvidia/openshell-community/sandboxes/base:latest).
-                    # Nodes cannot pull ghcr.io; this is a prerequisite for
-                    # sandbox pod creation. Without it, Sandbox CRs are admitted
-                    # but pods ImagePullBackOff. See skills/deploy/ibm-cluster
-                    # §5.2 for the mirror command.
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-base:latest
                   - name: GATEWAY_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.1.2-rhaiv.0
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.1.3-rhaiv.3
                   - name: GATEWAY_SUPERVISOR_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.1.2-rhaiv.0
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.1.3-rhaiv.3
                   - name: GATEWAY_SANDBOX_RUNTIME_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.0
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-runtime:v0.1.3-rhaiv.3

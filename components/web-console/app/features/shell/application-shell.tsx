@@ -31,15 +31,18 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { dashboardOperations } from "../../composition/dashboard-composition";
 import { gatewayOperations } from "../../composition/gateway-composition";
+import { hasDashboardAdminRole } from "../../lib/session-roles";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
+import { useSession } from "./use-session";
 import { UserMenu } from "./user-menu";
 import styles from "./application-shell.module.css";
 
 export function ApplicationShell() {
   const intl = useIntl();
+  const { data: session } = useSession();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const gatewayNavigation = useMemo<GatewayUiNavigation>(
@@ -57,6 +60,10 @@ export function ApplicationShell() {
       navigate: (href) => navigate(href),
     }),
     [navigate],
+  );
+  const gatewayCurrentUser = useMemo(
+    () => ({ username: session?.user?.preferredUsername }),
+    [session?.user?.preferredUsername],
   );
   const { scheme, toggle: toggleColorScheme } = useColorScheme();
   useRouteHeadingFocus(pathname);
@@ -145,9 +152,11 @@ export function ApplicationShell() {
   return (
     <DashboardUiProvider
       dashboard={dashboardOperations}
+      isAdmin={hasDashboardAdminRole(session?.roles ?? [])}
       navigation={dashboardNavigation}
     >
       <GatewayUiProvider
+        currentUser={gatewayCurrentUser}
         gateways={gatewayOperations}
         navigation={gatewayNavigation}
       >

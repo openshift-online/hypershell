@@ -36,7 +36,7 @@ merge only on green - preventing both silent drift and unvalidated upgrades.
 All OpenShell image references are pinned using the `tag@digest` format:
 
 ```
-quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:<digest>
+quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:<digest>
 ```
 
 - **Tag** provides human readability and version ordering.
@@ -47,8 +47,8 @@ quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:<digest>
 
 | Image | Registry | Pinned In |
 |-------|----------|-----------|
-| `odh-openshell-gateway` | `quay.io/opendatahub` | `deploy/base/controller.yaml`, `deploy/base/control-plane/deployment.yaml` |
-| `odh-openshell-supervisor` | `quay.io/opendatahub` | `deploy/base/controller.yaml`, `deploy/base/control-plane/deployment.yaml` |
+| `odh-openshell-gateway` | `quay.io/opendatahub` | `deploy/base/platform-resources/controller.yaml` |
+| `odh-openshell-supervisor` | `quay.io/opendatahub` | `deploy/base/platform-resources/controller.yaml` |
 
 The images are set as environment variable values (`GATEWAY_IMAGE`,
 `GATEWAY_SUPERVISOR_IMAGE`) on the control-plane Deployment, which the
@@ -125,6 +125,25 @@ updates all matches in all files within a single PR, maintaining consistency.
 
 Internal registry mirrors in environment-specific overlays (IBM, etc.) are
 updated separately through their own mirror+redeploy process, not by Renovate.
+
+### Sandbox Workload Image for E2E and Kind Preload
+
+`OPENSHELL_VERSION` SHALL contain `OPENSHELL_SANDBOX_IMAGE`, a full workload
+image reference derived from the selected vendored chart's `sandbox.image`
+mapping. A nonempty digest SHALL take precedence over the tag; an empty tag
+without a digest SHALL resolve to `latest`. This workload pin is independent of
+`OPENSHELL_TAG` and SHALL NOT configure a control-plane image default.
+
+`make vendor-openshell-chart` SHALL synchronize this entry after replacing the
+chart, and `make sync-openshell-version` SHALL also refresh it. `make check`
+SHALL reject a missing or mismatched entry and an unsupported chart image schema.
+The update-openshell skill SHALL require reviewing the resolved image on every
+chart upgrade, including an upstream registry, tag, or digest change.
+
+Kind preload, the Go e2e suite, and the Bash smoke walkthrough SHALL use that
+same entry. All e2e sandbox-create paths SHALL pass it explicitly with `--from`,
+and the Go suite SHALL verify that the running sandbox workload pod uses it.
+They SHALL NOT rely on an independent image literal or the CLI/gateway default.
 
 ## Verification
 

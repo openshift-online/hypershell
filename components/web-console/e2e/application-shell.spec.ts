@@ -11,7 +11,6 @@ const gateway = {
   name: "openshell-gateway-test",
   namespace: "openshell",
   phase: "Running",
-  release_id: "release-1",
   service_type: "",
   status: "Ready",
   tls_mode: "",
@@ -52,6 +51,38 @@ test.beforeEach(async ({ browserName, page }) => {
   }
 
   await page.route("**/api/hypershell/v1/gateways**", async (route) => {
+    if (
+      new URL(route.request().url()).pathname.endsWith(
+        "/placement-availability",
+      )
+    ) {
+      await route.fulfill({
+        body: JSON.stringify({
+          local_kind: false,
+          placements: [
+            { selector: ["network/public", "provider/aws"], available: true },
+            {
+              selector: ["network/vpn", "provider/aws"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/public", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/vpn", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+          ],
+        }),
+        contentType: "application/json",
+        status: 200,
+      });
+      return;
+    }
     const request = route.request();
     if (request.method() === "DELETE") {
       gatewayDeleted = true;
@@ -252,11 +283,9 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
-  // The picker offers registered clusters only; the single registered
-  // cluster is preselected.
-  await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue(
-    "Cluster East",
-  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Provision gateway" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
@@ -459,6 +488,36 @@ test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {
   let requestBody: Record<string, unknown> | undefined;
+  await page.route(
+    "**/api/hypershell/v1/gateways/placement-availability",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          local_kind: false,
+          placements: [
+            { selector: ["network/public", "provider/aws"], available: true },
+            {
+              selector: ["network/vpn", "provider/aws"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/public", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/vpn", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+          ],
+        }),
+      });
+    },
+  );
   await page.route("**/api/hypershell/v1/gateways", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
@@ -479,7 +538,6 @@ test("provisions a gateway on an existing managed cluster", async ({
         name: "team-gateway",
         namespace: "openshell",
         phase: "",
-        release_id: "",
         service_type: "",
         status: "",
         tls_mode: "",
@@ -493,14 +551,16 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  const clusterInput = page.getByRole("combobox", { name: "Cluster" });
-  // A single registered cluster is preselected; clearing and re-selecting it
-  // exercises the search flow.
-  await expect(clusterInput).toHaveValue("Cluster East");
-  await page.getByRole("button", { name: "Clear cluster search" }).click();
-  await clusterInput.fill("East");
-  await page.getByText("Cluster East", { exact: true }).click();
-  await expect(clusterInput).toHaveValue("Cluster East");
+  const noInternalServices = page.getByRole("radio", { name: "No" });
+  await noInternalServices.focus();
+  await page.keyboard.press("Space");
+  await expect(noInternalServices).toBeChecked();
+  const awsProvider = page.getByRole("radio", {
+    name: "AWS",
+  });
+  await awsProvider.focus();
+  await page.keyboard.press("Space");
+  await expect(awsProvider).toBeChecked();
   await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
     0,
   );
@@ -531,9 +591,8 @@ test("provisions a gateway on an existing managed cluster", async ({
   ).toBeVisible();
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
-    cluster_id: "cluster-east",
     name: "team-gateway",
-    release_id: "",
+    placement: { selector: ["network/public", "provider/aws"] },
     route: '{"enabled":true}',
   });
 });

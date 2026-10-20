@@ -7,31 +7,44 @@ import (
 )
 
 type Resource struct {
-	Name               string
-	Plural             string
-	PathSegment        string
-	Scoped             bool
-	ScopeParameters    []PathParameter
-	ItemParameter      *PathParameter
-	GoCollectionPath   string
-	GoItemPath         string
-	TSCollectionPath   string
-	TSItemPath         string
-	ListType           string
-	ItemType           string
-	CreateRequestType  string
-	CreateResponseType string
-	GetResponseType    string
-	Models             []Model
-	ListParameters     []Field
-	Fields             []Field
-	RequiredFields     []string
-	PatchFields        []Field
-	StatusPatchFields  []Field
-	HasDelete          bool
-	HasPatch           bool
-	HasStatusPatch     bool
-	Actions            []string
+	Name                   string
+	Plural                 string
+	PathSegment            string
+	AbsoluteCollectionPath string
+	Scoped                 bool
+	ScopeParameters        []PathParameter
+	ItemParameter          *PathParameter
+	GoCollectionPath       string
+	GoItemPath             string
+	TSCollectionPath       string
+	TSItemPath             string
+	ListType               string
+	ItemType               string
+	CreateRequestType      string
+	CreateResponseType     string
+	GetResponseType        string
+	Models                 []Model
+	ListParameters         []Field
+	Fields                 []Field
+	CreateFields           []Field
+	RequiredFields         []string
+	PatchFields            []Field
+	StatusPatchFields      []Field
+	HasDelete              bool
+	HasPatch               bool
+	HasStatusPatch         bool
+	Actions                []string
+
+	// Scoped-resource capabilities (data-driven from the OpenAPI spec).
+	HasGet             bool     // item GET exists
+	HasRevoke          bool     // item ".../revoke" POST exists
+	PatchRequestType   string   // scoped item PATCH request schema
+	PatchResponseType  string   // scoped item PATCH response schema
+	HasDirectorySearch bool     // a "<collection>/directory" GET exists
+	DirectoryListType  string   // directory search response schema
+	GoDirectoryPath    string   // Go path expression for the directory sub-collection
+	TSDirectoryPath    string   // TS path expression for the directory sub-collection
+	TSImports          []string // deduped, ordered type names the TS scoped client imports
 }
 
 type PathParameter struct {
@@ -132,6 +145,8 @@ func toGoType(openAPIType, format string) string {
 		return "float64"
 	case "boolean":
 		return "bool"
+	case "object":
+		return "map[string]any"
 	default:
 		return "string"
 	}
@@ -193,6 +208,8 @@ func toTSType(openAPIType, format string) string {
 		return "number"
 	case "boolean":
 		return "boolean"
+	case "object":
+		return "Record<string, unknown>"
 	default:
 		return "string"
 	}

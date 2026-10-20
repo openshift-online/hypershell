@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,9 +42,12 @@ type registeredUsersMetricDescs struct {
 	registeredTotal        *prometheus.Desc
 	createdLast7Days       *prometheus.Desc
 	createdLast30Days      *prometheus.Desc
+	createdDaily           *prometheus.Desc
+	inactiveLast30Days     *prometheus.Desc
 	uniqueLoginsDaily      *prometheus.Desc
 	uniqueLoginsLast7Days  *prometheus.Desc
 	uniqueLoginsLast30Days *prometheus.Desc
+	retention7Days         *prometheus.Desc
 }
 
 func newRegisteredUsersCollector(userDao UserDao, activityDao UserActivityDao) *registeredUsersCollector {
@@ -69,6 +73,18 @@ func newRegisteredUsersCollector(userDao UserDao, activityDao UserActivityDao) *
 				nil,
 				nil,
 			),
+			createdDaily: prometheus.NewDesc(
+				prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "created_daily_total"),
+				"Registered users created on a UTC calendar day.",
+				[]string{"created_date"},
+				nil,
+			),
+			inactiveLast30Days: prometheus.NewDesc(
+				prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "inactive_last_30_days_total"),
+				"Registered users created more than 30 UTC days ago with no API activity in the trailing 30 UTC days.",
+				nil,
+				nil,
+			),
 			uniqueLoginsDaily: prometheus.NewDesc(
 				prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "unique_logins_daily_total"),
 				"Daily unique registered users with API activity.",
@@ -87,6 +103,12 @@ func newRegisteredUsersCollector(userDao UserDao, activityDao UserActivityDao) *
 				nil,
 				nil,
 			),
+			retention7Days: prometheus.NewDesc(
+				prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "retention_7_days_percent"),
+				"Percent of users active in the preceding 7 UTC days who are also active in the current 7 UTC days.",
+				nil,
+				nil,
+			),
 		},
 	}
 }
@@ -95,14 +117,18 @@ func (c *registeredUsersCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.descs.registeredTotal
 	ch <- c.descs.createdLast7Days
 	ch <- c.descs.createdLast30Days
+	ch <- c.descs.createdDaily
+	ch <- c.descs.inactiveLast30Days
 	ch <- c.descs.uniqueLoginsDaily
 	ch <- c.descs.uniqueLoginsLast7Days
 	ch <- c.descs.uniqueLoginsLast30Days
+	ch <- c.descs.retention7Days
 }
 
 func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx := context.Background()
 	evaluationTime := time.Now().UTC()
+	today := utcDayStart(evaluationTime)
 
 	totalRegistered, err := c.userDao.CountRegistered(ctx)
 	if err != nil {
@@ -137,7 +163,36 @@ func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	today := utcDayStart(evaluationTime)
+	dailyCreatedCounts, err := c.userDao.CountCreatedBetweenByDay(ctx, startDateForDays(30, today), today)
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.descs.createdDaily, err)
+	} else {
+		for day := 0; day < activityRetentionDays; day++ {
+			date := startDateForDays(30, today).AddDate(0, 0, day).Format("2006-01-02")
+			ch <- prometheus.MustNewConstMetric(
+				c.descs.createdDaily,
+				prometheus.GaugeValue,
+				float64(dailyCreatedCounts[date]),
+				date,
+			)
+		}
+	}
+
+	inactiveUsers, err := c.userDao.CountInactiveSinceWithoutActivityAfter(
+		ctx,
+		evaluationTime.Add(-createdLookback30Days),
+		startDateForDays(30, today),
+	)
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.descs.inactiveLast30Days, err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.descs.inactiveLast30Days,
+			prometheus.GaugeValue,
+			float64(inactiveUsers),
+		)
+	}
+
 	startDate := today.AddDate(0, 0, -(activityRetentionDays - 1))
 	lookback7DaysStart := today.AddDate(0, 0, -6)
 	lookback30DaysStart := today.AddDate(0, 0, -29)
@@ -195,6 +250,28 @@ func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 		prometheus.GaugeValue,
 		float64(loginSnapshot.UniqueLoginsLast30Days),
 	)
+
+	previousCount, retainedCount, err := c.activityDao.CountRetentionWindows(
+		ctx,
+		startDateForDays(14, today),
+		startDateForDays(7, today),
+		today,
+	)
+	switch {
+	case err != nil:
+		ch <- prometheus.NewInvalidMetric(c.descs.retention7Days, err)
+	case previousCount > 0:
+		retentionPercent := float64(retainedCount) / float64(previousCount) * 100
+		ch <- prometheus.MustNewConstMetric(
+			c.descs.retention7Days,
+			prometheus.GaugeValue,
+			math.Round(retentionPercent*10)/10,
+		)
+	}
+}
+
+func startDateForDays(days int, today time.Time) time.Time {
+	return today.AddDate(0, 0, -(days - 1))
 }
 
 func maybePruneActivity(ctx context.Context, activityDao UserActivityDao, cutoff time.Time) {

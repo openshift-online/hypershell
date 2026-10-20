@@ -118,6 +118,27 @@ func ReconcileGateway(
 	// Copy trusted CA bundle (for OIDC issuer verification)
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
+	// For a Vault-backed gateway, mirror the per-cluster Vault serving CA into the
+	// tenant namespace so the gateway can verify Vault's TLS (HYPERSHELL-369). The
+	// source Vault and the gateway are on the same cluster, so this is a local copy,
+	// mirroring reconcileTrustedCABundle.
+	var hasVaultCA bool
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		hasVaultCA = reconcileVaultCABundle(ctx, clientset, nsConfig.Name)
+		if !hasVaultCA {
+			// Fail closed: a Vault-backed gateway must be able to verify Vault's TLS.
+			// If the serving CA could not be propagated (source Secret missing or
+			// unreadable), do NOT deploy a gateway that would silently fall back to
+			// platform trust roots and be unable to verify Vault. This matches
+			// openshell-gateway-credentials.spec.md (Vault Serving-CA Propagation:
+			// "the gateway SHALL NOT be deployed … fail-closed … naming the missing
+			// CA source"). Retryable: a later reconcile deploys once the CA appears.
+			caNS, caName := VaultCASource()
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
+			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
+		}
+	}
+
 	// Reconcile OpenShift SCC binding BEFORE Helm install
 	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
@@ -129,7 +150,7 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
 	// BackendTLSPolicy, Route, credential KEK
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
@@ -402,7 +423,7 @@ func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
-	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-gateway-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, backendCAConfigMapName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
 	}
 
@@ -488,10 +509,10 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 
 	if ingressMode == IngressModeGatewayAPI {
-		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-backend-ca", metav1.GetOptions{}); err == nil {
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
 			return false, nil
 		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe configmap openshell-gateway-backend-ca in %s: %w", namespace, err)
+			return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
 		}
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
@@ -649,24 +670,12 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 // whose readiness gates the Gateway `Running` phase.
 const GatewayDeploymentName = "openshell-gateway"
 
-// AppliedReleaseAnnotation records, on the gateway Deployment's metadata, the
-// GatewayRelease id the Deployment's current pod template was rendered from. The
-// control plane stamps it at apply time so the continuous health loop can advance
-// observed_release_id only to the release actually applied to the workload -- not
-// to a desired release the provisioning path has committed to the database but not
-// yet rolled out. Empty for a direct-image gateway. See
-// gateway-release-rollout.spec.md.
-const AppliedReleaseAnnotation = "hypershell.redhat.io/applied-release-id"
-
-// AppliedRelease returns the GatewayRelease id the given gateway Deployment was
-// rendered from, read from AppliedReleaseAnnotation, or "" when unset (a
-// direct-image gateway, or a Deployment applied before this annotation existed).
-func AppliedRelease(deploy *appsv1.Deployment) string {
-	if deploy == nil {
-		return ""
-	}
-	return deploy.Annotations[AppliedReleaseAnnotation]
-}
+// backendCAConfigMapName is the ConfigMap holding the CA certificate the
+// Gateway's BackendTLSPolicy validates the backend pod certificate against. The
+// create, delete, and teardown-readiness paths MUST agree on this name or the
+// ConfigMap leaks on teardown and the readiness probe watches the wrong object;
+// see openshell-gateway.spec.md.
+const backendCAConfigMapName = "openshell-gateway-backend-ca"
 
 // deploymentRolloutComplete judges a Deployment's rollout on its *new* revision,
 // not on any still-Ready old pod. It reports complete=true only when the
@@ -681,7 +690,7 @@ func AppliedRelease(deploy *appsv1.Deployment) string {
 // crash-looping; judging on the updated replicas closes that gap. When the
 // updated revision is fully rolled out but its pods are not all available, the
 // current revision is unhealthy (rollingOut=false). See
-// gateway-release-rollout.spec.md.
+// openshell-gateway-health.spec.md.
 func deploymentRolloutComplete(deploy *appsv1.Deployment) (complete bool, rollingOut bool, reason string) {
 	desired := int32(1)
 	if deploy.Spec.Replicas != nil {
@@ -725,7 +734,7 @@ func deploymentRolloutComplete(deploy *appsv1.Deployment) (complete bool, rollin
 // per-gateway console and the embedded database). The gateway workload's own
 // rollout is judged on the *new* revision instead, via ObserveGatewayRollout /
 // deploymentRolloutComplete, so a still-Ready old pod cannot mask an unready new
-// revision during a release roll. See gateway-release-rollout.spec.md.
+// revision during a rollout. See openshell-gateway-health.spec.md.
 func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, reason string, err error) {
 	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -748,26 +757,23 @@ func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, na
 	return false, fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, desired), nil
 }
 
-// ObserveGatewayRollout reports the gateway Deployment's revision-aware readiness,
-// whether a new revision is still rolling out, and the GatewayRelease the ready
-// revision was actually rendered from (AppliedReleaseAnnotation). The health
-// reconciler uses rollingOut to leave an in-progress rollout to the provisioning
-// path (which owns the Provisioning -> Running/Degraded transition and preserves
-// the last-good workload) rather than flapping the phase, and uses appliedRelease
-// to advance observed_release_id only to the release actually on the workload --
-// never to a desired release the provisioning path has not yet applied. It returns
-// rollingOut=false with reason "deployment not found" when the Deployment does not
-// yet exist. See gateway-release-rollout.spec.md.
-func ObserveGatewayRollout(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, rollingOut bool, appliedRelease string, reason string, err error) {
+// ObserveGatewayRollout reports the gateway Deployment's revision-aware readiness
+// and whether a new revision is still rolling out. The health reconciler uses
+// rollingOut to leave an in-progress rollout to the provisioning path (which owns
+// the Provisioning -> Running/Degraded transition and preserves the last-good
+// workload) rather than flapping the phase. It returns rollingOut=false with
+// reason "deployment not found" when the Deployment does not yet exist. See
+// openshell-gateway-health.spec.md.
+func ObserveGatewayRollout(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, rollingOut bool, reason string, err error) {
 	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return false, false, "", "deployment not found", nil
+			return false, false, "deployment not found", nil
 		}
-		return false, false, "", "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
+		return false, false, "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
 	}
 	complete, rollingOut, reason := deploymentRolloutComplete(deploy)
-	return complete, rollingOut, AppliedRelease(deploy), reason, nil
+	return complete, rollingOut, reason, nil
 }
 
 // gatewayReadyPollInterval is how often WaitForGatewayReady re-observes the
@@ -778,9 +784,10 @@ var gatewayReadyPollInterval = 2 * time.Second
 // WaitForGatewayReady blocks until the openshell-gateway Deployment reaches
 // readiness or the timeout elapses. Readiness is judged on the new revision
 // (see ObserveGatewayRollout), so a still-Ready old pod cannot let a defective
-// release be reported ready during a roll. It returns ready=true on readiness,
-// or ready=false with the last observed reason when the provisioning readiness
-// window expires without the workload becoming ready.
+// revision be reported ready during a rollout. It returns ready=true on
+// readiness, or ready=false with the last observed reason when the provisioning
+// readiness window expires without the workload becoming ready.
+// See openshell-gateway-health.spec.md.
 func WaitForGatewayReady(ctx context.Context, clientset kubernetes.Interface, namespace string, timeout time.Duration) (bool, string) {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(gatewayReadyPollInterval)
@@ -794,7 +801,7 @@ func WaitForGatewayReady(ctx context.Context, clientset kubernetes.Interface, na
 		case <-deadline:
 			return false, lastReason
 		case <-ticker.C:
-			ready, _, _, reason, err := ObserveGatewayRollout(ctx, clientset, namespace, GatewayDeploymentName)
+			ready, _, reason, err := ObserveGatewayRollout(ctx, clientset, namespace, GatewayDeploymentName)
 			if err != nil {
 				lastReason = err.Error()
 				continue
@@ -886,9 +893,6 @@ func kindToResource(kind string) string {
 		"HTTPRoute":             "httproutes",
 		"BackendTLSPolicy":      "backendtlspolicies",
 		"Route":                 "routes",
-		"Cluster":               "clusters",
-		"Database":              "databases",
-		"DatabaseRole":          "databaseroles",
 	}
 
 	if resource, ok := mapping[kind]; ok {
@@ -1055,6 +1059,65 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
 		log.Printf("WARN failed to update trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		return false
+	}
+	return true
+}
+
+// reconcileVaultCABundle mirrors the per-cluster Vault serving CA into the gateway's
+// tenant namespace as the openshell-gateway-vault-ca ConfigMap (key ca.crt), so a
+// Vault-backed gateway can verify Vault's TLS (HYPERSHELL-369). The source Secret
+// (openshell-gateway-vault-tls in openshell-vault, overridable via
+// GATEWAY_VAULT_CA_SECRET) lives on the same cluster as the gateway, so this is a
+// local copy, mirroring reconcileTrustedCABundle. It returns true when the target
+// ConfigMap is present after reconciliation, so the caller wires the chart's
+// caConfigMapName only when the gateway can actually mount it. The ConfigMap carries
+// the management label so tenant-namespace cleanup reclaims it on deletion.
+func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset, targetNamespace string) bool {
+	srcNamespace, srcName := VaultCASource()
+
+	secret, err := clientset.CoreV1().Secrets(srcNamespace).Get(ctx, srcName, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("WARN vault serving CA source Secret %s/%s not readable; gateway falls back to platform trust roots: %v", srcNamespace, srcName, err)
+		return false
+	}
+	caPEM, ok := secret.Data[VaultCAKey]
+	if !ok || len(caPEM) == 0 {
+		log.Printf("WARN vault serving CA source Secret %s/%s has no %q key", srcNamespace, srcName, VaultCAKey)
+		return false
+	}
+
+	targetCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      VaultCATargetConfigMapName,
+			Namespace: targetNamespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		Data: map[string]string{VaultCAKey: string(caPEM)},
+	}
+
+	existing, err := clientset.CoreV1().ConfigMaps(targetNamespace).Get(ctx, VaultCATargetConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
+				log.Printf("WARN failed to create vault CA ConfigMap in %s: %v", targetNamespace, err)
+				return false
+			}
+			log.Printf("INFO copied vault serving CA ConfigMap to %s", targetNamespace)
+			return true
+		}
+		log.Printf("WARN failed to get vault CA ConfigMap in %s: %v", targetNamespace, err)
+		return false
+	}
+
+	targetCM.ResourceVersion = existing.ResourceVersion
+	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
+		log.Printf("WARN failed to update vault CA ConfigMap in %s: %v", targetNamespace, err)
 		return false
 	}
 	return true
@@ -1549,7 +1612,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	if caData != "" {
 		backendCA := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "openshell-backend-ca",
+				Name:      backendCAConfigMapName,
 				Namespace: namespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/name":       "openshell",
@@ -1563,7 +1626,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			},
 		}
 
-		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{})
+		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
@@ -1604,7 +1667,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 							map[string]interface{}{
 								"group": "",
 								"kind":  "ConfigMap",
-								"name":  "openshell-backend-ca",
+								"name":  backendCAConfigMapName,
 							},
 						},
 						"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),

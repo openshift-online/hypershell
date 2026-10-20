@@ -13,8 +13,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 type bearerToken struct {
@@ -54,7 +56,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	createReq := &pb.CreateGatewayRequest{
 		Name:        "TestName",
 		ClusterId:   registerTestCluster(t),
-		ReleaseId:   "TestReleaseId",
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -85,7 +86,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Id:          gatewayID,
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
 		ClusterId:   func() *string { s := registerTestCluster(t); return &s }(),
-		ReleaseId:   func() *string { s := "UpdatedReleaseId"; return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -115,6 +115,68 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	_, err = grpcClient.GetGateway(ctx, getReq)
+	Expect(err).To(HaveOccurred())
+}
+
+func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	jwtToken := h.CreateJWTString(account)
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() { Expect(conn.Close()).To(Succeed()) })
+
+	clusterService := managedClusters.Service(&environments.Environment().Services)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	selector := "runtime/test-" + suffix
+	cluster, _, svcErr := clusterService.Register(ctx, "selector-"+suffix, []string{"network/public", "provider/aws", selector}, "cp-"+suffix)
+	Expect(svcErr).To(BeNil())
+	initialSeenAt := *cluster.LastSeenAt
+
+	grpcClient := pb.NewGatewayServiceClient(conn)
+	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
+		Name: "selector-placement-" + suffix,
+		Placement: &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+			CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: []string{selector}},
+		}},
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(created.Gateway.ClusterId).To(Equal(cluster.ID))
+
+	time.Sleep(time.Millisecond)
+	replaced, createdCluster, svcErr := clusterService.Register(ctx, cluster.Name, []string{"network/vpn", "provider/aws"}, cluster.OIDCSubject)
+	Expect(svcErr).To(BeNil())
+	Expect(createdCluster).To(BeFalse())
+	Expect(replaced.Capabilities).To(Equal([]string{"network/vpn", "provider/aws"}))
+	Expect(replaced.LastSeenAt.After(initialSeenAt)).To(BeTrue())
+
+	beforeInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
+	Expect(svcErr).To(BeNil())
+	beforeInvalidSeenAt := *beforeInvalid.LastSeenAt
+	_, _, svcErr = clusterService.Register(ctx, cluster.Name, []string{"unknown/value"}, cluster.OIDCSubject)
+	Expect(svcErr).NotTo(BeNil())
+	afterInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
+	Expect(svcErr).To(BeNil())
+	Expect(afterInvalid.Capabilities).To(Equal(replaced.Capabilities))
+	Expect(*afterInvalid.LastSeenAt).To(Equal(beforeInvalidSeenAt))
+
+	readBack, err := grpcClient.GetGateway(ctx, &pb.GetGatewayRequest{Id: created.Gateway.Metadata.Id})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(readBack.Gateway.ClusterId).To(Equal(cluster.ID))
+
+	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
+		Name: "empty-selector-" + suffix,
+		Placement: &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+			CapabilitySelector: &pb.CapabilitySelectorPlacement{},
+		}},
+	})
 	Expect(err).To(HaveOccurred())
 }
 
@@ -151,7 +213,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 	wg.Add(2)
 
 	sinkReady := make(chan struct{})
-	watchClusterID := registerTestCluster(t)
+	registerTestCluster(t)
 
 	go func() {
 		defer wg.Done()
@@ -159,10 +221,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		for name := range itemNames {
-			gatewayInput := openapi.GatewayCreateRequest{
-				Name:      name,
-				ClusterId: watchClusterID,
-			}
+			gatewayInput := managedGatewayCreateRequest(name)
 			_, resp, postErr := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
@@ -256,7 +315,6 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	createReq := &pb.CreateGatewayRequest{
 		Name:      "delete-watch-test",
 		ClusterId: clusterID,
-		ReleaseId: "test-release",
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -333,6 +391,59 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 	// subscribing. It returning without error proves the handshake fired.
 	_, err = stream.Header()
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// TestGRPCWatchThenListReturnsPreExistingGateways covers the API contract the
+// control plane's startup seed relies on (control-plane.spec.md, "Startup seeds
+// gateways created while the control plane was down"). The watch stream never
+// replays existing gateways, so a gateway created while the control plane was
+// down reaches it only through the ListGateways call it makes once the watch
+// subscription is live. On each fresh connection, that list must return every
+// pre-existing gateway of the caller's cluster and none of another cluster.
+func TestGRPCWatchThenListReturnsPreExistingGateways(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	ownID, subject := registerTestClusterWithSubject(t)
+	foreignID := registerTestCluster(t)
+
+	// Create the gateways before any control-plane connection exists.
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+	service := gateways.Service(&environments.Environment().Services)
+	want := make(map[string]bool, 3)
+	for i := 0; i < 3; i++ {
+		gw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: fmt.Sprintf("startup-seed-own-%d", i), ClusterId: ownID})
+		Expect(svcErr).NotTo(HaveOccurred())
+		want[gw.ID] = true
+	}
+	foreignGw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "startup-seed-foreign", ClusterId: foreignID})
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+
+	for attempt := 0; attempt < 2; attempt++ {
+		cp := pb.NewGatewayServiceClient(dialGRPC(t, h, cpToken))
+		watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t.Cleanup(cancel)
+
+		stream, err := cp.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{ClusterId: strPtr(ownID)})
+		Expect(err).NotTo(HaveOccurred(), "connection %d: open watch", attempt+1)
+		_, err = stream.Header()
+		Expect(err).NotTo(HaveOccurred(), "connection %d: watch subscription header", attempt+1)
+
+		resp, err := cp.ListGateways(watchCtx, &pb.ListGatewaysRequest{Page: 1, Size: 100, ClusterId: strPtr(ownID)})
+		Expect(err).NotTo(HaveOccurred(), "connection %d: list after header", attempt+1)
+		got := make(map[string]bool, len(resp.Items))
+		for _, item := range resp.Items {
+			id := item.GetMetadata().GetId()
+			Expect(id).NotTo(Equal(foreignGw.ID), "connection %d: a foreign cluster's gateway was listed", attempt+1)
+			Expect(item.GetClusterId()).To(Equal(ownID), "connection %d: listed gateway %s", attempt+1, id)
+			got[id] = true
+		}
+		Expect(got).To(Equal(want), "connection %d: list must return every pre-existing own-cluster gateway", attempt+1)
+		cancel()
+	}
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {

@@ -19,16 +19,17 @@ import (
 // checks if the GatewayCreateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &GatewayCreateRequest{}
 
-// GatewayCreateRequest struct for GatewayCreateRequest
+// GatewayCreateRequest A gateway is created either pinned to a cluster (set cluster_id) or late-bound by placement (set placement). Exactly one of cluster_id or placement must be supplied. The web-console provision form submits only the placement shape; the pinned shape is available to hsctl apply and the declarative .hypershell import.
 type GatewayCreateRequest struct {
-	Name        string  `json:"name"`
-	ClusterId   string  `json:"cluster_id"`
-	ReleaseId   string  `json:"release_id"`
-	ExternalDns *string `json:"external_dns,omitempty"`
-	TlsMode     *string `json:"tls_mode,omitempty"`
-	ServiceType *string `json:"service_type,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Phase       *string `json:"phase,omitempty"`
+	Name string `json:"name"`
+	// Pin the gateway to this managed cluster. Mutually exclusive with placement.
+	ClusterId   *string                        `json:"cluster_id,omitempty"`
+	Placement   NullableGatewayPlacementIntent `json:"placement,omitempty"`
+	ExternalDns *string                        `json:"external_dns,omitempty"`
+	TlsMode     *string                        `json:"tls_mode,omitempty"`
+	ServiceType *string                        `json:"service_type,omitempty"`
+	Status      *string                        `json:"status,omitempty"`
+	Phase       *string                        `json:"phase,omitempty"`
 	// Container image for the gateway deployment
 	Image *string `json:"image,omitempty"`
 	// Container image for the supervisor sidecar
@@ -49,11 +50,9 @@ type _GatewayCreateRequest GatewayCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayCreateRequest(name string, clusterId string, releaseId string) *GatewayCreateRequest {
+func NewGatewayCreateRequest(name string) *GatewayCreateRequest {
 	this := GatewayCreateRequest{}
 	this.Name = name
-	this.ClusterId = clusterId
-	this.ReleaseId = releaseId
 	return &this
 }
 
@@ -89,52 +88,79 @@ func (o *GatewayCreateRequest) SetName(v string) {
 	o.Name = v
 }
 
-// GetClusterId returns the ClusterId field value
+// GetClusterId returns the ClusterId field value if set, zero value otherwise.
 func (o *GatewayCreateRequest) GetClusterId() string {
-	if o == nil {
+	if o == nil || IsNil(o.ClusterId) {
 		var ret string
 		return ret
 	}
-
-	return o.ClusterId
+	return *o.ClusterId
 }
 
-// GetClusterIdOk returns a tuple with the ClusterId field value
+// GetClusterIdOk returns a tuple with the ClusterId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *GatewayCreateRequest) GetClusterIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.ClusterId) {
 		return nil, false
 	}
-	return &o.ClusterId, true
+	return o.ClusterId, true
 }
 
-// SetClusterId sets field value
+// HasClusterId returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasClusterId() bool {
+	if o != nil && !IsNil(o.ClusterId) {
+		return true
+	}
+
+	return false
+}
+
+// SetClusterId gets a reference to the given string and assigns it to the ClusterId field.
 func (o *GatewayCreateRequest) SetClusterId(v string) {
-	o.ClusterId = v
+	o.ClusterId = &v
 }
 
-// GetReleaseId returns the ReleaseId field value
-func (o *GatewayCreateRequest) GetReleaseId() string {
-	if o == nil {
-		var ret string
+// GetPlacement returns the Placement field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent {
+	if o == nil || IsNil(o.Placement.Get()) {
+		var ret GatewayPlacementIntent
 		return ret
 	}
-
-	return o.ReleaseId
+	return *o.Placement.Get()
 }
 
-// GetReleaseIdOk returns a tuple with the ReleaseId field value
+// GetPlacementOk returns a tuple with the Placement field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool) {
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *GatewayCreateRequest) GetPlacementOk() (*GatewayPlacementIntent, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.ReleaseId, true
+	return o.Placement.Get(), o.Placement.IsSet()
 }
 
-// SetReleaseId sets field value
-func (o *GatewayCreateRequest) SetReleaseId(v string) {
-	o.ReleaseId = v
+// HasPlacement returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasPlacement() bool {
+	if o != nil && o.Placement.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPlacement gets a reference to the given NullableGatewayPlacementIntent and assigns it to the Placement field.
+func (o *GatewayCreateRequest) SetPlacement(v GatewayPlacementIntent) {
+	o.Placement.Set(&v)
+}
+
+// SetPlacementNil sets the value for Placement to be an explicit nil
+func (o *GatewayCreateRequest) SetPlacementNil() {
+	o.Placement.Set(nil)
+}
+
+// UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
+func (o *GatewayCreateRequest) UnsetPlacement() {
+	o.Placement.Unset()
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -500,8 +526,12 @@ func (o GatewayCreateRequest) MarshalJSON() ([]byte, error) {
 func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
-	toSerialize["cluster_id"] = o.ClusterId
-	toSerialize["release_id"] = o.ReleaseId
+	if !IsNil(o.ClusterId) {
+		toSerialize["cluster_id"] = o.ClusterId
+	}
+	if o.Placement.IsSet() {
+		toSerialize["placement"] = o.Placement.Get()
+	}
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
 	}
@@ -544,8 +574,6 @@ func (o *GatewayCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"cluster_id",
-		"release_id",
 	}
 
 	allProperties := make(map[string]interface{})

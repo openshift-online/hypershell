@@ -453,7 +453,7 @@ The access token is a signed JWT, not an opaque token. The gateway SHALL validat
 
 ## Requirements
 
-### Requirement: Synchronous Provisioning and One-Time Delivery
+### Requirement: OSG-SACC-01 -- Synchronous Provisioning and One-Time Delivery
 
 The create operation SHALL provision and validate the service-account client before it returns `201 Created`. HyperShell SHALL test the Client Credentials grant before it sets status `ready`.
 
@@ -472,7 +472,7 @@ The client secret MUST NOT enter:
 
 The security standard permits the create endpoint to return a new client secret once. No other public endpoint MAY return it.
 
-#### Scenario: Owner creates an administrator OpenShellGatewayServiceAccount
+#### Scenario: OSG-SACC-01.01 -- Owner creates an administrator OpenShellGatewayServiceAccount
 
 - GIVEN user-a has `gateway:owner` on gateway `gw-alpha`
 - AND `gw-alpha` is running with a provisioned Keycloak gateway client
@@ -483,7 +483,7 @@ The security standard permits the create endpoint to return a new client secret 
 - AND the API SHALL return the client secret once in a no-store `201` response
 - AND subsequent GET requests SHALL never return the secret
 
-#### Scenario: Provisioning fails before delivery
+#### Scenario: OSG-SACC-01.02 -- Provisioning fails before delivery
 
 - GIVEN Keycloak returns an error while a service-account client is being configured
 - WHEN the create request cannot prove the desired client, scope mappings, roles, and access-token claims
@@ -492,11 +492,11 @@ The security standard permits the create endpoint to return a new client secret 
 - AND it SHALL disable an object first if immediate deletion fails
 - AND HyperShell SHALL record enough non-secret identifiers to find and remove any remaining service-account client
 
-### Requirement: Internal Provisioner Network Isolation
+### Requirement: OSG-SACC-02 -- Internal Provisioner Network Isolation
 
 The internal provisioner SHALL expose the control plane's service-account operations only inside the cluster. A NetworkPolicy SHALL restrict the provisioner port so that only the API server pod can open a connection. HyperShell SHALL NOT require client mTLS for this channel, consistent with the platform architecture. The control plane SHALL remain the only holder of the Keycloak administrator credential.
 
-#### Scenario: A foreign pod cannot reach the provisioner
+#### Scenario: OSG-SACC-02.01 -- A foreign pod cannot reach the provisioner
 
 - GIVEN the control plane runs the internal provisioner on its in-cluster port
 - AND a NetworkPolicy allows ingress to that port only from the API server pod
@@ -504,14 +504,14 @@ The internal provisioner SHALL expose the control plane's service-account operat
 - THEN the NetworkPolicy SHALL block the connection
 - AND the control plane SHALL never run a Keycloak administration operation for that caller
 
-#### Scenario: The API server reaches the provisioner without certificates
+#### Scenario: OSG-SACC-02.02 -- The API server reaches the provisioner without certificates
 
 - GIVEN the API server is configured with the provisioner address
 - WHEN the API server sends a synchronous provisioning request over the in-cluster gRPC channel
 - THEN the control plane SHALL accept the request without a client certificate
 - AND it SHALL return the client secret once in the synchronous response
 
-### Requirement: Federated Keycloak Is the Identity System of Record
+### Requirement: OSG-SACC-03 -- Federated Keycloak Is the Identity System of Record
 
 HyperShell SHALL provision the service-account client and service-account user in the configured Keycloak realm. This operation SHALL require no manual Keycloak administration.
 
@@ -523,7 +523,7 @@ The upstream human identity provider SHALL NOT create or store a service-account
 - Human identities
 - Infrastructure-controller identities
 
-#### Scenario: OpenShellGatewayServiceAccount uses the global Keycloak issuer
+#### Scenario: OSG-SACC-03.01 -- OpenShellGatewayServiceAccount uses the global Keycloak issuer
 
 - GIVEN production HyperShell uses the global Keycloak issuer with Red Hat SSO as its upstream human identity provider
 - WHEN an authorized user creates an OpenShellGatewayServiceAccount
@@ -531,7 +531,7 @@ The upstream human identity provider SHALL NOT create or store a service-account
 - AND it SHALL not create a user in Red Hat SSO
 - AND the resulting JWT `iss` SHALL be the same global Keycloak issuer trusted by the selected gateway
 
-### Requirement: Client Credentials Token Issuance
+### Requirement: OSG-SACC-04 -- Client Credentials Token Issuance
 
 Automation SHALL authenticate to Keycloak's discovered token endpoint. It SHALL send `grant_type=client_credentials`, the client ID, and the client secret.
 
@@ -541,7 +541,7 @@ The OpenShellGatewayServiceAccount `expires_at` controls how long Keycloak accep
 
 HyperShell SHALL enforce `expires_at` by disabling the service-account client. Version 1 SHALL NOT depend on Keycloak's preview client-secret-expiration capability. The opaque client secret does not expire by itself.
 
-#### Scenario: A 12-month OpenShellGatewayServiceAccount receives a short access token
+#### Scenario: OSG-SACC-04.01 -- A 12-month OpenShellGatewayServiceAccount receives a short access token
 
 - GIVEN an OpenShellGatewayServiceAccount expires 365 days after creation
 - WHEN its CI job performs a Client Credentials grant while the OpenShellGatewayServiceAccount is ready
@@ -549,7 +549,7 @@ HyperShell SHALL enforce `expires_at` by disabling the service-account client. V
 - AND the JWT SHALL NOT remain valid for 365 days
 - AND the CI job MAY request another short-lived access token until the OpenShellGatewayServiceAccount expires or is revoked
 
-#### Scenario: Access token expires during a long job
+#### Scenario: OSG-SACC-04.02 -- Access token expires during a long job
 
 - GIVEN a CI job still holds valid OpenShellGatewayServiceAccount client credentials
 - AND its current access token reaches `exp`
@@ -557,13 +557,13 @@ HyperShell SHALL enforce `expires_at` by disabling the service-account client. V
 - THEN the integration SHALL perform another Client Credentials grant
 - AND it SHALL NOT attempt a refresh-token grant
 
-### Requirement: Single-Gateway Isolation
+### Requirement: OSG-SACC-05 -- Single-Gateway Isolation
 
 Every OpenShellGatewayServiceAccount SHALL target exactly one Gateway. Its audience mapper SHALL add only that gateway's OIDC audience. Its role mapper and scope mappings SHALL reference only that gateway client.
 
 The API SHALL NOT accept `audience`, `gateway_ids`, `client_id`, `issuer`, mapper configuration, or raw role claims from a create request. These values are derived from the selected Gateway and trusted platform configuration.
 
-#### Scenario: Access token is rejected by a different gateway
+#### Scenario: OSG-SACC-05.01 -- Access token is rejected by a different gateway
 
 - GIVEN Keycloak issued an access token for an OpenShellGatewayServiceAccount on `gw-alpha`
 - AND `gw-alpha` and `gw-beta` have distinct OIDC audiences
@@ -571,14 +571,14 @@ The API SHALL NOT accept `audience`, `gateway_ids`, `client_id`, `issuer`, mappe
 - THEN `gw-beta` SHALL reject it for an audience mismatch
 - AND the access token SHALL contain no `gw-beta` role
 
-#### Scenario: Gateway access token is presented to the management API
+#### Scenario: OSG-SACC-05.02 -- Gateway access token is presented to the management API
 
 - GIVEN Keycloak issued an access token for an OpenShellGatewayServiceAccount
 - WHEN it is presented to the HyperShell management API
 - THEN the management API SHALL reject it because it has neither the management API audience nor a management-plane role
 - AND the OpenShellGatewayServiceAccount SHALL gain no ability to create gateways, RoleBindings, or other OpenShellGatewayServiceAccounts
 
-#### Scenario: Automation needs two gateways
+#### Scenario: OSG-SACC-05.03 -- Automation needs two gateways
 
 - GIVEN a CI workflow needs both `gw-alpha` and `gw-beta`
 - WHEN the workflow is configured
@@ -586,7 +586,7 @@ The API SHALL NOT accept `audience`, `gateway_ids`, `client_id`, `issuer`, mappe
 - AND the workflow SHALL store two independently revocable sets of client credentials
 - AND it SHALL request a separate access token for each gateway
 
-### Requirement: User-Selected, RBAC-Capped OpenShell Role
+### Requirement: OSG-SACC-06 -- User-Selected, RBAC-Capped OpenShell Role
 
 The creator SHALL select `openshell-user` or `openshell-admin`. The default SHALL be `openshell-user`.
 
@@ -594,7 +594,7 @@ The selected role SHALL NOT exceed the creator's current gateway role. A `gatewa
 
 Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's current gateway role. HyperShell SHALL reconcile the OpenShellGatewayServiceAccount when that role changes.
 
-#### Scenario: Owner deliberately selects the lower role
+#### Scenario: OSG-SACC-06.01 -- Owner deliberately selects the lower role
 
 - GIVEN user-a has `gateway:owner` on `gw-alpha`
 - WHEN user-a creates an OpenShellGatewayServiceAccount with `role=openshell-user`
@@ -602,7 +602,7 @@ Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's
 - AND the access token SHALL not contain `openshell-admin`
 - AND ownership SHALL define the maximum selectable role, not force every owner-created client to be an administrator
 
-#### Scenario: Viewer creates a user OpenShellGatewayServiceAccount
+#### Scenario: OSG-SACC-06.02 -- Viewer creates a user OpenShellGatewayServiceAccount
 
 - GIVEN user-b has only `gateway:viewer` on `gw-alpha`
 - WHEN user-b creates an OpenShellGatewayServiceAccount with the default role
@@ -610,14 +610,14 @@ Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's
 - AND its service-account user SHALL have only `openshell-user` for `gw-alpha`
 - AND the access token SHALL not contain `openshell-admin`
 
-#### Scenario: Viewer requests administrator access
+#### Scenario: OSG-SACC-06.03 -- Viewer requests administrator access
 
 - GIVEN user-b has only `gateway:viewer` on `gw-alpha`
 - WHEN user-b requests `role=openshell-admin`
 - THEN the API SHALL return `403 Forbidden`
 - AND it SHALL create neither an OpenShellGatewayServiceAccount record nor a Keycloak client
 
-#### Scenario: Creator is downgraded from owner to viewer
+#### Scenario: OSG-SACC-06.04 -- Creator is downgraded from owner to viewer
 
 - GIVEN user-a created an `openshell-admin` OpenShellGatewayServiceAccount on `gw-alpha`
 - WHEN user-a's effective binding on `gw-alpha` changes from owner to viewer
@@ -626,14 +626,14 @@ Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's
 - AND the downgrade SHALL be permanent for that OpenShellGatewayServiceAccount even if user-a is later promoted
 - AND an already-issued admin JWT MAY remain usable only until its short `exp`
 
-#### Scenario: Creator loses gateway access
+#### Scenario: OSG-SACC-06.05 -- Creator loses gateway access
 
 - GIVEN user-a created an OpenShellGatewayServiceAccount on `gw-alpha`
 - WHEN user-a has no remaining owner or viewer binding on `gw-alpha`
 - THEN HyperShell SHALL permanently revoke that OpenShellGatewayServiceAccount
 - AND restoring user-a's binding SHALL NOT re-enable the old client secret
 
-### Requirement: Expiration, Revocation, and Deletion
+### Requirement: OSG-SACC-07 -- Expiration, Revocation, and Deletion
 
 HyperShell SHALL check expiration at least once per minute. It SHALL disable the service-account client no later than one minute after `expires_at`. It SHALL then mark the OpenShellGatewayServiceAccount `expired`.
 
@@ -657,7 +657,7 @@ The API SHALL return `200` for revoke only after it observes the disabled servic
 
 An access token issued before disablement MAY remain valid until its `exp`.
 
-#### Scenario: OpenShellGatewayServiceAccount expires
+#### Scenario: OSG-SACC-07.01 -- OpenShellGatewayServiceAccount expires
 
 - GIVEN a ready OpenShellGatewayServiceAccount reaches `expires_at`
 - WHEN the expiration reconciler runs
@@ -665,7 +665,7 @@ An access token issued before disablement MAY remain valid until its `exp`.
 - AND subsequent Client Credentials grants SHALL fail
 - AND an access token issued before expiration MAY remain usable only until its `exp`
 
-#### Scenario: Owner revokes a viewer-created OpenShellGatewayServiceAccount
+#### Scenario: OSG-SACC-07.02 -- Owner revokes a viewer-created OpenShellGatewayServiceAccount
 
 - GIVEN user-b created an `openshell-user` OpenShellGatewayServiceAccount as a viewer
 - AND user-a is an owner of the same gateway
@@ -673,7 +673,7 @@ An access token issued before disablement MAY remain valid until its `exp`.
 - THEN HyperShell SHALL disable its Keycloak client and retain non-secret OpenShellGatewayServiceAccount metadata
 - AND user-b SHALL not be able to request another access token with the old client secret
 
-#### Scenario: Owner deletes a revoked OpenShellGatewayServiceAccount
+#### Scenario: OSG-SACC-07.03 -- Owner deletes a revoked OpenShellGatewayServiceAccount
 
 - GIVEN an owner previously revoked an OpenShellGatewayServiceAccount
 - WHEN the owner deletes that OpenShellGatewayServiceAccount
@@ -681,7 +681,7 @@ An access token issued before disablement MAY remain valid until its `exp`.
 - AND the API SHALL return `204 No Content` only after observing that cleanup
 - AND the audit trail SHALL retain no client secret or access token
 
-### Requirement: Degraded Health State
+### Requirement: OSG-SACC-08 -- Degraded Health State
 
 `degraded` is a health signal, not a lifecycle transition. HyperShell SHALL set an OpenShellGatewayServiceAccount to `degraded` when reconciliation cannot verify or maintain the service-account client because Keycloak provisioning or lifecycle verification is temporarily unavailable, and the account has not otherwise reached a terminal state.
 
@@ -691,7 +691,7 @@ Reconciliation SHALL keep polling a `degraded` account on the same at-least-once
 
 Clients SHALL treat `degraded` as a filterable, deep-linkable status like any other. It appears in the status enum of the OpenAPI schema, the SDK, and the management web console query parameters.
 
-#### Scenario: Keycloak verification is temporarily unavailable
+#### Scenario: OSG-SACC-08.01 -- Keycloak verification is temporarily unavailable
 
 - GIVEN a ready OpenShellGatewayServiceAccount
 - AND Keycloak lifecycle verification is temporarily unavailable
@@ -700,7 +700,7 @@ Clients SHALL treat `degraded` as a filterable, deep-linkable status like any ot
 - AND it SHALL NOT disable, revoke, or delete the service-account client
 - AND when verification succeeds again it SHALL restore the status implied by the persisted lifecycle intent
 
-### Requirement: Replacement-Based Credential Rotation
+### Requirement: OSG-SACC-09 -- Replacement-Based Credential Rotation
 
 Version 1 SHALL replace an OpenShellGatewayServiceAccount instead of changing its client secret. Use this replacement flow:
 
@@ -714,7 +714,7 @@ The old and replacement OpenShellGatewayServiceAccounts MAY remain active at the
 
 Revocation stops new access-token issuance with the old client secret. Deletion is the later cleanup step. HyperShell SHALL NOT enable Keycloak's preview dual-secret rotation feature.
 
-#### Scenario: CI client credentials are replaced without downtime
+#### Scenario: OSG-SACC-09.01 -- CI client credentials are replaced without downtime
 
 - GIVEN `nightly-build-v1` is an active OpenShellGatewayServiceAccount used by CI
 - WHEN an authorized user creates `nightly-build-v2` with the intended role and expiration
@@ -724,7 +724,7 @@ Revocation stops new access-token issuance with the old client secret. Deletion 
 - AND the user MAY delete `nightly-build-v1` after revocation
 - AND no in-place secret regeneration SHALL be required
 
-### Requirement: Gateway Lifecycle Cleanup
+### Requirement: OSG-SACC-10 -- Gateway Lifecycle Cleanup
 
 Gateway deletion SHALL revoke every related OpenShellGatewayServiceAccount. It SHALL also delete the gateway client, console client, and all related service-account clients.
 
@@ -734,7 +734,7 @@ Service-account client attributes SHALL contain HyperShell resource IDs. Reconci
 
 Repeated cleanup SHALL be safe and produce the same Keycloak state. Cleanup SHALL never log a client secret.
 
-#### Scenario: Gateway deletion removes service-account clients
+#### Scenario: OSG-SACC-10.01 -- Gateway deletion removes service-account clients
 
 - GIVEN `gw-alpha` has three active OpenShellGatewayServiceAccounts
 - WHEN `gw-alpha` is deleted
@@ -743,7 +743,7 @@ Repeated cleanup SHALL be safe and produce the same Keycloak state. Cleanup SHAL
 - AND normal read operations SHALL exclude the soft-deleted OpenShellGatewayServiceAccounts
 - AND separate non-secret audit events SHALL remain
 
-### Requirement: Secret-Safe Management UI
+### Requirement: OSG-SACC-11 -- Secret-Safe Management UI
 
 The gateway detail page SHALL contain three primary tabs in this order: `Connection`, `Service accounts`, and `Details`. The `Connection` tab SHALL remain the default.
 
@@ -846,14 +846,14 @@ The UI SHALL explain the uncertain result. It SHALL direct the user to refresh t
 
 After a confirmed create, revoke, or delete operation, the UI SHALL refetch the OpenShellGatewayServiceAccount list. While the visible page contains `provisioning`, `revoking`, or `deleting`, the UI SHALL request that page approximately every five seconds. It SHALL use one list request per interval, not one request per row. Rapid polling SHALL stop when the page contains no transitional state, the view unmounts, or the document is hidden. If an operation fails, the UI SHALL show an actionable error.
 
-#### Scenario: Viewer sees a constrained form
+#### Scenario: OSG-SACC-11.01 -- Viewer sees a constrained form
 
 - GIVEN a viewer opens OpenShellGatewayServiceAccounts for a gateway
 - WHEN the create form renders
 - THEN `openshell-user` SHALL be the only permitted role value
 - AND the UI SHALL explain that an OpenShell workspace membership may still be required for the service-account subject
 
-#### Scenario: Interactive connection remains the default
+#### Scenario: OSG-SACC-11.02 -- Interactive connection remains the default
 
 - GIVEN an authenticated user opens a gateway detail page
 - WHEN the page renders without a valid tab value
@@ -861,7 +861,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - AND the existing interactive walkthrough SHALL remain visible
 - AND `Create or manage service accounts` SHALL link to the `Service accounts` tab
 
-#### Scenario: Owner receives the one-time setup view
+#### Scenario: OSG-SACC-11.03 -- Owner receives the one-time setup view
 
 - GIVEN an owner submits a valid service-account form
 - WHEN the API returns `201 Created` with the credential bundle
@@ -871,7 +871,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - AND the advanced group SHALL show a Client Credentials JWT exchange
 - AND no copyable command SHALL contain the literal client secret
 
-#### Scenario: Existing account has no recoverable secret
+#### Scenario: OSG-SACC-11.04 -- Existing account has no recoverable secret
 
 - GIVEN a ready OpenShellGatewayServiceAccount already exists
 - WHEN an authorized user selects `View setup instructions`
@@ -879,7 +879,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - AND the commands SHALL prompt for the secret or read `OPENSHELL_OIDC_CLIENT_SECRET`
 - AND the UI SHALL explain that a lost secret requires a replacement OpenShellGatewayServiceAccount
 
-#### Scenario: Service-account setup preserves interactive login
+#### Scenario: OSG-SACC-11.05 -- Service-account setup preserves interactive login
 
 - GIVEN the user registered a gateway for interactive login under its gateway name
 - WHEN the user copies setup commands for an OpenShellGatewayServiceAccount
@@ -887,7 +887,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - AND the setup command SHALL NOT overwrite the interactive gateway configuration
 - AND the verification command SHALL select the service-account alias explicitly
 
-### Requirement: CLI and CI Workflow
+### Requirement: OSG-SACC-12 -- CLI and CI Workflow
 
 The HyperShell CLI SHALL provide create, list, get, revoke, and delete commands. The create command SHALL support these options:
 
@@ -916,7 +916,7 @@ The supported OpenShell integration SHALL use `OPENSHELL_OIDC_CLIENT_SECRET`. If
 
 The grant does not return a refresh token. The integration SHALL NOT depend on `grant_type=refresh_token`.
 
-#### Scenario: CI starts without a cached access token
+#### Scenario: OSG-SACC-12.01 -- CI starts without a cached access token
 
 - GIVEN a CI secret store injects the OpenShellGatewayServiceAccount client ID and secret
 - AND no prior OIDC token file exists
@@ -925,7 +925,7 @@ The grant does not return a refresh token. The integration SHALL NOT depend on `
 - AND the client secret SHALL not appear in command output
 - AND the gateway SHALL receive only the short-lived access token
 
-### Requirement: Workspace Membership Is a Separate Grant
+### Requirement: OSG-SACC-13 -- Workspace Membership Is a Separate Grant
 
 Each service-account client has its own service-account user and stable JWT `sub`. It does not inherit the creator's OpenShell workspace memberships.
 
@@ -937,7 +937,7 @@ HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it
 
 Version 1 excludes automatic workspace discovery, selection, membership creation, and membership cleanup. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
 
-#### Scenario: openshell-user OpenShellGatewayServiceAccount has no workspace membership
+#### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount has no workspace membership
 
 - GIVEN a viewer creates an `openshell-user` OpenShellGatewayServiceAccount
 - AND no OpenShell workspace contains the returned service-account subject
@@ -945,13 +945,13 @@ Version 1 excludes automatic workspace discovery, selection, membership creation
 - THEN the gateway SHALL authenticate it as `openshell-user`
 - BUT workspace-scoped operations SHALL remain denied until an authorized gateway administrator adds that subject as a workspace member
 
-### Requirement: Scopes Are Not Configurable in Version 1
+### Requirement: OSG-SACC-14 -- Scopes Are Not Configurable in Version 1
 
 The OpenShellGatewayServiceAccount create request SHALL contain no OpenShell scope list. HyperShell configures gateways with an empty `scopes_claim`. This setting disables OpenShell scope enforcement.
 
 Access-token scopes provide no additional control while scope enforcement is disabled. A later scope design SHALL define one gateway-wide contract. Tests SHALL cover human, console, and service-account access tokens together.
 
-### Requirement: Auditability and Secret Redaction
+### Requirement: OSG-SACC-15 -- Auditability and Secret Redaction
 
 HyperShell SHALL audit creation, creation failure, expiration, role downgrade, revocation, and deletion. Each audit event SHALL include:
 
@@ -971,7 +971,7 @@ HTTP logs, BFF logs, OpenTelemetry spans, metrics, and SDK diagnostics SHALL red
 
 HyperShell SHALL disable body capture for OpenShellGatewayServiceAccount create requests and Keycloak token-endpoint requests.
 
-### Requirement: Reconciliation and Drift Repair
+### Requirement: OSG-SACC-16 -- Reconciliation and Drift Repair
 
 The PostgreSQL OpenShellGatewayServiceAccount record SHALL define the required Keycloak state. Reconciliation SHALL restore these settings:
 
@@ -986,7 +986,7 @@ If Keycloak grants broader access, reconciliation SHALL remove the unexpected ro
 
 Reconciliation SHALL never regenerate or fetch a client secret. Such a change would invalidate the consumer's stored client credentials without delivering a replacement.
 
-#### Scenario: Built-in service-account scope is converged
+#### Scenario: OSG-SACC-16.01 -- Built-in service-account scope is converged
 
 - GIVEN a ready service-account client matches the required Keycloak state
 - AND its only default client scope is Keycloak's built-in `service_account` scope
@@ -994,7 +994,7 @@ Reconciliation SHALL never regenerate or fetch a client secret. Such a change wo
 - THEN it SHALL perform no Keycloak write
 - AND it SHALL leave the client enabled
 
-#### Scenario: An additional client scope is drift
+#### Scenario: OSG-SACC-16.02 -- An additional client scope is drift
 
 - GIVEN a ready service-account client has the built-in `service_account` scope and another default client scope
 - WHEN HyperShell reconciles the OpenShellGatewayServiceAccount
@@ -1002,7 +1002,7 @@ Reconciliation SHALL never regenerate or fetch a client secret. Such a change wo
 - AND it SHALL remove the additional default client scope
 - AND it SHALL preserve the built-in `service_account` scope that Keycloak manages
 
-#### Scenario: Service-account client drifts to full scope
+#### Scenario: OSG-SACC-16.03 -- Service-account client drifts to full scope
 
 - GIVEN an administrator manually changes a service-account client to `fullScopeAllowed=true`
 - WHEN HyperShell reconciles that OpenShellGatewayServiceAccount
@@ -1010,7 +1010,7 @@ Reconciliation SHALL never regenerate or fetch a client secret. Such a change wo
 - AND it SHALL remove every unrelated role scope mapping
 - AND it SHALL verify that a new access token contains only the selected gateway audience and effective roles
 
-### Requirement: Verification Coverage
+### Requirement: OSG-SACC-17 -- Verification Coverage
 
 Automated verification SHALL cover:
 

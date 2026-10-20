@@ -141,5 +141,54 @@ else
   echo 'FAIL: de-seed did not look up developer'
 fi
 
+# keycloak_reconcile_extra_users: create-or-reset a plain user + assign its role.
+# The curl stub reports every user as existing (reset-password path) and returns a
+# role object for any /roles/ lookup, so we can assert the generic path ran.
+# Isolate expansion errors so Bash 3.2 reports a failed assertion rather than
+# terminating the test harness before its summary.
+reconcile_extra_users_isolated() (
+  keycloak_reconcile_extra_users "$@"
+)
+cat >"${WORKDIR}/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"${CURL_LOG}"
+if [[ " \$* " == *"/token"* ]]; then
+  printf '%s' '{"access_token":"tok"}'; exit 0
+fi
+if [[ " \$* " == *"users?username="* ]]; then
+  printf '%s' '[{"id":"uid-1"}]'; exit 0
+fi
+if [[ " \$* " == *"/roles/"* ]]; then
+  printf '%s' '{"id":"rid","name":"hypershell-users"}'; exit 0
+fi
+printf '%s' '204'
+EOF
+chmod +x "${WORKDIR}/curl"
+: >"${CURL_LOG}"
+assert_ok "reconcile extra users" reconcile_extra_users_isolated alice
+if grep -q 'username=alice' "${CURL_LOG}" \
+  && grep -q 'reset-password' "${CURL_LOG}" \
+  && grep -q 'role-mappings/realm' "${CURL_LOG}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: extra-user reconcile did not create/reset and assign a role'
+fi
+assert_ok "reconcile extra users with none is a no-op" keycloak_reconcile_extra_users
+
+# Check new-user profile arguments as well as the existing-user HTTP path.
+# Run this suite with /bin/bash on macOS to cover Bash 3.2 compatibility.
+EXTRA_USERS_LOG="${WORKDIR}/extra-users.log"
+_create_or_reset_user() {
+  printf '%s\n' "$*" >>"${EXTRA_USERS_LOG}"
+}
+assert_ok "reconcile multiple extra-user profiles" reconcile_extra_users_isolated alice bOB z
+assert_eq "tok alice alice Alice User alice@hypershell.local hypershell-users" \
+  "$(sed -n '1p' "${EXTRA_USERS_LOG}")" "capitalize first character of profile name"
+assert_eq "tok bOB bOB BOB User bOB@hypershell.local hypershell-users" \
+  "$(sed -n '2p' "${EXTRA_USERS_LOG}")" "preserve remaining characters and account fields"
+assert_eq "tok z z Z User z@hypershell.local hypershell-users" \
+  "$(sed -n '3p' "${EXTRA_USERS_LOG}")" "capitalize a single-character profile name"
+
 printf 'reconcile-test-users tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

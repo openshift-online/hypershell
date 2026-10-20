@@ -21,11 +21,32 @@ if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
   fi
 fi
 
-# Kind's self-signed CA is not in the system trust store. Instruct the
-# openshell CLI to skip TLS verification for gateway connections. curl already
-# uses -sk (insecure) for all driver requests; this extends the same treatment
-# to the openshell binary.
-export OPENSHELL_GATEWAY_INSECURE=true
+# _kind_configure_tls - make the openshell CLI verify Kind's TLS certificates.
+# Kind's cert-manager CA (hypershell-ca-secret) is not in the system trust
+# store; it signs both *.gw.localhost (gateway) and *.hypershell.localhost
+# (Keycloak). SSL_CERT_FILE replaces the default trust store, so the bundle is
+# the system roots plus the Kind CA: public endpoints keep verifying too. The
+# container wrapper (scripts/kind/openshell-container.sh) mounts this file.
+# A caller-provided SSL_CERT_FILE is honored as is.
+_kind_configure_tls() {
+  [[ -n "${SSL_CERT_FILE:-}" ]] && return 0
+  local ca bundle system_ca
+  ca=$(kubectl get secret hypershell-ca-secret -n "${E2E_HS_NAMESPACE:-hypershell-system}" \
+    -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  if [[ "$ca" != *"BEGIN CERTIFICATE"* ]]; then
+    red "ERROR: could not read ca.crt from Secret ${E2E_HS_NAMESPACE:-hypershell-system}/hypershell-ca-secret (is the cluster up?)"
+    return 1
+  fi
+  bundle="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-kind-ca.XXXXXX")"
+  for system_ca in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+    if [[ -s "$system_ca" ]]; then
+      cat "$system_ca" >"$bundle"
+      break
+    fi
+  done
+  printf '%s\n' "$ca" >>"$bundle"
+  export SSL_CERT_FILE="$bundle"
+}
 
 # _kind_host_is_dual_stack - true when ::1 is a usable local address, i.e. the
 # host has IPv6 loopback and *.gw.localhost will resolve dual-stack. Binding to
@@ -82,6 +103,12 @@ if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]] \
   # gateway endpoint must target :443 rather than the host-published ephemeral
   # port that discover_gateway_endpoint would otherwise bake into metadata.json.
   : "${_KINDCCM_GW_PORT:=443}"
+fi
+
+# Guarded like the wrapper block: the OpenShift driver sources this file and
+# configures its own trust (E2E_OPENSHIFT_CA_SECRET).
+if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
+  _kind_configure_tls || exit 1
 fi
 
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
@@ -357,7 +384,7 @@ _driver_acquire_oidc_token() {
       if [[ "${username}" == "${E2E_OIDC_USERNAME}" && "${client_id}" == "${E2E_OIDC_CLIENT_ID}" ]]; then
         # Admin HyperShell API token: client-credentials on hypershell-e2e.
         # Per-gateway tokens (a different client_id) must not use this path:
-        # the CC token is issued for hypershell-e2e / hypershell-frontend and
+        # the CC token is issued for hypershell-e2e with aud=hypershell-api and
         # never carries openshell-admin on the gateway client.
         _driver_token_request \
           -d "grant_type=client_credentials" \
@@ -404,6 +431,28 @@ acquire_oidc_token() {
   _driver_acquire_oidc_token "$@"
 }
 
+# acquire_registrar_token - mint a client-credentials token for the control
+# plane's managed-cluster-registrar identity (managed-cluster-registration.spec.md).
+# Sets _OIDC_ACCESS_TOKEN. Area 12 uses it to exercise self-registration and the
+# cluster-bound gRPC watch as the registered control-plane subject, rather than
+# the admin user. Defaults to E2E_REGISTRAR_CLIENT_ID / E2E_REGISTRAR_CLIENT_SECRET
+# (the development hypershell-control-plane client on Kind). Shared with the
+# OpenShift driver, which sources this file.
+# Usage: acquire_registrar_token [client_id] [client_secret]
+acquire_registrar_token() {
+  local client_id="${1:-${E2E_REGISTRAR_CLIENT_ID}}"
+  local client_secret="${2:-${E2E_REGISTRAR_CLIENT_SECRET}}"
+  if [[ -z "${client_secret}" ]]; then
+    dim "  No registrar client secret (E2E_REGISTRAR_CLIENT_SECRET) available"
+    _OIDC_ACCESS_TOKEN=""
+    return 1
+  fi
+  _driver_token_request \
+    -d "grant_type=client_credentials" \
+    -d "client_id=${client_id}" \
+    -d "client_secret=${client_secret}"
+}
+
 # Kind and CI-owned OpenShift users must not be deleted by a test run
 # (ephemeral-test-credentials.spec.md). They last until the environment does.
 de_seed_test_users() {
@@ -412,6 +461,10 @@ de_seed_test_users() {
 
 : "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
 : "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
+# Directory projection refresh (GAM-09) defaults to 5m in code, too slow for area
+# 9b to observe a realm user added at test time. Shortened in the same controller
+# rollout as the GC timing (below) so there is only one restart, done up front.
+: "${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL:=15s}"
 _GC_TIMING_PATCHED=""
 
 # _patch_namespace_gc_timing / _restore_namespace_gc_timing - shared
@@ -425,10 +478,11 @@ _GC_TIMING_PATCHED=""
 # first (e.g. OpenShift) override the public functions and delegate here.
 _patch_namespace_gc_timing() {
   local cli="$1" namespace="$2"
-  dim "  Shortening controller namespace GC timing for e2e (interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD})..."
+  dim "  Shortening controller namespace GC + directory-refresh timing for e2e (gc-interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}, directory-refresh=${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL})..."
   if ! "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
       "GATEWAY_NAMESPACE_GC_INTERVAL=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}" \
-      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" >/dev/null; then
+      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" \
+      "GATEWAY_DIRECTORY_REFRESH_INTERVAL=${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL}" >/dev/null; then
     red "  Failed to patch hypershell-controller namespace GC timing"
     return 1
   fi
@@ -444,7 +498,7 @@ _restore_namespace_gc_timing() {
   [[ -n "$_GC_TIMING_PATCHED" ]] || return 0
   dim "  Restoring controller namespace GC timing to deployment defaults..."
   "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
-    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
+    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- GATEWAY_DIRECTORY_REFRESH_INTERVAL- >/dev/null 2>&1 || true
   "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null 2>&1 || true
   _GC_TIMING_PATCHED=""
 }
@@ -588,6 +642,47 @@ assign_realm_role() {
   # 204 = created; Keycloak also returns 204 when the mapping already exists.
   if [[ "$code" != "204" && "$code" != "200" ]]; then
     red "  Failed to assign realm role ${role} to ${username} (HTTP ${code})"
+    return 1
+  fi
+}
+
+# kc_create_user - idempotently create a realm user in Keycloak, mirroring the
+# shape of the `make kind-up` extra users (scripts/cluster/reconcile-test-users.sh):
+# profile fields derived from the username, enabled, no roles or password (the
+# directory projection only needs username/name/email/subject, and a grant target
+# need never have signed in). Used by area 9b to add a brand-new realm user at test
+# time and prove the control-plane directory projection (GAM-09) picks it up.
+# Idempotent: an already-existing user is success.
+# Usage: kc_create_user <username>
+kc_create_user() {
+  local username="${1:?username required}"
+  local base realm
+  base="$(_kc_base)"
+  realm="$(_kc_realm)"
+
+  if ! _kc_admin_token; then
+    red "  Failed to obtain Keycloak admin token (user=${E2E_KC_ADMIN_USER})"
+    return 1
+  fi
+
+  local existing
+  existing=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
+    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
+  if [[ -n "$existing" ]]; then
+    return 0
+  fi
+
+  local body code
+  body=$(USERNAME="$username" python3 -c "import json,os; u=os.environ['USERNAME']; print(json.dumps({
+    'username': u, 'firstName': u.capitalize(), 'lastName': 'User',
+    'email': u + '@hypershell.local', 'emailVerified': True, 'enabled': True}))")
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "${base}/admin/realms/${realm}/users" -d "$body" 2>/dev/null || true)
+  if [[ "$code" != "201" && "$code" != "204" ]]; then
+    red "  Failed to create Keycloak user ${username} (HTTP ${code})"
     return 1
   fi
 }

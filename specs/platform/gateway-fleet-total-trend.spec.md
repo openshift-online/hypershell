@@ -8,18 +8,18 @@
 
 Add a **7-day usage trend sparkline** for fleet-wide **provisioned gateway totals** on the operational dashboard. The trend shows how many gateways exist in the platform in total over time, regardless of lifecycle phase or display-status bucket.
 
-The existing `gateway-status` widget already renders a status donut from current phase counts and reserves space below the donut for a `TrendSparklineChart` when `provisioned-gateways.trend` is present (`web-console/operational-dashboard.spec.md` OP-DASH-12). This specification defines the Prometheus range query, BFF JSON extension, adapter mapping, and presentation rules needed to populate that field.
+The existing `gateway-status` widget already renders a status donut from current phase counts and reserves space below the donut for a `TrendSparklineChart` when `provisioned-gateways.trend` is present (`web-console/operational-dashboard.spec.md` WEB-OPS-12). This specification defines the Prometheus range query, BFF JSON extension, adapter mapping, and presentation rules needed to populate that field.
 
-Historical series come from Prometheus TSDB samples of `hypershell_gateways_total` (`platform/gateway-metrics-dashboard.spec.md` DASH-01). The trend is **not** per-status (healthy, provisioning, degraded, failed), **not** healthy-only, and **not** a stacked composition chart.
+Historical series come from Prometheus TSDB samples of `hypershell_gateways_total` (`platform/gateway-metrics-dashboard.spec.md` OBS-GMD-01). The trend is **not** per-status (healthy, provisioning, degraded, failed), **not** healthy-only, and **not** a stacked composition chart.
 
 ### Relationship to the operational dashboard
 
 | Concern | This spec | Existing behavior |
 | --- | --- | --- |
 | Metric ID | `provisioned-gateways` | Same metric that powers the gateway status donut and usage-summary **Gateways** row |
-| Widget | `gateway-status` sparkline below the donut | Donut already connected via BFF instant phase counts (OP-DASH-07, OP-DASH-23) |
-| Summary row | Optional up/down arrow on usage-summary **Gateways** | Uses the same `trend.points` via `getMetricTrendChange` (OP-DASH-13) |
-| `/metrics` embeddable dashboard | Out of scope | `GatewayMetricsDashboard` remains phase cards only (DASH-06) |
+| Widget | `gateway-status` sparkline below the donut | Donut already connected via BFF instant phase counts (WEB-OPS-07, WEB-OPS-23) |
+| Summary row | Optional up/down arrow on usage-summary **Gateways** | Uses the same `trend.points` via `getMetricTrendChange` (WEB-OPS-13) |
+| `/metrics` embeddable dashboard | Out of scope | `GatewayMetricsDashboard` remains phase cards only (OBS-GMD-06) |
 
 ### Out of scope (HYPERSHELL-281 remainder)
 
@@ -31,30 +31,30 @@ Hub cluster memory, CPU, and pods utilization trends are specified in `platform/
 
 ## Requirements
 
-### Requirement: GFT-01 -- Prometheus Retention Prerequisite
+### Requirement: OBS-GFT-01 -- Prometheus Retention Prerequisite
 
-Daily fleet-total trends SHALL require only the **default Prometheus TSDB retention** configured in `deploy/base/prometheus/prometheus.yaml` (`7d` today; see `platform/gateway-metrics-dashboard.spec.md` DASH-03). Implementations SHALL NOT require a retention bump beyond `7d` for this feature.
+Daily fleet-total trends SHALL require only the **default Prometheus TSDB retention** configured in `deploy/base/prometheus/prometheus.yaml` (`7d` today; see `platform/gateway-metrics-dashboard.spec.md` OBS-GMD-03). Implementations SHALL NOT require a retention bump beyond `7d` for this feature.
 
-Days before gateway metrics instrumentation existed SHALL appear as zero in the returned daily series after rollout, matching the registered-users daily-series convention (`platform/registered-users.spec.md` RU-11).
+Days before gateway metrics instrumentation existed SHALL appear as zero in the returned daily series after rollout, matching the registered-users daily-series convention (`platform/registered-users.spec.md` PLAT-USR-11).
 
-#### Scenario: Seven-day daily series is queryable
+#### Scenario: OBS-GFT-01.01 -- Seven-day daily series is queryable
 
 - GIVEN `hypershell_gateways_total` has been scraped continuously for at least 7 UTC calendar days
 - AND Prometheus TSDB retention is at least `7d`
-- WHEN the BFF evaluates the daily fleet-total range query (GFT-04)
+- WHEN the BFF evaluates the daily fleet-total range query (OBS-GFT-04)
 - THEN Prometheus SHALL return enough samples to populate 7 daily trend points
 
 ---
 
-### Requirement: GFT-02 -- Fleet Total Definition
+### Requirement: OBS-GFT-02 -- Fleet Total Definition
 
-The fleet total at any instant SHALL equal the sum of all canonical gateway phase counts from `hypershell_gateways_total`, using the same phase vocabulary as DASH-01.
+The fleet total at any instant SHALL equal the sum of all canonical gateway phase counts from `hypershell_gateways_total`, using the same phase vocabulary as OBS-GMD-01.
 
 Display-status buckets (`healthy`, `provisioning`, `degraded`, `failed`) SHALL NOT be used for trend aggregation. Phase labels `Pending`, `Provisioning`, `Running`, `Degraded`, and `Failed` SHALL all contribute to the total.
 
-The trend value SHALL NOT be filtered by per-gateway RoleBindings. Fleet-wide totals remain dashboard-operator data (OP-DASH-04, DASH-05).
+The trend value SHALL NOT be filtered by per-gateway RoleBindings. Fleet-wide totals remain dashboard-operator data (WEB-OPS-04, OBS-GMD-05).
 
-#### Scenario: Total equals sum of phase counts
+#### Scenario: OBS-GFT-02.01 -- Total equals sum of phase counts
 
 - GIVEN Prometheus returns `hypershell_gateways_total{phase="Running"}=10`, `{phase="Provisioning"}=3`, `{phase="Degraded"}=1`, `{phase="Failed"}=4`, `{phase="Pending"}=2`
 - WHEN the BFF computes the current instant total or a daily trend point
@@ -62,9 +62,9 @@ The trend value SHALL NOT be filtered by per-gateway RoleBindings. Fleet-wide to
 
 ---
 
-### Requirement: GFT-03 -- Extended BFF JSON on Gateways Route
+### Requirement: OBS-GFT-03 -- Extended BFF JSON on Gateways Route
 
-The web-console BFF SHALL extend `GET /api/metrics/gateways` (`platform/gateway-metrics-dashboard.spec.md` DASH-05) with an optional historical field while preserving the existing instant `counts` object unchanged.
+The web-console BFF SHALL extend `GET /api/metrics/gateways` (`platform/gateway-metrics-dashboard.spec.md` OBS-GMD-05) with an optional historical field while preserving the existing instant `counts` object unchanged.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -73,13 +73,13 @@ The web-console BFF SHALL extend `GET /api/metrics/gateways` (`platform/gateway-
 
 The array SHALL be ordered oldest to newest. The BFF SHALL emit exactly 7 entries (one per UTC calendar day in the lookback window), filling days without TSDB samples with `total: 0`.
 
-Dashboard-operator authorization, error handling for Prometheus connectivity, and OIDC behavior SHALL remain as defined in DASH-05.
+Dashboard-operator authorization, error handling for Prometheus connectivity, and OIDC behavior SHALL remain as defined in OBS-GMD-05.
 
-When instant phase-count queries succeed but the daily range query fails, the BFF SHALL respond with HTTP `200`, the current `counts` object, and SHALL omit `daily_fleet_totals` (GFT-08).
+When instant phase-count queries succeed but the daily range query fails, the BFF SHALL respond with HTTP `200`, the current `counts` object, and SHALL omit `daily_fleet_totals` (OBS-GFT-08).
 
 When instant phase-count queries fail, the BFF SHALL continue to respond with HTTP `502` as today; no partial JSON with trend-only data.
 
-#### Scenario: Successful response includes instant counts and daily totals
+#### Scenario: OBS-GFT-03.01 -- Successful response includes instant counts and daily totals
 
 - GIVEN Prometheus returns current phase counts and a successful 7-day range evaluation
 - WHEN an authorized caller sends `GET /api/metrics/gateways`
@@ -87,7 +87,7 @@ When instant phase-count queries fail, the BFF SHALL continue to respond with HT
 - AND the body SHALL include `counts` with all canonical phases
 - AND `daily_fleet_totals` SHALL contain 7 `{ date, total }` entries
 
-#### Scenario: Range failure returns counts without trend data
+#### Scenario: OBS-GFT-03.02 -- Range failure returns counts without trend data
 
 - GIVEN Prometheus returns current phase counts
 - AND the daily fleet-total range query fails or times out
@@ -97,13 +97,13 @@ When instant phase-count queries fail, the BFF SHALL continue to respond with HT
 
 ---
 
-### Requirement: GFT-04 -- Prometheus Range Query
+### Requirement: OBS-GFT-04 -- Prometheus Range Query
 
 The BFF SHALL query Prometheus `GET {PROMETHEUS_URL}/api/v1/query_range` (via `fetchMetricsRange` in `metrics-source.ts`) to build `daily_fleet_totals`.
 
 | Parameter | Value |
 | --- | --- |
-| PromQL | `sum(hypershell_gateways_total)` when no namespace is configured; `sum(hypershell_gateways_total{namespace="<namespace>"})` when `PROMETHEUS_NAMESPACE` is set (same `namespaceSelector` label as the instant gateway query in DASH-05) |
+| PromQL | `sum(hypershell_gateways_total)` when no namespace is configured; `sum(hypershell_gateways_total{namespace="<namespace>"})` when `PROMETHEUS_NAMESPACE` is set (same `namespaceSelector` label as the instant gateway query in OBS-GMD-05) |
 | Lookback | 7 UTC calendar days inclusive of today |
 | Step | `86400s` (one sample per day) |
 | End timestamp | Current time (UTC) |
@@ -115,7 +115,7 @@ After mapping range results, the BFF SHALL align output to the full 7-day UTC ca
 
 The BFF SHALL export the PromQL string and step constants from `components/web-console/bff/src/metrics-gateways.ts` (or a sibling module) so unit tests assert the documented query contract.
 
-#### Scenario: Daily points cover the last 7 UTC days
+#### Scenario: OBS-GFT-04.01 -- Daily points cover the last 7 UTC days
 
 - GIVEN today is UTC `2026-09-15`
 - AND Prometheus range evaluation succeeds
@@ -126,7 +126,7 @@ The BFF SHALL export the PromQL string and step constants from `components/web-c
 
 ---
 
-### Requirement: GFT-05 -- Adapter Trend Mapping
+### Requirement: OBS-GFT-05 -- Adapter Trend Mapping
 
 The host `DashboardControlPlane` adapter (`components/web-console/app/adapters/api/dashboard-control-plane.ts`) SHALL map optional `daily_fleet_totals` from `GET /api/metrics/gateways` into `OperationalMetric.trend` on the existing `provisioned-gateways` metric:
 
@@ -139,13 +139,13 @@ When `daily_fleet_totals` is absent, the adapter SHALL still emit `provisioned-g
 
 The adapter SHALL NOT synthesize trend points locally and SHALL NOT fail the `gateway-metrics` source solely because trend data is missing.
 
-#### Scenario: Adapter maps daily totals into trend points
+#### Scenario: OBS-GFT-05.01 -- Adapter maps daily totals into trend points
 
 - GIVEN the BFF returns `daily_fleet_totals: [{ "date": "2026-09-01", "total": 18 }, { "date": "2026-09-02", "total": 20 }]`
 - WHEN the adapter builds `provisioned-gateways`
 - THEN `trend.points` SHALL equal `[{ label: "2026-09-01", value: 18 }, { label: "2026-09-02", value: 20 }]`
 
-#### Scenario: Missing daily totals omit trend only
+#### Scenario: OBS-GFT-05.02 -- Missing daily totals omit trend only
 
 - GIVEN the BFF returns `counts` without `daily_fleet_totals`
 - WHEN the adapter builds `provisioned-gateways`
@@ -154,24 +154,24 @@ The adapter SHALL NOT synthesize trend points locally and SHALL NOT fail the `ga
 
 ---
 
-### Requirement: GFT-06 -- Gateway Status Widget Sparkline
+### Requirement: OBS-GFT-06 -- Gateway Status Widget Sparkline
 
 The `gateway-status` widget (`GatewayStatusCard`) SHALL render the existing status donut unchanged.
 
-When `provisioned-gateways.trend.points` contains at least two entries, the widget SHALL render `TrendSparklineChart` below the donut (OP-DASH-12). The sparkline tooltip metric title SHALL use the localized **Provisioned gateways** label (`app.dashboard.widget.provisionedGateways`). The sparkline caption SHALL read **Last 7 days** (localized message ID in the operational-dashboard-ui catalog).
+When `provisioned-gateways.trend.points` contains at least two entries, the widget SHALL render `TrendSparklineChart` below the donut (WEB-OPS-12). The sparkline tooltip metric title SHALL use the localized **Provisioned gateways** label (`app.dashboard.widget.provisionedGateways`). The sparkline caption SHALL read **Last 7 days** (localized message ID in the operational-dashboard-ui catalog).
 
 When `trend` is absent or has fewer than two points, the widget SHALL omit the sparkline with no error state.
 
-If the default layout height clips the sparkline after this change, the operational dashboard layout template and persistence key SHALL be bumped so the platform adoption `gateway-status` tile is tall enough to show the donut and sparkline together (same pattern as `registered-users` height adjustments in OP-DASH-11).
+If the default layout height clips the sparkline after this change, the operational dashboard layout template and persistence key SHALL be bumped so the platform adoption `gateway-status` tile is tall enough to show the donut and sparkline together (same pattern as `registered-users` height adjustments in WEB-OPS-11).
 
-#### Scenario: Sparkline renders with 7-day fleet total series
+#### Scenario: OBS-GFT-06.01 -- Sparkline renders with 7-day fleet total series
 
 - GIVEN `provisioned-gateways` has `trend.points` with 7 daily fleet totals
 - WHEN the gateway status widget renders
 - THEN a sparkline SHALL appear below the donut
 - AND the caption SHALL read **Last 7 days**
 
-#### Scenario: Missing trend omits sparkline without error
+#### Scenario: OBS-GFT-06.02 -- Missing trend omits sparkline without error
 
 - GIVEN `provisioned-gateways` has `value` and `status` but no `trend`
 - WHEN the gateway status widget renders
@@ -180,15 +180,15 @@ If the default layout height clips the sparkline after this change, the operatio
 
 ---
 
-### Requirement: GFT-07 -- Usage Summary Gateways Trend Arrow
+### Requirement: OBS-GFT-07 -- Usage Summary Gateways Trend Arrow
 
-The usage summary **Gateways** row SHALL continue to show the current fleet total from `provisioned-gateways.value` with exception status icons unchanged (OP-DASH-12).
+The usage summary **Gateways** row SHALL continue to show the current fleet total from `provisioned-gateways.value` with exception status icons unchanged (WEB-OPS-12).
 
-When `provisioned-gateways.trend` is present, the row SHALL evaluate `getMetricTrendChange` (5% threshold between first and last trend points) and MAY show the localized increase/decrease indicator (OP-DASH-13). The arrow SHALL reflect **fleet gateway total** change over the sparkline window, not healthy-only or failed-only counts.
+When `provisioned-gateways.trend` is present, the row SHALL evaluate `getMetricTrendChange` (5% threshold between first and last trend points) and MAY show the localized increase/decrease indicator (WEB-OPS-13). The arrow SHALL reflect **fleet gateway total** change over the sparkline window, not healthy-only or failed-only counts.
 
 When `trend` is absent, the row SHALL show the total and exception icons only, without a trend arrow.
 
-#### Scenario: Fleet growth shows an increase arrow
+#### Scenario: OBS-GFT-07.01 -- Fleet growth shows an increase arrow
 
 - GIVEN `provisioned-gateways` has `value: "25"` and `trend.points` where the last day is at least 5% higher than the first day
 - WHEN the usage summary **Gateways** row renders
@@ -196,15 +196,15 @@ When `trend` is absent, the row SHALL show the total and exception icons only, w
 
 ---
 
-### Requirement: GFT-08 -- Partial Failure and Refresh Behavior
+### Requirement: OBS-GFT-08 -- Partial Failure and Refresh Behavior
 
-Trend data SHALL be optional within the `gateway-metrics` metric source (`web-console/operational-dashboard.spec.md` OP-DASH-19). A failure to load `daily_fleet_totals` SHALL NOT omit instant `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, or `provision-reliability` when those routes succeed.
+Trend data SHALL be optional within the `gateway-metrics` metric source (`web-console/operational-dashboard.spec.md` WEB-OPS-19). A failure to load `daily_fleet_totals` SHALL NOT omit instant `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, or `provision-reliability` when those routes succeed.
 
 The dashboard SHALL NOT enter total initial-load error state solely because trend data is missing while instant gateway counts loaded successfully.
 
 Trend data SHALL refresh on the same operational dashboard cadence as other metrics (`operationalDashboardRefreshMilliseconds`, 15 minutes).
 
-#### Scenario: Trend unavailable does not hide the gateway donut
+#### Scenario: OBS-GFT-08.01 -- Trend unavailable does not hide the gateway donut
 
 - GIVEN `GET /api/metrics/gateways` returns `counts` without `daily_fleet_totals`
 - AND other gateway-metrics routes succeed
@@ -215,19 +215,19 @@ Trend data SHALL refresh on the same operational dashboard cadence as other metr
 
 ---
 
-### Requirement: GFT-09 -- Verification
+### Requirement: OBS-GFT-09 -- Verification
 
 The web-console BFF SHALL include unit tests for:
 
 - Successful mapping from mocked Prometheus range responses into `daily_fleet_totals`
 - HTTP `200` with `counts` only when the range query fails but instant queries succeed
-- Documented PromQL and step parameters (GFT-04)
+- Documented PromQL and step parameters (OBS-GFT-04)
 
 The web console SHALL include unit tests for the dashboard adapter mapping `daily_fleet_totals` into `provisioned-gateways.trend`, including full and trend-absent payloads.
 
 The operational dashboard package SHALL update `mockOperationalDashboardMetrics` with representative `provisioned-gateways.trend` points for Storybook and SHALL add or extend a Storybook state showing the gateway status widget with the sparkline visible.
 
-#### Scenario: CI exercises adapter trend mapping
+#### Scenario: OBS-GFT-09.01 -- CI exercises adapter trend mapping
 
 - GIVEN a mocked BFF gateways response with known `daily_fleet_totals`
 - WHEN dashboard adapter unit tests run

@@ -21,6 +21,10 @@ select.
   - [OpenShift per-component swap](#openshift-per-component-swap)
   - [OpenShift environment variables](#openshift-environment-variables)
 - [Gateway Access](#gateway-access)
+- [CLI and Terminal UI](#cli-and-terminal-ui)
+  - [Regenerating](#regenerating)
+  - [Updating the rh-trex-ai pin](#updating-the-rh-trex-ai-pin)
+  - [Customizing generated code](#customizing-generated-code)
 - [Testing](#testing)
 - [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
   - [Keep or destroy the environment](#keep-or-destroy-the-environment)
@@ -93,7 +97,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run GatewayRelease and Gateway seeding. The `local-kind` ManagedCluster is not seeded: the control plane registers it itself, and seeding waits for that record (`SEED_CLUSTER_WAIT_SECONDS`, default 240) and uses its id. Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run Gateway seeding. The `local-kind` ManagedCluster is not seeded: the control plane registers it itself, and seeding waits for that record (`SEED_CLUSTER_WAIT_SECONDS`, default 240) and uses its id. Reuses the existing named seed resource (`dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -263,7 +267,8 @@ session management during `make kind-up`.
 
 ### hsctl login (management API)
 
-Build the CLI with `make build-cli`, then authenticate against the Kind cluster:
+Build the CLI with `make build-cli` (it regenerates the generated commands first, so
+it always matches the OpenAPI description), then authenticate against the Kind cluster:
 
 ```bash
 ./components/cli/hsctl login \
@@ -278,10 +283,9 @@ if that legacy path already exists) and uses the `hypershell-cli` Keycloak clien
 
 Check identity with `hsctl whoami` and log out with `hsctl logout`.
 
-Run `./components/cli/hsctl ui` for an interactive terminal view of gateways,
-managed clusters, releases, and networks that refreshes in place and can
-provision and delete gateways. Press `?` inside it for key bindings. The
-behavior is specified in `specs/platform/hsctl-terminal-ui.spec.md`.
+Run `./components/cli/hsctl tui` for an interactive terminal view of every API
+resource that refreshes in place. Press `?` inside it for key bindings. See
+[CLI and Terminal UI](#cli-and-terminal-ui) for how it is generated.
 
 ### Hot reload and OIDC
 
@@ -400,7 +404,7 @@ command stops with an error.
 | `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run GatewayRelease and Gateway seeding via API and Keycloak Routes from this machine, against the `local-openshift` ManagedCluster the control plane registered itself (seeding waits for it and never creates it). Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run Gateway seeding via API and Keycloak Routes from this machine, against the `local-openshift` ManagedCluster the control plane registered itself (seeding waits for it and never creates it). Reuses the existing named seed resource (`dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
@@ -433,7 +437,7 @@ overlay ClusterRole and ClusterRoleBinding with names prefixed
 `hypershell-controller`), plus the privileged SCC RoleBinding, applies the
 manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
-ManagedCluster, GatewayRelease, and Gateway from this machine
+ManagedCluster and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
 prints the API, web-console, and Keycloak Routes. The overlay sets
 `API_ENV=development_oidc` on the API server so `--enable-jwt=true` is not
@@ -530,15 +534,16 @@ port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
 443 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
-The legacy OpenShift e2e script (`components/pr-test/e2e-openshell.sh`) uses the
-same port-forward fallback when no passthrough route is available. That script is
-**deprecated** (see `specs/platform/ephemeral-pr-environments.spec.md`): the
-canonical pull-request OpenShift e2e path is the shared harness
-`tests/e2e/e2e-openshell.sh` run with `E2E_INFRA_DRIVER=openshift`, driven
-automatically by the ephemeral pull-request environment workflow (see
-[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)).
-Prefer the shared harness for new work; the IBM ROKS variant
-(`e2e-openshell-roks.sh`) is unaffected.
+The functional e2e suite is the Go `E2ESuite` (`tests/e2e/`, `make e2e`), which
+auto-detects the OpenShift driver (`tests/e2e/driver/openshift.go`) from the
+KUBECONFIG context. The canonical pull-request OpenShift e2e path runs it with
+`E2E_INFRA_DRIVER=openshift make e2e`, driven automatically by the ephemeral
+pull-request environment workflow (see
+[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)). The
+legacy `components/pr-test/e2e-openshell.sh` script and the Bash functional suite
+it superseded have been removed (HYPERSHELL-250); the IBM ROKS variant
+(`e2e-openshell-roks.sh`) is unaffected. The Bash `tests/e2e/drivers/*.sh` remain
+only for the retained browser (`e2e-console.sh`) and smoke (`smoke.sh`) suites.
 
 ### OpenShift (automatic)
 
@@ -569,35 +574,131 @@ so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
-`make kind-up` seeds ManagedCluster and GatewayRelease but does not create a
-Gateway. The gateway database server needs no API resource: the control plane
-reads the `hypershell-gateway-database-admin` Secret that `kind-up` creates.
-Create a Gateway via the API:
+`make kind-up` seeds a ManagedCluster but does not create a Gateway. The
+gateway database server needs no API resource: the control plane reads the
+`hypershell-gateway-database-admin` Secret that `kind-up` creates. Create a
+Gateway via the API; `cluster_id` is not a request field, create takes a
+required placement intent and `local-kind` selects the seeded ManagedCluster:
 
 ```bash
-# Get the seeded resource IDs
-CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
-RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
-
 # Create a gateway with OIDC
 curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"cluster_id\": \"${CLUSTER_ID}\",
-    \"release_id\": \"${RELEASE_ID}\",
+    \"placement\": {\"mode\": \"local-kind\"},
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```
 
 Wait ~30s for the control plane to reconcile, then port-forward and register.
 
+## CLI and Terminal UI
+
+Most of `hsctl` is generated from the API's OpenAPI description
+(`components/api-server/openapi/`) by the rh-trex-ai generators. Roughly half of
+the files in `components/cli` are generated; the rest are hand-written.
+
+| Part | Source | Where |
+|------|--------|-------|
+| `list`, `get`, `create`, `update`, `delete` commands per resource, `login` (static token and OIDC), `logout`, `whoami`, `config`, `completion`, `version`, shared packages (`pkg/config`, `pkg/connection`, `pkg/oidc`, `pkg/output` and others) | rh-trex-ai `cli-generator` | `components/cli/cmd/hsctl/...`, `components/cli/pkg/...` |
+| Terminal UI descriptor | rh-trex-ai `tui-generator` | `components/cli/data/generated/tui/` |
+| `apply`, `revoke`, the service account commands, the `tui` wrapper, `main.go` | hand-written | `components/cli/cmd/hsctl/...`, `pkg/serviceaccount`, `pkg/gatewayconnect` |
+
+The extension kinds (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`) are served under
+`/api/hypershell/ext/`, but the generator handles a single API prefix and
+produces only the `/api/hypershell/v1/` kinds. Their commands (`create`, `get`,
+`list`, `delete`) are therefore hand-written in the same shape, their URLs are in
+`pkg/urls/ext.go`, and `cmd/hsctl/extgroup` registers them and splits the help of
+`get`, `list`, `create` and `delete` into a core section and an experimental
+extensions section. They have no `update` command. A new extension kind needs its
+command files, a line in each `ext_registration.go`, its paths in `ext.go`, and an
+entry in `HAND_MAINTAINED_COMMANDS` in `scripts/generate-cli.sh`.
+
+`update` and `delete` exist only for resources whose OpenAPI description declares
+the operation. `delete` asks for confirmation and fails without a terminal
+unless `--yes` is given; `update` sends only the flags that are set, or a
+`--body` JSON file.
+
+### Regenerating
+
+After changing anything under `components/api-server/openapi/`:
+
+```bash
+make generate-cli    # hsctl commands and the terminal UI descriptor
+make generate-tui    # only the terminal UI descriptor
+```
+
+Commit the result. Never edit a generated file by hand. `make check`, the git
+hooks and CI fail when a generated file differs from a fresh generation
+(`make generate-cli-check`, `make generate-tui-check`), and when a resource
+command is left behind after its resource or operation left the spec.
+
+The generators run from a checkout of rh-trex-ai at the commit in
+`scripts/rh-trex-ai.ref`, cached in `~/.cache/hypershell/rh-trex-ai` (override
+with `TREX_CACHE`, `TREX_REPO`, or `TREX_REF` for one run). The first run needs
+network access. The cache is refused if its files were modified, so remove the
+directory when that happens.
+
+### Updating the rh-trex-ai pin
+
+The generators and the terminal UI runtime must come from the same commit:
+
+1. Put the full 40 character commit SHA in `scripts/rh-trex-ai.ref`.
+2. Set the `rh-trex-ai/components/api-server` version in `components/cli/go.mod`
+   to the matching pseudo-version, then run `go mod tidy` in `components/cli`.
+3. Run `make generate-cli`, review the diff, and run
+   `cd components/cli && go test ./...` and `make check`.
+
+Pin a commit on the upstream `main` branch of `openshift-online/rh-trex-ai`.
+The framework publishes no tag for this module, so `go.mod` uses a pseudo-version
+(`go get github.com/openshift-online/rh-trex-ai/components/api-server@<sha>` prints
+it). A commit younger than the 14 day dependency minimum age needs an exception
+in `dependency-age-allowlist.json` with a reason and compensating verification;
+remove it once the commit is old enough, or when a newer pin replaces it.
+
+`components/api-server` pins the framework separately in its own `go.mod`, because
+it links the server framework, not the generators. It may be on a different commit
+than the CLI, so check that it still builds before moving it.
+
+### Customizing generated code
+
+Generated files are never patched. `scripts/generate-cli.sh` passes two options to
+the generator instead:
+
+- `--config-name hypershell`: the config file is `$HYPERSHELL_CONFIG`,
+  `~/.hypershell.json`, or `~/.config/hypershell/config.json`, so logins saved by
+  earlier versions keep working.
+- `--oidc-client-id hypershell-cli`: the HyperShell Keycloak client becomes the
+  `login --client-id` default.
+
+Token refresh, OIDC login and logout, and `whoami` come from the generator
+(`pkg/oidc`, `pkg/connection`, `pkg/config`), including saving a rotated refresh
+token. The terminal UI reuses the generated token provider
+(`connection.NewConfigTokenProvider`). Hooks (`config.SetStore`,
+`connection.SetHTTPClientFactory`, `connection.SetTokenProviderFactory`) are
+available if a future need arises.
+
+Generated commands are registered by the generated `cmd/hsctl/generated_commands.go`,
+which `main.go` calls once (`addGeneratedCommands(root)`); a new resource needs no
+edit to `main.go`. A hand-written command is registered from `main.go` (or a
+registration file next to the generated parent, as
+`delete/service_account_registration.go` does). A
+hand-written resource command that lives beside generated ones must also be
+listed in `HAND_MAINTAINED_COMMANDS` in `scripts/generate-cli.sh`, or the drift
+check will report it as left over. Files the generator must not overwrite are
+listed in `HAND_MAINTAINED` in the same script.
+
+The terminal UI behavior is specified in
+`specs/platform/hsctl-terminal-ui.spec.md`.
+
 ## Testing
 
 ### Unit tests
 
-Run the full local unit test suite (API server, control plane, CLI/SDK
-generators, frontend packages, and shell tests) before pushing:
+Run the full local unit test suite (API server, control plane, CLI, SDK
+generator, frontend packages, and shell tests) before pushing:
 
 ```bash
 make unit-test-all
@@ -605,7 +706,7 @@ make unit-test-all
 
 | Target | Runs |
 |--------|------|
-| `make unit-test-all` | Every unit test suite: `install-js`, `make ci-test`, `components/api-server` (`make test`), `components/control-plane` (`go test ./...`), `components/cli`, `scripts/cli-generator`, `scripts/sdk-generator` (`go test ./...`), and `pnpm run test:web` (frontend packages) |
+| `make unit-test-all` | Every unit test suite: `install-js`, `make ci-test`, `components/api-server` (`make test`), `components/control-plane` (`go test ./...`), `components/cli`, `scripts/sdk-generator` (`go test ./...`), and `pnpm run test:web` (frontend packages) |
 | `make ci-test` | Only the auto-discovered `*_test.sh` shell unit tests (see below) |
 
 Component-scoped runs are also available:
@@ -826,7 +927,7 @@ embeds that URL in the token's `iss` claim.
 ### Keycloak admin console redirect loop
 
 If the Keycloak admin console (`/admin/`) redirects in a loop, verify that the
-`KC_HOSTNAME` env var patched by `deploy/kind/kustomization.yaml` is set to
+`KC_HOSTNAME` env var patched by `deploy/kind/keycloak/kustomization.yaml` is set to
 `https://keycloak.hypershell.localhost`. Restart the Keycloak deployment
 after changes:
 

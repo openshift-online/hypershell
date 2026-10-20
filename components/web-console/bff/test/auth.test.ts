@@ -304,7 +304,7 @@ describe("web-console BFF with OIDC enabled", () => {
           }
           response.setHeader("content-type", "application/json; charset=utf-8");
           response.statusCode = 200;
-          response.end('{"kind":"GatewayList","items":[]}');
+          response.end('{"kind":"GatewayList","items":[],"page":1,"total":0}');
         });
       },
     );
@@ -862,6 +862,8 @@ describe("web-console BFF with OIDC enabled", () => {
     for (const route of [
       "/",
       "/dashboard",
+      "/dashboard/provisioning",
+      "/dashboard/inventory",
       "/dashboard/reliability",
       "/metrics",
       "/gateways/new",
@@ -873,7 +875,7 @@ describe("web-console BFF with OIDC enabled", () => {
     }
   });
 
-  it("redirects non-admin users away from /dashboard", async () => {
+  it("serves /dashboard to authenticated non-admin users", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
@@ -886,8 +888,25 @@ describe("web-console BFF with OIDC enabled", () => {
       url: "/dashboard",
     });
 
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe("/");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  it("serves the dashboard host root to authenticated non-admin users", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-users"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie, host: "dashboard.hypershell.localhost" },
+      method: "GET",
+      url: "/",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
   });
 
   it("redirects non-admin users away from /dashboard/reliability", async () => {
@@ -901,6 +920,40 @@ describe("web-console BFF with OIDC enabled", () => {
       headers: { cookie },
       method: "GET",
       url: "/dashboard/reliability",
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/");
+  });
+
+  it("redirects non-admin users away from /dashboard/provisioning", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-users"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/provisioning",
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/");
+  });
+
+  it("redirects non-admin users away from /dashboard/inventory", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-users"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/inventory",
     });
 
     expect(response.statusCode).toBe(302);
@@ -933,16 +986,15 @@ describe("web-console BFF with OIDC enabled", () => {
     const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
 
     for (const route of [
-      "/api/metrics/gateways",
       "/api/metrics/cluster-memory",
       "/api/metrics/cluster-cpu",
       "/api/metrics/cluster-pods",
       "/api/metrics/cluster-nodes",
       "/api/metrics/gateway-provision-duration",
       "/api/metrics/gateway-provision-outcomes",
-      "/api/metrics/gateway-sandboxes",
       "/api/metrics/platform-inventory",
       "/api/metrics/registered-users",
+      "/api/metrics/adoption",
       "/api/metrics/api-reliability",
     ]) {
       const response = await app.inject({
@@ -959,7 +1011,47 @@ describe("web-console BFF with OIDC enabled", () => {
     }
   });
 
-  it("redirects hypershell-admins away from /dashboard", async () => {
+  it("returns authorized gateway metrics to non-admin callers", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-users"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+
+    const gatewayResponse = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/metrics/gateways",
+    });
+    const sandboxResponse = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/metrics/gateway-sandboxes",
+    });
+
+    expect(gatewayResponse.statusCode).toBe(200);
+    expect(gatewayResponse.json()).toEqual({
+      activeSandboxes: 0,
+      counts: {
+        Degraded: 0,
+        Failed: 0,
+        Pending: 0,
+        Provisioning: 0,
+        Running: 0,
+      },
+      total: 0,
+    });
+    expect(sandboxResponse.statusCode).toBe(200);
+    expect(sandboxResponse.json()).toEqual({ active_sandboxes: 0 });
+    expect(apiRequests).toHaveLength(2);
+    for (const request of apiRequests) {
+      expect(request.url).toContain("/api/hypershell/v1/gateways?");
+      expect(request.headers.authorization).toBe("Bearer test-access-token");
+    }
+  });
+
+  it("serves /dashboard to hypershell-admins without platform:admin", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
@@ -972,8 +1064,8 @@ describe("web-console BFF with OIDC enabled", () => {
       url: "/dashboard",
     });
 
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe("/");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
   });
 
   it("redirects hypershell-admins away from /dashboard/reliability", async () => {
@@ -1021,6 +1113,74 @@ describe("web-console BFF with OIDC enabled", () => {
       headers: { cookie },
       method: "GET",
       url: "/dashboard/reliability",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  it("redirects authenticated non-administrators away from /dashboard/adoption", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-users"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/adoption",
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/");
+  });
+
+  it("serves /dashboard/adoption to platform:admin", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["platform:admin"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/adoption",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  it("serves /dashboard/provisioning to platform:admin", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["platform:admin"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/provisioning",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  it("serves /dashboard/inventory to platform:admin", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["platform:admin"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/dashboard/inventory",
     });
 
     expect(response.statusCode).toBe(200);

@@ -4,14 +4,52 @@ import (
 	"context"
 	"strings"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
+
+// PlacementResolver resolves a placement intent to a concrete managed-cluster id.
+// It returns resolved=true with the selected cluster id when an eligible cluster
+// matches. For a capability-label selector that matches no eligible cluster it
+// returns resolved=false with a nil error, so the caller can late-bind the gateway
+// (create it Pending and awaiting placement) rather than fail. A local-kind intent
+// that cannot be satisfied, and any validation or lookup failure, return a non-nil
+// ServiceError (see gateway-provision-placement.spec.md GP-07 and GP-08).
+type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (clusterID string, resolved bool, svcErr *errors.ServiceError)
+type PlacementAvailabilityResolver func(context.Context, [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
+
+func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.ServiceError {
+	mode := ""
+	selector := intent.Selector
+	if intent.Mode != nil {
+		mode = *intent.Mode
+	}
+	if mode != "" {
+		if mode != "local-kind" || selector != nil {
+			return errors.Validation("placement mode must be local-kind and cannot include selector")
+		}
+		return nil
+	}
+	if selector != nil {
+		_, svcErr := managedClusters.NormalizeSelector(selector)
+		return svcErr
+	}
+	return errors.Validation("placement must include selector or mode")
+}
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a
 // control plane registered (non-empty oidc_subject). It returns (false, nil) for
 // an unknown id or a manually created record, and an error only when the lookup
 // itself fails.
 type RegisteredClusterLookup func(ctx context.Context, id string) (bool, *errors.ServiceError)
+
+// ClusterProvisioningVersionLookup returns, for a set of cluster IDs, the
+// provisioning version each cluster advertises through its single-valued
+// gateway-version capability. Clusters with no such capability, and unknown ids,
+// are absent from the returned map. It backs the read-only
+// Gateway.provisioning_version field (gateway-version-visibility.spec.md, GVV-04).
+type ClusterProvisioningVersionLookup func(ctx context.Context, clusterIDs []string) (map[string]string, *errors.ServiceError)
 
 // validateClusterReference enforces "Gateways Reference a Registered Cluster"
 // (managed-cluster-registration.spec.md): every control plane filters its

@@ -28,8 +28,8 @@ type Gateway struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Name      string     `json:"name"`
-	ClusterId string     `json:"cluster_id"`
-	ReleaseId string     `json:"release_id"`
+	// Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available.
+	ClusterId string `json:"cluster_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
 	Namespace   string  `json:"namespace"`
 	ExternalDns *string `json:"external_dns,omitempty"`
@@ -49,8 +49,10 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
-	// Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
-	ObservedReleaseId *string `json:"observed_release_id,omitempty"`
+	// Gateway version the gateway's cluster advertises provisioning onto new gateways, derived from that cluster's single-valued gateway-version capability. Empty when the cluster advertises no provisioning version.
+	ProvisioningVersion *string `json:"provisioning_version,omitempty"`
+	// Whether this gateway pins an explicit image and therefore need not track its cluster's provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default.
+	ImagePinned *bool `json:"image_pinned,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
@@ -67,6 +69,12 @@ type Gateway struct {
 	Generation *int64 `json:"generation,omitempty"`
 	// Generation the control plane last successfully applied; converged when equal to generation
 	ObservedGeneration *int64 `json:"observed_generation,omitempty"`
+	// Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
+	// Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative.
+	CanDelete *bool `json:"can_delete,omitempty"`
+	// Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
+	CanEdit *bool `json:"can_edit,omitempty"`
 }
 
 type _Gateway Gateway
@@ -75,11 +83,10 @@ type _Gateway Gateway
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGateway(name string, clusterId string, releaseId string, namespace string) *Gateway {
+func NewGateway(name string, clusterId string, namespace string) *Gateway {
 	this := Gateway{}
 	this.Name = name
 	this.ClusterId = clusterId
-	this.ReleaseId = releaseId
 	this.Namespace = namespace
 	return &this
 }
@@ -298,30 +305,6 @@ func (o *Gateway) GetClusterIdOk() (*string, bool) {
 // SetClusterId sets field value
 func (o *Gateway) SetClusterId(v string) {
 	o.ClusterId = v
-}
-
-// GetReleaseId returns the ReleaseId field value
-func (o *Gateway) GetReleaseId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.ReleaseId
-}
-
-// GetReleaseIdOk returns a tuple with the ReleaseId field value
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetReleaseIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.ReleaseId, true
-}
-
-// SetReleaseId sets field value
-func (o *Gateway) SetReleaseId(v string) {
-	o.ReleaseId = v
 }
 
 // GetNamespace returns the Namespace field value
@@ -700,36 +683,68 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
-// GetObservedReleaseId returns the ObservedReleaseId field value if set, zero value otherwise.
-func (o *Gateway) GetObservedReleaseId() string {
-	if o == nil || IsNil(o.ObservedReleaseId) {
+// GetProvisioningVersion returns the ProvisioningVersion field value if set, zero value otherwise.
+func (o *Gateway) GetProvisioningVersion() string {
+	if o == nil || IsNil(o.ProvisioningVersion) {
 		var ret string
 		return ret
 	}
-	return *o.ObservedReleaseId
+	return *o.ProvisioningVersion
 }
 
-// GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field value if set, nil otherwise
+// GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetObservedReleaseIdOk() (*string, bool) {
-	if o == nil || IsNil(o.ObservedReleaseId) {
+func (o *Gateway) GetProvisioningVersionOk() (*string, bool) {
+	if o == nil || IsNil(o.ProvisioningVersion) {
 		return nil, false
 	}
-	return o.ObservedReleaseId, true
+	return o.ProvisioningVersion, true
 }
 
-// HasObservedReleaseId returns a boolean if a field has been set.
-func (o *Gateway) HasObservedReleaseId() bool {
-	if o != nil && !IsNil(o.ObservedReleaseId) {
+// HasProvisioningVersion returns a boolean if a field has been set.
+func (o *Gateway) HasProvisioningVersion() bool {
+	if o != nil && !IsNil(o.ProvisioningVersion) {
 		return true
 	}
 
 	return false
 }
 
-// SetObservedReleaseId gets a reference to the given string and assigns it to the ObservedReleaseId field.
-func (o *Gateway) SetObservedReleaseId(v string) {
-	o.ObservedReleaseId = &v
+// SetProvisioningVersion gets a reference to the given string and assigns it to the ProvisioningVersion field.
+func (o *Gateway) SetProvisioningVersion(v string) {
+	o.ProvisioningVersion = &v
+}
+
+// GetImagePinned returns the ImagePinned field value if set, zero value otherwise.
+func (o *Gateway) GetImagePinned() bool {
+	if o == nil || IsNil(o.ImagePinned) {
+		var ret bool
+		return ret
+	}
+	return *o.ImagePinned
+}
+
+// GetImagePinnedOk returns a tuple with the ImagePinned field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetImagePinnedOk() (*bool, bool) {
+	if o == nil || IsNil(o.ImagePinned) {
+		return nil, false
+	}
+	return o.ImagePinned, true
+}
+
+// HasImagePinned returns a boolean if a field has been set.
+func (o *Gateway) HasImagePinned() bool {
+	if o != nil && !IsNil(o.ImagePinned) {
+		return true
+	}
+
+	return false
+}
+
+// SetImagePinned gets a reference to the given bool and assigns it to the ImagePinned field.
+func (o *Gateway) SetImagePinned(v bool) {
+	o.ImagePinned = &v
 }
 
 // GetOidc returns the Oidc field value if set, zero value otherwise.
@@ -988,6 +1003,102 @@ func (o *Gateway) SetObservedGeneration(v int64) {
 	o.ObservedGeneration = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *Gateway) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *Gateway) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *Gateway) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
+// GetCanDelete returns the CanDelete field value if set, zero value otherwise.
+func (o *Gateway) GetCanDelete() bool {
+	if o == nil || IsNil(o.CanDelete) {
+		var ret bool
+		return ret
+	}
+	return *o.CanDelete
+}
+
+// GetCanDeleteOk returns a tuple with the CanDelete field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCanDeleteOk() (*bool, bool) {
+	if o == nil || IsNil(o.CanDelete) {
+		return nil, false
+	}
+	return o.CanDelete, true
+}
+
+// HasCanDelete returns a boolean if a field has been set.
+func (o *Gateway) HasCanDelete() bool {
+	if o != nil && !IsNil(o.CanDelete) {
+		return true
+	}
+
+	return false
+}
+
+// SetCanDelete gets a reference to the given bool and assigns it to the CanDelete field.
+func (o *Gateway) SetCanDelete(v bool) {
+	o.CanDelete = &v
+}
+
+// GetCanEdit returns the CanEdit field value if set, zero value otherwise.
+func (o *Gateway) GetCanEdit() bool {
+	if o == nil || IsNil(o.CanEdit) {
+		var ret bool
+		return ret
+	}
+	return *o.CanEdit
+}
+
+// GetCanEditOk returns a tuple with the CanEdit field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCanEditOk() (*bool, bool) {
+	if o == nil || IsNil(o.CanEdit) {
+		return nil, false
+	}
+	return o.CanEdit, true
+}
+
+// HasCanEdit returns a boolean if a field has been set.
+func (o *Gateway) HasCanEdit() bool {
+	if o != nil && !IsNil(o.CanEdit) {
+		return true
+	}
+
+	return false
+}
+
+// SetCanEdit gets a reference to the given bool and assigns it to the CanEdit field.
+func (o *Gateway) SetCanEdit(v bool) {
+	o.CanEdit = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -1015,7 +1126,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
-	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["namespace"] = o.Namespace
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
@@ -1050,8 +1160,11 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
 	}
-	if !IsNil(o.ObservedReleaseId) {
-		toSerialize["observed_release_id"] = o.ObservedReleaseId
+	if !IsNil(o.ProvisioningVersion) {
+		toSerialize["provisioning_version"] = o.ProvisioningVersion
+	}
+	if !IsNil(o.ImagePinned) {
+		toSerialize["image_pinned"] = o.ImagePinned
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
@@ -1077,6 +1190,15 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ObservedGeneration) {
 		toSerialize["observed_generation"] = o.ObservedGeneration
 	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
+	}
+	if !IsNil(o.CanDelete) {
+		toSerialize["can_delete"] = o.CanDelete
+	}
+	if !IsNil(o.CanEdit) {
+		toSerialize["can_edit"] = o.CanEdit
+	}
 	return toSerialize, nil
 }
 
@@ -1087,7 +1209,6 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := []string{
 		"name",
 		"cluster_id",
-		"release_id",
 		"namespace",
 	}
 

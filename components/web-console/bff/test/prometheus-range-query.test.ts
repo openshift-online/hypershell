@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   alignDailyIntegerSeries,
+  alignDailySeriesPreservingGaps,
   dailyRangeLookbackDays,
   formatHourLabel,
   formatUtcCalendarDate,
@@ -33,6 +34,28 @@ describe("prometheus range helpers", () => {
       dates.map((date) => ({
         date,
         value: date === latestDate ? 18 : 0,
+      })),
+    );
+  });
+
+  it("preserves missing daily samples as null values", () => {
+    const dates = utcCalendarDatesInclusive(7);
+    const sampledDate = dates[3];
+    if (!sampledDate) {
+      throw new Error("expected sampled UTC calendar date");
+    }
+    const sampledTimestamp = Math.floor(
+      Date.parse(`${sampledDate}T00:00:00.000Z`) / 1000,
+    );
+
+    expect(
+      alignDailySeriesPreservingGaps(
+        new Map<number, number>([[sampledTimestamp, 18]]),
+      ),
+    ).toEqual(
+      dates.map((date) => ({
+        date,
+        value: date === sampledDate ? 18 : null,
       })),
     );
   });

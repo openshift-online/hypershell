@@ -50,6 +50,13 @@ func TestIsAuthorized_GatewayCreatorCanCreateGateways(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_GatewayCreatorCanCheckPlacementAvailability(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
+	if !isAuthorized(http.MethodPost, "gateway_placement_availability", "", "", bindings, nil) {
+		t.Error("gateway:creator should be authorized for POST /gateways/placement-availability")
+	}
+}
+
 func TestIsAuthorized_GatewayCreatorCannotGetGatewayWithoutBinding(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:creator", Scope: "global"},
@@ -119,6 +126,117 @@ func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 	}
 }
 
+// TestCanDeleteGateway covers the Gateway.can_delete capability the REST API
+// advertises to clients. It must match isGatewayAuthorized(DELETE, ...) exactly,
+// including the case from the bug report: an owner who demotes their own access
+// to the "user" tier (gateway:viewer) can no longer delete, while a platform
+// admin retains the delete override.
+func TestCanDeleteGateway(t *testing.T) {
+	gwID := "gw-aaa"
+	otherID := "gw-bbb"
+	ptr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{
+			name:     "owner can delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "demoted owner now viewer cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "granted admin cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "platform admin can delete any gateway",
+			bindings: []BindingSummary{{RoleName: "platform:admin", Scope: "global"}},
+			want:     true,
+		},
+		{
+			name:     "owner of a different gateway cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(otherID)}},
+			want:     false,
+		},
+		{
+			name:     "no bindings cannot delete",
+			bindings: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanDeleteGateway(tc.bindings, gwID); got != tc.want {
+				t.Errorf("CanDeleteGateway() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCanEditGateway covers the Gateway.can_edit capability (PATCH, e.g. rename).
+// Owners and granted admins may edit; viewers ("plain users") may not, and a
+// platform admin without a per-gateway binding may not (PATCH is not in the
+// platform-admin override).
+func TestCanEditGateway(t *testing.T) {
+	gwID := "gw-aaa"
+	otherID := "gw-bbb"
+	ptr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{
+			name:     "owner can edit",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "granted admin can edit",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "viewer (plain user) cannot edit",
+			bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "platform admin without a binding cannot edit",
+			bindings: []BindingSummary{{RoleName: "platform:admin", Scope: "global"}},
+			want:     false,
+		},
+		{
+			name:     "admin of a different gateway cannot edit",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(otherID)}},
+			want:     false,
+		},
+		{
+			name:     "no bindings cannot edit",
+			bindings: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanEditGateway(tc.bindings, gwID); got != tc.want {
+				t.Errorf("CanEditGateway() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsAuthorized_NonCreatorCannotCreateGateways(t *testing.T) {
 	gwID := "gw-aaa"
 	bindings := []BindingSummary{
@@ -164,16 +282,6 @@ func TestIsAuthorized_NoBindingsCanListGateways(t *testing.T) {
 	}
 }
 
-func TestIsAuthorized_GatewayViewerCannotAccessGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
-	}
-
-	if isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("gateway:viewer must not access gateway_releases")
-	}
-}
-
 func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
@@ -181,56 +289,6 @@ func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 
 	if isAuthorized(http.MethodGet, "managed_clusters", "", "", bindings, nil) {
 		t.Error("gateway:owner must not access managed_clusters without gateway:creator")
-	}
-}
-
-func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:creator", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("gateway:creator should access gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanListGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("platform:admin should list gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanGetGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "release-1", "", bindings, nil) {
-		t.Error("platform:admin should get gateway_releases by id")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanDeleteGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodDelete, "gateway_releases", "release-1", "", bindings, nil) {
-		t.Error("platform:admin should delete gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCannotCreateGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if isAuthorized(http.MethodPost, "gateway_releases", "", "", bindings, nil) {
-		t.Error("platform:admin must not create gateway_releases without gateway:creator")
 	}
 }
 
@@ -410,6 +468,63 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 	}
 }
 
+func TestAuthorizeApi_ManagedClustersListRequiresDashboardOperator(t *testing.T) {
+	tests := []struct {
+		name       string
+		bindings   []BindingSummary
+		wantReach  bool
+		wantStatus int
+	}{
+		{
+			name: "platform admin reaches the list handler",
+			bindings: []BindingSummary{
+				{RoleName: "platform:admin", Scope: "global"},
+			},
+			wantReach:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "caller without dashboard-operator access is denied",
+			bindings:   nil,
+			wantReach:  false,
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			middleware := NewRBACAuthzMiddleware(
+				authorizationLookup{bindings: test.bindings},
+				AuthzConfig{EnforceRBAC: true},
+				nil,
+				nil,
+			)
+			reached := false
+			router := mux.NewRouter()
+			router.Handle("/api/hypershell/v1/managed_clusters", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusOK)
+			}))).Methods(http.MethodGet)
+
+			request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/managed_clusters", nil)
+			token := &jwt.Token{Claims: jwt.MapClaims{
+				"preferred_username": "dashboard-operator",
+			}}
+			ctx := context.WithValue(request.Context(), ContextUserIDKey, "dashboard-operator")
+			ctx = context.WithValue(ctx, auth.ContextAuthKey, token)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request.WithContext(ctx))
+
+			if reached != test.wantReach {
+				t.Fatalf("handler reached = %t, want %t", reached, test.wantReach)
+			}
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.wantStatus)
+			}
+		})
+	}
+}
+
 func TestExtractResourceInfoFromPath_Users(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
 	resource, resourceID := extractResourceInfo(request)
@@ -499,6 +614,29 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	}
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiAllowsGatewayCreatorPlacementAvailability(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
+
+	router := mux.NewRouter()
+	reached := false
+	router.Handle("/api/hypershell/v1/gateways/placement-availability", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))).Methods(http.MethodPost)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways/placement-availability", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if !reached || recorder.Code != http.StatusOK {
+		t.Fatalf("placement availability reached=%v status=%d, want true/200", reached, recorder.Code)
 	}
 }
 

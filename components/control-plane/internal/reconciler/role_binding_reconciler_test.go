@@ -76,6 +76,7 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 		want        []string
 	}{
 		{"gateway:owner", []string{"openshell-admin", "openshell-user"}},
+		{"gateway:admin", []string{"openshell-admin", "openshell-user"}},
 		{"gateway:viewer", []string{"openshell-user"}},
 	}
 	for _, tc := range cases {
@@ -91,6 +92,37 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 				t.Errorf("keycloakRoleMap[%q][%d] = %q, want %q", tc.roleBinding, i, got[i], role)
 			}
 		}
+	}
+}
+
+// After an in-place demotion from gateway:admin to gateway:viewer (a single
+// UPDATED event, one surviving binding), union reconcile must assign
+// openshell-user and remove openshell-admin (GAM-02).
+func TestUnionReconcile_DemotionToViewerStripsAdminKeepsUser(t *testing.T) {
+	surviving := []*pb.RoleBinding{roleBinding("rb-1", "gateway:viewer")}
+	desired := unionKcRoles(surviving, "")
+
+	var assigned, removed []string
+	for _, kc := range allGatewayKcRoles {
+		if desired[kc] {
+			assigned = append(assigned, kc)
+		} else {
+			removed = append(removed, kc)
+		}
+	}
+	if len(assigned) != 1 || assigned[0] != "openshell-user" {
+		t.Errorf("assigned = %v, want [openshell-user]", assigned)
+	}
+	if len(removed) != 1 || removed[0] != "openshell-admin" {
+		t.Errorf("removed = %v, want [openshell-admin]", removed)
+	}
+}
+
+// A granted admin (gateway:admin) must receive both client roles, like an owner.
+func TestUnionReconcile_AdminGetsBothRoles(t *testing.T) {
+	desired := unionKcRoles([]*pb.RoleBinding{roleBinding("rb-1", "gateway:admin")}, "")
+	if !desired["openshell-admin"] || !desired["openshell-user"] {
+		t.Errorf("gateway:admin union = %v, want both openshell-admin and openshell-user", desired)
 	}
 }
 
@@ -167,7 +199,10 @@ func TestHandle_SkipsGatewayOfAnotherCluster(t *testing.T) {
 // Keycloak sync (which here fails because Keycloak is unroutable), proving the
 // cluster check is what gates the skip above.
 func TestHandle_OwnClusterGatewayReachesKeycloak(t *testing.T) {
-	conn, recorder := newRecordingGatewayConn(t)
+	// Union reconcile lists the user's surviving bindings before touching
+	// Keycloak, so the stub must serve RoleBindingService (empty is fine; the
+	// event binding's own roles are still included in the desired union).
+	conn, recorder, _ := newRecordingGatewayAndRoleBindingConn(t)
 	recorder.setGateway(&pb.Gateway{
 		Metadata:  &pb.ObjectReference{Id: "gw-1"},
 		Name:      "team-gateway",
@@ -189,6 +224,33 @@ func TestHandle_OwnClusterGatewayReachesKeycloak(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "assign keycloak role") {
 		t.Fatalf("error = %v, want a keycloak assignment error", err)
+	}
+}
+
+// A binding whose gateway no longer exists (deleted while the stream was down, or
+// surfaced by a resync that lists bindings outliving their gateway) is a benign
+// no-op: there is no per-gateway Keycloak client left to reconcile. Handle must
+// return nil -- not a (terminal) error -- so the reconcile queue does not log at
+// ERROR on every reconnect and resync interval, forever, for every such binding.
+// An unroutable Keycloak proves the no-op happens before any Keycloak call: if
+// the reconciler proceeded past the missing gateway it would fail loudly instead.
+func TestHandle_MissingGatewayIsBenignNoOp(t *testing.T) {
+	// No gateway is set on the recorder, so GetGateway returns codes.NotFound for
+	// any id -- exactly the missing-gateway condition under test.
+	conn, _ := newRecordingGatewayConn(t)
+	r := NewRoleBindingReconciler(keycloak.NewClient("http://127.0.0.1:1", "hypershell", "id", "secret"), conn, "cluster-1")
+	gatewayID := "gw-gone"
+	err := r.Handle(context.Background(), watcher.Event[*pb.RoleBinding]{
+		ResourceID: "rb-1",
+		Type:       watcher.EventCreated,
+		Resource: &pb.RoleBinding{
+			RoleName:  "gateway:owner",
+			GatewayId: &gatewayID,
+			Username:  "alice",
+		},
+	})
+	if err != nil {
+		t.Fatalf("a binding whose gateway is gone must be a no-op, got %v", err)
 	}
 }
 

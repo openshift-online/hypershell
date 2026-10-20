@@ -18,6 +18,7 @@ const gatewayApi = {
   delete: vi.fn(),
   get: vi.fn(),
   list: vi.fn(),
+  placementAvailability: vi.fn(),
   update: vi.fn(),
 };
 const managedClusterApi = {
@@ -31,7 +32,15 @@ const serviceAccountApi = {
   list: vi.fn(),
   revoke: vi.fn(),
 };
+const gatewayAccessApi = {
+  create: vi.fn(),
+  delete: vi.fn(),
+  list: vi.fn(),
+  searchDirectory: vi.fn(),
+  update: vi.fn(),
+};
 const gatewayApiFactory = vi.fn(() => ({
+  gatewayAccesses: gatewayAccessApi,
   gateways: gatewayApi,
   managedClusters: managedClusterApi,
   openShellGatewayServiceAccounts: serviceAccountApi,
@@ -51,6 +60,8 @@ const listRequest = {
 function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
     active_sandbox_count: 0,
+    can_delete: false,
+    can_edit: false,
     cluster_id: "",
     console_address: "",
     created_at: null,
@@ -64,16 +75,17 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     image: "",
     kind: "Gateway",
     name: "Team gateway",
+    image_pinned: false,
     namespace: "openshell",
     observed_generation: 1,
-    observed_release_id: "",
     oidc: "",
     phase: "",
-    provisioning_conditions: "",
-    release_id: "release-1",
+    provisioning_conditions: [],
+    provisioning_version: "",
+    repository_id: "",
     route: "",
     route_address: "",
-    server_dns_names: "",
+    server_dns_names: [],
     service_type: "",
     status: "Ready",
     supervisor_image: "",
@@ -102,6 +114,7 @@ function managedCluster(
 ): ManagedCluster {
   return {
     api_server_url: "https://api.east.example.com",
+    capabilities: [],
     created_at: null,
     href: "/api/hypershell/v1/managed_clusters/cluster-east",
     id: "cluster-east",
@@ -114,6 +127,7 @@ function managedCluster(
     region: "us-east-1",
     status: "Ready",
     updated_at: null,
+    visibility: "public",
     ...overrides,
   };
 }
@@ -427,6 +441,63 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("collects provisioning versions across every registered-cluster page", async () => {
+    managedClusterApi.list
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 20 }, (_, index) =>
+          managedCluster({
+            capabilities: ["gateway-version/v0.1.2-rhaiv.7"],
+            id: `cluster-a-${String(index)}`,
+          }),
+        ),
+        kind: "ManagedClusterList",
+        page: 1,
+        size: 20,
+        total: 21,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          managedCluster({
+            capabilities: ["gateway-version/v0.2.0-rhaiv.1"],
+            id: "cluster-b-0",
+          }),
+        ],
+        kind: "ManagedClusterList",
+        page: 2,
+        size: 20,
+        total: 21,
+      });
+
+    if (!controlPlane.getGatewayProvisioningVersions) {
+      throw new Error("getGatewayProvisioningVersions is not implemented");
+    }
+    await expect(
+      controlPlane.getGatewayProvisioningVersions(context),
+    ).resolves.toEqual(["v0.1.2-rhaiv.7", "v0.2.0-rhaiv.1"]);
+    expect(managedClusterApi.list).toHaveBeenCalledTimes(2);
+    expect(managedClusterApi.list).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ page: 2, search: "oidc_subject <> ''" }),
+      expect.anything(),
+    );
+  });
+
+  it("reads one page of provisioning versions when the first page is short", async () => {
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList([
+        managedCluster({ capabilities: ["gateway-version/v0.1.2-rhaiv.7"] }),
+      ]),
+    );
+
+    if (!controlPlane.getGatewayProvisioningVersions) {
+      throw new Error("getGatewayProvisioningVersions is not implemented");
+    }
+    await expect(
+      controlPlane.getGatewayProvisioningVersions(context),
+    ).resolves.toEqual(["v0.1.2-rhaiv.7"]);
+    expect(managedClusterApi.list).toHaveBeenCalledOnce();
+  });
+
   it("treats ILIKE wildcard and escape characters as search literals", async () => {
     managedClusterApi.list.mockResolvedValue(managedClusterList([]));
     gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
@@ -613,6 +684,52 @@ describe("gateway API operations adapter", () => {
     ).resolves.toMatchObject({ gatewayVersion: "v0.0.109-rh9a8f8" });
   });
 
+  it("maps provisioning_version and image_pinned onto the gateway record", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        gateway_version: "v0.1.1-rhaiv.3",
+        image_pinned: true,
+        provisioning_version: " v0.1.2-rhaiv.7 ",
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      gatewayVersion: "v0.1.1-rhaiv.3",
+      imagePinned: true,
+      provisioningVersion: "v0.1.2-rhaiv.7",
+    });
+  });
+
+  it("omits the provisioning version when the cluster advertises none", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ provisioning_version: "" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.provisioningVersion).toBeUndefined();
+  });
+
+  it("sorts gateways by the API gateway-version field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "asc",
+        sortField: "version",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "gateway_version asc" }),
+      { signal: undefined },
+    );
+  });
+
   it("leaves the console URL unavailable when console_address is absent", async () => {
     gatewayApi.get.mockResolvedValue(gateway({ console_address: "" }));
 
@@ -668,23 +785,75 @@ describe("gateway API operations adapter", () => {
     );
   });
 
-  it("provisions on the selected cluster with hidden request defaults", async () => {
-    gatewayApi.create.mockResolvedValue(gateway({ release_id: "" }));
+  it("provisions from placement intent with hidden request defaults", async () => {
+    gatewayApi.create.mockResolvedValue(gateway({}));
 
     await controlPlane.provisionGateway(
       {
-        clusterId: "cluster-east",
         name: "team-gateway",
+        placement: { selector: ["network/public", "provider/aws"] },
       },
       context,
     );
 
     expect(gatewayApi.create).toHaveBeenCalledWith(
       {
-        cluster_id: "cluster-east",
         name: "team-gateway",
-        release_id: "",
+        placement: { selector: ["network/public", "provider/aws"] },
         route: '{"enabled":true}',
+      },
+      { signal: undefined },
+    );
+  });
+
+  it("maps backend placement availability", async () => {
+    gatewayApi.placementAvailability.mockResolvedValue({
+      local_kind: true,
+      placements: [
+        {
+          available: true,
+          selector: ["network/public", "provider/aws"],
+        },
+        {
+          available: false,
+          reason: "no-eligible-cluster",
+          selector: ["network/vpn", "provider/ibm"],
+        },
+      ],
+    });
+
+    if (controlPlane.getGatewayPlacementAvailability === undefined) {
+      throw new Error("placement availability operation is unavailable");
+    }
+    await expect(
+      controlPlane.getGatewayPlacementAvailability(
+        [
+          ["network/public", "provider/aws"],
+          ["network/vpn", "provider/ibm"],
+        ],
+        context,
+      ),
+    ).resolves.toEqual({
+      localKind: true,
+      placements: [
+        {
+          available: true,
+          reason: undefined,
+          selector: ["network/public", "provider/aws"],
+        },
+        {
+          available: false,
+          reason: "no-eligible-cluster",
+          selector: ["network/vpn", "provider/ibm"],
+        },
+      ],
+    });
+    expect(gatewayApi.placementAvailability).toHaveBeenCalledWith(
+      {
+        selectors: [
+          ["network/public", "provider/aws"],
+          ["network/vpn", "provider/ibm"],
+        ],
       },
       { signal: undefined },
     );
@@ -776,5 +945,148 @@ describe("gateway API operations adapter", () => {
       operationId: "operation-2",
     });
     expect((failure as Error).message).not.toContain("raw provider detail");
+  });
+
+  it("maps the gateway access list to a domain page with joined fields", async () => {
+    gatewayAccessApi.list.mockResolvedValue({
+      capabilities: {
+        caller_role: "owner",
+        can_manage_access: true,
+        can_manage_owners: true,
+      },
+      items: [
+        {
+          email: null,
+          granted_at: "2026-10-01T00:00:00Z",
+          name: "Ann Owner",
+          role: "owner",
+          role_binding_id: "rb-1",
+          user_id: "u-1",
+          username: "ann",
+        },
+      ],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+
+    const page = await controlPlane.listGatewayAccess(
+      "gateway-1",
+      { order: "desc", page: 1, search: "", size: 20, sort: "granted_at" },
+      context,
+    );
+
+    expect(gatewayAccessApi.list).toHaveBeenCalledWith(
+      "gateway-1",
+      { order: "desc", page: 1, size: 20, sort: "granted_at" },
+      { signal: undefined },
+    );
+    expect(page.capabilities).toEqual({
+      callerRole: "owner",
+      canManageAccess: true,
+      canManageOwners: true,
+    });
+    expect(page.items[0]).toMatchObject({
+      name: "Ann Owner",
+      role: "owner",
+      roleBindingId: "rb-1",
+      userId: "u-1",
+      username: "ann",
+    });
+    expect(page.items[0]).not.toHaveProperty("email");
+  });
+
+  it("grants access and maps the resulting record", async () => {
+    gatewayAccessApi.create.mockResolvedValue({
+      email: "dana@example.com",
+      granted_at: "2026-10-02T00:00:00Z",
+      name: "Dana",
+      role: "user",
+      role_binding_id: "rb-2",
+      user_id: "u-2",
+      username: "dana",
+    });
+
+    const record = await controlPlane.grantGatewayAccess(
+      "gateway-1",
+      { role: "user", username: "dana" },
+      context,
+    );
+
+    expect(gatewayAccessApi.create).toHaveBeenCalledWith(
+      "gateway-1",
+      { role: "user", username: "dana" },
+      { signal: undefined },
+    );
+    expect(record).toMatchObject({
+      email: "dana@example.com",
+      role: "user",
+      userId: "u-2",
+    });
+  });
+
+  it("maps a 409 on role change to a conflict (last-owner protection)", async () => {
+    gatewayAccessApi.update.mockRejectedValue(
+      new SDKAPIError({
+        code: "conflict",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "op-c",
+        reason: "a gateway must keep at least one owner",
+        status_code: 409,
+      }),
+    );
+
+    const failure = await controlPlane
+      .changeGatewayAccessRole("gateway-1", "u-1", "user", context)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({ kind: "conflict" });
+  });
+
+  it("maps a 403 on revoke to denied", async () => {
+    gatewayAccessApi.delete.mockRejectedValue(
+      new SDKAPIError({
+        code: "forbidden",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "op-d",
+        reason: "only owners can revoke an owner",
+        status_code: 403,
+      }),
+    );
+
+    const failure = await controlPlane
+      .revokeGatewayAccess("gateway-1", "u-1", context)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({ kind: "denied" });
+  });
+
+  it("searches the directory and maps candidates", async () => {
+    gatewayAccessApi.searchDirectory.mockResolvedValue({
+      items: [
+        { email: null, name: "Dana", subject: "sub-1", username: "dana" },
+      ],
+    });
+
+    const candidates = await controlPlane.searchGatewayDirectory(
+      "gateway-1",
+      "da",
+      context,
+    );
+
+    expect(gatewayAccessApi.searchDirectory).toHaveBeenCalledWith(
+      "gateway-1",
+      "da",
+      { signal: undefined },
+    );
+    expect(candidates).toEqual([
+      { name: "Dana", subject: "sub-1", username: "dana" },
+    ]);
   });
 });

@@ -1,3 +1,7 @@
+import {
+  GateExecution,
+  type GateExecutionProps,
+} from "../e2e-run/gate-execution";
 // The map's detail panel. Selecting a node opens a tabbed record (Details /
 // Bundle / Links): Details carries a gateway donut + legend and a field grid;
 // Bundle lists the pull requests in the instance's deployed release; Links holds
@@ -6,6 +10,7 @@
 // is translated; all values are opaque server data.
 
 import {
+  Badge,
   Button,
   Content,
   DescriptionList,
@@ -18,14 +23,17 @@ import {
   type LabelProps,
   List,
   ListItem,
+  Spinner,
   Tab,
   Tabs,
   TabTitleText,
   Title,
   Tooltip,
+  Truncate,
 } from "@patternfly/react-core";
+import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
-import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
+import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
 import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
@@ -36,7 +44,9 @@ import {
   deployedFor,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
+import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapModel, MapNode } from "../../../domain/map/model";
 import type {
@@ -44,13 +54,21 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../../domain/promotion";
+import {
+  hasSpokeRows,
+  type SpokeAttribution,
+  type SpokeRow,
+} from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
+import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
-import { TEXT_COLOR } from "./colors";
+import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
+import { MetricTiles } from "./metric-tiles";
+import { ReleaseTime } from "./release-time";
 
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
@@ -159,12 +177,15 @@ export interface MapSelection {
 }
 
 export interface MapDetailsProps {
+  readonly e2e?: Omit<GateExecutionProps, "target">;
   readonly model: MapModel;
   readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   readonly selection: MapSelection;
   readonly onClose: () => void;
   /** Opens a release bundle's details (from any identicon in the panel). */
   readonly onSelectBundle: (seed: string) => void;
+  /** Selects an instance node (from a "Deployed on" chip in the bundle panel). */
+  readonly onSelectNode: (id: string) => void;
 }
 
 const PROMO_LABEL: Record<
@@ -172,7 +193,9 @@ const PROMO_LABEL: Record<
   { readonly msg: MessageDescriptor; readonly status: LabelProps["status"] }
 > = {
   "up-to-date": { msg: messages.promoUpToDate, status: "success" },
-  promoting: { msg: messages.promoPromoting, status: "warning" },
+  // Promoting is in-flight, not a problem: blue (info) with a live spinner, not an
+  // amber warning.
+  promoting: { msg: messages.promoPromoting, status: "info" },
   behind: { msg: messages.promoBehind, status: undefined },
 };
 
@@ -188,6 +211,33 @@ function Row({
       <DescriptionListTerm>{term}</DescriptionListTerm>
       <DescriptionListDescription>{children}</DescriptionListDescription>
     </DescriptionListGroup>
+  );
+}
+
+/** A field label paired with a PatternFly info tooltip: hovering/focusing the
+ *  small "i" shows contextual help (matching the prototype's per-field help). */
+function TermWithInfo({
+  label,
+  info,
+}: {
+  label: React.ReactNode;
+  info: MessageDescriptor;
+}): React.ReactElement {
+  const intl = useIntl();
+  return (
+    <span className={styles.termWithInfo}>
+      {label}
+      <Tooltip content={<FormattedMessage {...info} />}>
+        <span
+          className={styles.infoTip}
+          role="button"
+          tabIndex={0}
+          aria-label={intl.formatMessage(messages.moreInfo)}
+        >
+          <InfoAltIcon />
+        </span>
+      </Tooltip>
+    </span>
   );
 }
 
@@ -245,19 +295,26 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
         const head = pr.title.slice(0, pr.title.length - tailLen);
         const tail = pr.title.slice(pr.title.length - tailLen);
+        // The card separates the PR identity (number + full title) from its
+        // authorship: the title is the headline line, the author sits beneath it
+        // as a distinct, muted byline with the handle emphasised.
+        const tipTitle = `${num} ${pr.title}`;
         const hover = (
-          <>
-            {`${num} ${pr.title}`}
+          <span className={styles.prTip}>
+            <span className={styles.prTipTitle}>{tipTitle}</span>
             {pr.author ? (
-              <>
-                <br />
+              <span className={styles.prTipAuthor}>
                 <FormattedMessage
                   {...messages.prAuthoredBy}
-                  values={{ author: pr.author }}
+                  values={{
+                    author: (
+                      <span className={styles.prTipHandle}>{pr.author}</span>
+                    ),
+                  }}
                 />
-              </>
+              </span>
             ) : null}
-          </>
+          </span>
         );
         return (
           <ListItem key={pr.number}>
@@ -294,88 +351,250 @@ function BundleContents({
   seed?: string;
   onSelectBundle?: (seed: string) => void;
 }): React.ReactElement {
+  const intl = useIntl();
   const prs = bundle?.prs ?? [];
+  // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
+  // PR count pinned to the right as a badge so the tab's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
+    count: prs.length,
+  });
   return (
     <>
-      <Flex
-        alignItems={{ default: "alignItemsCenter" }}
-        spaceItems={{ default: "spaceItemsSm" }}
-      >
+      <div className={styles.bundleHead}>
         {seed ? (
-          <FlexItem>
-            <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
-          </FlexItem>
+          <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
         ) : null}
-        <FlexItem>
-          <Title headingLevel="h4" size="md">
-            <FormattedMessage {...messages.sectionInBundle} />
-            {prs.length > 0 ? (
-              <Content component="small" className="pf-v6-u-ml-sm">
-                <FormattedMessage
-                  {...messages.bundlePrSummary}
-                  values={{ count: prs.length }}
-                />
-              </Content>
-            ) : null}
-          </Title>
-        </FlexItem>
-      </Flex>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionInBundle} />
+        </h4>
+        {prs.length > 0 ? (
+          // The badge's visible text is the bare count; aria-label gives it the
+          // full "N pull requests" accessible name (title alone is not reliably
+          // announced on a non-interactive element).
+          <Badge
+            isRead
+            className={styles.bundleCount}
+            aria-label={prCountSummary}
+            title={prCountSummary}
+          >
+            {prs.length}
+          </Badge>
+        ) : null}
+      </div>
       <PrList prs={prs} />
     </>
   );
 }
 
-function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
+function GatewaySummary({
+  node,
+  active,
+}: {
+  node: MapNode;
+  active: number | null;
+}): React.ReactElement {
   const intl = useIntl();
+  // When the shared cursor is engaged over a sample this instance has gateway history
+  // for, the donut, legend and total all read that moment's phase mix; otherwise the
+  // live snapshot. The historical samples carry only the three charted phases, so
+  // "other" is nil at a historical sample and the total is their sum.
+  const hist =
+    active !== null && active < node.gatewayHistory.length
+      ? node.gatewayHistory[active]
+      : null;
   const g = node.gateways;
-  const running = g.running ?? 0;
-  const provisioning = g.provisioning ?? 0;
-  const failed = g.failed ?? 0;
+  const running = hist ? hist.running : (g.running ?? 0);
+  const provisioning = hist ? hist.provisioning : (g.provisioning ?? 0);
+  const failed = hist ? hist.failed : (g.failed ?? 0);
   // Gateways in any phase beyond the three named rows, so the legend sums to the
   // donut's centre total instead of under-counting it.
-  const other = otherGateways(g);
+  const other = hist ? 0 : otherGateways(g);
+  const total = hist ? running + provisioning + failed : node.gatewaysTotal;
+  // The donut takes a phase-count record; project the history sample into one so the
+  // ring redraws for the hovered moment, else the live phase counts.
+  const counts: GatewayPhaseCounts = hist
+    ? { running, provisioning, failed }
+    : g;
   const label = intl.formatMessage(messages.detailGatewayBreakdown, {
-    total: node.gatewaysTotal,
+    total,
     running,
     provisioning,
     failed,
   });
+  // Donut on the left, a compact chart legend (swatch · label · count) on the right.
+  // A chart legend - not a horizontal DescriptionList - so the three phase rows stay
+  // tight beside the donut in the narrow drawer instead of wrapping below it.
+  const legend: { color: string; term: MessageDescriptor; value: number }[] = [
+    {
+      color: GATEWAY_COLOR.running,
+      term: messages.legendRunning,
+      value: running,
+    },
+    {
+      color: GATEWAY_COLOR.provisioning,
+      term: messages.legendProvisioning,
+      value: provisioning,
+    },
+    { color: GATEWAY_COLOR.failed, term: messages.legendFailed, value: failed },
+  ];
+  if (other > 0) {
+    legend.push({
+      color: GATEWAY_COLOR.idle,
+      term: messages.legendOther,
+      value: other,
+    });
+  }
   return (
-    <Flex
-      alignItems={{ default: "alignItemsCenter" }}
-      spaceItems={{ default: "spaceItemsLg" }}
-    >
-      <FlexItem>
+    <div className={styles.gatewayBody}>
+      <div className={styles.gatewayDonutCol}>
+        <h4 className={styles.gatewayDonutTitle}>
+          <FormattedMessage {...messages.sectionGateways} />
+        </h4>
         <svg
-          width={120}
-          height={120}
-          viewBox="0 0 120 120"
+          className={styles.gatewayDonut}
+          width={96}
+          height={96}
+          viewBox="0 0 96 96"
           role="img"
           aria-label={label}
           style={{ color: TEXT_COLOR }}
         >
-          <GatewayDonut counts={g} cx={60} cy={60} radius={50} />
+          <GatewayDonut counts={counts} cx={48} cy={48} radius={44} />
         </svg>
-      </FlexItem>
-      <FlexItem>
-        <DescriptionList isCompact isHorizontal>
-          <Row term={<FormattedMessage {...messages.legendRunning} />}>
-            {running}
-          </Row>
-          <Row term={<FormattedMessage {...messages.legendProvisioning} />}>
-            {provisioning}
-          </Row>
-          <Row term={<FormattedMessage {...messages.legendFailed} />}>
-            {failed}
-          </Row>
-          {other > 0 ? (
-            <Row term={<FormattedMessage {...messages.legendOther} />}>
-              {other}
-            </Row>
+      </div>
+      <ul className={styles.gatewayLegend}>
+        {legend.map((row) => (
+          <li key={row.term.id} className={styles.gatewayLegendRow}>
+            <span
+              className={styles.gatewaySwatch}
+              style={{ background: row.color }}
+              aria-hidden="true"
+            />
+            <span className={styles.gatewayLegendLabel}>
+              <FormattedMessage {...row.term} />
+            </span>
+            <span className={styles.gatewayLegendCount}>{row.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** One managed-cluster row: the cluster name (+ optional role badge) with its gateway
+ *  and sandbox counts pinned to the right. */
+function SpokeCountRow({
+  row,
+  badge,
+  hub = false,
+}: {
+  row: SpokeRow;
+  badge?: React.ReactNode;
+  hub?: boolean;
+}): React.ReactElement {
+  const className = [styles.spokeRow, hub ? styles.spokeHubRow : null]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div className={className}>
+      <span className={styles.spokeRowName}>
+        <Truncate content={row.managedCluster} position="middle" />
+      </span>
+      {badge}
+      <span className={styles.spokeRowCounts}>
+        <span>
+          <FormattedMessage
+            {...messages.spokeGatewaysCount}
+            values={{ count: row.gatewaysTotal }}
+          />
+        </span>
+        {/* The middot separator is drawn in CSS (::before) so it is decorative,
+            not an untranslated JSX text node. */}
+        <span className={styles.spokeCountSep}>
+          <FormattedMessage
+            {...messages.spokeSandboxesCount}
+            values={{ count: row.sandboxes }}
+          />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The hub instance's gateway + sandbox population, split by the managed cluster it
+ * runs on: the hub's own row, co-located spokes nested beneath it, and remote spokes
+ * in their own group. When topology was unavailable the rows list flat under an
+ * "attribution unavailable" note. Renders nothing unless there is at least one spoke
+ * row (a plain instance with no managed clusters shows no section).
+ */
+function SpokeAttributionSection({
+  attribution,
+}: {
+  attribution: SpokeAttribution;
+}): React.ReactElement | null {
+  if (!hasSpokeRows(attribution)) {
+    return null;
+  }
+  const remoteBadge = (
+    <Label color="purple" isCompact variant="outline">
+      <FormattedMessage {...messages.spokeRemote} />
+    </Label>
+  );
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionManagedClusters} />
+      </h4>
+
+      {!attribution.hasTopology ? (
+        <>
+          <p className={styles.spokeUnavailable}>
+            <FormattedMessage {...messages.spokeAttributionUnavailable} />
+          </p>
+          {attribution.unknown.map((row) => (
+            <SpokeCountRow key={row.managedCluster} row={row} />
+          ))}
+        </>
+      ) : (
+        <>
+          {attribution.hubOwn ? (
+            <SpokeCountRow row={attribution.hubOwn} hub />
           ) : null}
-        </DescriptionList>
-      </FlexItem>
-    </Flex>
+          {attribution.coLocated.length > 0 ? (
+            <div className={styles.spokeNested}>
+              {attribution.coLocated.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </div>
+          ) : null}
+          {attribution.remote.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeRemoteGroup} />
+              </h5>
+              {attribution.remote.map((row) => (
+                <SpokeCountRow
+                  key={row.managedCluster}
+                  row={row}
+                  badge={remoteBadge}
+                />
+              ))}
+            </>
+          ) : null}
+          {attribution.unknown.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeUnattributedGroup} />
+              </h5>
+              {attribution.unknown.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -403,13 +622,34 @@ function NodeFields({
       <Row term={<FormattedMessage {...messages.columnEnvironment} />}>
         {node.columnKey}
       </Row>
-      <Row term={<FormattedMessage {...messages.columnRole} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRole} />}
+            info={messages.infoRole}
+          />
+        }
+      >
         {node.role ?? <FormattedMessage {...messages.valueNone} />}
       </Row>
-      <Row term={<FormattedMessage {...messages.detailSync} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailSync} />}
+            info={messages.infoSync}
+          />
+        }
+      >
         <StatusLabel badge={syncBadge(node.argoSync)} />
       </Row>
-      <Row term={<FormattedMessage {...messages.columnHealth} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnHealth} />}
+            info={messages.infoHealth}
+          />
+        }
+      >
         {node.links.argo ? (
           <Button
             component="a"
@@ -427,12 +667,38 @@ function NodeFields({
           <StatusLabel badge={healthBadge(node.argoHealth)} />
         )}
       </Row>
-      <Row term={<FormattedMessage {...messages.detailPromotion} />}>
-        <Label status={promo.status} variant="outline" isCompact>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailPromotion} />}
+            info={messages.infoPromotion}
+          />
+        }
+      >
+        <Label
+          status={promo.status}
+          className={
+            node.state === "promoting" ? styles.spinnerLabel : undefined
+          }
+          icon={
+            node.state === "promoting" ? (
+              <Spinner size="sm" aria-hidden />
+            ) : undefined
+          }
+          variant="outline"
+          isCompact
+        >
           <FormattedMessage {...promo.msg} />
         </Label>
       </Row>
-      <Row term={<FormattedMessage {...messages.columnRelease} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRelease} />}
+            info={messages.infoRelease}
+          />
+        }
+      >
         {releaseLabel ? (
           <BundleChip
             seed={node.seed}
@@ -444,7 +710,14 @@ function NodeFields({
         )}
       </Row>
       {node.proposedVersion ? (
-        <Row term={<FormattedMessage {...messages.detailProposed} />}>
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailProposed} />}
+              info={messages.infoIncoming}
+            />
+          }
+        >
           <BundleChip
             seed={node.proposedDigest ?? node.proposedVersion}
             label={node.proposedVersion}
@@ -453,22 +726,38 @@ function NodeFields({
         </Row>
       ) : null}
       {node.digest ? (
-        <Row term={<FormattedMessage {...messages.detailDigest} />}>
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDigest} />}
+              info={messages.infoDigest}
+            />
+          }
+        >
           <BundleChip
             seed={node.seed}
-            label={<code>{node.digest}</code>}
+            label={<code title={node.digest}>{shortDigest(node.digest)}</code>}
             onSelect={onSelectBundle}
           />
+        </Row>
+      ) : null}
+      {node.driftsFromColumn ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDrift} />}
+              info={messages.infoDrift}
+            />
+          }
+        >
+          <Label color="orange" isCompact icon={<InfoAltIcon />}>
+            <FormattedMessage {...messages.driftFromHub} />
+          </Label>
         </Row>
       ) : null}
       {node.managedClusters !== null ? (
         <Row term={<FormattedMessage {...messages.detailClusters} />}>
           {node.managedClusters}
-        </Row>
-      ) : null}
-      {node.users !== null ? (
-        <Row term={<FormattedMessage {...messages.detailUsers} />}>
-          {node.users}
         </Row>
       ) : null}
       <Row term={<FormattedMessage {...messages.detailMetrics} />}>
@@ -485,26 +774,97 @@ function NodeFields({
   );
 }
 
-function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+/** One link as a full-width "card" row: an icon, a bold label with a muted
+ *  sub-label beneath it, and a trailing external-link glyph. `primary` gives the
+ *  main instance link a brand-tinted, heavier treatment so it sits visually above
+ *  the operational links. Renders nothing when the href is absent. */
+function LinkCard({
+  href,
+  icon,
+  label,
+  desc,
+  primary = false,
+}: {
+  href: string | null;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  desc: React.ReactNode;
+  primary?: boolean;
+}): React.ReactElement | null {
+  if (!href) {
+    return null;
+  }
   return (
-    <Flex spaceItems={{ default: "spaceItemsSm" }}>
-      <Link
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={[styles.linkCard, primary ? styles.linkCardPrimary : null]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span className={styles.linkCardIcon} aria-hidden="true">
+        {icon}
+      </span>
+      <span className={styles.linkCardBody}>
+        <span className={styles.linkCardLabel}>{label}</span>
+        <span className={styles.linkCardDesc}>{desc}</span>
+      </span>
+      <span className={styles.linkCardChevron} aria-hidden="true">
+        <ExternalLinkAltIcon />
+      </span>
+    </a>
+  );
+}
+
+function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+  // The instance's own front door is the headline action; Argo/PR/analysis are
+  // operational follow-ups, grouped under their own eyebrow below it. The group
+  // heading only shows when at least one operational link is present.
+  const hasOps =
+    Boolean(node.links.grafana) ||
+    Boolean(node.links.argo) ||
+    Boolean(node.links.pr) ||
+    Boolean(node.links.analysis);
+  return (
+    <div className={styles.linkList}>
+      <LinkCard
         href={node.links.console}
+        primary
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkConsole} />}
+        desc={<FormattedMessage {...messages.linkConsoleDesc} />}
       />
-      <Link
+      {hasOps ? (
+        <h4 className={[styles.sectionTitle, styles.linkGroupTitle].join(" ")}>
+          <FormattedMessage {...messages.linksOperations} />
+        </h4>
+      ) : null}
+      <LinkCard
+        href={node.links.grafana}
+        icon={<ChartLineIcon />}
+        label={<FormattedMessage {...messages.linkGrafana} />}
+        desc={<FormattedMessage {...messages.linkGrafanaDesc} />}
+      />
+      <LinkCard
         href={node.links.argo}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkArgo} />}
+        desc={<FormattedMessage {...messages.linkArgoDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.pr}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkPr} />}
+        desc={<FormattedMessage {...messages.linkPrDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.analysis}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkAnalysis} />}
+        desc={<FormattedMessage {...messages.linkAnalysisDesc} />}
       />
-    </Flex>
+    </div>
   );
 }
 
@@ -517,15 +877,33 @@ function NodeDetails({
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
-  const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The node drawer sub-tab is URL-represented (GLASS-NAV-09); the temporal cursor
+  // below stays transient.
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const activeKey = route.map.nodeTab;
+  // The shared temporal cursor's sample index, lifted here so the gateways donut and
+  // the population tiles read the same moment. Null = cursor idle (live snapshot).
+  const [active, setActive] = useState<number | null>(null);
+  // Reset the cursor when a different node is selected so a stale index never leaks
+  // across nodes. Done during render (the React-recommended "adjust state when a prop
+  // changes" pattern) rather than in an effect, so there is no extra render pass.
+  const [prevNodeId, setPrevNodeId] = useState(node.id);
+  if (prevNodeId !== node.id) {
+    setPrevNodeId(node.id);
+    setActive(null);
+  }
   const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
   return (
     <Tabs
       activeKey={activeKey}
       onSelect={(_event, key) => {
-        setActiveKey(key);
+        navigate({
+          type: "mapNodeTab",
+          tab:
+            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+        });
       }}
-      isBox
     >
       <Tab
         eventKey="details"
@@ -536,8 +914,16 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <GatewaySummary node={node} />
+          <div className={styles.gatewayWidget}>
+            <GatewaySummary node={node} active={active} />
+          </div>
           <div className="pf-v6-u-mt-md">
+            <MetricTiles node={node} active={active} onActive={setActive} />
+          </div>
+          {node.spokeAttribution ? (
+            <SpokeAttributionSection attribution={node.spokeAttribution} />
+          ) : null}
+          <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
         </div>
@@ -578,7 +964,9 @@ function GateDetails({
   gateId,
   model,
   onSelectBundle,
+  e2e,
 }: {
+  e2e?: Omit<GateExecutionProps, "target">;
   gateId: string;
   model: MapModel;
   onSelectBundle: (seed: string) => void;
@@ -594,62 +982,54 @@ function GateDetails({
         : identiName(gate.promotingSeed)
       : null;
   return (
-    <DescriptionList isCompact>
-      <Row term={<FormattedMessage {...messages.detailFlow} />}>
-        <Flex
-          spaceItems={{ default: "spaceItemsXs" }}
-          alignItems={{ default: "alignItemsCenter" }}
-        >
-          <FlexItem>{gate.fromColumnKey}</FlexItem>
-          <FlexItem>
-            <LongArrowAltRightIcon />
-          </FlexItem>
-          <FlexItem>
-            {gate.terminal ? (
-              <em>
-                <FormattedMessage {...messages.detailFinalStage} />
-              </em>
-            ) : (
-              gate.toColumnKey
-            )}
-          </FlexItem>
-        </Flex>
-      </Row>
-      <Row term={<FormattedMessage {...messages.columnGates} />}>
-        <StatusLabel badge={gate.badge} />
-      </Row>
-      {gate.analysisUrl ? (
-        <Row term={<FormattedMessage {...messages.detailAnalysisRun} />}>
-          <Flex spaceItems={{ default: "spaceItemsSm" }}>
-            <Link
-              href={gate.analysisUrl}
-              label={<FormattedMessage {...messages.linkAnalysis} />}
-            />
-          </Flex>
-        </Row>
-      ) : null}
-      {gate.argoUrl ? (
-        <Row term={<FormattedMessage {...messages.detailAnalysisLogs} />}>
-          <Flex spaceItems={{ default: "spaceItemsSm" }}>
-            <Link
-              href={gate.argoUrl}
-              label={<FormattedMessage {...messages.linkArgo} />}
-            />
-          </Flex>
-        </Row>
-      ) : null}
-      <Row term={<FormattedMessage {...messages.detailPromoting} />}>
-        {gate.promotingSeed !== null && promotingLabel !== null ? (
+    <div className={styles.gateExecution}>
+      <Flex spaceItems={{ default: "spaceItemsSm" }}>
+        {gate.checks.length ? (
+          gate.checks.map((check) => (
+            <FlexItem key={check.name} className={styles.gateCheck}>
+              <span className={styles.gateCheckName}>{check.name}</span>
+              <StatusLabel badge={check.badge} />
+            </FlexItem>
+          ))
+        ) : (
+          <StatusLabel badge={gate.badge} />
+        )}
+      </Flex>
+      <GateExecution
+        key={`${gate.id}:${gate.verification?.cluster ?? ""}:${gate.verification?.namespace ?? ""}:${gate.verification?.revision ?? ""}`}
+        target={gate.verification}
+        {...e2e}
+      />
+      <div className={styles.gateLinks}>
+        {gate.analysisUrl ? (
+          <Link
+            href={gate.analysisUrl}
+            label={<FormattedMessage {...messages.linkAnalysis} />}
+          />
+        ) : null}
+        {gate.argoUrl ? (
+          <Link
+            href={gate.argoUrl}
+            label={<FormattedMessage {...messages.linkArgo} />}
+          />
+        ) : null}
+        {gate.promotingSeed && promotingLabel ? (
           <BundleChip
             seed={gate.promotingSeed}
             label={promotingLabel}
             onSelect={onSelectBundle}
           />
-        ) : (
-          <FormattedMessage {...messages.valueNone} />
-        )}
-      </Row>
-    </DescriptionList>
+        ) : null}
+        {gate.syncRetries !== null ? (
+          <Content component="small">
+            <FormattedMessage
+              {...messages.e2eRetries}
+              values={{ count: gate.syncRetries }}
+            />
+          </Content>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -657,10 +1037,12 @@ function BundleDetails({
   seed,
   model,
   releaseByDigest,
+  onSelectNode,
 }: {
   seed: string;
   model: MapModel;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  onSelectNode: (id: string) => void;
 }): React.ReactElement | null {
   const bundle = bundleList(releaseByDigest).find(
     (b) => seedForBundle(b) === seed,
@@ -680,36 +1062,44 @@ function BundleDetails({
         </Row>
         {bundle.digest ? (
           <Row term={<FormattedMessage {...messages.detailDigest} />}>
-            <code>{bundle.digest}</code>
+            <code title={bundle.digest}>{shortDigest(bundle.digest)}</code>
           </Row>
         ) : null}
         {bundle.date ? (
           <Row term={<FormattedMessage {...messages.detailDate} />}>
-            {bundle.date}
+            <ReleaseTime iso={bundle.date} mode="full" />
           </Row>
         ) : null}
       </DescriptionList>
 
-      <Title headingLevel="h4" size="md" className="pf-v6-u-mt-md">
-        <FormattedMessage {...messages.sectionDeployedOn} />
-      </Title>
-      {deployed.length > 0 ? (
-        <Flex spaceItems={{ default: "spaceItemsXs" }}>
-          {deployed.map((n) => (
-            <FlexItem key={n.id}>
-              <Label variant="outline" isCompact>
-                {n.id}
-              </Label>
-            </FlexItem>
-          ))}
-        </Flex>
-      ) : (
-        <Content component="small">
-          <FormattedMessage {...messages.valueNone} />
-        </Content>
-      )}
+      <div className={styles.section}>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionDeployedOn} />
+        </h4>
+        {deployed.length > 0 ? (
+          <Flex spaceItems={{ default: "spaceItemsXs" }}>
+            {deployed.map((n) => (
+              <FlexItem key={n.id}>
+                <Label
+                  variant="outline"
+                  isCompact
+                  onClick={() => {
+                    onSelectNode(n.id);
+                  }}
+                >
+                  {n.id}
+                </Label>
+              </FlexItem>
+            ))}
+          </Flex>
+        ) : (
+          <Content component="small">
+            <FormattedMessage {...messages.valueNone} />
+          </Content>
+        )}
+      </div>
 
-      <div className="pf-v6-u-mt-md">
+      <div className={styles.section}>
         <BundleContents bundle={bundle} />
       </div>
     </>
@@ -722,6 +1112,8 @@ export function MapDetails({
   selection,
   onClose,
   onSelectBundle,
+  onSelectNode,
+  e2e,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -729,27 +1121,42 @@ export function MapDetails({
       ? model.nodes.find((n) => n.id === selection.id)
       : undefined;
   const title =
-    selection.kind === "node" ? (node?.id ?? selection.id) : selection.id;
+    selection.kind === "node"
+      ? (node?.id ?? selection.id)
+      : selection.kind === "gate"
+        ? selection.id.replace("->", " → ")
+        : selection.id;
 
   return (
     <div>
       <Flex
         justifyContent={{ default: "justifyContentSpaceBetween" }}
         alignItems={{ default: "alignItemsCenter" }}
+        spaceItems={{ default: "spaceItemsSm" }}
+        flexWrap={{ default: "nowrap" }}
       >
-        <FlexItem>
+        <FlexItem grow={{ default: "grow" }} className={styles.headerMain}>
           <Flex
             alignItems={{ default: "alignItemsCenter" }}
             spaceItems={{ default: "spaceItemsSm" }}
+            flexWrap={{ default: "nowrap" }}
           >
             {selection.kind === "bundle" ? (
               <FlexItem>
                 <BundleIdenticon seed={selection.id} />
               </FlexItem>
             ) : null}
-            <FlexItem>
-              <Title headingLevel="h3" size="md">
-                {title}
+            <FlexItem grow={{ default: "grow" }} className={styles.headerTitle}>
+              {/* The title (a node id or a long bundle digest) always fits the
+                  available width on one line: PatternFly Truncate keeps the head
+                  and a fixed tail and drops a middle ellipsis in between, scaling
+                  responsively as the drawer resizes. Short titles show in full. */}
+              <Title headingLevel="h3" size="lg">
+                <Truncate
+                  content={title}
+                  position="middle"
+                  trailingNumChars={12}
+                />
               </Title>
             </FlexItem>
           </Flex>
@@ -772,6 +1179,7 @@ export function MapDetails({
       ) : null}
       {selection.kind === "gate" ? (
         <GateDetails
+          e2e={e2e}
           gateId={selection.id}
           model={model}
           onSelectBundle={onSelectBundle}
@@ -782,6 +1190,7 @@ export function MapDetails({
           seed={selection.id}
           model={model}
           releaseByDigest={releaseByDigest}
+          onSelectNode={onSelectNode}
         />
       ) : null}
     </div>

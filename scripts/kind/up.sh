@@ -70,6 +70,18 @@ for i in $(seq 1 15); do
 done
 echo ""
 
+# --- Start Keycloak early ---
+# Keycloak is the slowest workload to become ready (two image pulls plus a
+# start-dev boot) and depends on nothing below, so apply it now and let it come
+# up while cloud-provider-kind, the infrastructure and the stand-in PostgreSQL
+# are set up. deploy/kind/keycloak is the same kustomization the full overlay
+# includes, so the "Deploying Components" apply renders an identical Deployment
+# and does not roll it again. Readiness is waited on further down.
+header "Keycloak"
+info "Applying Keycloak early so it boots during infrastructure setup..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/keycloak | kube apply -f -
+echo ""
+
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
 CPK_RUNNING=false
@@ -216,6 +228,53 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   echo ""
 fi
 
+# --- Preload the tenant sandbox base image ---
+header "Sandbox Image"
+preload_sandbox_image() (
+  # lib.sh sources OPENSHELL_VERSION. This selects the image to cache in Kind;
+  # it does not configure the gateway's sandbox workload image.
+  sandbox_image="${OPENSHELL_SANDBOX_IMAGE}"
+  # crictl prints repository, tag, and digest in separate columns. --no-trunc
+  # preserves the complete digest. Consume all output to avoid SIGPIPE.
+  if ${CONTAINER_ENGINE} exec "${KIND_CLUSTER_NAME}-control-plane" crictl images --digests --no-trunc | \
+    awk -v image="${sandbox_image}" 'NR > 1 && ($1 ":" $2 == image || $1 "@" $3 == image) { found = 1 } END { exit !found }'; then
+    success "Sandbox image '${sandbox_image}' already present in Kind - skipping preload"
+    return
+  fi
+
+  # With :latest, sandbox pods use imagePullPolicy: Always. Kubelet still
+  # contacts the registry for a manifest digest, but cached layers avoid the
+  # large download. Preloading does not make sandbox creation fully offline;
+  # changing sandbox.image.pullPolicy (default null) or pinning a digest is
+  # outside this step's scope.
+  info "Pulling sandbox image '${sandbox_image}'..."
+  if ! ${CONTAINER_ENGINE} pull "${sandbox_image}"; then
+    warn "Sandbox image pull failed - continuing; sandbox pods can pull at runtime"
+    return
+  fi
+
+  if ! tmpdir=$(mktemp -d /tmp/kind-sandbox-image-XXXXXX); then
+    warn "Could not create sandbox image archive directory - continuing without preload"
+    return
+  fi
+  # Subshell-scoped trap cleans up on failure without replacing up.sh's traps.
+  trap 'rm -rf "${tmpdir}"' EXIT
+  archive="${tmpdir}/sandbox-image.tar"
+  info "Loading sandbox image into Kind cluster..."
+  if ${CONTAINER_ENGINE} save "${sandbox_image}" -o "${archive}" && \
+    kind load image-archive "${archive}" --name "${KIND_CLUSTER_NAME}"; then
+    success "Sandbox image loaded into Kind"
+  else
+    warn "Sandbox image preload failed - continuing; sandbox pods can pull at runtime"
+  fi
+)
+if [[ "${KIND_SKIP_SANDBOX_PRELOAD:-}" == "true" ]]; then
+  info "KIND_SKIP_SANDBOX_PRELOAD=true - skipping sandbox image preload"
+else
+  preload_sandbox_image
+fi
+echo ""
+
 # The per-gateway console images (the OpenShell dashboard and its oauth2-proxy
 # sidecar) are public registry images -- the dashboard is published to quay.io,
 # pinned by digest in the control plane's ImageDefaults -- so console pods pull
@@ -272,6 +331,10 @@ EXTERNAL_PG_NS="external-cloud-db"
 EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
 EXTERNAL_PG_HOST="postgres.${EXTERNAL_PG_NS}.svc.cluster.local"
 EXTERNAL_PG_TLS_SECRET="postgres-tls"
+# registry.access.redhat.com/hi/postgresql:18.4, multi-arch (amd64 + arm64)
+# manifest list digest. Shared by the stand-in server and the verify-full probe
+# pod below so the probe reuses the image the node already pulled.
+EXTERNAL_PG_IMAGE="registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 GATEWAY_DB_ADMIN_SECRET="hypershell-gateway-database-admin"
 info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
 kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
@@ -293,7 +356,7 @@ else
   success "TLS Secret '${EXTERNAL_PG_TLS_SECRET}' created"
 fi
 
-kube apply -f - <<'EXTERNAL_PG_EOF'
+kube apply -f - <<EXTERNAL_PG_EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -324,9 +387,7 @@ spec:
         fsGroup: 999
       containers:
         - name: postgres
-          # registry.access.redhat.com/hi/postgresql:18.4, multi-arch
-          # (amd64 + arm64) manifest list digest.
-          image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+          image: ${EXTERNAL_PG_IMAGE}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -388,7 +449,7 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
-# (deploy/base/controller.yaml), and refuses to start without it. It must exist
+# (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist
 # BEFORE the kustomize apply below so the controller pod can mount it. Its
 # sslrootcert is the CA that signed the stand-in server's certificate, and
 # sslmode is pinned to verify-full: the controller rejects anything weaker.
@@ -426,10 +487,18 @@ metadata:
   namespace: ${KIND_NAMESPACE}
 spec:
   restartPolicy: Never
+  # Same image and restricted SecurityContext as the stand-in server above.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
   containers:
     - name: probe
-      image: postgres:15
+      image: ${EXTERNAL_PG_IMAGE}
       imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       env:
         - name: PGPASSWORD
           valueFrom:
@@ -466,7 +535,7 @@ while (( SECONDS < _probe_deadline )); do
   if [[ "${_probe_phase}" == "Failed" ]]; then
     break
   fi
-  sleep 2
+  sleep 1
 done
 if [[ -z "${_probe_ok}" ]]; then
   error "verify-full probe against ${EXTERNAL_PG_HOST} failed (phase=${_probe_phase:-unknown})"
@@ -534,6 +603,22 @@ fi
 # preserve swap state the same way.
 restore_swaps_after_reconcile
 
+# CI initially deploys the main-branch controller while the branch image builds
+# in parallel. A branch that removes a required legacy setting would otherwise
+# be unable to bring Kind up far enough to perform the image swap. Keep this
+# compatibility input scoped to that temporary bootstrap pod; the swap helper
+# removes it before validating the branch image.
+if [[ -n "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -n "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]] && ! is_swapped control-plane; then
+  if [[ -z "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -z "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]]; then
+    error "KIND baseline managed-cluster provider and visibility must be set together"
+    exit 1
+  fi
+  info "Adding temporary managed-cluster placement for the baseline controller..."
+  kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
+    HYPERSHELL_MANAGED_CLUSTER_PROVIDER="${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER}" \
+    HYPERSHELL_MANAGED_CLUSTER_VISIBILITY="${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY}"
+fi
+
 # After the overlay apply so hostAliases is not wiped. CI image swap is
 # kubectl set image and keeps this pin. The TLS probe above already proved
 # the server; this pin is for the controller's later per-reconcile lookups,
@@ -542,15 +627,6 @@ restore_swaps_after_reconcile
 pin_controller_gateway_db_hosts "${EXTERNAL_PG_NS}" "${EXTERNAL_PG_HOST}"
 
 # The stand-in PostgreSQL server was provisioned and waited on above.
-
-if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Waiting for Keycloak..."
-  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
-  success "Keycloak ready"
-fi
-# Test-tier users are reconciled after DNS/port-forward, not here. The
-# Deployment being Available does not mean https://keycloak.hypershell.localhost
-# answers yet (seed.sh documents the same gateway-route race).
 
 # --- Prometheus monitoring stack ---
 # Applied after the main components so the hypershell-system namespace and
@@ -689,6 +765,21 @@ else
   # by deploy/kind/kustomization.yaml and must remain when tracing is off.
   echo ""
 fi
+
+# --- Wait for Keycloak ---
+# Deliberately after the Prometheus and Jaeger steps: neither needs Keycloak, so
+# their applies and the Jaeger rollout overlap its boot instead of queueing
+# behind it. Everything from here on (the API server restart for JWKS, the
+# controller's OIDC registration) does need it.
+if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+  info "Waiting for Keycloak..."
+  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
+  success "Keycloak ready"
+fi
+# Test-tier users are reconciled after DNS/port-forward, not here. The
+# Deployment being Available does not mean https://keycloak.hypershell.localhost
+# answers yet (seed.sh documents the same gateway-route race).
+echo ""
 
 # --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
 # The gateway pod validates OIDC tokens against the canonical HTTPS issuer
@@ -988,6 +1079,7 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
 
   info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 else
   info "HTTP API:     http://localhost:8000"
   info "Web Console:  http://localhost:3000"
@@ -1006,6 +1098,7 @@ else
 
   info "Login:        http://localhost:3000/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 
   echo ""
   warn "Running without cloud-provider-kind - no TLS or hostname-based routing."

@@ -2,26 +2,27 @@
 // implementations; the use cases below depend only on these interfaces so the
 // domain stays framework- and transport-free.
 
+import type { AgentSdlcData } from "../domain/agent-sdlc";
+import type {
+  E2eRunDetail,
+  E2eRunEvent,
+  E2eRunsData,
+  E2eStreamStatus,
+} from "../domain/e2e-run";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
 
-/** Topology is opaque to the domain - the server owns its shape entirely. */
-export interface TopologyData {
-  readonly nodes: readonly TopologyNode[];
-  readonly edges: readonly TopologyEdge[];
-}
-
-export interface TopologyNode {
-  readonly id: string;
-  readonly label: string;
-  readonly kind: string;
-}
-
-export interface TopologyEdge {
-  readonly from: string;
-  readonly to: string;
-}
+// The topology plane is modelled in the domain (per-hub spoke layout); the wire
+// adapter decodes /api/topology into it. Re-exported here so FleetApi's port stays
+// expressed in the type the rest of the app already imports from ports.
+export type {
+  InstanceTopology,
+  TopologyData,
+  TopologyHub,
+  TopologySpoke,
+} from "../domain/topology";
+import type { TopologyData } from "../domain/topology";
 
 /** One managed instance's summary, as reported by the server. */
 export interface InstanceSummary {
@@ -36,10 +37,34 @@ export interface InstancesData {
   readonly instances: readonly InstanceSummary[];
 }
 
+/**
+ * Live-stream handlers for one e2e run (E2E-LOG-05/11). Events are forwarded raw so
+ * the framework-free domain reduces them; status reports the live/disconnected/gap
+ * state. The transport (EventSource / streaming fetch) stays in the adapter.
+ */
+export interface E2eStreamHandlers {
+  onEvent(event: E2eRunEvent): void;
+  onStatus(status: E2eStreamStatus): void;
+}
+
 /** Read side for every plane the dashboard renders. */
 export interface FleetApi {
   getFleet(signal?: AbortSignal): Promise<Plane<FleetData>>;
   getPromotion(signal?: AbortSignal): Promise<Plane<PromotionData>>;
   getTopology(signal?: AbortSignal): Promise<Plane<TopologyData>>;
   getInstances(signal?: AbortSignal): Promise<Plane<InstancesData>>;
+  getSdlc(signal?: AbortSignal): Promise<Plane<AgentSdlcData>>;
+  getE2eRuns(signal?: AbortSignal): Promise<Plane<E2eRunsData>>;
+  getE2eRun(id: string, signal?: AbortSignal): Promise<Plane<E2eRunDetail>>;
+  /**
+   * Subscribe to a run's live stream. Returns an unsubscribe thunk that cancels the
+   * subscription (the only cancellable-subscription precedent in the repo is
+   * adapters/auth/session-expiry's subscribe/unsubscribe). The optional signal also
+   * cancels it, so React effects can wire either teardown path.
+   */
+  streamE2eRun(
+    id: string,
+    handlers: E2eStreamHandlers,
+    signal?: AbortSignal,
+  ): () => void;
 }

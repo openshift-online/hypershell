@@ -2,7 +2,6 @@ package apply
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,11 +13,16 @@ func TestIsSupportedKind(t *testing.T) {
 		expected bool
 	}{
 		{"Gateway", true},
-		{"GatewayNetwork", true},
-		{"GatewayRelease", true},
 		{"ManagedCluster", true},
 		{"Role", true},
 		{"RoleBinding", true},
+		{"AgentRuntime", true},
+		{"SandboxTemplate", true},
+		{"ProviderSpec", true},
+		{"ProviderBinding", true},
+		{"InferenceRoute", true},
+		{"SecretSource", true},
+		{"Repository", true},
 		{"Pod", false},
 		{"Deployment", false},
 		{"", false},
@@ -60,9 +64,9 @@ metadata:
   name: gateway-1
 ---
 apiVersion: hypershell.redhat.io/v1
-kind: GatewayRelease
+kind: SandboxTemplate
 metadata:
-  name: release-1`,
+  name: template-1`,
 			expected: 2,
 			wantErr:  false,
 		},
@@ -144,11 +148,6 @@ func TestLoadFromKustomize_MissingKustomization(t *testing.T) {
 }
 
 func TestLoadFromKustomize_ValidOverlay(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	// Create test directory structure
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
@@ -177,7 +176,6 @@ metadata:
   name: test-gateway
 spec:
   cluster_id: cluster-1
-  release_id: release-1
 `
 	if err := os.WriteFile(filepath.Join(baseDir, "gateway.yaml"), []byte(baseGateway), 0644); err != nil {
 		t.Fatal(err)
@@ -197,11 +195,6 @@ spec:
 }
 
 func TestLoadFromKustomize_MixedKinds(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)
@@ -225,9 +218,9 @@ spec:
   cluster_id: cluster-1
 ---
 apiVersion: hypershell.redhat.io/v1
-kind: GatewayRelease
+kind: SandboxTemplate
 metadata:
-  name: release-1
+  name: template-1
 spec:
   image: example.com/gateway:v1
 ---
@@ -256,17 +249,12 @@ spec:
 	for _, r := range resources {
 		kinds[r.Kind]++
 	}
-	if kinds["Gateway"] != 1 || kinds["GatewayRelease"] != 1 || kinds["ManagedCluster"] != 1 {
+	if kinds["Gateway"] != 1 || kinds["SandboxTemplate"] != 1 || kinds["ManagedCluster"] != 1 {
 		t.Errorf("loadFromKustomize() got kinds %v, want 1 of each", kinds)
 	}
 }
 
 func TestLoadFromKustomize_InvalidContent(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)
@@ -293,11 +281,6 @@ resources:
 }
 
 func TestLoadFromKustomize_SecurityNoPlugins(t *testing.T) {
-	// Skip if kustomize is not available
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skip("kustomize not found in PATH")
-	}
-
 	tmpdir, err := os.MkdirTemp("", "kustomize-test")
 	if err != nil {
 		t.Fatal(err)

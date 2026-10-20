@@ -1,9 +1,8 @@
 import {
-  emptyGatewayPhaseCounts,
+  fetchGatewayMetrics,
   gatewayPhaseCountsToDisplayStatusCounts,
-  gatewayPhases,
   type GatewayDisplayStatusCounts,
-  type GatewayPhaseCounts,
+  type GatewayMetrics,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   DashboardControlPlane,
@@ -11,9 +10,11 @@ import type {
   DashboardMetricSourceId,
   OperationalDashboardMetrics,
   OperationalMetric,
+  UsageDashboardMetrics,
+  UsageMetric,
+  UsageMetricSourceId,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
-
 import {
   aggregateGatewayReleaseDistribution,
   buildGatewayReleasesMetric,
@@ -27,9 +28,17 @@ type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
 
+function rangePath(path: string, timeRange: 7 | 30 | undefined): string {
+  return timeRange === 30 ? `${path}?range=30` : path;
+}
+
+function clusterMetricPath(path: string, timeRange: 7 | 30 | undefined) {
+  return `${path}?range=${String(timeRange ?? 7)}`;
+}
+
 interface DailyTrendPoint {
   date: string;
-  value: number;
+  value: number | null;
 }
 
 interface ClusterMemoryResponse {
@@ -69,6 +78,8 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+  daily_p50?: { date: string; p50_seconds: number }[];
+  daily_p95?: { date: string; p95_seconds: number }[];
 }
 
 interface GatewayProvisionHourlySuccessRate {
@@ -83,6 +94,7 @@ interface GatewayProvisionOutcomesResponse {
   hourly_success_rate: GatewayProvisionHourlySuccessRate[];
   success_count_24h: number;
   success_rate_percent: number | null;
+  daily_success_rate?: { date: string; success_rate_percent: number }[];
 }
 
 interface GatewaySandboxesResponse {
@@ -94,9 +106,34 @@ interface GatewaySandboxesResponse {
   hourly_active_sandboxes?: { count: number; hour: string }[];
 }
 
-interface GatewayMetricsResponse {
-  counts: Record<string, number>;
-  daily_fleet_totals?: { date: string; total: number }[];
+interface UsageGatewayMetricsResponse {
+  active_gateways?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_request_error_rate_percent?: DailyTrendPoint[];
+  daily_request_volume?: DailyTrendPoint[];
+  request_error_rate_percent?: number;
+  request_volume?: number;
+  total_gateways?: number;
+  unused_gateways?: number;
+}
+
+interface UsageSandboxMetricsResponse {
+  active_sandboxes?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_utilization_percent?: DailyTrendPoint[];
+  sandbox_utilization_percent?: number;
+  total_sandboxes?: number;
+}
+
+interface UsageSandboxLifetimeResponse {
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_mean_seconds?: DailyTrendPoint[];
+  mean_seconds?: number;
+  p50_seconds?: number;
+  p95_seconds?: number;
 }
 
 interface RegisteredUsersDailyLogin {
@@ -111,6 +148,20 @@ interface RegisteredUsersResponse {
   total_registered: number;
   unique_logins_last_7_days?: number;
   unique_logins_last_30_days?: number;
+}
+
+interface AdoptionResponse {
+  registered_users: number;
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+  inactive_users_last_30_days?: number;
+  users_with_gateway?: number;
+  gateway_conversion_percent?: number;
+  daily_created_users?: RegisteredUsersDailyLogin[];
+  daily_unique_logins?: RegisteredUsersDailyLogin[];
+  retention_7_days_percent?: number;
 }
 
 function registeredUsersResponseToMetric(
@@ -145,8 +196,74 @@ function registeredUsersResponseToMetric(
   return metric;
 }
 
+function adoptionResponseToMetric(body: AdoptionResponse): OperationalMetric {
+  const dailyActiveUsers = body.daily_unique_logins?.at(-1)?.count;
+
+  return {
+    id: "adoption",
+    value: String(body.registered_users),
+    ...(body.created_last_7_days === undefined
+      ? {}
+      : { createdLast7Days: String(body.created_last_7_days) }),
+    ...(body.created_last_30_days === undefined
+      ? {}
+      : { createdLast30Days: String(body.created_last_30_days) }),
+    ...(dailyActiveUsers === undefined
+      ? {}
+      : { dailyActiveUsers: String(dailyActiveUsers) }),
+    ...(body.unique_logins_last_7_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast7Days: String(body.unique_logins_last_7_days),
+        }),
+    ...(body.unique_logins_last_30_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast30Days: String(body.unique_logins_last_30_days),
+        }),
+    ...(body.inactive_users_last_30_days === undefined
+      ? {}
+      : {
+          inactiveUsersLast30Days: String(body.inactive_users_last_30_days),
+        }),
+    ...(body.users_with_gateway === undefined
+      ? {}
+      : { usersWithGateway: String(body.users_with_gateway) }),
+    ...(body.gateway_conversion_percent === undefined
+      ? {}
+      : {
+          gatewayConversionPercent: body.gateway_conversion_percent.toFixed(1),
+        }),
+    ...(body.daily_created_users === undefined
+      ? {}
+      : {
+          createdTrend: {
+            points: body.daily_created_users.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.daily_unique_logins === undefined
+      ? {}
+      : {
+          trend: {
+            points: body.daily_unique_logins.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.retention_7_days_percent === undefined
+      ? {}
+      : {
+          retention7DaysPercent: body.retention_7_days_percent.toFixed(1),
+        }),
+  };
+}
+
 function mapDailyTrend(
-  dailySeries: readonly { date: string; value: number }[] | undefined,
+  dailySeries: readonly { date: string; value: number | null }[] | undefined,
 ) {
   if (dailySeries === undefined) {
     return undefined;
@@ -160,31 +277,6 @@ function mapDailyTrend(
   };
 }
 
-function mapFleetTotalTrend(
-  dailyFleetTotals: GatewayMetricsResponse["daily_fleet_totals"],
-) {
-  if (dailyFleetTotals === undefined) {
-    return undefined;
-  }
-
-  return {
-    points: dailyFleetTotals.map((point) => ({
-      label: point.date,
-      value: point.total,
-    })),
-  };
-}
-
-function parseGatewayPhaseCounts(
-  counts: Record<string, number>,
-): GatewayPhaseCounts {
-  const phaseCounts = emptyGatewayPhaseCounts();
-  for (const phase of gatewayPhases) {
-    phaseCounts[phase] = counts[phase] ?? 0;
-  }
-  return phaseCounts;
-}
-
 function bytesToRoundedGib(bytes: number): string {
   return String(Math.round(bytes / gibibyteDivisor));
 }
@@ -194,12 +286,15 @@ function coresToRoundedString(cores: number): string {
 }
 
 async function fetchClusterMemoryMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/cluster-memory", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    clusterMetricPath("/api/metrics/cluster-memory", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch cluster memory metrics: ${String(response.status)}`,
@@ -220,12 +315,15 @@ async function fetchClusterMemoryMetric(
 }
 
 async function fetchClusterCpuMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/cluster-cpu", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    clusterMetricPath("/api/metrics/cluster-cpu", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch cluster CPU metrics: ${String(response.status)}`,
@@ -312,13 +410,16 @@ function formatSuccessRatePercent(value: number): string {
 }
 
 async function fetchGatewayProvisionOutcomesMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric | undefined> {
   try {
-    const response = await fetch("/api/metrics/gateway-provision-outcomes", {
-      credentials: "same-origin",
-      signal,
-    });
+    const response = await fetch(
+      rangePath("/api/metrics/gateway-provision-outcomes", context.timeRange),
+      {
+        credentials: "same-origin",
+        signal: context.signal,
+      },
+    );
     if (!response.ok) {
       return undefined;
     }
@@ -331,8 +432,8 @@ async function fetchGatewayProvisionOutcomesMetric(
     const successRatePercent = formatSuccessRatePercent(
       body.success_rate_percent,
     );
-    const hourlyPoints = body.hourly_success_rate.map((point) => ({
-      label: point.hour,
+    const dailyPoints = (body.daily_success_rate ?? []).map((point) => ({
+      label: point.date,
       value: point.success_rate_percent,
     }));
 
@@ -342,11 +443,14 @@ async function fetchGatewayProvisionOutcomesMetric(
         failureCount24h: String(body.failure_count_24h),
         successCount24h: String(body.success_count_24h),
         successRatePercent,
+        ...(dailyPoints.length >= 2
+          ? { successRateTrend: { points: dailyPoints } }
+          : {}),
       },
-      ...(hourlyPoints.length >= 2
+      ...(dailyPoints.length >= 2
         ? {
             successRateTrend: {
-              points: hourlyPoints,
+              points: dailyPoints,
             },
           }
         : {}),
@@ -358,13 +462,16 @@ async function fetchGatewayProvisionOutcomesMetric(
 }
 
 async function fetchGatewayProvisionDurationMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric | undefined> {
   try {
-    const response = await fetch("/api/metrics/gateway-provision-duration", {
-      credentials: "same-origin",
-      signal,
-    });
+    const response = await fetch(
+      rangePath("/api/metrics/gateway-provision-duration", context.timeRange),
+      {
+        credentials: "same-origin",
+        signal: context.signal,
+      },
+    );
     if (!response.ok) {
       return undefined;
     }
@@ -373,6 +480,14 @@ async function fetchGatewayProvisionDurationMetric(
     const mean = formatProvisionSeconds(body.mean_seconds);
     const p50 = formatProvisionSeconds(body.p50_seconds);
     const p95 = formatProvisionSeconds(body.p95_seconds);
+    const p50Trend = (body.daily_p50 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p50_seconds,
+    }));
+    const p95Trend = (body.daily_p95 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p95_seconds,
+    }));
 
     return {
       id: "provision-time",
@@ -380,6 +495,8 @@ async function fetchGatewayProvisionDurationMetric(
         mean,
         p50,
         p95,
+        ...(p50Trend.length >= 2 ? { p50Trend: { points: p50Trend } } : {}),
+        ...(p95Trend.length >= 2 ? { p95Trend: { points: p95Trend } } : {}),
       },
       unit: "sec",
       value: mean,
@@ -392,7 +509,7 @@ async function fetchGatewayProvisionDurationMetric(
 function gatewayDisplayCountsToMetric(
   total: number,
   counts: GatewayDisplayStatusCounts,
-  trend?: ReturnType<typeof mapFleetTotalTrend>,
+  trend?: { points: { label: string; value: number }[] },
 ): OperationalMetric {
   return {
     id: "provisioned-gateways",
@@ -408,12 +525,15 @@ function gatewayDisplayCountsToMetric(
 }
 
 async function fetchGatewaySandboxesMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/gateway-sandboxes", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    rangePath("/api/metrics/gateway-sandboxes", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch gateway sandbox metrics: ${String(response.status)}`,
@@ -467,27 +587,28 @@ function isAbortError(error: unknown): boolean {
 }
 
 async function fetchGatewayPrometheusMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/gateways", {
-    credentials: "same-origin",
-    signal,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch gateway metrics: ${String(response.status)}`,
-    );
-  }
-
-  const body = (await response.json()) as GatewayMetricsResponse;
-  const phaseCounts = parseGatewayPhaseCounts(body.counts);
-  const displayStatusCounts =
-    gatewayPhaseCountsToDisplayStatusCounts(phaseCounts);
-  const total = Object.values(phaseCounts).reduce(
-    (sum, count) => sum + count,
-    0,
+  const body: GatewayMetrics = await fetchGatewayMetrics(
+    context.signal,
+    context.timeRange ?? 7,
   );
-  const trend = mapFleetTotalTrend(body.daily_fleet_totals);
+  const displayStatusCounts: GatewayDisplayStatusCounts =
+    gatewayPhaseCountsToDisplayStatusCounts(body);
+  const total =
+    displayStatusCounts.healthy +
+    displayStatusCounts.provisioning +
+    displayStatusCounts.degraded +
+    displayStatusCounts.failed;
+  const trend =
+    body.dailyFleetTotals === undefined
+      ? undefined
+      : {
+          points: body.dailyFleetTotals.map((point) => ({
+            label: point.date,
+            value: point.total,
+          })),
+        };
 
   return gatewayDisplayCountsToMetric(total, displayStatusCounts, trend);
 }
@@ -496,15 +617,19 @@ async function fetchGatewayPrometheusMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
   const [gatewayMetric, sandboxMetric] = await Promise.all([
-    fetchGatewayPrometheusMetric(context.signal),
-    fetchGatewaySandboxesMetric(context.signal),
+    fetchGatewayPrometheusMetric(context),
+    fetchGatewaySandboxesMetric(context),
   ]);
 
   const metrics: OperationalMetric[] = [gatewayMetric, sandboxMetric];
 
+  if (context.isAdmin === false) {
+    return metrics;
+  }
+
   const [provisionTimeMetric, provisionReliabilityMetric] = await Promise.all([
-    fetchGatewayProvisionDurationMetric(context.signal),
-    fetchGatewayProvisionOutcomesMetric(context.signal),
+    fetchGatewayProvisionDurationMetric(context),
+    fetchGatewayProvisionOutcomesMetric(context),
   ]);
   if (provisionTimeMetric !== undefined) {
     metrics.push(provisionTimeMetric);
@@ -534,17 +659,24 @@ async function fetchRegisteredUsersMetric(
   return [registeredUsersResponseToMetric(body)];
 }
 
-async function fetchGatewayReleaseDistributionMetrics(
+async function fetchAdoptionMetrics(
   context: DashboardInvocationContext,
-  apiFactory: DashboardApiFactory,
 ): Promise<OperationalMetric[]> {
-  const client = apiFactory(context.correlationId);
-  const aggregate = await aggregateGatewayReleaseDistribution(
-    client,
-    context.signal,
+  const response = await fetch(
+    rangePath("/api/metrics/adoption", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
   );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch adoption metrics: ${String(response.status)}`,
+    );
+  }
 
-  return [buildGatewayReleasesMetric(aggregate)];
+  const body = (await response.json()) as AdoptionResponse;
+  return [adoptionResponseToMetric(body)];
 }
 
 async function fetchPlatformInventoryMetrics(
@@ -759,6 +891,179 @@ async function fetchControlPlaneReconciliationMetrics(
   );
 }
 
+function usageNumber(
+  value: number | undefined,
+  source: UsageMetricSourceId,
+  field: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid ${source} response field: ${field}`);
+  }
+  return value;
+}
+
+function usageTrend(points: readonly DailyTrendPoint[] | undefined) {
+  if (points === undefined) {
+    return undefined;
+  }
+  return {
+    points: points.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageGatewayMetricsResponse;
+  const metrics: UsageMetric[] = [];
+  const requestVolume = usageNumber(
+    response.request_volume,
+    "usage-gateways",
+    "request_volume",
+  );
+  if (requestVolume !== undefined) {
+    metrics.push({
+      id: "gateway-request-volume",
+      trend: usageTrend(response.daily_request_volume),
+      value: String(requestVolume),
+    });
+  }
+
+  const errorRate = usageNumber(
+    response.request_error_rate_percent,
+    "usage-gateways",
+    "request_error_rate_percent",
+  );
+  if (errorRate !== undefined) {
+    metrics.push({
+      id: "gateway-error-rate",
+      trend: usageTrend(response.daily_request_error_rate_percent),
+      value: String(errorRate),
+    });
+  }
+
+  const activeGateways = usageNumber(
+    response.active_gateways,
+    "usage-gateways",
+    "active_gateways",
+  );
+  if (activeGateways !== undefined) {
+    const metric: UsageMetric = {
+      id: "active-gateways",
+      value: String(activeGateways),
+    };
+    const totalGateways = usageNumber(
+      response.total_gateways,
+      "usage-gateways",
+      "total_gateways",
+    );
+    if (totalGateways !== undefined) {
+      metric.total = String(totalGateways);
+      if (totalGateways > 0) {
+        metric.activeSharePercent = String(
+          (activeGateways / totalGateways) * 100,
+        );
+      }
+    }
+    metrics.push(metric);
+  }
+
+  const unusedGateways = usageNumber(
+    response.unused_gateways,
+    "usage-gateways",
+    "unused_gateways",
+  );
+  if (unusedGateways !== undefined) {
+    metrics.push({ id: "unused-gateways", value: String(unusedGateways) });
+  }
+
+  return metrics;
+}
+
+function mapUsageSandboxMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxMetricsResponse;
+  const utilization = usageNumber(
+    response.sandbox_utilization_percent,
+    "usage-sandboxes",
+    "sandbox_utilization_percent",
+  );
+  if (utilization === undefined) {
+    return [];
+  }
+
+  const metric: UsageMetric = {
+    id: "sandbox-utilization",
+    trend: usageTrend(response.daily_utilization_percent),
+    unit: "sandboxes",
+    value: String(utilization),
+  };
+  const total = usageNumber(
+    response.total_sandboxes,
+    "usage-sandboxes",
+    "total_sandboxes",
+  );
+  if (total !== undefined) {
+    metric.total = String(total);
+  }
+  return [metric];
+}
+
+function mapUsageSandboxLifetimeResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxLifetimeResponse;
+  const mean = usageNumber(
+    response.mean_seconds,
+    "usage-sandbox-lifetime",
+    "mean_seconds",
+  );
+  const p50 = usageNumber(
+    response.p50_seconds,
+    "usage-sandbox-lifetime",
+    "p50_seconds",
+  );
+  const p95 = usageNumber(
+    response.p95_seconds,
+    "usage-sandbox-lifetime",
+    "p95_seconds",
+  );
+  if (mean === undefined && p50 === undefined && p95 === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      id: "sandbox-lifetime",
+      sandboxLifetime: {
+        ...(mean !== undefined ? { mean: String(mean) } : {}),
+        ...(p50 !== undefined ? { p50: String(p50) } : {}),
+        ...(p95 !== undefined ? { p95: String(p95) } : {}),
+      },
+      trend: usageTrend(response.daily_mean_seconds),
+      value: mean === undefined ? "NaN" : String(mean),
+    },
+  ];
+}
+
+async function fetchUsageMetricsSource(
+  context: DashboardInvocationContext,
+  path: string,
+  mapper: (body: unknown) => UsageMetric[],
+): Promise<UsageMetric[]> {
+  const response = await fetch(clusterMetricPath(path, context.timeRange), {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch usage metrics: ${String(response.status)}`,
+    );
+  }
+  return mapper(await response.json());
+}
+
 interface MetricSourceDefinition {
   fetch: (
     context: DashboardInvocationContext,
@@ -777,21 +1082,27 @@ const metricSources: readonly MetricSourceDefinition[] = [
     fetch: async (context) => fetchRegisteredUsersMetric(context),
   },
   {
+    id: "gateway-release-distribution",
+    fetch: async (context, apiFactory) => {
+      const client = apiFactory(context.correlationId);
+      const aggregate = await aggregateGatewayReleaseDistribution(
+        client,
+        context.signal,
+      );
+      return [buildGatewayReleasesMetric(aggregate)];
+    },
+  },
+  {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
   },
   {
-    id: "gateway-release-distribution",
-    fetch: async (context, apiFactory) =>
-      fetchGatewayReleaseDistributionMetrics(context, apiFactory),
-  },
-  {
     id: "cluster-memory",
-    fetch: async (context) => [await fetchClusterMemoryMetric(context.signal)],
+    fetch: async (context) => [await fetchClusterMemoryMetric(context)],
   },
   {
     id: "cluster-cpu",
-    fetch: async (context) => [await fetchClusterCpuMetric(context.signal)],
+    fetch: async (context) => [await fetchClusterCpuMetric(context)],
   },
   {
     id: "cluster-pods",
@@ -812,8 +1123,16 @@ export function createDashboardControlPlaneAdapter(
     ): Promise<OperationalDashboardMetrics> {
       context.signal?.throwIfAborted();
 
+      const activeSources =
+        context.isAdmin === false
+          ? metricSources.filter((source) =>
+              ["gateway-metrics", "gateway-release-distribution"].includes(
+                source.id,
+              ),
+            )
+          : metricSources;
       const settled = await Promise.allSettled(
-        metricSources.map((source) =>
+        activeSources.map((source) =>
           source.fetch(context, apiFactory).then((metrics) => ({
             id: source.id,
             metrics,
@@ -825,7 +1144,7 @@ export function createDashboardControlPlaneAdapter(
       const failedSources: DashboardMetricSourceId[] = [];
 
       for (const [index, result] of settled.entries()) {
-        const source = metricSources[index];
+        const source = activeSources[index];
         if (source === undefined) {
           continue;
         }
@@ -850,6 +1169,7 @@ export function createDashboardControlPlaneAdapter(
         ...(failedSources.length > 0 ? { failedSources } : {}),
         lastSuccessfulRefresh: new Date(),
         metrics,
+        timeRange: context.timeRange ?? 7,
       };
     },
 
@@ -895,6 +1215,88 @@ export function createDashboardControlPlaneAdapter(
           metrics: [],
         };
       }
+    },
+
+    async getUsageMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<UsageDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const sources = [
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/gateways",
+              mapUsageGatewayMetricsResponse,
+            ),
+          id: "usage-gateways",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandboxes",
+              mapUsageSandboxMetricsResponse,
+            ),
+          id: "usage-sandboxes",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandbox-lifetime",
+              mapUsageSandboxLifetimeResponse,
+            ),
+          id: "usage-sandbox-lifetime",
+        },
+      ] as const;
+
+      const settled = await Promise.allSettled(
+        sources.map((source) => source.fetch()),
+      );
+      const metrics: UsageMetric[] = [];
+      const failedSources: UsageMetricSourceId[] = [];
+
+      for (const [index, result] of settled.entries()) {
+        const source = sources[index];
+        if (source === undefined) {
+          continue;
+        }
+        if (result.status === "fulfilled") {
+          metrics.push(...result.value);
+          continue;
+        }
+        if (isAbortError(result.reason)) {
+          throw result.reason;
+        }
+        failedSources.push(source.id);
+      }
+
+      if (failedSources.length === sources.length) {
+        throw new Error("All usage dashboard metric sources failed");
+      }
+
+      return {
+        ...(failedSources.length > 0 ? { failedSources } : {}),
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
+    },
+
+    async getAdoptionMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<OperationalDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const metrics = await fetchAdoptionMetrics(context);
+
+      return {
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
     },
   };
 }

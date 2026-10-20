@@ -105,22 +105,20 @@ func registerRoleBindingTestCluster(t *testing.T) string {
 	t.Helper()
 	suffix := strings.ToLower(api.NewID())
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", "cp-"+suffix)
+	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), []string{"network/public", "provider/aws"}, "cp-"+suffix)
 	if svcErr != nil {
 		t.Fatalf("register test managed cluster: %v", svcErr)
 	}
 	return cluster.ID
 }
 
-// createGatewayWithOwnerBinding creates a gateway on clusterID through the REST
-// API, grants userID gateway:owner on it, and returns the gateway id and that
-// binding's id.
+// createGatewayWithOwnerBinding creates an internal gateway fixture on
+// clusterID, grants userID gateway:owner on it, and returns both ids.
 func createGatewayWithOwnerBinding(ctx context.Context, client *openapi.APIClient, userID, name, clusterID string) (string, string) {
-	gw, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: name, ClusterId: clusterID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred(), "create gateway %s", name)
-	gatewayID := *gw.Id
+	_ = client
+	gw, svcErr := gateways.Service(&environments.Environment().Services).Create(ctx, &gateways.Gateway{Name: name, ClusterId: clusterID})
+	Expect(svcErr).NotTo(HaveOccurred(), "create gateway %s", name)
+	gatewayID := gw.ID
 
 	// The integration environment does not provision the caller into the
 	// request context, so the create path does not bootstrap the owner binding;
@@ -299,4 +297,67 @@ func TestGRPCListRoleBindingsScopedToCluster(t *testing.T) {
 	tooLong := strings.Repeat("c", grpcutil.MaxStringFieldLength+1)
 	_, err = rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: &userID, ClusterId: &tooLong})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "over-length cluster_id: %v", err)
+}
+
+// ListRoleBindings with a cluster_id but NO user_id returns every surviving
+// binding for that cluster (across all users), excluding other clusters' and
+// global bindings. The control plane uses this unfiltered-by-user list to seed and
+// periodically resync the RoleBinding reconciler so an owner grant is recovered
+// even when the WatchRoleBindings event was missed (control-plane.spec.md, "Role
+// Binding Resync"). Without either filter the call is refused, so it can never
+// return the whole fleet's bindings.
+func TestGRPCListRoleBindingsClusterWideResync(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	accountA := h.NewRandAccount()
+	ctxA := h.NewAuthenticatedContext(accountA)
+	userA, err := users.Service(&environments.Environment().Services).UpsertByUsername(context.Background(), accountA.Username, nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	accountB := h.NewRandAccount()
+	ctxB := h.NewAuthenticatedContext(accountB)
+	userB, err := users.Service(&environments.Environment().Services).UpsertByUsername(context.Background(), accountB.Username, nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	clusterX := registerRoleBindingTestCluster(t)
+	clusterY := registerRoleBindingTestCluster(t)
+
+	// Two different users each own a gateway on cluster X; one also owns a gateway
+	// on cluster Y. Both hold a global binding.
+	_, bindingAX := createGatewayWithOwnerBinding(ctxA, client, userA, "rb-resync-ax", clusterX)
+	_, bindingBX := createGatewayWithOwnerBinding(ctxB, client, userB, "rb-resync-bx", clusterX)
+	_, bindingAY := createGatewayWithOwnerBinding(ctxA, client, userA, "rb-resync-ay", clusterY)
+	globalA := globalBindingID(userA)
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&roleBindingBearerToken{token: h.CreateJWTString(accountA)}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+	rbClient := pb.NewRoleBindingServiceClient(conn)
+
+	ids := func(resp *pb.ListRoleBindingsResponse) []string {
+		out := make([]string, 0, len(resp.GetItems()))
+		for _, item := range resp.GetItems() {
+			out = append(out, item.GetMetadata().GetId())
+		}
+		return out
+	}
+
+	// The cluster-wide list returns BOTH users' cluster X bindings, and neither the
+	// cluster Y binding nor any global binding.
+	clusterWide, err := rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{ClusterId: &clusterX})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(ids(clusterWide)).To(ConsistOf(bindingAX, bindingBX))
+	Expect(ids(clusterWide)).NotTo(ContainElement(bindingAY))
+	Expect(ids(clusterWide)).NotTo(ContainElement(globalA))
+
+	// Neither user_id nor cluster_id: refused rather than an unfiltered fleet list.
+	_, err = rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{})
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "list without user_id or cluster_id: %v", err)
 }

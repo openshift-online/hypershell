@@ -11,6 +11,17 @@ description: >
 
 Implement spec-driven changes across all HyperShell platform components using a wave-based pipeline.
 
+## UI completion contract
+
+For a new or materially changed production page with an approved mockup,
+execute `skills/build/ui-build-gate/SKILL.md` before closing its wave. Pending
+gate work is not a terminal state.
+
+If the UI change has no corresponding mockup, warn the user and continue the
+wave. Do not create a mockup unless the task includes mockup or spec work. Skip
+`ui-build-gate` and all mockup-to-production parity checks; run the remaining
+wave checks.
+
 ## User Input
 
 ```text
@@ -44,6 +55,20 @@ Read the relevant spec in full. Extract:
 - All relationships and API routes
 - Design decisions
 
+For any spec that includes web-console UI, check
+`specs/web-console/mockups/` for the corresponding mockup before implementation.
+
+- If no corresponding mockup exists, warn the user and continue without
+  mockup-to-production parity checks.
+- If an approved mockup exists, read its stories and relevant shared components
+  and use it as the visual and interaction reference. The browser experience
+  SHOULD remain recognizably consistent with it.
+
+Do not copy mockup code into production. The implementer MAY refine structure,
+component selection, responsive behavior, accessibility, localization, and
+application integration. Follow repository UI standards and application
+boundaries; mockup PatternFly choices are recommendations.
+
 This is the **desired state**. Everything else is measured against it.
 
 ### Step 2 -- Gap Analysis
@@ -68,7 +93,7 @@ Produce a gap table:
 
 ```
 ENTITY          COMPONENT   STATUS      GAP
-Fleet           API         present     --
+ManagedCluster  API         present     --
 Gateway.phase   SDK (Go)    missing     no Phase field in Gateway type
 Gateway.phase   BE          missing     no phase field in model
 Gateway         CLI         partial     get/list implemented, delete missing
@@ -122,9 +147,38 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - Verify CRUD on all affected Kinds via both API and CLI
 - Run e2e test suite: `E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh`
   (OpenShift: `E2E_INFRA_DRIVER=openshift`; pull-request CI is the ephemeral
-  PR environment workflow. `components/pr-test/e2e-openshell.sh` is deprecated.)
+  PR environment workflow. The legacy `components/pr-test/e2e-openshell.sh`
+  script has been removed.)
+
+#### Capability-gated Storybook screenshot hard stop
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md` after the production page and
+story render together. If the agent runtime can inspect images, wait for
+`Complete`, and record the validated manifest path in the wave handoff.
+
+If the runtime cannot inspect images, record `Complete without visual review`
+and the capability reason in the wave handoff, then continue all non-parity
+checks. Do not block the wave on unavailable visual comparison.
+
+If no corresponding mockup exists, retain the earlier warning in the wave
+handoff and skip this hard stop.
 
 Each wave is a gate. Do not start downstream work against an unstable upstream.
+
+### Kind Removal: Reverse-Dependency Execution
+
+When a gap item is prefixed `RM-` (kind removal), the pipeline runs in **reverse** dependency order - the opposite of the normal forward order above. Use the Kind Removal Wave Pattern documented in `/reconcile` SKILL.md:
+
+```
+FE (RM-W1) -> CLI (RM-W2) -> CP (RM-W3) -> BE+gRPC (RM-W4) -> API+SDK (RM-W5) -> DB migration (RM-W6)
+```
+
+Key differences from an addition wave:
+- Start from the leaf layers (UI/CLI) and work inward toward the data layer
+- Gate: `go build ./...` + `go vet ./...` must pass after RM-W3 before deleting the backend plugin
+- Gate: no application code may import the dropped model before adding the RM-W6 drop migration
+- Verify each layer with `grep -r "<KindName>" components/` to confirm no stale references remain
 
 ### Step 4 -- Verify Each Wave
 

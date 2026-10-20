@@ -16,6 +16,15 @@ description: >
 Autonomous code reconciliation against the spec corpus. Orchestrates all other
 skills into a single convergence loop.
 
+## UI completion contract
+
+For a new or materially changed production page with an approved mockup, do not
+close its FE gap until `skills/build/ui-build-gate/SKILL.md` returns `Complete`.
+
+If the UI change has no corresponding mockup, warn the user and continue
+reconciliation. Do not create a mockup. Skip `ui-build-gate` and all
+mockup-to-production parity checks; run the remaining FE checks.
+
 ## User Input
 
 ```text
@@ -76,7 +85,7 @@ For each spec in topological order, check every requirement at field level:
 | gRPC | Proto definitions, handlers, presenters | `components/api-server/proto/`, `plugins/*/grpc_*` |
 | CP | Watcher, reconciler logic | `components/control-plane/` |
 | CLI | Commands per spec CLI table | `components/cli/` |
-| FE | Service layer, hooks, components | `components/web-console/app/` |
+| FE | Service layer, hooks, components, and consistency with an approved mockup when one exists | `components/web-console/app/` and `specs/web-console/mockups/` |
 
 Check three directions: Spec→Code, Code→Spec, OpenAPI→Spec.
 
@@ -95,11 +104,32 @@ dependency order: API → SDK → BE+gRPC+CP → CLI → FE → Integration.
 For each wave:
 1. Present wave plan (unless `--auto-approve`)
 2. Dispatch subagents per gap item following `/full-stack-pipeline` patterns
-3. Verify with layer-specific gate (lint, build, test)
+3. Verify against the authoritative CI-equivalent gate. Reproduce the gates in
+   `.github/workflows/checks.yml` locally; do not substitute an ad-hoc subset.
+   Formatting (`format:check`/`gofmt`) and generated-artifact drift are required
+   gates, not optional. All must be green before continuing or pushing:
+   - Frontend: `pnpm --filter @openshift-online/hypershell-web-console check`,
+     `pnpm --filter @openshift-online/hypershell-gateway-management-ui check`,
+     `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`
+     (each runs `format:check`, lint, typecheck, tests, `i18n:check`, and builds).
+   - Go: `make lint-api-server`, `make lint-cli`, `make lint-control-plane`
+     (each runs `gofmt`, `go vet`, golangci-lint), plus build and test.
+   - Contract/SDK drift: `cd components/api-server && make generate generate-sdk`
+     (and `make proto` if proto changed); confirm `git status` shows NO drift.
+   - Repo policy: `make check`. The single aggregate `make lint` runs all of the
+     above.
 4. Run `/align` for affected component scope
 5. Re-gap analysis for this wave's items (max 3 retries)
 6. Update `RECONCILE.md`: mark items done, update coverage, update date/commit
 7. Commit `RECONCILE.md` with code changes
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md` after the production page and
+story render together. Do not continue to Phase 7 or close the FE gap until the
+gate returns `Complete`. Record the validated manifest path in `RECONCILE.md`.
+
+If no corresponding mockup exists, record the warning in `RECONCILE.md`, skip
+the parity gate, and continue to Phase 7 after the remaining FE checks pass.
 
 ### Phase 7-8: Report & Self-Review
 
@@ -124,3 +154,22 @@ reconciliation report showing coverage delta.
 - Subagents stay in their layer
 - Always update `skills/RECONCILE.md` after state changes
 - Divergences (D-prefixed items) require human decision before execution
+
+## Kind Removal Wave Pattern
+
+When a kind is marked "Slated for Removal" in a spec, add `RM-` prefixed gap items to `RECONCILE.md` and execute them in the following reverse-dependency order:
+
+| Wave | Layer | Actions |
+|------|-------|---------|
+| RM-W1 | FE | Remove list/detail pages, route entries, nav links, and any component referencing the kind |
+| RM-W2 | CLI | Delete command tree (create/get/list/update/delete sub-commands) |
+| RM-W3 | CP | Delete watcher function, reconciler struct + Handle method, and any propagation logic referencing the kind from sibling reconcilers |
+| RM-W4 | BE+gRPC | Delete plugin directory (model, DAO, handler, service, factory, integration tests), delete gRPC handler + presenter, remove from `grpc_authorization.go`, remove FK fields from sibling models |
+| RM-W5 | API+SDK | Remove routes + schemas from OpenAPI YAML, run `make generate` to regenerate Go + TS SDKs |
+| RM-W6 | DB | Add a migration that drops the table (verify zero rows in staging before executing in production) |
+
+**Gate between RM-W3 and RM-W4**: Run `go build ./...` and `go vet ./...` on the control-plane. All references to the removed kind's generated proto types must be gone before deleting the backend plugin.
+
+**Gate between RM-W5 and RM-W6**: Confirm no application code imports the dropped table's model. The migration must be additive to the migration sequence (new sequential version number).
+
+**Idempotency**: Each RM wave item is independently verifiable. Run `grep -r "<KindName>" components/` after each wave to confirm the layer is clean before proceeding.

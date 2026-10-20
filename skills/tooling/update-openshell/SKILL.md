@@ -97,11 +97,15 @@ $ARGUMENTS
 
 ## Source of truth
 
-The **authoritative** current version pins live in two control-plane deployment
-manifests (both must agree):
+The **authoritative** release coordinates live in `OPENSHELL_VERSION`.
+Edit that file first, vendor the selected chart, and run
+`make sync-openshell-version` to update the deployment pins and console constant.
+The workload-image entry `OPENSHELL_SANDBOX_IMAGE` is derived from the vendored
+chart's `sandbox.image` values and is used only for e2e requests and Kind preload.
+It is not a control-plane environment variable or a compiled Go default.
 
-- `deploy/base/control-plane/deployment.yaml` (lines with `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`)
-- `deploy/base/platform-resources/controller.yaml` (same env vars)
+The controller receives the deployment pins through
+`deploy/base/platform-resources/controller.yaml`:
 
 ```yaml
 - name: GATEWAY_IMAGE
@@ -117,7 +121,8 @@ reference (`sha256:...`) for an agent-built image. `config.go` reads these at
 runtime via `os.Getenv("GATEWAY_IMAGE")` / `os.Getenv("GATEWAY_SUPERVISOR_IMAGE")` -
 there are no hardcoded fallback constants. A control-plane deployed without these
 env vars will fail to provision gateways. Every other occurrence of the version
-in the repo is a copy of these and MUST agree with them after a run.
+in the repo must agree with `OPENSHELL_VERSION` after a run, except documented
+fixtures and historical references.
 
 ## Version footprint
 
@@ -132,19 +137,25 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 
 | File | What to change | Notes |
 |------|----------------|-------|
-| `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST` | Edit first; `OPENSHELL_TAG` drives both the deployment pins and the chart vendor step |
+| `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`, `OPENSHELL_SANDBOX_IMAGE` | Edit release coordinates first; vendoring derives the workload image from the selected chart, independent of `OPENSHELL_TAG` |
 | `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
 | `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest + comment tag) | Must agree with `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change |
-| `deploy/base/control-plane/deployment.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
-| `deploy/base/platform-resources/controller.yaml` | same env vars | Must match the deployment above |
+| `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE` env vars | Generated pins; run `make sync-openshell-version` |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
 | `specs/platform/global-architecture.spec.md` | version in the API-compat note | Also re-check the `v1beta1` claim (see below) |
 | `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e |
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
-| `scripts/kind/lib.sh` | `GATEWAY_IMAGE` default | Local Kind |
+| `scripts/kind/lib.sh`, `scripts/kind/up.sh` | Defaults sourced from `OPENSHELL_VERSION` | Kind preload must use the same workload image as e2e |
+| `tests/e2e/{suite.go,phases.go,access_phases.go,smoke.sh}` | Shared workload pin passed explicitly with `sandbox create --from` | No independent image literal; Go suite reads the file, smoke sources it through `lib.sh` |
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
+| `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
+| `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
+| `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
+| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`openshell-gateway`, `openshell-supervisor`, `openshell-sandbox-runtime`) | Pin; grep after the bump |
+| `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
+| `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
 facts rather than the active pin:
@@ -154,6 +165,14 @@ facts rather than the active pin:
 - the sentence in `specs/platform/openshell-gateway-credentials.spec.md` that says
   "Upstream OpenShell **v0.0.101 introduced** pluggable credential storage
   drivers" - this records *which* release added a feature and must not be bumped.
+- `gateway-version/<TAG>` examples and version strings in
+  `specs/web-console/gateway-version-visibility.spec.md`,
+  `specs/web-console/gateway-provision-placement.spec.md`,
+  `specs/platform/managed-cluster-registration.spec.md`, and the
+  `packages/` and `components/web-console/` test fixtures - these are
+  illustrative values, not pins.
+- the arbitrary tag strings in `scripts/test_sync_openshell_version.py` and
+  the capability fixtures in `components/api-server/plugins/` tests.
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).
@@ -167,12 +186,12 @@ control-plane node ids and an example GitOps path are whitelisted), those line
 numbers shift and `make check` fails until the whitelist is updated. Always run
 `make check` and fix the whitelist line numbers in the same change.
 
-**Also check the sandbox base image** in `config.go`
-(`defaultSandboxImage`). It currently floats on `:latest`
-(`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`), which is a separate
-image line from gateway/supervisor and is NOT version-locked to the release. If
-upstream starts publishing versioned sandbox base images, pin it here and add it
-to the footprint table.
+**Resolve the workload image from the selected chart, not unversioned upstream
+docs or an old community-image default.** `sandbox.image.repository` plus
+`sandbox.image.digest` (when nonempty) or `sandbox.image.tag` (otherwise, default
+`latest`) determines `OPENSHELL_SANDBOX_IMAGE`. `make sync-openshell-version`
+refreshes that entry; `make check` rejects a mismatch. A chart-schema change must
+be investigated rather than retaining the old pin silently.
 
 ## Workflow
 
@@ -216,8 +235,9 @@ to the footprint table.
    **Stable midstream track:**
 
    ```bash
-   # Current pin (read from source-of-truth file)
-   grep "GATEWAY_IMAGE" deploy/base/control-plane/deployment.yaml
+   # Current release (read from source-of-truth file)
+   . ./OPENSHELL_VERSION
+   printf '%s\n' "$OPENSHELL_TAG"
 
    # Latest available midstream tag
    gh api repos/opendatahub-io/openshell/tags \
@@ -275,8 +295,8 @@ to the footprint table.
      --jq '.files[].filename'
    ```
 
-3. **Bump the pins.** Edit `deploy/base/control-plane/deployment.yaml` first,
-   then `deploy/base/platform-resources/controller.yaml`, then sweep the rest of
+3. **Bump the pins.** Edit `OPENSHELL_VERSION` first, then run
+   `make sync-openshell-version` and sweep the rest of
    the [Version footprint](#version-footprint). Per the repo convention *"Image
    references must match across the stack"*, grep all overlays and manifests too:
 
@@ -298,6 +318,13 @@ to the footprint table.
    `charts/openshell/` wholesale, and strips em-dashes (U+2014) which the
    pre-commit hook rejects. The resulting diff will be ~48 files and thousands
    of lines - that is expected. Every bump will look like this.
+
+   The vendor target also runs `make sync-openshell-version`. This updates
+   `OPENSHELL_SANDBOX_IMAGE` from the newly vendored chart's `sandbox.image`
+   mapping, respecting digest precedence. Review that image change in the same
+   PR. The Go suite and smoke script must pass it explicitly with `--from`, and
+   the Kind preload must cache that same reference. The Go suite checks the
+   running workload pod's image as well as its phase.
 
    After vendoring, check whether the new chart adds RBAC rules that the
    controller does not yet hold. Any permission the chart's ClusterRole or Role
@@ -397,6 +424,8 @@ Before considering the update done:
 4. Every `needs-decision` item is either resolved in this PR or filed as a
    tracked follow-up - never silently dropped.
 5. [Self-reinforcement](#self-reinforcement) is complete.
+6. `OPENSHELL_SANDBOX_IMAGE` matches the selected chart's workload-image default
+   (`make check` verifies this); e2e requests and Kind preload use that entry.
 
 ## Self-reinforcement
 
@@ -421,6 +450,66 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Skill correction (2026-10-16, workload-image pin drift):** The skill still
+  pointed to an unused `defaultSandboxImage` Go constant and the old community
+  base image, although the vendored chart used `nvcr.io/nvidia/base/ubuntu:24.04`.
+  The e2e suite omitted `--from`, so it inherited the gateway default while Kind
+  could preload an unrelated image. Derive `OPENSHELL_SANDBOX_IMAGE` from the
+  vendored chart, check it in `make check`, and use it explicitly for e2e and
+  preload. Corrected contradictory instructions that called the controller
+  manifest the source of truth instead of `OPENSHELL_VERSION`.
+
+- **v0.1.3-rhaiv.3 (2026-10-15, v0.1.2-rhaiv.7 -> v0.1.3-rhaiv.3, no-arg run = latest stable):**
+  Pins and chart bumped. Tests pass (`go build/vet/test`, `make check`). Live e2e NOT run.
+  - **Step 0:** no human version direction on any open `needs-decision` issue. Issue #366's
+    latest non-bot comment ("Reopening...") names no version, so it was skipped as malformed.
+  - **Makefile bug (fixed):** `vendor-openshell-chart` used `sed -i` without a suffix. BSD sed
+    (macOS) fails, so the em-dash strip step never ran and the echo was skipped. Now uses
+    `perl -pi`, which works on both macOS and Linux.
+  - **Digests:** `skopeo inspect` fails on macOS unless you pass `--override-os linux --override-arch amd64`.
+    Simpler: read the index digest from the Quay tag API
+    (`https://quay.io/api/v1/repository/opendatahub/odh-openshell-<name>/tag/?specificTag=<TAG>`,
+    field `manifest_digest`). Index digests match the footprint format.
+  - **Helm test drift:** the new chart renders TOML as `key = value` (one space, no alignment).
+    Two assertions in `components/control-plane/internal/helm/values_test.go` were updated.
+    The values paths (`server.defaultRuntimeClassName`, `sandboxRuntime.image.*`) still work.
+  - **RBAC:** the chart's new grants (namespaces, tokenreviews, nodes, runtimeclasses,
+    priorityclasses, pods, events, services, networkpolicies, secrets, serviceaccounts, PVCs)
+    are all already in `controller-rbac.yaml`. No RBAC change was needed.
+  - **Console image unchanged:** no `.proto` file changed upstream, so the console digest stays.
+  - **Sandbox API:** `agents.x-k8s.io/v1beta1` is still primary in the chart. `v1alpha1` is
+    only a preflight fallback. The `v1beta1` note in the specs still holds.
+  - **Footprint gap:** `make sync-openshell-version` covers `controller.yaml` and the
+    capability labels in four overlays. `tests/e2e/cli_test.go`, `gcp-cluster/SKILL.md`, and
+    the ROKS mirror lines were not in the old table. They were added.
+  - **Needs-decision (not adopted, verify live before deploy):**
+    1. Upstream separated sandbox identity from TLS (NVIDIA #3110). Check that sandbox
+       client TLS (`openshell-client-tls`, see `console.go`) still works on a live cluster.
+    2. Supervisor readiness probe moved from `exec` to `tcpSocket:5501` (NVIDIA #3700).
+       Check that the sandbox NetworkPolicy does not block kubelet on 5501.
+    3. New opt-in gateway OCSF JSONL output (`ocsfLog.enabled: false` by default). Not adopted.
+    4. `fix(cli)!` changes CLI upload behavior. This is client-side only, but the e2e must run.
+    5. Live validation is still needed (Kind or ROKS e2e). Unit tests cannot prove the sandbox path.
+
+- **v0.1.2-rhaiv.7 (2026-10-08, v0.1.2-rhaiv.0 -> v0.1.2-rhaiv.7, user-directed):**
+  Clean mechanical bump. NVIDIA v0.1.2 release notes cover only docs, supervisor network fix,
+  homebrew config migration, sandbox reaper perf - no contract surface changes. No RBAC
+  escalation (runtimeclasses/priorityclasses/pods were already in controller-rbac.yaml from
+  v0.1.2-rhaiv.0). `go build/vet/test` and `make check` all passed with no code changes.
+  Footprint: OPENSHELL_VERSION, deploy/base/control-plane/deployment.yaml,
+  deploy/base/platform-resources/controller.yaml, deploy/ibm/kustomization.yaml,
+  components/pr-test/e2e-openshell-roks.sh, specs/platform/openshell-gateway.spec.md,
+  specs/platform/data-model.spec.md, specs/platform/openshell-gateway-credentials.spec.md,
+  specs/platform/openshell-image-auto-update.spec.md, skills/deploy/ibm-cluster/SKILL.md,
+  skills/deploy/deploy-cluster/SKILL.md, skills/deploy/gcp-cluster/SKILL.md,
+  charts/openshell/ (vendored via make vendor-openshell-chart).
+  Digests: gateway sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16,
+  supervisor sha256:7e81f0c38e18c076472ec2364494c3ae6481d421b60d771e0f04f21039e7ef8e,
+  sandbox sha256:9188961848d3952f6343132a1746e18cf862f106454a3cb803c12ddfd5b7990a.
+  Console image unchanged (no proto surface change in v0.1.2 rhaiv patches).
+  Issue #366 not closed - it predates this run and remains open tracking the rhaiv.2
+  contract-surface issue; that issue's notes are superseded by the clean rhaiv.7 bump.
 
 - **Skill correction (2026-09-30, rhaiv-exit-condition bug):** Agent ran the nightly
   update-openshell job with current pin `v0.1.2-rhaiv.0` and latest midstream tag
@@ -486,8 +575,8 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
     NVIDIA repo is still needed for release-note triage but is NOT the image source.
     Correct command: `gh api repos/opendatahub-io/openshell/tags --jq '[.[] | select(.name | test("^v[0-9]"))] | .[0].name'`
   - Wrong source-of-truth file path: skill said `deploy/base/controller.yaml`
-    (does not exist). Correct paths: `deploy/base/control-plane/deployment.yaml`
-    and `deploy/base/platform-resources/controller.yaml` (both must agree).
+    (does not exist). Correct path: `deploy/base/platform-resources/controller.yaml`
+    (the former `control-plane/deployment.yaml` duplicate was removed).
   - Added build-agent track for testing unmerged upstream branches/commits.
   - Current pin at time of correction: `v0.0.116-rhaiv.6`; latest midstream: `v0.0.116-rhaiv.15`.
 

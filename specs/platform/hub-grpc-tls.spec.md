@@ -38,7 +38,7 @@ control plane selects the transport from the address it is given
 
 ## Requirements
 
-### Requirement: Hub API Server gRPC TLS
+### Requirement: CTRL-TLS-01 -- Hub API Server gRPC TLS
 
 Each production hub api-server deployment SHALL enable gRPC TLS by adding
 `--grpc-enable-tls=true`, `--grpc-tls-cert-file=/grpc-tls/tls.crt`, and
@@ -63,7 +63,7 @@ cannot be loaded SHALL be logged and SHALL NOT interrupt serving the previous ke
 pair. The listener SHALL offer only HTTP/2 over ALPN and SHALL require TLS 1.2 or
 newer.
 
-#### Scenario: gRPC listener presents a valid certificate
+#### Scenario: CTRL-TLS-01.01 -- gRPC listener presents a valid certificate
 
 - GIVEN a hub api-server deployment with `--grpc-enable-tls=true` and the
   cert-manager `Certificate` for `grpc.hyp0.infra.hypershell.app` issued and mounted
@@ -71,14 +71,14 @@ newer.
 - THEN the presented certificate SHALL be valid for `grpc.hyp0.infra.hypershell.app`
   and chain to a publicly trusted root (via `letsencrypt-dns01`)
 
-#### Scenario: Plaintext dial is refused on a TLS-enabled hub
+#### Scenario: CTRL-TLS-01.02 -- Plaintext dial is refused on a TLS-enabled hub
 
 - GIVEN a hub api-server deployment with `--grpc-enable-tls=true`
 - WHEN a client dials port `9000` with plaintext credentials
 - THEN the connection SHALL fail the TLS handshake
 - AND no gRPC request SHALL be served on that connection
 
-#### Scenario: Certificate renewal is served without a restart
+#### Scenario: CTRL-TLS-01.03 -- Certificate renewal is served without a restart
 
 - GIVEN the mounted certificate is renewed by cert-manager via `letsencrypt-dns01`
 - WHEN the renewal is written to the mounted Secret
@@ -86,14 +86,14 @@ newer.
 - AND the api-server pod SHALL NOT restart
 - AND already-open watch streams SHALL be unaffected
 
-#### Scenario: Unreadable renewal keeps the previous certificate
+#### Scenario: CTRL-TLS-01.04 -- Unreadable renewal keeps the previous certificate
 
 - GIVEN the api-server is serving a valid certificate
 - WHEN the mounted certificate file changes to content that cannot be parsed
 - THEN the api-server SHALL log the reload failure
 - AND new handshakes SHALL continue to present the previous certificate
 
-### Requirement: Passthrough Route Per Hub
+### Requirement: CTRL-TLS-02 -- Passthrough Route Per Hub
 
 Each hub SHALL expose an OpenShift `Route` on host `grpc.hyp{N}.infra.hypershell.app`
 targeting the `hypershell-api-server` Service's `grpc` port (`targetPort: grpc`,
@@ -103,14 +103,14 @@ api-server pod, which terminates TLS itself (per the requirement above). The rou
 never sees plaintext gRPC traffic and does not need to speak HTTP/2 to a
 re-encrypted backend.
 
-#### Scenario: Route forwards without terminating TLS
+#### Scenario: CTRL-TLS-02.01 -- Route forwards without terminating TLS
 
 - GIVEN the passthrough Route for `grpc.hyp0.infra.hypershell.app` exists
 - WHEN an external client opens a TLS connection to that host on port `443`
 - THEN the router SHALL forward the raw TLS stream to the api-server pod's port `9000`
 - AND the TLS handshake SHALL be terminated by the api-server, not the router
 
-#### Scenario: Remote spoke opens a watch stream through the Route
+#### Scenario: CTRL-TLS-02.02 -- Remote spoke opens a watch stream through the Route
 
 - GIVEN a registered spoke control plane configured with
   `HYPERSHELL_GRPC_SERVER_ADDR=grpc.hyp0.infra.hypershell.app:443`
@@ -118,7 +118,7 @@ re-encrypted backend.
 - THEN the connection SHALL succeed and remain open
 - AND gateway events assigned to that `cluster_id` SHALL be delivered
 
-#### Scenario: Co-located control plane dials the same Route
+#### Scenario: CTRL-TLS-02.03 -- Co-located control plane dials the same Route
 
 - GIVEN the hub's own control plane runs in the same cluster as the api-server
 - AND it is configured with `HYPERSHELL_GRPC_SERVER_ADDR=grpc.hyp0.infra.hypershell.app:443`
@@ -126,7 +126,7 @@ re-encrypted backend.
 - THEN the connection SHALL traverse the cluster's router (hairpin) and succeed
 - AND the watch stream SHALL behave identically to a remote spoke's
 
-### Requirement: Kind Smoke Test
+### Requirement: CTRL-TLS-03 -- Kind Smoke Test
 
 The repository SHALL provide `make kind-grpc-tls-smoke`, which exercises the TLS
 dial path end to end on a running Kind cluster without any public certificate: it
@@ -137,7 +137,7 @@ transport classifier treats as external) with the cluster CA as its system trust
 store (`SSL_CERT_FILE`), and verifies the result. It SHALL restore the plaintext
 configuration afterwards unless asked to keep TLS on.
 
-#### Scenario: Smoke test passes on a healthy cluster
+#### Scenario: CTRL-TLS-03.01 -- Smoke test passes on a healthy cluster
 
 - GIVEN a Kind cluster brought up by `make kind-up`
 - WHEN the developer runs `make kind-grpc-tls-smoke`
@@ -148,7 +148,7 @@ configuration afterwards unless asked to keep TLS on.
   gateway watch seeded on (re)connect
 - AND the cluster SHALL be back on plaintext gRPC when the command exits
 
-#### Scenario: Smoke test leaves TLS enabled on request
+#### Scenario: CTRL-TLS-03.02 -- Smoke test leaves TLS enabled on request
 
 - GIVEN the same cluster
 - WHEN the developer runs `KEEP=true make kind-grpc-tls-smoke`
@@ -156,7 +156,7 @@ configuration afterwards unless asked to keep TLS on.
 - AND the api-server SHALL keep serving gRPC over TLS until
   `make kind-grpc-tls-smoke ARGS=revert` restores plaintext
 
-### Requirement: DNS for the gRPC Hostname
+### Requirement: CTRL-TLS-04 -- DNS for the gRPC Hostname
 
 `grpc.hyp{N}.infra.hypershell.app` SHALL resolve (via a CNAME record) to the
 hub cluster's router load balancer, following the same DNS pattern already used for
@@ -164,25 +164,25 @@ hub cluster's router load balancer, following the same DNS pattern already used 
 name SHALL resolve identically from inside the hub cluster, so the co-located control
 plane's hairpin dial reaches the same router.
 
-### Requirement: Authenticated Watch Streams Before Exposure
+### Requirement: CTRL-TLS-05 -- Authenticated Watch Streams Before Exposure
 
 A hub SHALL NOT expose its gRPC port outside the cluster while any
 `/hypershell.v1.*/Watch*` method is listed in `--auth-bypass-methods`. On every hub,
 and in every environment that runs the control plane with OIDC credentials, the
-api-server SHALL require a valid JWT on the five watch RPCs and SHALL bind
-`WatchGateways` and `WatchRoleBindings` to the caller's registered cluster as defined in
+api-server SHALL require a valid JWT on the six watch RPCs and SHALL bind
+`WatchGateways`, `WatchRoleBindings`, and `WatchAgentRuntimes` to the caller's registered cluster as defined in
 `managed-cluster-registration.spec.md` ("Requirement: Watch Stream Caller Binding").
 Only `/grpc.health.v1.Health/` and `/grpc.reflection.v1alpha.ServerReflection/`
 remain exempt. This supersedes the "gRPC Bypass" list in `oidc-integration.spec.md`.
 
-#### Scenario: Unauthenticated watch through the Route is refused
+#### Scenario: CTRL-TLS-05.01 -- Unauthenticated watch through the Route is refused
 
 - GIVEN the passthrough Route for `grpc.hyp0.infra.hypershell.app` exists
 - WHEN a client with no bearer token opens `WatchGateways` through it
 - THEN the api-server SHALL return `UNAUTHENTICATED`
 - AND no gateway event SHALL be delivered
 
-#### Scenario: Spoke cannot watch another cluster's gateways
+#### Scenario: CTRL-TLS-05.02 -- Spoke cannot watch another cluster's gateways
 
 - GIVEN spoke `A` registered as `cluster_id: X` and spoke `B` registered as `cluster_id: Y`
 - WHEN spoke `A` opens `WatchGateways` with `cluster_id: Y`

@@ -5,9 +5,8 @@ import type {
 
 export const REMOVED_WIDGET_TYPES = new Set([
   "provisioned-sandboxes",
-  // The ManagedDatabase resource no longer exists, so the inventory status
-  // donut it drove is gone. Strip saved tiles so they cannot reappear.
-  // See specs/platform/openshell-gateway-database.spec.md.
+  "reconciliation-successes",
+  "reconciliation-over-time",
   "managed-database-status",
 ]);
 

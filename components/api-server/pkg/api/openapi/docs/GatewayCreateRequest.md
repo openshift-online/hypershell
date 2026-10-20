@@ -5,8 +5,8 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  | 
-**ClusterId** | **string** |  | 
-**ReleaseId** | **string** |  | 
+**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional] 
+**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -23,7 +23,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayCreateRequest
 
-`func NewGatewayCreateRequest(name string, clusterId string, releaseId string, ) *GatewayCreateRequest`
+`func NewGatewayCreateRequest(name string, ) *GatewayCreateRequest`
 
 NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 This constructor will assign default values to properties that have it defined,
@@ -77,27 +77,47 @@ and a boolean to check if the value has been set.
 
 SetClusterId sets ClusterId field to given value.
 
+### HasClusterId
 
-### GetReleaseId
+`func (o *GatewayCreateRequest) HasClusterId() bool`
 
-`func (o *GatewayCreateRequest) GetReleaseId() string`
+HasClusterId returns a boolean if a field has been set.
 
-GetReleaseId returns the ReleaseId field if non-nil, zero value otherwise.
+### GetPlacement
 
-### GetReleaseIdOk
+`func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent`
 
-`func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool)`
+GetPlacement returns the Placement field if non-nil, zero value otherwise.
 
-GetReleaseIdOk returns a tuple with the ReleaseId field if it's non-nil, zero value otherwise
+### GetPlacementOk
+
+`func (o *GatewayCreateRequest) GetPlacementOk() (*GatewayPlacementIntent, bool)`
+
+GetPlacementOk returns a tuple with the Placement field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
-### SetReleaseId
+### SetPlacement
 
-`func (o *GatewayCreateRequest) SetReleaseId(v string)`
+`func (o *GatewayCreateRequest) SetPlacement(v GatewayPlacementIntent)`
 
-SetReleaseId sets ReleaseId field to given value.
+SetPlacement sets Placement field to given value.
 
+### HasPlacement
 
+`func (o *GatewayCreateRequest) HasPlacement() bool`
+
+HasPlacement returns a boolean if a field has been set.
+
+### SetPlacementNil
+
+`func (o *GatewayCreateRequest) SetPlacementNil(b bool)`
+
+ SetPlacementNil sets the value for Placement to be an explicit nil
+
+### UnsetPlacement
+`func (o *GatewayCreateRequest) UnsetPlacement()`
+
+UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
 ### GetExternalDns
 
 `func (o *GatewayCreateRequest) GetExternalDns() string`

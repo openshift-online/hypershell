@@ -1,20 +1,23 @@
 name: Destroy PR Environment
 
 # Tears down the ephemeral OpenShift environment when an origin pull request
-# merges or closes (ephemeral-pr-environments.spec.md). Lives in its own
-# workflow so Tests / E2E deploy and OpenShift jobs do not list a skipped
-# "Destroy PR environment" check. GitHub's pull_request `closed` event covers
-# both merge and close-without-merge. Destroys whether or not the pull
-# request was retained.
+# merges, closes, or enters the merge queue (ephemeral-pr-environments.spec.md).
+# Lives in its own workflow so Tests / E2E deploy and OpenShift jobs do not
+# list a skipped "Destroy PR environment" check. GitHub's pull_request
+# `closed` event covers both merge and close-without-merge. `enqueued` fires
+# when the pull request enters the merge queue: e2e-testing.spec.md's
+# mq-<sha> environment takes over validation from here, so this pull
+# request's own namespace would otherwise sit idle on the cluster for the
+# whole queue wait. Destroys whether or not the pull request was retained.
 #
 # Shares the per-PR concurrency group with E2E / Deploy OpenShift Environment and
-# E2E / OpenShift so a close cancels an in-flight deploy or suite rather
-# than racing it. The out-of-band reaper (deploy/e2e/reaper) is the backstop
-# when this event does not fire.
+# E2E / OpenShift so a close or queue entry cancels an in-flight deploy or
+# suite rather than racing it. The out-of-band reaper (deploy/e2e/reaper) is
+# the backstop when this event does not fire.
 
 on:
   pull_request:
-    types: [closed]
+    types: [closed, enqueued]
 
 permissions:
   contents: read

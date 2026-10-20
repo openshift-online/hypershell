@@ -38,11 +38,14 @@ type SandboxAttentionReconciler struct {
 	instance      string
 	now           func() time.Time
 
-	publish        func(ctx context.Context, counts gateway.AttentionCounts)
-	liveNamespaces func(ctx context.Context) (map[string]struct{}, error)
-	listPods       func(ctx context.Context) ([]*corev1.Pod, error)
-	listSandboxes  func(ctx context.Context) ([]*unstructured.Unstructured, error)
-	listNamespaces func(ctx context.Context) ([]*corev1.Namespace, error)
+	publish         func(ctx context.Context, counts gateway.AttentionCounts)
+	liveNamespaces  func(ctx context.Context) (map[string]struct{}, error)
+	listPods        func(ctx context.Context) ([]*corev1.Pod, error)
+	listSandboxes   func(ctx context.Context) ([]*unstructured.Unstructured, error)
+	listNamespaces  func(ctx context.Context) ([]*corev1.Namespace, error)
+	activeSandboxes map[string]gateway.SandboxObservation
+	publishUsage    func(ctx context.Context, counts map[string]int)
+	recordLifetime  func(ctx context.Context, namespace string, lifetime time.Duration)
 }
 
 // NewSandboxAttentionReconciler builds a SandboxAttentionReconciler.
@@ -70,6 +73,8 @@ func NewSandboxAttentionReconciler(
 	r.listPods = r.listSandboxPods
 	r.listSandboxes = r.listSandboxCRs
 	r.listNamespaces = r.listManagedNamespaces
+	r.publishUsage = r.exportUsage
+	r.recordLifetime = r.exportLifetime
 	return r
 }
 
@@ -100,14 +105,6 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 
 	listCtx, cancel := context.WithTimeout(ctx, sandboxAttentionListTimeout)
 	defer cancel()
-
-	live, err := r.liveNamespaces(listCtx)
-	if err != nil {
-		tickErr = err
-		log.Printf("WARN sandbox attention: list live gateway namespaces: %v", err)
-		r.publishZero(ctx)
-		return
-	}
 
 	namespaces, err := r.listNamespaces(listCtx)
 	if err != nil {
@@ -143,6 +140,16 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	}
 
 	observations := gateway.BuildAttentionObservations(pods, gateway.IndexSandboxes(sandboxes), eligible)
+	r.recordUsage(ctx, eligible, sandboxes, observations, crListFailed)
+
+	live, err := r.liveNamespaces(listCtx)
+	if err != nil {
+		tickErr = err
+		log.Printf("WARN sandbox attention: list live gateway namespaces: %v", err)
+		r.publishZero(ctx)
+		return
+	}
+
 	counts := gateway.ClassifyAttentionCounts(r.now().UTC(), live, observations)
 	if crListFailed {
 		counts.Expiring = 0
@@ -152,6 +159,42 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	r.publish(ctx, counts)
 	log.Printf("INFO sandbox attention: exported %s (eligible_ns=%d observations=%d)",
 		gateway.FormatAttentionCounts(counts), len(eligible), len(observations))
+}
+
+func (r *SandboxAttentionReconciler) recordUsage(
+	ctx context.Context,
+	eligible map[string]struct{},
+	sandboxes []*unstructured.Unstructured,
+	observations []gateway.SandboxObservation,
+	crListFailed bool,
+) {
+	if !crListFailed && r.publishUsage != nil {
+		r.publishUsage(ctx, gateway.ProvisionedSandboxCounts(sandboxes, eligible))
+	}
+
+	current, departed := gateway.ReconcileActiveSandboxes(r.activeSandboxes, observations)
+	r.activeSandboxes = current
+	if r.recordLifetime == nil {
+		return
+	}
+	now := r.now().UTC()
+	for _, obs := range departed {
+		lifetime, ok := gateway.SandboxLifetime(obs, now)
+		if !ok {
+			continue
+		}
+		r.recordLifetime(ctx, obs.Namespace, lifetime)
+	}
+}
+
+func (r *SandboxAttentionReconciler) exportUsage(ctx context.Context, counts map[string]int) {
+	for namespace, count := range counts {
+		cpotel.RecordSandboxTotal(ctx, r.clusterID, namespace, count)
+	}
+}
+
+func (r *SandboxAttentionReconciler) exportLifetime(ctx context.Context, namespace string, lifetime time.Duration) {
+	cpotel.RecordSandboxLifetime(ctx, r.clusterID, namespace, lifetime)
 }
 
 func (r *SandboxAttentionReconciler) listSandboxPods(ctx context.Context) ([]*corev1.Pod, error) {

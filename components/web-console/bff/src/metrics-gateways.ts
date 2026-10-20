@@ -7,7 +7,7 @@ import {
   alignDailyIntegerSeries,
   dailyRangeStepSeconds,
   queryPrometheusRangeScalarSamples,
-  sevenDayUtcCalendarRange,
+  utcCalendarRange,
 } from "./prometheus-range-query.js";
 
 import {
@@ -64,10 +64,14 @@ export async function queryGatewayPhaseCounts(
   timeoutMs: number,
   namespace?: string,
 ): Promise<GatewayPhaseCounts> {
-  // API gauges use the scrape target's namespace label.
+  // API gauges use the scrape target's namespace label. The api-server emits one
+  // series per replica AND per managed_cluster (spoke), so dedupe replicas with an
+  // inner `max by (phase, managed_cluster)` and then sum across spokes: a plain
+  // `sum` would double-count replicas, while the old `max by (phase)` collapsed the
+  // spokes into a single (largest) value once the managed_cluster label was added.
   const query = namespace
-    ? `max by (phase) (hypershell_gateways_total${namespaceSelector(namespace)})`
-    : "hypershell_gateways_total";
+    ? `sum by (phase) (max by (phase, managed_cluster) (hypershell_gateways_total${namespaceSelector(namespace)}))`
+    : "sum by (phase) (max by (phase, managed_cluster, namespace) (hypershell_gateways_total))";
 
   const controller = new AbortController();
   const timeoutReason = new Error("Prometheus query timed out");
@@ -116,8 +120,9 @@ async function queryGatewayDailyFleetTotals(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<DailyFleetTotal[]> {
-  const { end, start } = sevenDayUtcCalendarRange();
+  const { end, start } = utcCalendarRange(rangeDays);
   const samples = await queryPrometheusRangeScalarSamples(
     prometheusUrl,
     gatewayFleetTotalDailyQuery(namespace),
@@ -137,6 +142,7 @@ export async function queryGatewayMetrics(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<GatewayMetricsResponse> {
   const counts = await queryGatewayPhaseCounts(
     prometheusUrl,
@@ -149,6 +155,7 @@ export async function queryGatewayMetrics(
       prometheusUrl,
       timeoutMs,
       namespace,
+      rangeDays,
     );
     return { counts, daily_fleet_totals };
   } catch {

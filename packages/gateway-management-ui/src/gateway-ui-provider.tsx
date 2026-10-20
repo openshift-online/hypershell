@@ -22,7 +22,15 @@ export interface GatewayUiNavigation {
   ) => Promise<void> | void;
 }
 
+/** The signed-in user, supplied by the host so the package can recognize a
+ * caller acting on their own access row. Optional: when absent (e.g. no-auth
+ * mode) self-recognition is simply skipped. */
+export interface GatewayUiCurrentUser {
+  username?: string;
+}
+
 export interface GatewayUiServices {
+  currentUser?: GatewayUiCurrentUser;
   gateways: GatewayOperations;
   navigation: GatewayUiNavigation;
 }
@@ -33,11 +41,12 @@ const GatewayUiContext = createContext<GatewayUiServices | undefined>(
 
 export function GatewayUiProvider({
   children,
+  currentUser,
   gateways,
   navigation,
 }: PropsWithChildren<GatewayUiServices>) {
   return (
-    <GatewayUiContext.Provider value={{ gateways, navigation }}>
+    <GatewayUiContext.Provider value={{ currentUser, gateways, navigation }}>
       {children}
     </GatewayUiContext.Provider>
   );

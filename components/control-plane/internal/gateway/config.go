@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	corev1 "k8s.io/api/core/v1"
@@ -16,12 +17,9 @@ type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
 	DefaultSandboxRuntimeImage() string
-	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
 }
-
-const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
@@ -60,16 +58,6 @@ func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
 	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
 }
 
-// DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
-// It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
-// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror.
-func (StaticImageDefaults) DefaultSandboxImage() string {
-	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
-		return v
-	}
-	return defaultSandboxImage
-}
-
 func (StaticImageDefaults) DefaultConsoleImage() string {
 	if v := os.Getenv("HYPERSHELL_CONSOLE_IMAGE"); v != "" {
 		return v
@@ -90,14 +78,7 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image string `yaml:"image"`
-	// ReleaseID is the GatewayRelease the Image was resolved from (empty for a
-	// direct-image gateway). It is stamped onto the gateway Deployment as an
-	// annotation at apply time so the health loop can advance observed_release_id
-	// only to the release actually applied to the workload, never to a desired
-	// release the provisioning path has not yet rolled out. See
-	// gateway-release-rollout.spec.md.
-	ReleaseID           string                  `yaml:"releaseID"`
+	Image               string                  `yaml:"image"`
 	SupervisorImage     string                  `yaml:"supervisorImage"`
 	SandboxRuntimeImage string                  `yaml:"sandboxRuntimeImage"`
 	ServerDnsNames      []string                `yaml:"serverDnsNames"`
@@ -111,6 +92,65 @@ type CredentialDriverConfig struct {
 	Type              string                   `yaml:"type" json:"type"`
 	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
 	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
+}
+
+// Vault credential-driver conventions (HYPERSHELL-369). A gateway resolved to the
+// vault driver uses these fixed coordinates unless overridden per-gateway
+// (credential_driver.vault.*) or by control-plane deployment config. They match
+// the per-cluster Vault stood up by hypershell-gitops
+// (specs/openshell-gateway-vault.spec.md) and must stay in sync with it - the role
+// name and auth mount are shared literals a mismatch would break authentication on.
+const (
+	VaultDefaultAddress              = "https://openshell-gateway-vault.openshell-vault.svc:8200"
+	VaultDefaultMount                = "secret"
+	VaultDefaultKVVersion            = "2"
+	VaultDefaultAuthMethod           = "kubernetes"
+	VaultDefaultRole                 = "openshell-gateway"
+	VaultDefaultKubernetesAuthMount  = "kubernetes"
+	VaultServiceAccountTokenPath     = "/var/run/secrets/vault/token"
+	VaultServiceAccountTokenDir      = "/var/run/secrets/vault"
+	VaultServiceAccountTokenAudience = "vault"
+	VaultServiceAccountTokenExpiry   = 3600
+	VaultDefaultTimeoutSecs          = 30
+	// VaultCATargetConfigMapName is the ConfigMap the control plane mirrors the
+	// Vault serving CA into, in each gateway's tenant namespace, wired to the
+	// chart's credentialDrivers.vault.caConfigMapName.
+	VaultCATargetConfigMapName = "openshell-gateway-vault-ca"
+	// VaultCADefaultSourceNamespace / VaultCADefaultSourceSecret locate the Vault
+	// serving-CA source on the same cluster (overridable via GATEWAY_VAULT_CA_SECRET
+	// as "namespace/name").
+	VaultCADefaultSourceNamespace = "openshell-vault"
+	VaultCADefaultSourceSecret    = "openshell-gateway-vault-tls"
+	VaultCAKey                    = "ca.crt"
+)
+
+// VaultAddressDefault returns the Vault address convention, overridable by the
+// GATEWAY_VAULT_ADDRESS control-plane environment variable.
+func VaultAddressDefault() string {
+	if v := os.Getenv("GATEWAY_VAULT_ADDRESS"); v != "" {
+		return v
+	}
+	return VaultDefaultAddress
+}
+
+// VaultRoleDefault returns the shared Vault role convention, overridable by the
+// GATEWAY_VAULT_ROLE control-plane environment variable.
+func VaultRoleDefault() string {
+	if v := os.Getenv("GATEWAY_VAULT_ROLE"); v != "" {
+		return v
+	}
+	return VaultDefaultRole
+}
+
+// VaultCASource returns the namespace and name of the Vault serving-CA source
+// Secret, overridable via GATEWAY_VAULT_CA_SECRET ("namespace/name").
+func VaultCASource() (namespace, name string) {
+	if v := os.Getenv("GATEWAY_VAULT_CA_SECRET"); v != "" {
+		if i := strings.IndexByte(v, '/'); i > 0 && i < len(v)-1 {
+			return v[:i], v[i+1:]
+		}
+	}
+	return VaultCADefaultSourceNamespace, VaultCADefaultSourceSecret
 }
 
 type KubernetesSecretsConfig struct {
@@ -233,6 +273,11 @@ type ReconcileOpts struct {
 	// GatewayResources overrides the gateway container requests and limits
 	// (GATEWAY_RESOURCES). Nil uses helm.DefaultGatewayResources.
 	GatewayResources *corev1.ResourceRequirements
+	// SandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
+	// sandbox pod provisioned by this gateway (GATEWAY_SANDBOX_RUNTIME_CLASS).
+	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
+	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
+	SandboxRuntimeClass string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

@@ -36,11 +36,17 @@ function buildSeriesData(
   if (!metric?.hourlyTrend || metric.hourlyTrend.points.length < 2) {
     return undefined;
   }
-  return metric.hourlyTrend.points.map((point, i) => ({
-    name,
-    x: i,
-    y: point.value,
-  }));
+  return metric.hourlyTrend.points.flatMap((point, i) =>
+    point.value === null
+      ? []
+      : [
+          {
+            name,
+            x: i,
+            y: point.value,
+          },
+        ],
+  );
 }
 
 function hasAnyTrendData(metric: OperationalMetric | undefined): boolean {

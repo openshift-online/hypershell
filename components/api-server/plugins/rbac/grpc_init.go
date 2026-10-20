@@ -12,6 +12,7 @@ import (
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/repositories"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -36,6 +37,11 @@ type lazyRBACInterceptor struct {
 	// only its own cluster's gateways. nil (gateways plugin absent) makes those
 	// writes fail with Unavailable.
 	gateways pkgrbac.GatewayClusterResolver
+	// imports validates the reconciled Repository on a declarative-import write, so
+	// the control plane may create/update/prune only resources bound to a real
+	// Repository. nil (repositories plugin absent) makes import writes fail with
+	// Unavailable.
+	imports pkgrbac.ImportRepositoryResolver
 }
 
 // managedClusterResolver adapts the managedClusters service to the caller
@@ -108,6 +114,34 @@ func (r gatewayClusterResolver) NamespaceClusterID(ctx context.Context, namespac
 	return clusterID, found, nil
 }
 
+// repositoryImportResolver adapts the repositories service to the import write
+// binding's "does this reconciled Repository exist" check.
+type repositoryImportResolver struct {
+	envServices *environments.Services
+}
+
+func newRepositoryImportResolver(envServices *environments.Services) pkgrbac.ImportRepositoryResolver {
+	if repositories.Service(envServices) == nil {
+		return nil
+	}
+	return repositoryImportResolver{envServices: envServices}
+}
+
+func (r repositoryImportResolver) RepositoryExists(ctx context.Context, repositoryID string) (bool, error) {
+	svc := repositories.Service(r.envServices)
+	if svc == nil {
+		return false, fmt.Errorf("repository service is not available")
+	}
+	_, svcErr := svc.Get(ctx, repositoryID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return false, nil
+		}
+		return false, svcErr
+	}
+	return true, nil
+}
+
 func (l *lazyRBACInterceptor) init(ctx context.Context) {
 	l.once.Do(func() {
 		env := environments.Environment()
@@ -130,6 +164,7 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		l.clusters = managedClusterResolver{envServices: envServices}
 		l.controlPlanes = newControlPlaneResolver(envServices)
 		l.gateways = newGatewayClusterResolver(envServices)
+		l.imports = newRepositoryImportResolver(envServices)
 		if l.controlPlanes == nil {
 			glog.Warning("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
 		}
@@ -154,13 +189,13 @@ func init() {
 	// new spoke needs no hub-side config; everyone else gets the HTTP rules.
 	pkgserver.RegisterPostAuthGRPCUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		lazy.init(ctx)
-		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, info.FullMethod, req); err != nil {
+		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, lazy.imports, info.FullMethod, req); err != nil {
 			return nil, err
 		}
 		if lazy.lookup == nil {
 			return handler(ctx, req)
 		}
-		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.config)
+		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.imports, lazy.config)
 		return interceptor(ctx, req, info, handler)
 	})
 
@@ -173,7 +208,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(srv, ss)
 		}
-		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.config)
+		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.imports, lazy.config)
 		return interceptor(srv, ss, info, handler)
 	})
 }

@@ -7,6 +7,8 @@ import {
 } from "./prometheus-instant-query.js";
 
 export const managedClustersTotalPromql = "hypershell_managed_clusters_total";
+export const managedClustersCreatedLast7DaysPromql =
+  "hypershell_managed_clusters_created_last_7_days_total";
 export const managedClustersCreatedLast30DaysPromql =
   "hypershell_managed_clusters_created_last_30_days_total";
 export const managedClustersInventoryPromql =
@@ -18,6 +20,7 @@ export interface ManagedClustersInventoryResponse {
   by_provider: Record<string, number>;
   by_region: Record<string, number>;
   by_status: Record<string, number>;
+  created_last_7_days: number;
   created_last_30_days: number;
   total: number;
 }
@@ -43,31 +46,37 @@ export async function queryPlatformInventory(
   timeoutMs: number,
   namespace?: string,
 ): Promise<PlatformInventoryResponse> {
-  const [clusterTotal, clustersCreatedLast30Days, clusterInventory] =
-    await Promise.all([
-      queryPrometheusInstantScalar(
-        prometheusUrl,
-        applicationScalarQuery(managedClustersTotalPromql, namespace),
-        timeoutMs,
+  const [
+    clusterTotal,
+    clustersCreatedLast7Days,
+    clustersCreatedLast30Days,
+    clusterInventory,
+  ] = await Promise.all([
+    queryPrometheusInstantScalar(
+      prometheusUrl,
+      applicationScalarQuery(managedClustersTotalPromql, namespace),
+      timeoutMs,
+    ),
+    queryPrometheusInstantScalar(
+      prometheusUrl,
+      applicationScalarQuery(managedClustersCreatedLast7DaysPromql, namespace),
+      timeoutMs,
+    ),
+    queryPrometheusInstantScalar(
+      prometheusUrl,
+      applicationScalarQuery(managedClustersCreatedLast30DaysPromql, namespace),
+      timeoutMs,
+    ),
+    queryPrometheusInstantVector(
+      prometheusUrl,
+      applicationVectorQuery(
+        managedClustersInventoryPromql,
+        clusterInventoryGroupBy,
+        namespace,
       ),
-      queryPrometheusInstantScalar(
-        prometheusUrl,
-        applicationScalarQuery(
-          managedClustersCreatedLast30DaysPromql,
-          namespace,
-        ),
-        timeoutMs,
-      ),
-      queryPrometheusInstantVector(
-        prometheusUrl,
-        applicationVectorQuery(
-          managedClustersInventoryPromql,
-          clusterInventoryGroupBy,
-          namespace,
-        ),
-        timeoutMs,
-      ),
-    ]);
+      timeoutMs,
+    ),
+  ]);
 
   const byStatus: Record<string, number> = {};
   const byProvider: Record<string, number> = {};
@@ -91,6 +100,7 @@ export async function queryPlatformInventory(
       by_provider: byProvider,
       by_region: byRegion,
       by_status: byStatus,
+      created_last_7_days: clustersCreatedLast7Days,
       created_last_30_days: clustersCreatedLast30Days,
       total: clusterTotal,
     },

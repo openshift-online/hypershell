@@ -119,12 +119,13 @@ func TestIntegrationGatewayServiceAccountIsolation(t *testing.T) {
 			// A client_credentials caller cannot select another gateway's audience
 			// or inherit an admin role from a different client. Keycloak may ignore
 			// this audience parameter, but the issued token must remain constrained.
-			for _, requested := range []string{gateway, other, "hypershell-frontend"} {
+			for _, requested := range []string{gateway, other, "hypershell-frontend", "hypershell-api"} {
 				status, claims := grant(requested)
 				audience, _ := json.Marshal(claims["aud"])
 				singleAudience := string(audience) == fmt.Sprintf("%q", gateway) || string(audience) == fmt.Sprintf("[%q]", gateway)
 				if status != http.StatusOK || !singleAudience || !claims.VerifyAudience(gateway, true) ||
 					claims.VerifyAudience(other, true) || claims.VerifyAudience("hypershell-frontend", true) ||
+					claims.VerifyAudience("hypershell-api", true) ||
 					claims["sub"] != account.Subject {
 					t.Fatal("gateway token audience or subject isolation failed")
 				}

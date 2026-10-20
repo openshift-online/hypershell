@@ -13,9 +13,16 @@ export default [
     index("./routes/home.tsx"),
     route(routeContract.dashboard, "./routes/dashboard.tsx"),
     route(
+      routeContract.dashboardProvisioning,
+      "./routes/dashboard-provisioning.tsx",
+    ),
+    route(routeContract.dashboardInventory, "./routes/dashboard-inventory.tsx"),
+    route(
       routeContract.dashboardReliability,
       "./routes/dashboard-reliability.tsx",
     ),
+    route(routeContract.dashboardUsage, "./routes/dashboard-usage.tsx"),
+    route(routeContract.dashboardAdoption, "./routes/dashboard-adoption.tsx"),
     route(routeContract.gatewayNew, "./routes/gateway-new.tsx"),
     route(routeContract.gatewayDetail, "./routes/gateway.tsx"),
     route(routeContract.metrics, "./routes/metrics.tsx"),

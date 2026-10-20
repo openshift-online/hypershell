@@ -64,8 +64,8 @@ GW_OIDC_CLIENT_ID=""
 # Mirrored gateway images (ROKS nodes can only pull the internal registry). Used
 # only when this run has to CREATE the gateway; ignored when it already exists.
 REG_MIRROR="${REG_MIRROR:-image-registry.openshift-image-registry.svc:5000/openshift}"
-GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.2-rhaiv.0}"
-GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.2-rhaiv.0}"
+GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.3-rhaiv.3}"
+GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.3-rhaiv.3}"
 
 PASS=0
 FAIL=0
@@ -410,13 +410,14 @@ if [[ -z "$EXISTING_ID" ]]; then
   # per-gateway Keycloak client and populates oidc.* itself (read-only in the
   # API). Per openshell-gateway-keycloak.spec.md the create request MUST NOT
   # supply oidc -- we only ask for the gateway and its Route.
+  # Create takes a required placement intent, not a cluster_id. The selector
+  # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm.
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" \
     GW_IMAGE="$GW_IMAGE" GW_SUPERVISOR_IMAGE="$GW_SUPERVISOR_IMAGE" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
+    'placement': {'selector': ['network/public', 'provider/ibm']},
     'image': os.environ['GW_IMAGE'],
     'supervisor_image': os.environ['GW_SUPERVISOR_IMAGE'],
     'route': json.dumps({
@@ -811,6 +812,10 @@ fi
 if [[ "$SKIP_CLEANUP" != "1" && "$LAUNCH_TUI" != "1" && -n "$SANDBOX_NAME" ]]; then
   echo ""
   dim "  Cleaning up sandbox..."
+  # Stop first: it shuts the sandbox down in order. A bare delete waits out the
+  # 30s pod grace period because the sandbox processes ignore SIGTERM.
+  show_cmd "${OPENSHELL} ${GW_FLAG} sandbox stop ${SANDBOX_NAME}"
+  "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox stop "${SANDBOX_NAME}" 2>&1 || true
   show_cmd "${OPENSHELL} ${GW_FLAG} sandbox delete ${SANDBOX_NAME}"
   "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
   dim "  Sandbox deleted"
@@ -962,6 +967,7 @@ except Exception:
 
   if [[ "$SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then
     dim "  Cleaning up developer sandbox..."
+    "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox stop "${DEV_SANDBOX}" 2>&1 || true
     "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
   fi
 

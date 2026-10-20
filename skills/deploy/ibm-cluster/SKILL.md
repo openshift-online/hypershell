@@ -3,7 +3,7 @@ name: ibm-cluster
 description: >
   Provision (and later retire) an IBM Cloud ROKS OpenShift cluster on VPC Gen2 to
   serve as a HyperShell Cloud Hub. Ensures a version with the built-in, CIO-managed
-  Gateway API (OCP >= 4.19) so tenant-gateway manifests match the AWS reference.
+  Gateway API (OCP 4.19 or later) so tenant-gateway manifests match the AWS reference.
   Use when: "create IBM cluster", "new ROKS cluster", "provision cloud hub on IBM",
   "upgrade IBM OpenShift", "hysh-ibm".
 ---
@@ -384,11 +384,11 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775    docker://$REG/openshift/openshell-gateway:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e    docker://$REG/openshift/openshell-gateway:v0.1.3-rhaiv.3
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0@sha256:31c77a215c927a7aafe5a8aa68ca8610fd13f3bb1587e1836e60f5242b148109 docker://$REG/openshift/openshell-supervisor:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.3-rhaiv.3@sha256:8564613ff3b753b9cdd03fc6b936646790e8d575b882f924d83640516db40d1a docker://$REG/openshift/openshell-supervisor:v0.1.3-rhaiv.3
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0@sha256:283838f9787bdd876ec8f110a5d5b5c752082a410f75173f0abf2533ae651989 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.3-rhaiv.3@sha256:7a38a0fba5d4cf196ba45879701e43ac61aa41de80ef5d486631d0fba7553d03 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.3-rhaiv.3
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 
@@ -440,17 +440,19 @@ must keep aligned with this cluster:
 
 The control plane reads the gateway's own `image` and `supervisor_image` fields
 and requires them to be set explicitly. Required environment variables `GATEWAY_IMAGE` and
-`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/controller.yaml`) define the authoritative
+`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/platform-resources/controller.yaml`) define the authoritative
 image sources and have no fallback defaults; set both to the mirrored internal refs, and pass
 `namespace` explicitly (the deployed API image still validates it as required despite the
 OpenAPI `readOnly` marking):
 
 ```bash
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
-# ...create ManagedCluster and GatewayRelease first; the gateway database server is
-# configured through the hypershell-gateway-database-admin Secret, not the API...
+# Create takes a required placement intent, not a cluster_id. The selector
+# matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm. The gateway
+# database server is configured through the hypershell-gateway-database-admin
+# Secret, not the API.
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
-  "name":"ibm-test-gw","cluster_id":"...","release_id":"...",
+  "name":"ibm-test-gw","placement":{"selector":["network/public","provider/ibm"]},
   "namespace":"openshell-ibmtest",
   "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.109",
   "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109",
@@ -564,14 +566,11 @@ restart each already-running tenant gateway once for its compute driver to pick 
 oc -n "$NS" rollout restart deploy/openshell-gateway   # then: 0 "no supported Agent Sandbox" logs; "Compute driver connected"
 ```
 
-**Sandbox base image must be node-reachable too.** The gateway's `default_image`
-(the base image every sandbox pod runs) was previously hardcoded to the ghcr path
-with no override; it is now `SANDBOX_IMAGE_PLACEHOLDER`, resolved from
-`GATEWAY_SANDBOX_IMAGE` (control-plane env, set in the `deploy/ibm` overlay to the
-mirror). Rebuild + redeploy the controller (5.2/5.3) and force one re-reconcile
-(`PATCH /gateways/<id> {"phase":""}`) so the tenant configmap re-renders with the
-mirrored `default_image`, then restart the gateway. Without this a CLI-created
-sandbox is admitted but its pod `ImagePullBackOff`s on the ghcr base image.
+**Sandbox workload image must be node-reachable too.** Select the mirrored
+workload image explicitly with `openshell sandbox create --from <mirror-image>`.
+The control plane does not expose a workload-image override. Omitting `--from`
+uses the vendored chart's `sandbox.image` default, which the worker nodes may
+not be able to pull. Mirroring an image alone does not change that default.
 
 Verify (headless, no CLI auth needed - the sandbox RPC requires an authenticated
 caller since `allow_unauthenticated_users=false`, so `openshell sandbox list` over

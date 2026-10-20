@@ -375,283 +375,6 @@ paths:
       security:
       - Bearer: []
       summary: Update an managedCluster
-  /api/hypershell/v1/gateway_releases:
-    get:
-      operationId: listGatewayReleases
-      parameters:
-      - description: Page number of record list when record list exceeds specified
-          page size
-        explode: true
-        in: query
-        name: page
-        required: false
-        schema:
-          default: 1
-          minimum: 1
-          type: integer
-        style: form
-      - description: Maximum number of records to return
-        explode: true
-        in: query
-        name: size
-        required: false
-        schema:
-          default: 100
-          minimum: 0
-          type: integer
-        style: form
-      - description: Specifies the search criteria
-        explode: true
-        in: query
-        name: search
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Specifies the order by criteria
-        explode: true
-        in: query
-        name: orderBy
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Supplies a comma-separated list of fields to be returned
-        explode: true
-        in: query
-        name: fields
-        required: false
-        schema:
-          type: string
-        style: form
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayReleaseList"
-          description: A JSON array of gatewayRelease objects
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Returns a list of gatewayReleases
-    post:
-      operationId: createGatewayRelease
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GatewayRelease"
-        description: GatewayRelease data
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayRelease"
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: GatewayRelease already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: An unexpected error occurred creating the gatewayRelease
-      security:
-      - Bearer: []
-      summary: Create a new gatewayRelease
-  /api/hypershell/v1/gateway_releases/{id}:
-    delete:
-      operationId: deleteGatewayRelease
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "204":
-          description: Gateway release deleted successfully
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gateway release with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error deleting gateway release
-      security:
-      - Bearer: []
-      summary: Delete a gateway release
-    get:
-      operationId: getGatewayRelease
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayRelease"
-          description: GatewayRelease found by id
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gatewayRelease with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Get an gatewayRelease by id
-    patch:
-      operationId: updateGatewayRelease
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GatewayReleasePatchRequest"
-        description: Updated gatewayRelease data
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayRelease"
-          description: GatewayRelease updated successfully
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gatewayRelease with specified id exists
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: GatewayRelease already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error updating gatewayRelease
-      security:
-      - Bearer: []
-      summary: Update an gatewayRelease
   /api/hypershell/v1/gateways:
     get:
       operationId: listGateways
@@ -751,9 +474,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
           description: |
-            Validation errors occurred, including a cluster_id that is empty or does not
-            reference a ManagedCluster with a registered control plane (non-empty
-            oidc_subject). On update, cluster_id is validated only when it changes.
+            Validation errors occurred, including an invalid or unavailable placement
+            intent. The backend resolves a valid intent to a registered ManagedCluster
+            before creating the gateway.
         "401":
           content:
             application/json:
@@ -781,6 +504,38 @@ paths:
       security:
       - Bearer: []
       summary: Create a new gateway
+  /api/hypershell/v1/gateways/placement-availability:
+    post:
+      operationId: getGatewayPlacementAvailability
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayPlacementAvailabilityRequest"
+        description: Capability selectors to evaluate
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayPlacementAvailability"
+          description: Current backend placement eligibility
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error evaluating placement availability
+      security:
+      - Bearer: []
+      summary: Returns current placement eligibility for a batch of selectors
   /api/hypershell/v1/gateways/{id}:
     delete:
       operationId: deleteGateway
@@ -1217,283 +972,6 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Keycloak provisioning or lifecycle verification is unavailable
       summary: Permanently revoke an OpenShell gateway service account
-  /api/hypershell/v1/gateway_networks:
-    get:
-      operationId: listGatewayNetworks
-      parameters:
-      - description: Page number of record list when record list exceeds specified
-          page size
-        explode: true
-        in: query
-        name: page
-        required: false
-        schema:
-          default: 1
-          minimum: 1
-          type: integer
-        style: form
-      - description: Maximum number of records to return
-        explode: true
-        in: query
-        name: size
-        required: false
-        schema:
-          default: 100
-          minimum: 0
-          type: integer
-        style: form
-      - description: Specifies the search criteria
-        explode: true
-        in: query
-        name: search
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Specifies the order by criteria
-        explode: true
-        in: query
-        name: orderBy
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Supplies a comma-separated list of fields to be returned
-        explode: true
-        in: query
-        name: fields
-        required: false
-        schema:
-          type: string
-        style: form
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayNetworkList"
-          description: A JSON array of gatewayNetwork objects
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Returns a list of gatewayNetworks
-    post:
-      operationId: createGatewayNetwork
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GatewayNetwork"
-        description: GatewayNetwork data
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayNetwork"
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: GatewayNetwork already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: An unexpected error occurred creating the gatewayNetwork
-      security:
-      - Bearer: []
-      summary: Create a new gatewayNetwork
-  /api/hypershell/v1/gateway_networks/{id}:
-    delete:
-      operationId: deleteGatewayNetwork
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "204":
-          description: Gateway network deleted successfully
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gateway network with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error deleting gateway network
-      security:
-      - Bearer: []
-      summary: Delete a gateway network
-    get:
-      operationId: getGatewayNetwork
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayNetwork"
-          description: GatewayNetwork found by id
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gatewayNetwork with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Get an gatewayNetwork by id
-    patch:
-      operationId: updateGatewayNetwork
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GatewayNetworkPatchRequest"
-        description: Updated gatewayNetwork data
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GatewayNetwork"
-          description: GatewayNetwork updated successfully
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No gatewayNetwork with specified id exists
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: GatewayNetwork already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error updating gatewayNetwork
-      security:
-      - Bearer: []
-      summary: Update an gatewayNetwork
   /api/hypershell/v1/roles:
     get:
       operationId: listRoles
@@ -1873,6 +1351,2307 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: Get a registered user by ID
+  /api/hypershell/v1/gateways/{gateway_id}/access:
+    get:
+      operationId: listGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Filter by console role tier
+        in: query
+        name: role
+        required: false
+        schema:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - in: query
+        name: sort
+        required: false
+        schema:
+          default: created_at
+          enum:
+          - name
+          - role
+          - status
+          - expires_at
+          - created_at
+          type: string
+      - in: query
+        name: order
+        required: false
+        schema:
+          default: desc
+          enum:
+          - asc
+          - desc
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessList"
+          description: Access grants and caller capabilities
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List access grants on a gateway
+    post:
+      operationId: grantGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessGrantRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Access granted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Grant a user access to a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/access/directory:
+    get:
+      operationId: searchGatewayDirectory
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayDirectoryUserList"
+          description: Candidate realm users
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Search the Keycloak realm directory for candidate users
+  /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
+    delete:
+      operationId: revokeGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: Access revoked
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Revoke a user's access to a gateway
+    patch:
+      operationId: changeGatewayAccessRole
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessChangeRoleRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Role changed
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Change a user's access role on a gateway
+  /api/hypershell/ext/agent_runtimes:
+    get:
+      operationId: listAgentRuntimes
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntimeList"
+          description: A JSON array of agent runtime objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of agent runtimes
+    post:
+      operationId: createAgentRuntime
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRuntime"
+        description: AgentRuntime data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntime"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new agent runtime
+  /api/hypershell/ext/agent_runtimes/{id}:
+    delete:
+      operationId: deleteAgentRuntime
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: AgentRuntime deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent runtime with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete an agent runtime
+    get:
+      operationId: getAgentRuntime
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntime"
+          description: AgentRuntime found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent runtime with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get an agent runtime by ID
+    patch:
+      operationId: updateAgentRuntime
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRuntimePatchRequest"
+        description: Updated agent runtime data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRuntime"
+          description: AgentRuntime updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent runtime with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update an agent runtime
+  /api/hypershell/ext/sandbox_templates:
+    get:
+      operationId: listSandboxTemplates
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxTemplateList"
+          description: A JSON array of sandbox template objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of sandbox templates
+    post:
+      operationId: createSandboxTemplate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxTemplate"
+        description: SandboxTemplate data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxTemplate"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new sandbox template
+  /api/hypershell/ext/sandbox_templates/{id}:
+    delete:
+      operationId: deleteSandboxTemplate
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: SandboxTemplate deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No sandbox template with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a sandbox template
+    get:
+      operationId: getSandboxTemplate
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxTemplate"
+          description: SandboxTemplate found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No sandbox template with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a sandbox template by ID
+    patch:
+      operationId: updateSandboxTemplate
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxTemplatePatchRequest"
+        description: Updated sandbox template data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxTemplate"
+          description: SandboxTemplate updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No sandbox template with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a sandbox template
+  /api/hypershell/ext/provider_specs:
+    get:
+      operationId: listProviderSpecs
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSpecList"
+          description: A JSON array of provider spec objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of provider specs
+    post:
+      operationId: createProviderSpec
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderSpec"
+        description: ProviderSpec data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSpec"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new provider spec
+  /api/hypershell/ext/provider_specs/{id}:
+    delete:
+      operationId: deleteProviderSpec
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: ProviderSpec deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider spec with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a provider spec
+    get:
+      operationId: getProviderSpec
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSpec"
+          description: ProviderSpec found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider spec with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a provider spec by ID
+    patch:
+      operationId: updateProviderSpec
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderSpecPatchRequest"
+        description: Updated provider spec data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSpec"
+          description: ProviderSpec updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider spec with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a provider spec
+  /api/hypershell/ext/provider_bindings:
+    get:
+      operationId: listProviderBindings
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderBindingList"
+          description: A JSON array of provider binding objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of provider bindings
+    post:
+      operationId: createProviderBinding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderBinding"
+        description: ProviderBinding data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderBinding"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new provider binding
+  /api/hypershell/ext/provider_bindings/{id}:
+    delete:
+      operationId: deleteProviderBinding
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: ProviderBinding deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider binding with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a provider binding
+    get:
+      operationId: getProviderBinding
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderBinding"
+          description: ProviderBinding found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider binding with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a provider binding by ID
+    patch:
+      operationId: updateProviderBinding
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderBindingPatchRequest"
+        description: Updated provider binding data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderBinding"
+          description: ProviderBinding updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No provider binding with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a provider binding
+  /api/hypershell/ext/inference_routes:
+    get:
+      operationId: listInferenceRoutes
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceRouteList"
+          description: A JSON array of inference route objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of inference routes
+    post:
+      operationId: createInferenceRoute
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InferenceRoute"
+        description: InferenceRoute data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceRoute"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new inference route
+  /api/hypershell/ext/inference_routes/{id}:
+    delete:
+      operationId: deleteInferenceRoute
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: InferenceRoute deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No inference route with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete an inference route
+    get:
+      operationId: getInferenceRoute
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceRoute"
+          description: InferenceRoute found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No inference route with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get an inference route by ID
+  /api/hypershell/ext/secret_sources:
+    get:
+      operationId: listSecretSources
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretSourceList"
+          description: A JSON array of secret source objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of secret sources
+    post:
+      operationId: createSecretSource
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecretSource"
+        description: SecretSource data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretSource"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new secret source
+  /api/hypershell/ext/secret_sources/{id}:
+    delete:
+      operationId: deleteSecretSource
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: SecretSource deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No secret source with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a secret source
+    get:
+      operationId: getSecretSource
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretSource"
+          description: SecretSource found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No secret source with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a secret source by ID
+    patch:
+      operationId: updateSecretSource
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecretSourcePatchRequest"
+        description: Updated secret source data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretSource"
+          description: SecretSource updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No secret source with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a secret source
+  /api/hypershell/ext/repositories:
+    get:
+      operationId: listRepositories
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryList"
+          description: A JSON array of repository objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of repositories
+    post:
+      operationId: createRepository
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Repository"
+        description: Repository data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Register a new repository
+  /api/hypershell/ext/repositories/{id}:
+    delete:
+      operationId: deleteRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Repository deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Repository is still referenced by one or more AgentRuntimes
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a repository
+    get:
+      operationId: getRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a repository by ID
+    patch:
+      operationId: updateRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepositoryPatchRequest"
+        description: Updated repository data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a repository
+  /api/hypershell/ext/agent_workspaces:
+    get:
+      operationId: listAgentWorkspaces
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspaceList"
+          description: A JSON array of agent workspace objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of agent workspaces
+    post:
+      operationId: createAgentWorkspace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentWorkspace"
+        description: AgentWorkspace data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: "Workspace name already in use on the gateway, or the runtime\
+            \ already owns a workspace"
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new agent workspace
+  /api/hypershell/ext/agent_workspaces/{id}:
+    delete:
+      operationId: deleteAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: AgentWorkspace deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete an agent workspace
+    get:
+      operationId: getAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: AgentWorkspace found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get an agent workspace by ID
+    patch:
+      operationId: updateAgentWorkspace
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentWorkspacePatchRequest"
+        description: Updated agent workspace data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWorkspace"
+          description: AgentWorkspace updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace name already in use on the gateway
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No agent workspace with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update an agent workspace
+  /api/hypershell/ext/workspace_memberships:
+    get:
+      operationId: listWorkspaceMemberships
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembershipList"
+          description: A JSON array of workspace membership objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of workspace memberships
+    post:
+      operationId: createWorkspaceMembership
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMembership"
+        description: WorkspaceMembership data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace requires at least one admin membership for a refresh-bearing
+            provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a new workspace membership
+  /api/hypershell/ext/workspace_memberships/{id}:
+    delete:
+      operationId: deleteWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: WorkspaceMembership deleted successfully
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Cannot remove the last admin membership from a workspace with
+            a refresh-bearing provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a workspace membership
+    get:
+      operationId: getWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: WorkspaceMembership found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a workspace membership by ID
+    patch:
+      operationId: updateWorkspaceMembership
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMembershipPatchRequest"
+        description: Updated workspace membership data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembership"
+          description: WorkspaceMembership updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Workspace requires at least one admin membership for a refresh-bearing
+            provider binding
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No workspace membership with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a workspace membership
 components:
   parameters:
     id:
@@ -1974,6 +3753,20 @@ components:
       description: OpenShellGatewayServiceAccount ID
       in: path
       name: service_account_id
+      required: true
+      schema:
+        type: string
+    role:
+      description: Filter by console role tier
+      in: query
+      name: role
+      required: false
+      schema:
+        $ref: "#/components/schemas/GatewayAccessRole"
+    userId:
+      description: HyperShell User ID
+      in: path
+      name: user_id
       required: true
       schema:
         type: string
@@ -2080,6 +3873,15 @@ components:
           name:
             type: string
           provider:
+            description: Cloud provider capability used for gateway placement.
+            type: string
+          visibility:
+            description: Network visibility supported by this control plane for gateway
+              placement.
+            enum:
+            - public
+            - vpn
+            readOnly: true
             type: string
           region:
             type: string
@@ -2100,12 +3902,24 @@ components:
             format: date-time
             readOnly: true
             type: string
+          capabilities:
+            description: Registration-owned capability labels used by match-all placement
+              selectors.
+            items:
+              type: string
+            readOnly: true
+            type: array
+            uniqueItems: true
         required:
         - kubeconfig_secret
         - name
         - provider
         type: object
       example:
+        capabilities:
+        - capabilities
+        - capabilities
+        visibility: public
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
         oidc_subject: oidc_subject
@@ -2138,7 +3952,11 @@ components:
         id: id
         href: href
         items:
-        - kind: kind
+        - capabilities:
+          - capabilities
+          - capabilities
+          visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2151,7 +3969,11 @@ components:
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - kind: kind
+        - capabilities:
+          - capabilities
+          - capabilities
+          visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2188,16 +4010,24 @@ components:
       type: object
     ManagedClusterRegistrationRequest:
       example:
+        capabilities:
+        - capabilities
+        - capabilities
         name: name
-        description: description
       properties:
         name:
-          description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
+          description: "Human-readable spoke name, unique per platform (e.g. hyp0-mc1).\
             \ Must match on every subsequent call."
           type: string
-        description:
-          description: Optional description of the spoke.
-          type: string
+        capabilities:
+          description: "Complete self-declared capability set. Optional for backward\
+            \ compatibility: a control plane that predates the capability model may\
+            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
+            \ any stored capabilities."
+          items:
+            type: string
+          type: array
+          uniqueItems: true
       required:
       - name
       type: object
@@ -2212,103 +4042,6 @@ components:
       required:
       - cluster_id
       type: object
-    GatewayRelease:
-      allOf:
-      - $ref: "#/components/schemas/ObjectReference"
-      - properties:
-          name:
-            type: string
-          image:
-            type: string
-          rollout_strategy:
-            type: string
-          canary_percent:
-            format: int32
-            type: integer
-          canary_duration:
-            type: string
-          status:
-            type: string
-        required:
-        - image
-        - name
-        type: object
-      example:
-        image: image
-        canary_percent: 5
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
-        rollout_strategy: rollout_strategy
-        id: id
-        href: href
-        canary_duration: canary_duration
-        status: status
-    GatewayReleaseList:
-      allOf:
-      - $ref: "#/components/schemas/List"
-      - properties:
-          items:
-            items:
-              $ref: "#/components/schemas/GatewayRelease"
-            type: array
-        type: object
-      example:
-        total: 1
-        size: 6
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        page: 0
-        id: id
-        href: href
-        items:
-        - image: image
-          canary_percent: 5
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          rollout_strategy: rollout_strategy
-          id: id
-          href: href
-          canary_duration: canary_duration
-          status: status
-        - image: image
-          canary_percent: 5
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          rollout_strategy: rollout_strategy
-          id: id
-          href: href
-          canary_duration: canary_duration
-          status: status
-    GatewayReleasePatchRequest:
-      example:
-        image: image
-        canary_percent: 0
-        name: name
-        rollout_strategy: rollout_strategy
-        canary_duration: canary_duration
-        status: status
-      properties:
-        name:
-          type: string
-        image:
-          type: string
-        rollout_strategy:
-          type: string
-        canary_percent:
-          format: int32
-          type: integer
-        canary_duration:
-          type: string
-        status:
-          type: string
-      type: object
     Gateway:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
@@ -2316,8 +4049,10 @@ components:
           name:
             type: string
           cluster_id:
-            type: string
-          release_id:
+            description: Managed cluster this gateway is assigned to. Empty while
+              a late-bound gateway (one created with a placement selector) is awaiting
+              placement; the API server assigns it when a matching ManagedCluster
+              is available.
             type: string
           namespace:
             description: API-assigned Kubernetes namespace derived from the Gateway
@@ -2357,12 +4092,19 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
-          observed_release_id:
-            description: "Release the control plane has rolled out and observed healthy,\
-              \ advanced only after a new revision passes its health gates; distinct\
-              \ from the desired release_id and populated by the control plane"
+          provisioning_version:
+            description: "Gateway version the gateway's cluster advertises provisioning\
+              \ onto new gateways, derived from that cluster's single-valued gateway-version\
+              \ capability. Empty when the cluster advertises no provisioning version."
             readOnly: true
             type: string
+          image_pinned:
+            description: "Whether this gateway pins an explicit image and therefore\
+              \ need not track its cluster's provisioning version. True suppresses\
+              \ the newer-version-available drift indicator, because a pinned gateway\
+              \ may intentionally run a different version from its cluster default."
+            readOnly: true
+            type: boolean
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2404,21 +4146,42 @@ components:
             format: int64
             readOnly: true
             type: integer
+          repository_id:
+            description: Repository that owns this gateway through the control-plane
+              .hypershell import. Null for gateways created directly through the REST
+              API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+          can_delete:
+            description: Whether the authenticated caller is authorized to delete
+              this gateway (gateway owner or platform admin). Advertised so clients
+              can disable a delete affordance the API would reject; the server remains
+              authoritative.
+            readOnly: true
+            type: boolean
+          can_edit:
+            description: "Whether the authenticated caller is authorized to modify\
+              \ this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised\
+              \ so clients can disable an edit affordance the API would reject; the\
+              \ server remains authoritative."
+            readOnly: true
+            type: boolean
         required:
         - cluster_id
         - name
         - namespace
-        - release_id
         type: object
       example:
-        release_id: release_id
         server_dns_names:
         - server_dns_names
         - server_dns_names
+        image_pinned: true
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
+        can_delete: true
+        repository_id: repository_id
         id: id
         href: href
         gateway_version: gateway_version
@@ -2427,8 +4190,8 @@ components:
         phase: phase
         generation: 5
         image: image
-        observed_release_id: observed_release_id
         active_sandbox_count: 5
+        provisioning_version: provisioning_version
         provisioning_conditions:
         - condition_status: Pending
           type: type
@@ -2438,6 +4201,7 @@ components:
           message: message
         kind: kind
         console_address: console_address
+        can_edit: true
         route_address: route_address
         oidc: oidc
         created_by: created_by
@@ -2467,14 +4231,16 @@ components:
         id: id
         href: href
         items:
-        - release_id: release_id
-          server_dns_names:
+        - server_dns_names:
           - server_dns_names
           - server_dns_names
+          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version
@@ -2483,8 +4249,8 @@ components:
           phase: phase
           generation: 5
           image: image
-          observed_release_id: observed_release_id
           active_sandbox_count: 5
+          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -2494,6 +4260,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by
@@ -2504,14 +4271,16 @@ components:
           name: name
           namespace: namespace
           status: status
-        - release_id: release_id
-          server_dns_names:
+        - server_dns_names:
           - server_dns_names
           - server_dns_names
+          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
+          repository_id: repository_id
           id: id
           href: href
           gateway_version: gateway_version
@@ -2520,8 +4289,8 @@ components:
           phase: phase
           generation: 5
           image: image
-          observed_release_id: observed_release_id
           active_sandbox_count: 5
+          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -2531,6 +4300,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by
@@ -2544,7 +4314,6 @@ components:
     GatewayPatchRequest:
       example:
         phase: phase
-        release_id: release_id
         image: image
         server_dns_names:
         - server_dns_names
@@ -2564,8 +4333,6 @@ components:
         name:
           type: string
         cluster_id:
-          type: string
-        release_id:
           type: string
         external_dns:
           type: string
@@ -2593,6 +4360,51 @@ components:
           type: string
         credential_driver:
           type: string
+      type: object
+    GatewayPlacementIntent:
+      description: Exactly one of selector or mode must be supplied.
+      example:
+        mode: local-kind
+        selector:
+        - selector
+        - selector
+      nullable: true
+      oneOf: []
+      properties:
+        selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        mode:
+          enum:
+          - local-kind
+          type: string
+      type: object
+    GatewayPlacementAvailability:
+      example:
+        local_kind: true
+        placements:
+        - reason: no-eligible-cluster
+          available: true
+          selector:
+          - selector
+          - selector
+        - reason: no-eligible-cluster
+          available: true
+          selector:
+          - selector
+          - selector
+      properties:
+        placements:
+          items:
+            $ref: "#/components/schemas/GatewayPlacementAvailabilityItem"
+          type: array
+        local_kind:
+          type: boolean
+      required:
+      - local_kind
+      - placements
       type: object
     OpenShellGatewayServiceAccountRole:
       enum:
@@ -2988,92 +4800,6 @@ components:
       - size
       - total
       type: object
-    GatewayNetwork:
-      allOf:
-      - $ref: "#/components/schemas/ObjectReference"
-      - properties:
-          name:
-            type: string
-          topology:
-            type: string
-          tunnel_mode:
-            type: string
-          hub_gateway_id:
-            type: string
-          status:
-            type: string
-        required:
-        - name
-        type: object
-      example:
-        tunnel_mode: tunnel_mode
-        hub_gateway_id: hub_gateway_id
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        topology: topology
-        name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
-        id: id
-        href: href
-        status: status
-    GatewayNetworkList:
-      allOf:
-      - $ref: "#/components/schemas/List"
-      - properties:
-          items:
-            items:
-              $ref: "#/components/schemas/GatewayNetwork"
-            type: array
-        type: object
-      example:
-        total: 1
-        size: 6
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        page: 0
-        id: id
-        href: href
-        items:
-        - tunnel_mode: tunnel_mode
-          hub_gateway_id: hub_gateway_id
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          topology: topology
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          id: id
-          href: href
-          status: status
-        - tunnel_mode: tunnel_mode
-          hub_gateway_id: hub_gateway_id
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          topology: topology
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          id: id
-          href: href
-          status: status
-    GatewayNetworkPatchRequest:
-      example:
-        tunnel_mode: tunnel_mode
-        hub_gateway_id: hub_gateway_id
-        topology: topology
-        name: name
-        status: status
-      properties:
-        name:
-          type: string
-        topology:
-          type: string
-        tunnel_mode:
-          type: string
-        hub_gateway_id:
-          type: string
-        status:
-          type: string
-      type: object
     Role:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
@@ -3264,10 +4990,1002 @@ components:
           href: href
           email: email
           username: username
+    GatewayAccessRole:
+      enum:
+      - owner
+      - admin
+      - user
+      type: string
+    GatewayAccessGrantRequest:
+      additionalProperties: false
+      example:
+        role: owner
+        subject: subject
+        username: username
+      properties:
+        username:
+          minLength: 1
+          type: string
+        subject:
+          description: Optional Keycloak subject reference returned by the directory
+            search
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      - username
+      type: object
+    GatewayAccessChangeRoleRequest:
+      additionalProperties: false
+      example:
+        role: owner
+      properties:
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      type: object
+    GatewayAccessListItem:
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: null
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        email: email
+        username: username
+      properties:
+        role_binding_id:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        granted_at:
+          format: date-time
+          type: string
+      required:
+      - granted_at
+      - role
+      - role_binding_id
+      - user_id
+      - username
+      type: object
+    GatewayAccessGrantResponse:
+      allOf:
+      - $ref: "#/components/schemas/GatewayAccessListItem"
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: owner
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        email: email
+        username: username
+    GatewayAccessCapabilities:
+      example:
+        caller_role: owner
+        can_manage_access: true
+        can_manage_owners: true
+      properties:
+        caller_role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        can_manage_access:
+          type: boolean
+        can_manage_owners:
+          type: boolean
+      required:
+      - can_manage_access
+      - can_manage_owners
+      type: object
+    GatewayAccessList:
+      example:
+        total: 1
+        capabilities:
+          caller_role: owner
+          can_manage_access: true
+          can_manage_owners: true
+        size: 6
+        page: 0
+        items:
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          email: email
+          username: username
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          email: email
+          username: username
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+        capabilities:
+          $ref: "#/components/schemas/GatewayAccessCapabilities"
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayAccessListItem"
+          type: array
+      required:
+      - capabilities
+      - items
+      - page
+      - size
+      - total
+      type: object
+    GatewayDirectoryUser:
+      example:
+        subject: subject
+        name: name
+        email: email
+        username: username
+      properties:
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        subject:
+          nullable: true
+          type: string
+      required:
+      - username
+      type: object
+    GatewayDirectoryUserList:
+      example:
+        items:
+        - subject: subject
+          name: name
+          email: email
+          username: username
+        - subject: subject
+          name: name
+          email: email
+          username: username
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayDirectoryUser"
+          type: array
+      required:
+      - items
+      type: object
+    AgentRuntime:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          cluster_id:
+            description: "Optional. When omitted, the scheduling cluster is derived\
+              \ from the referenced Gateway's placement."
+            type: string
+          gateway_id:
+            type: string
+          sandbox_template_id:
+            type: string
+          repository_id:
+            description: Optional reference to a Repository the runtime scans
+            type: string
+          selector:
+            description: Labels selecting repository work items to scan (match-any);
+              requires repository_id
+            items:
+              type: string
+            type: array
+          description:
+            type: string
+          cron:
+            description: Cron expression for scheduling the agent coordinator
+            type: string
+          coordinator_image:
+            description: Container image for the agent coordinator CronJob
+            type: string
+          concurrency_policy:
+            description: "Kubernetes CronJob concurrency policy (Allow, Forbid, Replace)"
+            type: string
+          login_refresh_seconds:
+            description: Interval in seconds for refreshing gateway login credentials
+            format: int32
+            type: integer
+          parameters:
+            description: JSON-encoded key-value parameters passed to the agent coordinator
+            type: string
+          status:
+            readOnly: true
+            type: string
+        required:
+        - gateway_id
+        - name
+        type: object
+      example:
+        cron: cron
+        kind: kind
+        concurrency_policy: concurrency_policy
+        created_at: 2000-01-23T04:56:07.000+00:00
+        description: description
+        sandbox_template_id: sandbox_template_id
+        gateway_id: gateway_id
+        coordinator_image: coordinator_image
+        cluster_id: cluster_id
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        login_refresh_seconds: 5
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
+        id: id
+        href: href
+        parameters: parameters
+        status: status
+    AgentRuntimeList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/AgentRuntime"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - cron: cron
+          kind: kind
+          concurrency_policy: concurrency_policy
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          sandbox_template_id: sandbox_template_id
+          gateway_id: gateway_id
+          coordinator_image: coordinator_image
+          cluster_id: cluster_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
+          id: id
+          href: href
+          parameters: parameters
+          status: status
+        - cron: cron
+          kind: kind
+          concurrency_policy: concurrency_policy
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          sandbox_template_id: sandbox_template_id
+          gateway_id: gateway_id
+          coordinator_image: coordinator_image
+          cluster_id: cluster_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
+          id: id
+          href: href
+          parameters: parameters
+          status: status
+    AgentRuntimePatchRequest:
+      example:
+        cron: cron
+        coordinator_image: coordinator_image
+        name: name
+        concurrency_policy: concurrency_policy
+        login_refresh_seconds: 0
+        description: description
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
+        sandbox_template_id: sandbox_template_id
+        parameters: parameters
+      properties:
+        name:
+          type: string
+        sandbox_template_id:
+          type: string
+        repository_id:
+          type: string
+        selector:
+          items:
+            type: string
+          type: array
+        description:
+          type: string
+        cron:
+          type: string
+        coordinator_image:
+          type: string
+        concurrency_policy:
+          type: string
+        login_refresh_seconds:
+          format: int32
+          type: integer
+        parameters:
+          type: string
+      type: object
+    SandboxTemplate:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          image:
+            description: OCI image for agent worker sandboxes
+            type: string
+          name_prefix:
+            description: Prefix applied to sandbox pod names
+            type: string
+          policy:
+            description: "JSON-encoded filesystem, network, and process policy for\
+              \ sandboxes"
+            type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+          status:
+            readOnly: true
+            type: string
+        required:
+        - image
+        - name
+        type: object
+      example:
+        image: image
+        name_prefix: name_prefix
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
+        id: id
+        href: href
+        policy: policy
+        status: status
+    SandboxTemplateList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/SandboxTemplate"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - image: image
+          name_prefix: name_prefix
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          policy: policy
+          status: status
+        - image: image
+          name_prefix: name_prefix
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          policy: policy
+          status: status
+    SandboxTemplatePatchRequest:
+      example:
+        image: image
+        name_prefix: name_prefix
+        name: name
+        policy: policy
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        name_prefix:
+          type: string
+        policy:
+          type: string
+      type: object
+    ProviderSpec:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          category:
+            enum:
+            - inference
+            - source_control
+            - knowledge
+            type: string
+          capability:
+            description: "JSON-encoded capability definition (gateway-agnostic, category-discriminated)"
+            type: string
+          profile:
+            description: JSON-encoded opaque profile passed through to the gateway
+              provider registration step
+            type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+          status:
+            readOnly: true
+            type: string
+        required:
+        - category
+        - name
+        type: object
+      example:
+        capability: capability
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        profile: profile
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
+        id: id
+        href: href
+        category: inference
+        status: status
+    ProviderSpecList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/ProviderSpec"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - capability: capability
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          profile: profile
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          category: inference
+          status: status
+        - capability: capability
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          profile: profile
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          category: inference
+          status: status
+    ProviderSpecPatchRequest:
+      example:
+        capability: capability
+        profile: profile
+        name: name
+      properties:
+        name:
+          type: string
+        capability:
+          type: string
+        profile:
+          type: string
+      type: object
+    ProviderBinding:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          workspace_id:
+            type: string
+          provider_spec_id:
+            type: string
+          secret_source_id:
+            type: string
+          refresh_strategy:
+            description: JSON-encoded credential refresh strategy configuration
+            type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+          status:
+            readOnly: true
+            type: string
+        required:
+        - name
+        - provider_spec_id
+        - workspace_id
+        type: object
+      example:
+        workspace_id: workspace_id
+        secret_source_id: secret_source_id
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        provider_spec_id: provider_spec_id
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
+        id: id
+        href: href
+        refresh_strategy: refresh_strategy
+        status: status
+    ProviderBindingList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/ProviderBinding"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - workspace_id: workspace_id
+          secret_source_id: secret_source_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider_spec_id: provider_spec_id
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          refresh_strategy: refresh_strategy
+          status: status
+        - workspace_id: workspace_id
+          secret_source_id: secret_source_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider_spec_id: provider_spec_id
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
+          id: id
+          href: href
+          refresh_strategy: refresh_strategy
+          status: status
+    ProviderBindingPatchRequest:
+      example:
+        secret_source_id: secret_source_id
+        name: name
+        refresh_strategy: refresh_strategy
+      properties:
+        name:
+          type: string
+        secret_source_id:
+          type: string
+        refresh_strategy:
+          type: string
+      type: object
+    InferenceRoute:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          workspace_id:
+            type: string
+          provider_binding_id:
+            type: string
+          model:
+            description: Model alias for LLM inference within the agent workspace
+            type: string
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+        required:
+        - model
+        - provider_binding_id
+        - workspace_id
+        type: object
+      example:
+        workspace_id: workspace_id
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        model: model
+        repository_id: repository_id
+        id: id
+        href: href
+        provider_binding_id: provider_binding_id
+    InferenceRouteList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/InferenceRoute"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - workspace_id: workspace_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          created_at: 2000-01-23T04:56:07.000+00:00
+          model: model
+          repository_id: repository_id
+          id: id
+          href: href
+          provider_binding_id: provider_binding_id
+        - workspace_id: workspace_id
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          created_at: 2000-01-23T04:56:07.000+00:00
+          model: model
+          repository_id: repository_id
+          id: id
+          href: href
+          provider_binding_id: provider_binding_id
+    SecretSource:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          agent_runtime_id:
+            type: string
+          purpose:
+            description: Semantic purpose driving controller-generated env var wiring
+            type: string
+          backend:
+            description: "Secret backend type (vault, aws-secrets-manager, kubernetes)"
+            type: string
+          path:
+            description: "Logical, mount-relative path to the secret in the backend.\
+              \ Optional on create - when omitted the API server derives the convention\
+              \ path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value\
+              \ is submitted the path is set server-side to the location the value\
+              \ was written to."
+            type: string
+          key_mappings:
+            description: JSON-encoded mapping of backend secret keys to environment
+              variable names
+            type: string
+          value:
+            description: "Secret value to submit for storage. Write-only (one-way)\
+              \ - when present on create, the API server writes it to the configured\
+              \ secret manager at a deterministic location derived from the submission\
+              \ identity and then persists only this SecretSource reference; path\
+              \ is set server-side to that location. The value is never persisted\
+              \ in the database, never logged, and never returned on create, get,\
+              \ or list."
+            type: string
+            writeOnly: true
+          repository_id:
+            description: Repository that owns this resource through the control-plane
+              .hypershell import. Null for resources created directly through the
+              REST API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
+        required:
+        - agent_runtime_id
+        - backend
+        - name
+        - purpose
+        type: object
+      example:
+        purpose: purpose
+        kind: kind
+        key_mappings: key_mappings
+        created_at: 2000-01-23T04:56:07.000+00:00
+        path: path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        backend: backend
+        repository_id: repository_id
+        id: id
+        href: href
+        value: value
+        agent_runtime_id: agent_runtime_id
+    SecretSourceList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/SecretSource"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - purpose: purpose
+          kind: kind
+          key_mappings: key_mappings
+          created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          backend: backend
+          repository_id: repository_id
+          id: id
+          href: href
+          value: value
+          agent_runtime_id: agent_runtime_id
+        - purpose: purpose
+          kind: kind
+          key_mappings: key_mappings
+          created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          backend: backend
+          repository_id: repository_id
+          id: id
+          href: href
+          value: value
+          agent_runtime_id: agent_runtime_id
+    SecretSourcePatchRequest:
+      example:
+        path: path
+        purpose: purpose
+        name: name
+        key_mappings: key_mappings
+        backend: backend
+      properties:
+        name:
+          type: string
+        purpose:
+          type: string
+        backend:
+          type: string
+        path:
+          type: string
+        key_mappings:
+          type: string
+      type: object
+    AgentWorkspace:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          agent_runtime_id:
+            description: The AgentRuntime that owns this workspace. Exactly one workspace
+              per runtime.
+            type: string
+          gateway_id:
+            description: The Gateway this workspace is provisioned on.
+            type: string
+          name:
+            description: "Workspace name, unique on the gateway."
+            type: string
+          status:
+            type: string
+        required:
+        - agent_runtime_id
+        - gateway_id
+        - name
+        type: object
+      example:
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        agent_runtime_id: agent_runtime_id
+        gateway_id: gateway_id
+        status: status
+    AgentWorkspaceList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/AgentWorkspace"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          agent_runtime_id: agent_runtime_id
+          gateway_id: gateway_id
+          status: status
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          agent_runtime_id: agent_runtime_id
+          gateway_id: gateway_id
+          status: status
+    AgentWorkspacePatchRequest:
+      example:
+        name: name
+        status: status
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+      type: object
+    WorkspaceMembership:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          workspace_id:
+            type: string
+          subject:
+            description: OIDC subject UUID the agent uses to connect to the gateway.
+            type: string
+          role:
+            description: "Membership role, one of admin or member."
+            enum:
+            - admin
+            - member
+            type: string
+        required:
+        - role
+        - subject
+        - workspace_id
+        type: object
+      example:
+        workspace_id: workspace_id
+        role: admin
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        subject: subject
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+    WorkspaceMembershipList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/WorkspaceMembership"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - workspace_id: workspace_id
+          role: admin
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject: subject
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+        - workspace_id: workspace_id
+          role: admin
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject: subject
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+    WorkspaceMembershipPatchRequest:
+      example:
+        role: admin
+      properties:
+        role:
+          enum:
+          - admin
+          - member
+          type: string
+      type: object
     GatewayCreateRequest:
+      description: A gateway is created either pinned to a cluster (set cluster_id)
+        or late-bound by placement (set placement). Exactly one of cluster_id or placement
+        must be supplied. The web-console provision form submits only the placement
+        shape; the pinned shape is available to hsctl apply and the declarative .hypershell
+        import.
       example:
         phase: phase
-        release_id: release_id
         image: image
         server_dns_names:
         - server_dns_names
@@ -3280,15 +5998,22 @@ components:
         tls_mode: tls_mode
         route: route
         name: name
+        placement:
+          mode: local-kind
+          selector:
+          - selector
+          - selector
         external_dns: external_dns
         status: status
       properties:
         name:
           type: string
         cluster_id:
+          description: Pin the gateway to this managed cluster. Mutually exclusive
+            with placement.
           type: string
-        release_id:
-          type: string
+        placement:
+          $ref: "#/components/schemas/GatewayPlacementIntent"
         external_dns:
           type: string
         tls_mode:
@@ -3320,9 +6045,159 @@ components:
           description: JSON-encoded credential storage driver configuration
           type: string
       required:
-      - cluster_id
       - name
-      - release_id
+      type: object
+    GatewayPlacementSelector:
+      items:
+        type: string
+      minItems: 1
+      type: array
+    GatewayPlacementAvailabilityItem:
+      example:
+        reason: no-eligible-cluster
+        available: true
+        selector:
+        - selector
+        - selector
+      properties:
+        selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        available:
+          type: boolean
+        reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+      required:
+      - available
+      - selector
+      type: object
+    GatewayPlacementAvailabilityRequest:
+      example:
+        selectors:
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+      properties:
+        selectors:
+          items:
+            $ref: "#/components/schemas/GatewayPlacementSelector"
+          maxItems: 32
+          minItems: 1
+          type: array
+      required:
+      - selectors
+      type: object
+    RepositoryList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/Repository"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+    Repository:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            description: Human-readable identifier for the repository registration
+            type: string
+          url:
+            description: Git remote URL (e.g. https://github.com/openshift-online/hypershell)
+            type: string
+          provider:
+            description: "Provider type the credential targets: github (extensible)"
+            type: string
+          secret_source_id:
+            description: "Optional reference to a SecretSource holding the provider\
+              \ credential. Omit for a public repository, which is read anonymously."
+            type: string
+          default_branch:
+            description: Branch the import process reads when none is otherwise specified
+            type: string
+          import_path:
+            description: Directory within the repository to import (default .hypershell)
+            type: string
+          status:
+            description: Registration/import health
+            readOnly: true
+            type: string
+        required:
+        - name
+        - provider
+        - url
+        type: object
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        provider: provider
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        default_branch: default_branch
+        id: id
+        href: href
+        url: url
+        status: status
+    RepositoryPatchRequest:
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        default_branch: default_branch
+      properties:
+        secret_source_id:
+          type: string
+        default_branch:
+          type: string
+        import_path:
+          type: string
       type: object
     Gateway_allOf_provisioning_conditions:
       example:

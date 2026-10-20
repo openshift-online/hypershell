@@ -1,6 +1,10 @@
 {
   "dashboard": "dashboard",
+  "dashboardInventory": "dashboard/inventory",
+  "dashboardAdoption": "dashboard/adoption",
+  "dashboardProvisioning": "dashboard/provisioning",
   "dashboardReliability": "dashboard/reliability",
+  "dashboardUsage": "dashboard/usage",
   "gatewayDetail": "gateways/:gatewayId",
   "gatewayNew": "gateways/new",
   "login": "login",
@@ -8,7 +12,11 @@
   "directNavigationExamples": [
     "/",
     "/dashboard",
+    "/dashboard/provisioning",
+    "/dashboard/inventory",
     "/dashboard/reliability",
+    "/dashboard/usage",
+    "/dashboard/adoption",
     "/login",
     "/gateways/new",
     "/gateways/gateway-1",

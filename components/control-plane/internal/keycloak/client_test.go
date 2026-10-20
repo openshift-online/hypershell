@@ -874,3 +874,39 @@ func equalStrings(got, want []string) bool {
 	}
 	return true
 }
+
+func TestListRealmUsers_PagesAndMapsNames(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "expires_in": 300})
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users", testRealm), func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// First page returns users; any later page is empty, ending the loop.
+		if r.URL.Query().Get("first") != "0" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]keycloakUser{
+			{ID: "sub-dana", Username: "dana", Email: "dana@x", FirstName: "Dana", LastName: "Scully"},
+			{ID: "sub-dale", Username: "dale"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	users, err := NewClient(srv.URL, testRealm, testAdminClientID, testAdminSecret).ListRealmUsers(t.Context())
+	if err != nil {
+		t.Fatalf("ListRealmUsers: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("got %d users, want 2", len(users))
+	}
+	if users[0].Name != "Dana Scully" || users[0].Subject != "sub-dana" || users[0].Email != "dana@x" {
+		t.Errorf("user[0] = %+v, want name=Dana Scully subject=sub-dana", users[0])
+	}
+	if users[1].Name != "dale" { // no first/last -> fall back to username
+		t.Errorf("user[1].Name = %q, want fallback to username dale", users[1].Name)
+	}
+}

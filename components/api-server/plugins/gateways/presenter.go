@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -11,8 +12,8 @@ import (
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
-	c.ClusterId = gateway.ClusterId
-	c.ReleaseId = gateway.ReleaseId
+	// Placement resolves the concrete cluster in the create handler before the
+	// Gateway model is persisted.
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
@@ -33,32 +34,51 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	return c
 }
 
-func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
+// gatewayImagePinned reports whether the gateway pins an explicit image. A
+// pinned gateway may intentionally run a version unrelated to its cluster's
+// provisioning version, so the console suppresses drift for it (GVV-03).
+func gatewayImagePinned(gateway *Gateway) bool {
+	return gateway.Image != nil && strings.TrimSpace(*gateway.Image) != ""
+}
+
+// PresentGateway converts a Gateway model to its REST representation.
+// provisioningVersion is the version the gateway's cluster advertises through
+// its gateway-version capability, derived by the caller from cluster_id; it is
+// empty when the cluster advertises none.
+func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit bool, provisioningVersion string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		Id:                 reference.Id,
-		Kind:               reference.Kind,
-		Href:               reference.Href,
-		CreatedAt:          openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:          openapi.PtrTime(gateway.UpdatedAt),
-		Name:               gateway.Name,
-		ClusterId:          gateway.ClusterId,
-		ReleaseId:          gateway.ReleaseId,
-		Namespace:          gateway.Namespace,
-		ExternalDns:        gateway.ExternalDns,
-		TlsMode:            gateway.TlsMode,
-		ServiceType:        gateway.ServiceType,
-		Status:             gateway.Status,
-		Phase:              gateway.Phase,
-		Image:              gateway.Image,
-		SupervisorImage:    gateway.SupervisorImage,
-		RouteAddress:       gateway.RouteAddress,
-		ConsoleAddress:     gateway.ConsoleAddress,
-		GatewayVersion:     gateway.GatewayVersion,
-		ObservedReleaseId:  gateway.ObservedReleaseId,
+		ImagePinned:     openapi.PtrBool(gatewayImagePinned(gateway)),
+		CanDelete:       openapi.PtrBool(canDelete),
+		CanEdit:         openapi.PtrBool(canEdit),
+		Id:              reference.Id,
+		Kind:            reference.Kind,
+		Href:            reference.Href,
+		CreatedAt:       openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:       openapi.PtrTime(gateway.UpdatedAt),
+		Name:            gateway.Name,
+		ClusterId:       gateway.ClusterId,
+		Namespace:       gateway.Namespace,
+		ExternalDns:     gateway.ExternalDns,
+		TlsMode:         gateway.TlsMode,
+		ServiceType:     gateway.ServiceType,
+		Status:          gateway.Status,
+		Phase:           gateway.Phase,
+		Image:           gateway.Image,
+		SupervisorImage: gateway.SupervisorImage,
+		RouteAddress:    gateway.RouteAddress,
+		ConsoleAddress:  gateway.ConsoleAddress,
+		GatewayVersion:  gateway.GatewayVersion,
+		ProvisioningVersion: func() *string {
+			if provisioningVersion == "" {
+				return nil
+			}
+			return openapi.PtrString(provisioningVersion)
+		}(),
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		CredentialDriver:   gateway.CredentialDriver,
+		RepositoryId:       gateway.RepositoryId,
 		Generation:         &gateway.Generation,
 		ObservedGeneration: &gateway.ObservedGeneration,
 		ActiveSandboxCount: func() *int32 {

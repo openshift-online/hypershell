@@ -1,3 +1,4 @@
+import type { VerificationTarget } from "../promotion";
 // Promotion-topology MAP model. Pure projection of the promotion plane (+ fleet
 // metrics) into the nodes / columns / lanes / gates the interactive map draws.
 //
@@ -6,8 +7,12 @@
 // STAGES - the hubs in `promotion.order`, left -> right - and a spoke (a hub's
 // managed cluster) stacks into its hub's column rather than forming its own stage,
 // so a hub and its managed clusters share one column with no gate between them.
-// Lanes come from `role`/`provider`, the env-type (`envLabel`) only groups column
-// headers, and each column gets a gate to its right reporting that env's own
+// Lanes are the provider grouping derived from `provider`: the layout groups clusters
+// into visible provider lanes AND centers the HUBs on one spine (role governs the spine
+// within the hub-hosting lane; provider governs which band a cluster joins - see
+// specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). The env-type
+// (`envLabel`) only groups column headers, and each column gets a gate to its right
+// reporting that env's own
 // analysis (the condition to promote out of it). A static ENV->HUB or provider
 // table here would bake the topology into public source; deriving it at runtime is
 // the whole point (data-architecture.spec §3.5 in the gitops repo).
@@ -15,13 +20,18 @@
 import {
   findInstance,
   gatewayTone,
-  totalGateways,
   ZERO_RATE,
+  type ClusterHistory,
   type FleetData,
+  type GatewayClusterBreakdown,
   type GatewayHistorySample,
   type GatewayPhaseCounts,
+  type InstanceFleet,
   type RateStats,
+  type SandboxClusterCount,
 } from "../fleet";
+import { classifySpokes, type SpokeAttribution } from "../spoke-attribution";
+import type { InstanceTopology, TopologyData } from "../topology";
 import {
   environmentGateBadge,
   orderedEnvironments,
@@ -31,11 +41,12 @@ import {
   type PromotionState,
   type ReleaseBundle,
 } from "../promotion";
-import type { StatusBadge } from "../status";
+import { gatePhaseBadge, type StatusBadge } from "../status";
 
 /** External deep-links the server attaches to a node (all optional). */
 export interface MapNodeLinks {
   readonly console: string | null;
+  readonly grafana: string | null;
   readonly argo: string | null;
   readonly pr: string | null;
   readonly analysis: string | null;
@@ -51,6 +62,7 @@ export interface MapNodeMetrics {
 
 /** One instance rendered as a card on the map. */
 export interface MapNode {
+  readonly verification?: VerificationTarget | null;
   /** Instance key from the payload (runtime data, never compiled in). */
   readonly id: string;
   /**
@@ -64,8 +76,9 @@ export interface MapNode {
   readonly envLabel: string | null;
   /**
    * Lane key: one lane per cloud provider (the provider string, or "none" when
-   * the server omits it). Hub-hosting providers sink to the bottom - geometry is
-   * layout's job.
+   * the server omits it). Provider grouping is a visible lane band AND drives which
+   * band a cluster joins vertically; the HUB/SPOKE role still decides which cluster
+   * holds the centered spine within the hub-hosting lane (geometry is layout's job).
    */
   readonly laneKey: string;
   /** True when the server labels this node's role "hub" (case-insensitive). */
@@ -81,20 +94,71 @@ export interface MapNode {
   readonly proposedDigest: string | null;
   readonly state: PromotionState;
   readonly upToDate: boolean;
+  /**
+   * True when this node runs a DIFFERENT active release digest than its column's
+   * governing (hub) node - i.e. a spoke that has drifted off the bundle its hub is
+   * running, so the environment is internally inconsistent. Derived per column from
+   * the active digests alone; false for the governing node itself and whenever a
+   * digest is missing on either side (drift is then unknowable, not asserted).
+   */
+  readonly driftsFromColumn: boolean;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
+  /**
+   * Argo CD sync-operation retry count for this node's environment. Null when no
+   * sync-operation data is available (unknown), distinct from a genuine 0; a
+   * climbing value signals a wedged release-analysis gate.
+   */
+  readonly syncRetries: number | null;
   readonly prState: string | null;
   /** Worst-case gate badge for this node's active gates. */
   readonly gateBadge: StatusBadge;
   /** Names of this node's promotion gates, in server order (opaque data). */
   readonly gateNames: readonly string[];
+  /**
+   * Every promotion gate on this node, in server order: its opaque name paired
+   * with its own phase badge. The full per-gate breakdown (e.g. argocd-health +
+   * hypershell-analysis), so the detail panel can list each gate individually
+   * rather than collapsing to the worst-case {@link gateBadge}. Gate names are
+   * data, never inferred; empty-named gates are dropped.
+   */
+  readonly gateChecks: readonly GateCheck[];
   readonly gateways: GatewayPhaseCounts;
   readonly gatewaysTotal: number;
   readonly gatewayTone: StatusBadge["tone"];
   /** Per-phase samples oldest -> newest for the stacked sand spark (may be empty). */
   readonly gatewayHistory: readonly GatewayHistorySample[];
+  /** Gateway phase counts per managed cluster (spoke), busiest-first (may be empty). */
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
+  /** Total active agent sandboxes across this instance's gateways. */
+  readonly sandboxes: number;
+  /** Active sandboxes per managed cluster, busiest-first (may be empty). */
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
+  /**
+   * This instance's gateway + sandbox population split by the managed cluster it runs
+   * on, classified against the topology plane: the hub's own counts, co-located spokes
+   * (nested under the hub) and remote spokes (linked out). Null when the instance
+   * reports no per-spoke breakdown at all (nothing to attribute). When topology is
+   * unavailable the rows survive in the `unknown` bucket (flagged `hasTopology:false`).
+   */
+  readonly spokeAttribution: SpokeAttribution | null;
+  /** Total active-sandbox count over the last day, oldest-first, on the gateway
+   *  sparkline's grid - drives the lower sandbox sparkline (may be empty). */
+  readonly sandboxHistory: readonly number[];
   readonly managedClusters: number | null;
   readonly users: number | null;
+  /** Rolling 7-day unique-login count, or null when unknown. */
+  readonly logins: number | null;
+  /** Registered-user total over the last day, oldest-first, on the sandbox grid -
+   *  drives the Users tile's mini sparkline (may be empty). */
+  readonly userHistory: readonly number[];
+  /** Unique-login count over the last day, oldest-first, same grid - drives the
+   *  Logins tile's mini sparkline (may be empty). */
+  readonly loginsHistory: readonly number[];
+  /** Shared time axis (unix seconds, oldest-first) that gateway/sandbox/user/login
+   *  histories are index-aligned to - drives the detail panel's shared temporal
+   *  cursor and the hovered sample's date/time (may be empty). */
+  readonly historyTimes: readonly number[];
   readonly metrics: MapNodeMetrics;
   readonly links: MapNodeLinks;
 }
@@ -108,11 +172,15 @@ export interface MapColumn {
   readonly envLabel: string | null;
 }
 
-/** A horizontal lane: one per cloud provider (rows are clouds, columns are envs). */
+/**
+ * A provider grouping: one per cloud provider. Rendered as a visible horizontal lane
+ * band; the hub-hosting lane (`hostsHub`) is centered on the spine while the others
+ * stack above and below it (see fleet-dashboard-map-hub-spine-layout.spec.md).
+ */
 export interface MapLane {
   readonly key: string;
   readonly provider: string | null;
-  /** True when any hub-role node lives in this provider's lane. */
+  /** True when any hub-role node belongs to this provider. */
   readonly hostsHub: boolean;
 }
 
@@ -125,7 +193,14 @@ export interface MapLane {
  * (no downstream column): it sits past the final column and reports that stage's
  * own analysis.
  */
+/** One promotion gate's opaque name paired with its own phase badge. */
+export interface GateCheck {
+  readonly name: string;
+  readonly badge: StatusBadge;
+}
+
 export interface MapGate {
+  readonly verification?: VerificationTarget | null;
   readonly id: string;
   /** The SOURCE column: the env whose analysis this gate reports. */
   readonly fromColumnKey: string;
@@ -136,8 +211,22 @@ export interface MapGate {
   readonly badge: StatusBadge;
   /** Gate display name, from the SOURCE env's governing gates (opaque data). */
   readonly name: string | null;
+  /**
+   * The SOURCE env's full set of gates (each with its own badge), so the detail
+   * panel lists every gate - e.g. argocd-health AND hypershell-analysis - instead
+   * of only the worst-case summary {@link badge}. Derived from runtime gate data;
+   * no gate name is hard-coded.
+   */
+  readonly checks: readonly GateCheck[];
   /** Deep-link to the source env's analysis run, when the server provides one. */
   readonly analysisUrl: string | null;
+  /**
+   * Argo CD sync-operation retry count of the gate's SOURCE environment. A gate
+   * reports its source env's analysis, so that env's sync retries belong here.
+   * Null when unknown (no sync-operation data), distinct from a genuine 0; a
+   * climbing value signals this gate is wedged, not merely slow.
+   */
+  readonly syncRetries: number | null;
   /**
    * Deep-link to the source env's Argo CD Application tree, where its analysis
    * AnalysisRun and the Jobs/Pods it spawns surface - so the analysis logs are
@@ -178,20 +267,221 @@ function laneKeyFor(provider: string | null): string {
   return provider ?? "none";
 }
 
+/** A node's gateway + sandbox population: the counts, the two chin histories (aligned
+ *  to a shared time axis) and the per-cluster breakdowns feeding the detail panel. */
+interface NodeCounts {
+  readonly gateways: GatewayPhaseCounts;
+  readonly gatewaysTotal: number;
+  readonly sandboxes: number;
+  readonly gatewayHistory: readonly GatewayHistorySample[];
+  readonly sandboxHistory: readonly number[];
+  readonly historyTimes: readonly number[];
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
+}
+
+/** Sum a set of per-cluster gateway rows into one phase map + total. */
+function sumGatewayRows(rows: readonly GatewayClusterBreakdown[]): {
+  gateways: GatewayPhaseCounts;
+  total: number;
+} {
+  const gateways: Record<string, number> = {};
+  let total = 0;
+  for (const r of rows) {
+    for (const [phase, n] of Object.entries(r.gateways)) {
+      gateways[phase] = (gateways[phase] ?? 0) + n;
+    }
+    total += r.total;
+  }
+  return { gateways, total };
+}
+
+/** Sum a set of per-cluster sandbox rows. */
+function sumSandboxRows(rows: readonly SandboxClusterCount[]): number {
+  return rows.reduce((sum, r) => sum + r.count, 0);
+}
+
+/**
+ * Sum a set of per-cluster history rows onto a shared `length`-column axis: at each
+ * sample the gateway phases add and the sandbox counts add, zero-filling a row that is
+ * short (every row is meant to be index-aligned to the instance's historyTimes, but we
+ * never index past a row's own length). Returns a single pair of aligned chin series.
+ */
+function sumClusterHistory(
+  rows: readonly ClusterHistory[],
+  length: number,
+): { gatewayHistory: GatewayHistorySample[]; sandboxHistory: number[] } {
+  const gatewayHistory: GatewayHistorySample[] = [];
+  const sandboxHistory: number[] = [];
+  for (let i = 0; i < length; i++) {
+    let running = 0;
+    let provisioning = 0;
+    let failed = 0;
+    let sandbox = 0;
+    for (const r of rows) {
+      const g = r.gatewayHistory[i];
+      if (g) {
+        running += g.running;
+        provisioning += g.provisioning;
+        failed += g.failed;
+      }
+      sandbox += r.sandboxHistory[i] ?? 0;
+    }
+    gatewayHistory.push({ running, provisioning, failed });
+    sandboxHistory.push(sandbox);
+  }
+  return { gatewayHistory, sandboxHistory };
+}
+
+/**
+ * The hub/physical-cluster card's population: everything the owning instance reports
+ * EXCEPT the managed clusters broken out onto their own node (its remote spokes, which
+ * live on a different physical cluster). `exclude` is a set of managed_cluster names the
+ * topology plane classed as remote spokes (see {@link buildMapModel}), so the card rolls
+ * up the hub's own gateways, its co-located spokes AND the unattributed ("unknown")
+ * bucket into one count + one pair of chins - each physical cluster showing only what
+ * runs on it. When nothing is excluded (no broken-out spoke) it degrades to the instance
+ * totals verbatim, so a plain hub with no broken-out spokes is byte-for-byte unchanged.
+ */
+function hubRollup(
+  fl: InstanceFleet,
+  exclude: ReadonlySet<string>,
+): NodeCounts {
+  if (exclude.size === 0) {
+    return {
+      gateways: fl.gateways,
+      gatewaysTotal: fl.gatewaysTotal,
+      sandboxes: fl.sandboxes,
+      gatewayHistory: fl.gatewayHistory,
+      sandboxHistory: fl.sandboxHistory,
+      historyTimes: fl.historyTimes,
+      gatewaysByCluster: fl.gatewaysByCluster,
+      sandboxesByCluster: fl.sandboxesByCluster,
+    };
+  }
+  const gatewaysByCluster = fl.gatewaysByCluster.filter(
+    (r) => !exclude.has(r.managedCluster),
+  );
+  const sandboxesByCluster = fl.sandboxesByCluster.filter(
+    (r) => !exclude.has(r.managedCluster),
+  );
+  const { gateways, total } = sumGatewayRows(gatewaysByCluster);
+  const { gatewayHistory, sandboxHistory } = sumClusterHistory(
+    fl.historyByCluster.filter((r) => !exclude.has(r.managedCluster)),
+    fl.historyTimes.length,
+  );
+  return {
+    gateways,
+    gatewaysTotal: total,
+    sandboxes: sumSandboxRows(sandboxesByCluster),
+    gatewayHistory,
+    sandboxHistory,
+    historyTimes: fl.historyTimes,
+    gatewaysByCluster,
+    sandboxesByCluster,
+  };
+}
+
+/**
+ * A single managed cluster's slice of its owning hub instance: the one spoke's gateway
+ * + sandbox counts and its own two chins, read from the hub's per-cluster breakdowns by
+ * matching the `managed_cluster` key `cluster`. Drives a remote spoke's own node card
+ * (the spoke lives on a different physical cluster than its hub, so it gets its own card
+ * instead of rolling into the hub's). Empty when the hub reports nothing for that
+ * cluster. The caller only invokes this with a `cluster` the topology plane confirms is
+ * one of the hub's `remoteSpokes` (== the managed_cluster identity), so this never joins
+ * on a guessed key - see {@link buildMapModel}.
+ */
+function spokeSlice(fl: InstanceFleet, cluster: string): NodeCounts {
+  const gatewaysByCluster = fl.gatewaysByCluster.filter(
+    (r) => r.managedCluster === cluster,
+  );
+  const sandboxesByCluster = fl.sandboxesByCluster.filter(
+    (r) => r.managedCluster === cluster,
+  );
+  const { gateways, total } = sumGatewayRows(gatewaysByCluster);
+  const { gatewayHistory, sandboxHistory } = sumClusterHistory(
+    fl.historyByCluster.filter((r) => r.managedCluster === cluster),
+    fl.historyTimes.length,
+  );
+  return {
+    gateways,
+    gatewaysTotal: total,
+    sandboxes: sumSandboxRows(sandboxesByCluster),
+    gatewayHistory,
+    sandboxHistory,
+    historyTimes: fl.historyTimes,
+    gatewaysByCluster,
+    sandboxesByCluster,
+  };
+}
+
+/** The empty population for a node whose instance reports no fleet data. */
+const EMPTY_COUNTS: NodeCounts = {
+  gateways: {},
+  gatewaysTotal: 0,
+  sandboxes: 0,
+  gatewayHistory: [],
+  sandboxHistory: [],
+  historyTimes: [],
+  gatewaysByCluster: [],
+  sandboxesByCluster: [],
+};
+
 function buildNode(
   env: PromotionEnvironment,
   fleet: FleetData,
   columnKey: string,
+  topology: InstanceTopology | null,
+  brokenOutSpokes: ReadonlySet<string>,
 ): MapNode {
   const provider = nonEmpty(env.provider);
-  const fl = findInstance(fleet.instances, env.name);
-  const gateways = fl?.gateways ?? {};
+  const isHub = isHubRole(env.role);
+  // A hub card reads its OWN instance and rolls up every cluster except the spokes
+  // broken out onto their own node; a spoke card reads its HUB instance (its column
+  // key) and takes just its own slice. This is the whole point of the attribution:
+  // each physical cluster shows only the gateways/sandboxes that run on it.
+  //
+  // `brokenOutSpokes` is the hub column's set of REMOTE spokes (per the topology plane,
+  // keyed by managed_cluster name) that also have their own node - the SAME identity
+  // classifySpokes attributes on, so the rollup/slice can never diverge from it. A spoke
+  // env that is NOT in that set (co-located, or no topology) rolls into the hub and its
+  // own card shows nothing, so each managed cluster's counts land on exactly one card.
+  const owning = isHub
+    ? findInstance(fleet.instances, env.name)
+    : findInstance(fleet.instances, columnKey);
+  const counts: NodeCounts =
+    owning === null
+      ? EMPTY_COUNTS
+      : isHub
+        ? hubRollup(owning, brokenOutSpokes)
+        : brokenOutSpokes.has(env.name)
+          ? spokeSlice(owning, env.name)
+          : EMPTY_COUNTS;
+  // Attribute (for the detail panel breakdown) only on the hub card, and only when it
+  // actually carries a per-cluster breakdown; a single spoke slice has nothing to split
+  // further. The hub classifies its ROLLED-UP rows (remote spokes already excluded), so
+  // the panel's hub-own + co-located + unknown sum back to the card's headline count.
+  const spokeAttribution =
+    isHub &&
+    (counts.gatewaysByCluster.length > 0 ||
+      counts.sandboxesByCluster.length > 0)
+      ? classifySpokes(
+          counts.gatewaysByCluster,
+          counts.sandboxesByCluster,
+          topology,
+        )
+      : null;
+  // Control-plane RED metrics, users/logins and their histories are hub-level (the
+  // api-server reports them per instance, not per spoke), so only a hub card carries
+  // them; a spoke card leaves them zero/empty rather than borrow its hub's.
+  const fl = isHub ? owning : null;
   return {
     id: env.name,
     columnKey,
     envLabel: nonEmpty(env.envLabel),
     laneKey: laneKeyFor(provider),
-    isHub: isHubRole(env.role),
+    isHub,
     role: nonEmpty(env.role),
     provider,
     cluster: nonEmpty(env.cluster),
@@ -202,17 +492,34 @@ function buildNode(
     proposedDigest: env.proposedDigest,
     state: promotionState(env),
     upToDate: env.upToDate,
+    // Filled in by a post-pass in buildMapModel, once columns + their governing
+    // nodes are known (a node cannot see its column-mates at build time).
+    driftsFromColumn: false,
     argoHealth: env.argoHealth,
     argoSync: env.argoSync,
+    syncRetries: env.syncRetries,
     prState: env.prState,
+    verification: env.verification ?? null,
     gateBadge: environmentGateBadge(env),
     gateNames: env.gates.map((g) => g.name).filter((n) => n !== ""),
-    gateways,
-    gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
-    gatewayTone: gatewayTone(gateways),
-    gatewayHistory: fl?.gatewayHistory ?? [],
+    gateChecks: env.gates
+      .filter((g) => g.name !== "")
+      .map((g) => ({ name: g.name, badge: gatePhaseBadge(g.phase) })),
+    gateways: counts.gateways,
+    gatewaysTotal: counts.gatewaysTotal,
+    gatewayTone: gatewayTone(counts.gateways),
+    gatewayHistory: counts.gatewayHistory,
+    gatewaysByCluster: counts.gatewaysByCluster,
+    sandboxes: counts.sandboxes,
+    sandboxesByCluster: counts.sandboxesByCluster,
+    spokeAttribution,
+    sandboxHistory: counts.sandboxHistory,
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
+    logins: fl?.logins ?? null,
+    userHistory: fl?.userHistory ?? [],
+    loginsHistory: fl?.loginsHistory ?? [],
+    historyTimes: counts.historyTimes,
     metrics: {
       rpc: fl?.rpc ?? ZERO_RATE,
       reconcile: fl?.reconcile ?? ZERO_RATE,
@@ -221,6 +528,7 @@ function buildNode(
     },
     links: {
       console: env.consoleUrl,
+      grafana: env.grafanaUrl,
       argo: env.argoUrl,
       pr: env.prUrl,
       analysis: env.analysisUrl,
@@ -263,10 +571,12 @@ function assignColumns(
 }
 
 /**
- * Order lanes top -> bottom, one per cloud provider: spoke-only clouds on top,
- * hub-hosting clouds sink to the bottom (so the promotion spine reads left->right
- * along the hubs), then stable alphabetical within each group. This mirrors the
- * prototype's per-cloud lanes and is fully derived - no provider list is baked in.
+ * Collect one lane per cloud provider, stable-alphabetical by key. Each lane is a
+ * visible grouping band; the `hostsHub` flag marks the hub-hosting lane the layout
+ * centers on the spine. The layout keeps every HUB on the centered spine and stacks the
+ * remaining provider lanes balanced around it, so a hub-hosting provider is NEVER sorted
+ * to the bottom (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). Fully
+ * derived - no provider list is baked in.
  */
 function orderLanes(nodes: readonly MapNode[]): MapLane[] {
   const hostsHub = new Map<string, boolean>();
@@ -275,14 +585,9 @@ function orderLanes(nodes: readonly MapNode[]): MapLane[] {
     providerOf.set(n.laneKey, n.provider);
     hostsHub.set(n.laneKey, (hostsHub.get(n.laneKey) ?? false) || n.isHub);
   }
-  const keys = [...hostsHub.keys()].sort((a, b) => {
-    const ha = hostsHub.get(a) ?? false;
-    const hb = hostsHub.get(b) ?? false;
-    if (ha !== hb) {
-      return ha ? 1 : -1; // hub clouds later => lower
-    }
-    return a < b ? -1 : a > b ? 1 : 0; // stable alpha
-  });
+  const keys = [...hostsHub.keys()].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
   return keys.map((key) => ({
     key,
     provider: providerOf.get(key) ?? null,
@@ -338,7 +643,10 @@ function buildGates(
       terminal: to === null,
       badge: source.gateBadge,
       name: source.gateNames[0] ?? null,
+      checks: source.gateChecks,
       analysisUrl: source.links.analysis,
+      verification: source.verification ?? null,
+      syncRetries: source.syncRetries,
       argoUrl: source.links.argo,
       promoting,
       // The bundle in flight is the destination's PROPOSED release (identicon seed
@@ -359,12 +667,68 @@ function buildGates(
 export function buildMapModel(
   promotion: PromotionData,
   fleet: FleetData,
+  topology: TopologyData = {},
 ): MapModel {
   const envs = orderedEnvironments(promotion);
   const columnKeyByName = assignColumns(envs);
-  const nodes = envs.map((env) =>
-    buildNode(env, fleet, columnKeyByName.get(env.name) ?? env.name),
-  );
+  // Per column, the spoke env names that get their OWN node card. A spoke breaks out of
+  // its hub ONLY when the topology plane classes it a REMOTE spoke (listed in the hub's
+  // `remoteSpokes`, keyed by managed_cluster name - the SAME identity classifySpokes
+  // attributes on) AND it actually has a node here. Everything else (co-located spokes,
+  // spokes the topology does not know, or any spoke when topology is absent) rolls into
+  // the hub, so each managed cluster's counts land on exactly one card and a mismatch
+  // between an env name and the managed_cluster identity can never silently resume the
+  // hub over-count this attribution fixes. FIREWALL: derived from runtime role + column
+  // + topology data alone - no fleet names or hub table baked in.
+  const brokenOutByColumn = new Map<string, Set<string>>();
+  for (const env of envs) {
+    if (isHubRole(env.role)) {
+      continue;
+    }
+    const col = columnKeyByName.get(env.name) ?? env.name;
+    const remoteSpokes = topology[col]?.hub?.remoteSpokes ?? [];
+    if (!remoteSpokes.includes(env.name)) {
+      continue;
+    }
+    let set = brokenOutByColumn.get(col);
+    if (!set) {
+      set = new Set<string>();
+      brokenOutByColumn.set(col, set);
+    }
+    set.add(env.name);
+  }
+  const noSpokes: ReadonlySet<string> = new Set<string>();
+  const built = envs.map((env) => {
+    const columnKey = columnKeyByName.get(env.name) ?? env.name;
+    return buildNode(
+      env,
+      fleet,
+      columnKey,
+      topology[env.name] ?? null,
+      brokenOutByColumn.get(columnKey) ?? noSpokes,
+    );
+  });
+
+  // Version-drift post-pass: a node drifts when it runs a different active digest
+  // than its column's governing (hub) node. Needs the whole column, so it runs here
+  // rather than in buildNode. Group by columnKey, pick the governing digest (hub's,
+  // else the first node's), and flag every node whose digest differs. Missing
+  // digests are never asserted as drift (unknowable, not divergent).
+  const columnGoverningDigest = new Map<string, string | null>();
+  for (const n of built) {
+    const cur = columnGoverningDigest.get(n.columnKey);
+    // Hub wins; otherwise the first node seen seeds the column's reference digest.
+    if (cur === undefined || n.isHub) {
+      columnGoverningDigest.set(n.columnKey, nonEmpty(n.digest));
+    }
+  }
+  const nodes = built.map((n) => {
+    const ref = columnGoverningDigest.get(n.columnKey) ?? null;
+    const own = nonEmpty(n.digest);
+    const driftsFromColumn =
+      own !== null && ref !== null && !n.isHub && own !== ref;
+    return driftsFromColumn ? { ...n, driftsFromColumn } : n;
+  });
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
   // Columns in server order: first appearance of each columnKey wins.

@@ -1,10 +1,13 @@
 import type {
+  DashboardOperationalMetricsOptions,
   DashboardControlPlane,
   DashboardFailedSourceId,
   DashboardInvocationContext,
   DashboardOperations,
+  DashboardTimeRange,
   DashboardWorkflowRuntime,
   OperationalDashboardMetrics,
+  UsageDashboardMetrics,
 } from "./dashboard-types";
 import type {
   DashboardProbe,
@@ -66,18 +69,22 @@ function partialFailureProbe(
   });
 }
 
-async function loadMetricsWithProbes(
+async function loadMetricsWithProbes<
+  Metrics extends OperationalDashboardMetrics | UsageDashboardMetrics,
+>(
   action: DashboardWorkflowAction,
-  load: (
-    context: DashboardInvocationContext,
-  ) => Promise<OperationalDashboardMetrics>,
+  load: (context: DashboardInvocationContext) => Promise<Metrics>,
   probes: DashboardProbePublisher,
   runtime: DashboardWorkflowRuntime,
   signal?: AbortSignal,
-): Promise<OperationalDashboardMetrics> {
+  timeRange: DashboardTimeRange = 7,
+  options: DashboardOperationalMetricsOptions = {},
+): Promise<Metrics> {
   const correlationId = runtime.createCorrelationId();
   const context: DashboardInvocationContext = {
     correlationId,
+    ...(options.isAdmin === undefined ? {} : { isAdmin: options.isAdmin }),
+    timeRange,
     ...(signal === undefined ? {} : { signal }),
   };
   const occurredAt = new Date().toISOString();
@@ -132,13 +139,15 @@ export function createDashboardOperations({
   runtime = defaultRuntime,
 }: DashboardOperationDependencies): DashboardOperations {
   return {
-    getOperationalMetrics: (signal) =>
+    getOperationalMetrics: (signal, timeRange = 7, options = {}) =>
       loadMetricsWithProbes(
         "get-operational-metrics",
         (context) => controlPlane.getOperationalMetrics(context),
         probes,
         runtime,
         signal,
+        timeRange,
+        options,
       ),
     getReliabilityMetrics: (signal) =>
       loadMetricsWithProbes(
@@ -147,6 +156,33 @@ export function createDashboardOperations({
         probes,
         runtime,
         signal,
+      ),
+    getUsageMetrics: (signal, timeRange = 7, options = {}) =>
+      loadMetricsWithProbes(
+        "get-usage-metrics",
+        (context) => {
+          if (!controlPlane.getUsageMetrics) {
+            throw new Error(
+              "Dashboard control plane does not provide usage metrics",
+            );
+          }
+          return controlPlane.getUsageMetrics(context);
+        },
+        probes,
+        runtime,
+        signal,
+        timeRange,
+        options,
+      ),
+    getAdoptionMetrics: (signal, timeRange = 7, options = {}) =>
+      loadMetricsWithProbes(
+        "get-adoption-metrics",
+        (context) => controlPlane.getAdoptionMetrics(context),
+        probes,
+        runtime,
+        signal,
+        timeRange,
+        options,
       ),
   };
 }

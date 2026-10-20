@@ -91,12 +91,35 @@ fi
 # --user process: uid/gid are not in Docker's documented --tmpfs option set and
 # some Docker versions reject them ("unknown mount option"), while mode is
 # portable and 1777 lets any uid create entries.
+# Trust the cluster CA when the caller provides it (the Go suite sets
+# SSL_CERT_FILE to the hypershell-ca-secret ca.crt). The host path does not exist
+# inside the container, so bind-mount the file and point SSL_CERT_FILE at the
+# mount. With a CA, TLS verification stays on; without one, fall back to
+# skipping verification. An explicit OPENSHELL_GATEWAY_INSECURE always wins.
+default_insecure=true
+if [[ -n "${SSL_CERT_FILE:-}" ]]; then
+  if [[ ! -r "${SSL_CERT_FILE}" ]]; then
+    echo "openshell-container: SSL_CERT_FILE=${SSL_CERT_FILE} is not readable" >&2
+    exit 1
+  fi
+  container_ca=/etc/openshell-ca/ca.crt
+  RUN_ARGS+=(
+    -v "${SSL_CERT_FILE}:${container_ca}:ro,z"
+    -e SSL_CERT_FILE="${container_ca}"
+  )
+  default_insecure=false
+fi
 RUN_ARGS+=(
   --user "$(id -u):$(id -g)"
   --tmpfs "/tmp/osh-home:mode=1777"
   -e HOME=/tmp/osh-home
-  -e OPENSHELL_GATEWAY_INSECURE="${OPENSHELL_GATEWAY_INSECURE:-true}"
-  -v "${HOST_CONFIG}:/tmp/osh-home/.config/openshell"
+  -e OPENSHELL_GATEWAY_INSECURE="${OPENSHELL_GATEWAY_INSECURE:-${default_insecure}}"
+  # :z relabels the bind mount for SELinux-enforcing hosts (Fedora/RHEL);
+  # without it the containerized CLI cannot read the host config and reports
+  # "No gateway configured". Shared (:z), not private (:Z): the suite issues
+  # concurrent CLI calls (background sandbox creation), and a shared label is
+  # idempotent and safe across overlapping invocations where :Z would thrash.
+  -v "${HOST_CONFIG}:/tmp/osh-home/.config/openshell:z"
 )
 
 exec "${CONTAINER_ENGINE}" run "${RUN_ARGS[@]}" "${CLI_IMAGE}" "$@"

@@ -2,6 +2,8 @@ package managedClusters
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -24,8 +26,8 @@ type ManagedClusterDao interface {
 	// (oidc_subject, name) spans soft-deleted rows, so there is at most one.
 	FindDeletedBySubjectAndName(ctx context.Context, subject, name string) (*ManagedCluster, error)
 	// Restore clears deleted_at on a soft-deleted record, keeping its id, and
-	// stamps last_seen_at.
-	Restore(ctx context.Context, id string, lastSeenAt time.Time) (*ManagedCluster, error)
+	// atomically refreshes its placement metadata from the new registration.
+	Restore(ctx context.Context, id, provider, visibility string, capabilities []string, lastSeenAt time.Time) (*ManagedCluster, error)
 	InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error)
 }
 
@@ -122,10 +124,21 @@ func (d *sqlManagedClusterDao) FindDeletedBySubjectAndName(ctx context.Context, 
 	return &managedCluster, nil
 }
 
-func (d *sqlManagedClusterDao) Restore(ctx context.Context, id string, lastSeenAt time.Time) (*ManagedCluster, error) {
+func (d *sqlManagedClusterDao) Restore(ctx context.Context, id, provider, visibility string, capabilities []string, lastSeenAt time.Time) (*ManagedCluster, error) {
 	g2 := (*d.sessionFactory).New(ctx)
+	encodedCapabilities, err := json.Marshal(capabilities)
+	if err != nil {
+		return nil, fmt.Errorf("encode managed cluster capabilities: %w", err)
+	}
 	if err := g2.Unscoped().Model(&ManagedCluster{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"deleted_at": nil, "last_seen_at": lastSeenAt, "updated_at": time.Now()}).Error; err != nil {
+		Updates(map[string]interface{}{
+			"deleted_at":   nil,
+			"provider":     provider,
+			"visibility":   visibility,
+			"capabilities": string(encodedCapabilities),
+			"last_seen_at": lastSeenAt,
+			"updated_at":   time.Now(),
+		}).Error; err != nil {
 		db.MarkForRollback(ctx, err)
 		return nil, err
 	}

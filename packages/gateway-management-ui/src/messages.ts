@@ -182,7 +182,8 @@ export const messages = defineMessages({
   },
   connectionTabsLabel: {
     id: "app.gateway.connection.tabsLabel",
-    defaultMessage: "Gateway connection, service accounts, and details",
+    defaultMessage:
+      "Gateway connection, manage access, service accounts, and details",
     description: "Accessible label for the gateway detail tabs.",
   },
   connectionWaitingForProvisioning: {
@@ -263,6 +264,13 @@ export const messages = defineMessages({
     defaultMessage:
       "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",
     description: "Warning shown before permanently deleting a gateway.",
+  },
+  deleteGatewayNotPermitted: {
+    id: "app.gateway.delete.notPermitted",
+    defaultMessage:
+      "Only a gateway owner or platform admin can delete this gateway.",
+    description:
+      "Tooltip explaining why the Delete gateway action is disabled for a caller who lacks delete permission.",
   },
   deleteGatewayTitle: {
     id: "app.gateway.delete.title",
@@ -378,11 +386,6 @@ export const messages = defineMessages({
     id: "app.page.gatewayProvision.error.body",
     defaultMessage: "Check the values and try again.",
     description: "Recovery guidance when gateway provisioning fails.",
-  },
-  gatewayReleaseId: {
-    id: "app.gateway.releaseId",
-    defaultMessage: "Gateway release ID",
-    description: "Label for a gateway's release identifier.",
   },
   gatewayRenamed: {
     id: "app.gateway.renamed",
@@ -511,6 +514,162 @@ export const messages = defineMessages({
     defaultMessage: "Configure a new OpenShell gateway.",
     description: "Supporting text on the gateway provisioning page.",
   },
+  /* eslint-disable sort-keys -- Keep gateway placement descriptors together for localization review. */
+  networkAccess: {
+    id: "app.page.gatewayProvision.networkAccess",
+    defaultMessage: "Network access",
+    description: "Network exposure mode for a gateway.",
+  },
+  internalServicesQuestion: {
+    id: "app.page.gatewayProvision.internalServicesQuestion",
+    defaultMessage:
+      "Does the gateway need to reach GitLab or other internal Red Hat services?",
+    description:
+      "Question determining whether a gateway requires Red Hat VPN access.",
+  },
+  internalServicesNo: {
+    id: "app.page.gatewayProvision.internalServicesNo",
+    defaultMessage: "No",
+    description: "Option for a gateway that does not need internal services.",
+  },
+  internalServicesYes: {
+    id: "app.page.gatewayProvision.internalServicesYes",
+    defaultMessage: "Yes",
+    description: "Option for a gateway that needs internal Red Hat services.",
+  },
+  internalServicesYesVpn: {
+    id: "app.page.gatewayProvision.internalServicesYesVpn",
+    defaultMessage: "Yes (Requires Red Hat VPN)",
+    description:
+      "Option for a gateway that needs internal Red Hat services and VPN access.",
+  },
+  choiceUnavailable: {
+    id: "app.page.gatewayProvision.choiceUnavailable",
+    defaultMessage: "This option is not available for the selected placement.",
+    description: "Fallback reason shown when a placement choice is disabled.",
+  },
+  cloudProvider: {
+    id: "app.page.gatewayProvision.cloudProvider",
+    defaultMessage: "Cloud provider",
+    description: "Cloud provider for public gateway placement.",
+  },
+  publicNetwork: {
+    id: "app.page.gatewayProvision.publicNetwork",
+    defaultMessage: "Public",
+    description: "Public network placement option.",
+  },
+  publicNetworkDescription: {
+    id: "app.page.gatewayProvision.publicNetworkDescription",
+    defaultMessage: "Accessible through a public endpoint.",
+    description: "Description of public network placement.",
+  },
+  vpnNetwork: {
+    id: "app.page.gatewayProvision.vpnNetwork",
+    defaultMessage: "VPN",
+    description: "VPN network placement option.",
+  },
+  vpnNetworkDescription: {
+    id: "app.page.gatewayProvision.vpnNetworkDescription",
+    defaultMessage:
+      "For gateways that need to reach GitLab and other internal Red Hat services.",
+    description: "Description of VPN placement.",
+  },
+  awsProvider: {
+    id: "app.page.gatewayProvision.awsProvider",
+    defaultMessage: "Amazon Web Services",
+    description: "AWS cloud provider option.",
+  },
+  awsProviderDescription: {
+    id: "app.page.gatewayProvision.awsProviderDescription",
+    defaultMessage:
+      "For publicly accessible workloads that rely heavily on AWS services or data.",
+    description: "Description of the AWS provider option.",
+  },
+  awsProviderRadioLabel: {
+    id: "app.page.gatewayProvision.awsProviderRadioLabel",
+    defaultMessage:
+      "AWS (For workloads that rely heavily on AWS services or data)",
+    description: "Accessible label for the AWS provider radio.",
+  },
+  ibmCloudProvider: {
+    id: "app.page.gatewayProvision.ibmCloudProvider",
+    defaultMessage: "IBM Cloud",
+    description: "IBM Cloud provider option.",
+  },
+  ibmCloudProviderDescription: {
+    id: "app.page.gatewayProvision.ibmCloudProviderDescription",
+    defaultMessage:
+      "General-purpose workloads with no special network or data needs.",
+    description: "Description of the IBM Cloud provider option.",
+  },
+  ibmProviderRadioLabel: {
+    id: "app.page.gatewayProvision.ibmProviderRadioLabel",
+    defaultMessage: "IBM (default)",
+    description: "Accessible label for the default IBM provider radio.",
+  },
+  unavailableProvider: {
+    id: "app.page.gatewayProvision.unavailableProvider",
+    defaultMessage: "{provider} is unavailable: {reason}",
+    description:
+      "Explanation shown when a provider cannot currently accept placement.",
+  },
+  unavailableNetwork: {
+    id: "app.page.gatewayProvision.unavailableNetwork",
+    defaultMessage: "{network} is unavailable: {reason}",
+    description:
+      "Explanation shown when a network cannot currently accept placement.",
+  },
+  noEligibleCluster: {
+    id: "app.page.gatewayProvision.noEligibleCluster",
+    defaultMessage: "no eligible managed cluster is connected.",
+    description:
+      "Provider unavailability reason when no matching connected cluster exists.",
+  },
+  noManagedPlacement: {
+    id: "app.page.gatewayProvision.noManagedPlacement",
+    defaultMessage: "No managed placement is currently available.",
+    description:
+      "Warning shown when no provider or local development placement can be selected.",
+  },
+  vpnRequiresAws: {
+    id: "app.page.gatewayProvision.vpnRequiresAws",
+    defaultMessage: "VPN placement requires AWS.",
+    description: "Explanation shown when IBM Cloud is disabled for VPN.",
+  },
+  vpnRequiresLabel: {
+    id: "app.page.gatewayProvision.vpnRequiresLabel",
+    defaultMessage: "Red Hat VPN required",
+    description: "Label shown above the VPN placement guidance.",
+  },
+  localKindPlacement: {
+    id: "app.page.gatewayProvision.localKindPlacement",
+    defaultMessage: "Use local-kind",
+    description: "Local Kind placement option.",
+  },
+  localKindPlacementDescription: {
+    id: "app.page.gatewayProvision.localKindPlacementDescription",
+    defaultMessage: "Use the local Kind cluster for development.",
+    description: "Description of local Kind placement.",
+  },
+  localDevelopment: {
+    id: "app.page.gatewayProvision.localDevelopment",
+    defaultMessage: "Local development",
+    description: "Form group label for local Kind placement.",
+  },
+  placementHelp: {
+    id: "app.page.gatewayProvision.placementHelp",
+    defaultMessage:
+      "A matching managed cluster is selected at random for the chosen network and provider.",
+    description: "Explanation of automatic gateway placement.",
+  },
+  placementAvailabilityError: {
+    id: "app.page.gatewayProvision.placementAvailabilityError",
+    defaultMessage:
+      "Placement availability could not be loaded. Cloud placement is disabled until availability can be verified.",
+    description:
+      "Warning shown when current gateway placement availability cannot be retrieved.",
+  },
+  /* eslint-enable sort-keys */
   provisioningGateway: {
     id: "app.page.gatewayProvision.pending",
     defaultMessage: "Provisioning gateway",
@@ -521,6 +680,13 @@ export const messages = defineMessages({
     defaultMessage: "Provisioning console...",
     description:
       "Tooltip on the disabled console button while the console is not yet ready.",
+  },
+  provisioningVersionsError: {
+    id: "app.page.gatewayProvision.provisioningVersionsError",
+    defaultMessage:
+      "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
+    description:
+      "Warning shown when the provisioning-version list cannot be retrieved.",
   },
   refreshGateways: {
     id: "app.gateways.refresh",
@@ -538,6 +704,12 @@ export const messages = defineMessages({
     id: "app.gateway.rename",
     defaultMessage: "Rename gateway",
     description: "Action that changes a gateway's name.",
+  },
+  renameGatewayNotPermitted: {
+    id: "app.gateway.rename.notPermitted",
+    defaultMessage: "Only a gateway owner or admin can rename this gateway.",
+    description:
+      "Tooltip explaining why the Rename gateway action is disabled for a caller who lacks edit permission.",
   },
   renameGatewayTitle: {
     id: "app.gateway.rename.title",
@@ -1080,4 +1252,397 @@ export const messages = defineMessages({
     description:
       "Tooltip on the disabled console button once the console failed to become available within the expected time.",
   },
+  /* eslint-disable sort-keys -- Keep the Manage access tab strings together so localization review can audit the complete surface as one unit. */
+  manageAccessTab: {
+    id: "app.gateway.access.tab",
+    defaultMessage: "Manage access",
+    description: "Label for the gateway detail Manage access tab.",
+  },
+  accessHeading: {
+    id: "app.gateway.access.heading",
+    defaultMessage: "Gateway access",
+    description: "Heading for the Manage access tab.",
+  },
+  accessDescription: {
+    id: "app.gateway.access.description",
+    defaultMessage: "Manage who can access this gateway and at what role.",
+    description: "Description under the Manage access heading.",
+  },
+  accessUserName: {
+    id: "app.gateway.access.column.userName",
+    defaultMessage: "Name",
+    description: "Access table column for the user's display name.",
+  },
+  accessUserId: {
+    id: "app.gateway.access.column.userId",
+    defaultMessage: "User ID",
+    description: "Access table column for the username.",
+  },
+  accessRoleColumn: {
+    id: "app.gateway.access.column.role",
+    defaultMessage: "Role",
+    description: "Access table column for the role.",
+  },
+  accessRoleOwner: {
+    id: "app.gateway.access.role.owner",
+    defaultMessage: "Owner",
+    description: "Owner role label.",
+  },
+  accessRoleAdmin: {
+    id: "app.gateway.access.role.admin",
+    defaultMessage: "Admin",
+    description: "Admin role label.",
+  },
+  accessRoleUser: {
+    id: "app.gateway.access.role.user",
+    defaultMessage: "User",
+    description: "User role label.",
+  },
+  accessRoleOwnerDescription: {
+    id: "app.gateway.access.role.owner.description",
+    defaultMessage:
+      "Full control, including deleting the gateway and assigning other owners.",
+    description: "Owner role description in the role picker.",
+  },
+  accessRoleAdminDescription: {
+    id: "app.gateway.access.role.admin.description",
+    defaultMessage: "Manage the gateway and grant admin or user access.",
+    description: "Admin role description in the role picker.",
+  },
+  accessRoleUserDescription: {
+    id: "app.gateway.access.role.user.description",
+    defaultMessage: "Read-only access to the gateway.",
+    description: "User role description in the role picker.",
+  },
+  accessFindPeople: {
+    id: "app.gateway.access.findPeople",
+    defaultMessage: "Find people...",
+    description: "Placeholder and label for the access list search input.",
+  },
+  accessRoleFilterLabel: {
+    id: "app.gateway.access.roleFilter.label",
+    defaultMessage: "Filter by role",
+    description: "Accessible label for the role filter.",
+  },
+  accessRoleFilterAll: {
+    id: "app.gateway.access.roleFilter.all",
+    defaultMessage: "All roles",
+    description: "Role filter option that clears the role filter.",
+  },
+  accessAddUsers: {
+    id: "app.gateway.access.addUsers",
+    defaultMessage: "Add users",
+    description: "Button that opens the directory picker.",
+  },
+  accessDirectorySearchLabel: {
+    id: "app.gateway.access.directory.searchLabel",
+    defaultMessage: "Search the identity directory",
+    description: "Accessible label for the directory typeahead.",
+  },
+  accessDirectoryLoading: {
+    id: "app.gateway.access.directory.loading",
+    defaultMessage: "Searching directory...",
+    description: "Loading sentinel for the directory typeahead.",
+  },
+  accessDirectoryNoResults: {
+    id: "app.gateway.access.directory.noResults",
+    defaultMessage: "No matching users",
+    description: "No-results sentinel for the directory typeahead.",
+  },
+  accessDirectoryError: {
+    id: "app.gateway.access.directory.error",
+    defaultMessage: "The directory could not be searched",
+    description: "Error title for the directory typeahead.",
+  },
+  accessDirectoryClear: {
+    id: "app.gateway.access.directory.clear",
+    defaultMessage: "Clear directory search",
+    description: "Accessible label for clearing the directory search.",
+  },
+  accessSelectRole: {
+    id: "app.gateway.access.selectRole",
+    defaultMessage: "Select a role",
+    description: "Label for the role radio group in the grant modal.",
+  },
+  accessGrant: {
+    id: "app.gateway.access.grant",
+    defaultMessage: "Grant access",
+    description: "Confirm button for granting access.",
+  },
+  accessGranting: {
+    id: "app.gateway.access.granting",
+    defaultMessage: "Granting access...",
+    description: "Spinner label while a grant is in flight.",
+  },
+  accessChangeRoleLabel: {
+    id: "app.gateway.access.changeRole.label",
+    defaultMessage: "Change role",
+    description: "Accessible label for the inline role control.",
+  },
+  accessSelfRoleChangeTitle: {
+    id: "app.gateway.access.selfRoleChange.title",
+    defaultMessage: "Change your own role?",
+    description:
+      "Title of the confirmation modal shown when a user changes their own access role.",
+  },
+  accessSelfRoleChangeBody: {
+    id: "app.gateway.access.selfRoleChange.body",
+    defaultMessage:
+      "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+    description:
+      "Body of the confirmation modal shown when a user changes their own access role.",
+  },
+  accessSelfRoleChangeConfirm: {
+    id: "app.gateway.access.selfRoleChange.confirm",
+    defaultMessage: "Change my role",
+    description:
+      "Confirm button in the modal shown when a user changes their own access role.",
+  },
+  accessRemove: {
+    id: "app.gateway.access.remove",
+    defaultMessage: "Remove access",
+    description: "Action that revokes a user's access.",
+  },
+  accessRemoveTitle: {
+    id: "app.gateway.access.remove.title",
+    defaultMessage: "Remove access for {userName}?",
+    description: "Title of the remove-access confirmation.",
+  },
+  accessRemoveBody: {
+    id: "app.gateway.access.remove.body",
+    defaultMessage: "This revokes the user's access to the gateway.",
+    description: "Body of the remove-access confirmation.",
+  },
+  accessRemoving: {
+    id: "app.gateway.access.removing",
+    defaultMessage: "Removing access...",
+    description: "Spinner label while a removal is in flight.",
+  },
+  accessEmptyTitle: {
+    id: "app.gateway.access.empty.title",
+    defaultMessage: "No access grants",
+    description: "Empty-state title for the access list.",
+  },
+  accessEmptyBody: {
+    id: "app.gateway.access.empty.body",
+    defaultMessage: "No users have access to this gateway yet.",
+    description: "Empty-state body for the access list.",
+  },
+  accessNoResultsTitle: {
+    id: "app.gateway.access.noResults.title",
+    defaultMessage: "No matching users",
+    description: "No-results title for the access list.",
+  },
+  accessNoResultsBody: {
+    id: "app.gateway.access.noResults.body",
+    defaultMessage: "No access grants match your filters.",
+    description: "No-results body for the access list.",
+  },
+  accessLoadError: {
+    id: "app.gateway.access.loadError",
+    defaultMessage: "Access could not be loaded",
+    description: "Error title when the access list fails to load.",
+  },
+  accessLoadErrorBody: {
+    id: "app.gateway.access.loadError.body",
+    defaultMessage: "Try refreshing the list.",
+    description: "Error body when the access list fails to load.",
+  },
+  accessLoading: {
+    id: "app.gateway.access.loading",
+    defaultMessage: "Loading access...",
+    description: "Spinner label while the access list loads.",
+  },
+  accessRefresh: {
+    id: "app.gateway.access.refresh",
+    defaultMessage: "Refresh access list",
+    description: "Accessible label for the access list refresh button.",
+  },
+  accessLastOwnerDisabled: {
+    id: "app.gateway.access.lastOwnerDisabled",
+    defaultMessage: "A gateway must keep at least one owner.",
+    description:
+      "Accessible reason shown when the last owner's controls are disabled.",
+  },
+  accessOwnerOnlyDisabled: {
+    id: "app.gateway.access.ownerOnlyDisabled",
+    defaultMessage: "Only owners can change or remove an owner.",
+    description:
+      "Accessible reason shown when a non-owner admin cannot act on an owner row.",
+  },
+  accessActionErrorLastOwner: {
+    id: "app.gateway.access.actionError.lastOwner",
+    defaultMessage:
+      "A gateway must keep at least one owner. Assign another owner before demoting or removing this one.",
+    description: "Error shown when the server rejects a last-owner mutation.",
+  },
+  accessActionErrorDenied: {
+    id: "app.gateway.access.actionError.denied",
+    defaultMessage: "You are not allowed to perform this action.",
+    description: "Error shown when the server denies an access mutation.",
+  },
+  accessActionErrorGeneric: {
+    id: "app.gateway.access.actionError.generic",
+    defaultMessage: "The action could not be completed. Try again.",
+    description: "Generic error shown when an access mutation fails.",
+  },
+  accessGrantErrorNotFound: {
+    id: "app.gateway.access.grantError.notFound",
+    defaultMessage: "That user was not found in the identity directory.",
+    description: "Error shown when a grant target is absent from the realm.",
+  },
+  accessViewerReadOnly: {
+    id: "app.gateway.access.viewerReadOnly",
+    defaultMessage: "You have read-only access to this list.",
+    description: "Notice shown to viewers who cannot manage access.",
+  },
+  accessWorkspaceGrantIntro: {
+    id: "app.gateway.access.workspaceGrant.intro",
+    defaultMessage:
+      "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+    description:
+      "Instructions for adding a newly granted user to an OpenShell workspace.",
+  },
+  accessWorkspaceLookupPending: {
+    id: "app.gateway.access.workspaceGrant.lookupPending",
+    defaultMessage: "Looking up the user's subject ID...",
+    description:
+      "Loading text shown while resolving a user's subject for the workspace command.",
+  },
+  accessWorkspaceSubjectUnavailable: {
+    id: "app.gateway.access.workspaceGrant.subjectUnavailable",
+    defaultMessage:
+      "Could not determine this user's subject ID. The identity directory may be unavailable; try again.",
+    description:
+      "Error shown when a user's subject cannot be resolved for the workspace command.",
+  },
+  /* eslint-enable sort-keys */
+  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, drift indicator, and provisioning-version choice as one unit. */
+  version: {
+    id: "app.gateway.column.version",
+    defaultMessage: "Version",
+    description:
+      "Heading for the gateway running-version column and the Details tab version field.",
+  },
+  versionPlaceholder: {
+    id: "app.gateway.version.placeholder",
+    defaultMessage: "-",
+    description:
+      "Placeholder shown for a gateway that has no observed running version yet.",
+  },
+  versionChipAriaLabel: {
+    id: "app.gateway.version.chipAriaLabel",
+    defaultMessage: "Running version {version}",
+    description:
+      "Accessible name for the running-version chip beside the gateway status indicator.",
+  },
+  newerVersionAvailable: {
+    id: "app.gateway.version.newerAvailable",
+    defaultMessage: "Newer version available",
+    description:
+      "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways.",
+  },
+  newerVersionAvailableTooltip: {
+    id: "app.gateway.version.newerAvailable.tooltip",
+    defaultMessage:
+      "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
+    description:
+      "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
+  },
+  provisioningVersion: {
+    id: "app.page.gatewayProvision.version",
+    defaultMessage: "OpenShell version",
+    description:
+      "Label for the provisioning-version choice on the gateway provision form.",
+  },
+  anyVersion: {
+    id: "app.page.gatewayProvision.anyVersion",
+    defaultMessage: "Any version",
+    description:
+      "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises.",
+  },
+  advancedOptions: {
+    id: "app.page.gatewayProvision.advancedOptions",
+    defaultMessage: "Advanced options",
+    description: "Expandable section containing advanced gateway settings.",
+  },
+  kataQuestion: {
+    id: "app.page.gatewayProvision.kataQuestion",
+    defaultMessage: "Is Kata required?",
+    description:
+      "Question asking whether the gateway needs Kata runtime isolation.",
+  },
+  kataNo: {
+    id: "app.page.gatewayProvision.kataNo",
+    defaultMessage: "No, use the default runtime",
+    description: "Option for a gateway that does not need Kata runtime.",
+  },
+  kataYes: {
+    id: "app.page.gatewayProvision.kataYes",
+    defaultMessage: "Yes, use Kata",
+    description: "Option for a gateway that needs Kata runtime.",
+  },
+  kataUnavailableReason: {
+    id: "app.page.gatewayProvision.kataUnavailableReason",
+    defaultMessage: "Kata is not available for the selected placement.",
+    description: "Tooltip explaining why Kata cannot be selected.",
+  },
+  kataFeature: {
+    id: "app.page.gatewayProvision.kataFeature",
+    defaultMessage: "Kata",
+    description: "Recommendation-card feature label for Kata runtime.",
+  },
+  kataProviderDescription: {
+    id: "app.page.gatewayProvision.kataProviderDescription",
+    defaultMessage:
+      "For workloads that require special security considerations.",
+    description: "Recommendation-card description for Kata runtime placement.",
+  },
+  recommendationTitle: {
+    id: "app.page.gatewayProvision.recommendationTitle",
+    defaultMessage: "{network} {provider}",
+    description: "Title for a gateway placement recommendation.",
+  },
+  recommendationKataTitle: {
+    id: "app.page.gatewayProvision.recommendationKataTitle",
+    defaultMessage: "{network} Kata {provider}",
+    description: "Title for a Kata gateway placement recommendation.",
+  },
+  recommended: {
+    id: "app.page.gatewayProvision.recommended",
+    defaultMessage: "Recommended",
+    description: "Label for the default gateway placement recommendation.",
+  },
+  specialized: {
+    id: "app.page.gatewayProvision.specialized",
+    defaultMessage: "Specialized",
+    description:
+      "Label for a gateway placement requiring specialized runtime support.",
+  },
+  gatewaySetFeatures: {
+    id: "app.page.gatewayProvision.gatewaySetFeatures",
+    defaultMessage: "Gateway set features",
+    description: "Accessible label for recommendation card feature labels.",
+  },
+  awsProviderAlt: {
+    id: "app.page.gatewayProvision.awsProviderAlt",
+    defaultMessage: "Amazon Web Services",
+    description: "Alternative text for the AWS provider logo.",
+  },
+  ibmProviderAlt: {
+    id: "app.page.gatewayProvision.ibmProviderAlt",
+    defaultMessage: "IBM Cloud",
+    description: "Alternative text for the IBM Cloud provider logo.",
+  },
+  openShellVersion: {
+    id: "app.page.gatewayProvision.openShellVersion",
+    defaultMessage: "OpenShell version: {version}",
+    description: "Selected OpenShell version shown in the recommendation card.",
+  },
+  openShellVersionOption: {
+    id: "app.page.gatewayProvision.openShellVersionOption",
+    defaultMessage: "OpenShell version {version}",
+    description: "Option label for a selectable OpenShell version.",
+  },
+  /* eslint-enable sort-keys */
 });

@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { GatewayProbe } from "./gateway-probes";
 import { gatewayProbeCatalog } from "./gateway-probes";
-import { createGatewayOperations } from "./gateway-operations";
+import {
+  compareGatewayVersions,
+  createGatewayOperations,
+  deriveGatewayVersionDrift,
+  parseGatewayVersion,
+} from "./gateway-operations";
 import {
   GatewayOperationError,
   type GatewayControlPlane,
@@ -14,7 +19,6 @@ const gateway: GatewayRecord = {
   id: "gateway-1",
   name: "Team gateway",
   namespace: "openshell",
-  releaseId: "",
 };
 const listRequest = {
   page: 1,
@@ -34,7 +38,18 @@ function setup() {
     total: 1,
   });
   const renameGateway = vi.fn().mockResolvedValue(gateway);
+  const grant = {
+    grantedAt: "2026-08-06T18:00:00.000Z",
+    role: "user" as const,
+    roleBindingId: "rb-1",
+    userId: "user-1",
+    username: "dana",
+  };
+  const changeGatewayAccessRole = vi.fn().mockResolvedValue(grant);
+  const grantGatewayAccess = vi.fn().mockResolvedValue(grant);
   const controlPlane: GatewayControlPlane = {
+    changeGatewayAccessRole,
+    grantGatewayAccess,
     createOpenShellGatewayServiceAccount: vi.fn(),
     deleteOpenShellGatewayServiceAccount: vi.fn(),
     findGatewayPlacements: vi.fn().mockResolvedValue({
@@ -55,12 +70,21 @@ function setup() {
       },
     ]),
     getOpenShellGatewayServiceAccount: vi.fn(),
+    listGatewayAccess: vi.fn().mockResolvedValue({
+      capabilities: { canManageAccess: true, canManageOwners: true },
+      items: [],
+      page: 1,
+      size: 20,
+      total: 0,
+    }),
     listGateways,
     listOpenShellGatewayServiceAccounts: vi.fn(),
     provisionGateway: vi.fn().mockResolvedValue(gateway),
     removeGateway: vi.fn().mockResolvedValue(undefined),
     renameGateway,
+    revokeGatewayAccess: vi.fn().mockResolvedValue(undefined),
     revokeOpenShellGatewayServiceAccount: vi.fn(),
+    searchGatewayDirectory: vi.fn().mockResolvedValue([]),
   };
   const operations = createGatewayOperations({
     controlPlane,
@@ -83,7 +107,15 @@ function setup() {
     },
   });
 
-  return { controlPlane, listGateways, operations, received, renameGateway };
+  return {
+    changeGatewayAccessRole,
+    controlPlane,
+    grantGatewayAccess,
+    listGateways,
+    operations,
+    received,
+    renameGateway,
+  };
 }
 
 describe("gateway application operations", () => {
@@ -172,6 +204,40 @@ describe("gateway application operations", () => {
           "account-1",
         ),
     ],
+    [
+      "list-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.listGatewayAccess("gateway-1", {
+          order: "desc",
+          page: 1,
+          search: "",
+          size: 20,
+          sort: "granted_at",
+        }),
+    ],
+    [
+      "grant-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.grantGatewayAccess("gateway-1", {
+          role: "user",
+          username: "dana",
+        }),
+    ],
+    [
+      "change-access-role",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.changeGatewayAccessRole("gateway-1", "user-1", "admin"),
+    ],
+    [
+      "revoke-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.revokeGatewayAccess("gateway-1", "user-1"),
+    ],
+    [
+      "search-directory",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.searchGatewayDirectory("gateway-1", "da"),
+    ],
   ] as const)(
     "publishes one successful %s workflow and dependency outcome",
     async (action, invoke) => {
@@ -235,6 +301,48 @@ describe("gateway application operations", () => {
     ).toEqual(["operation-1", "operation-1"]);
   });
 
+  it("publishes a conflicted outcome when a last-owner change is rejected", async () => {
+    const { changeGatewayAccessRole, operations, received } = setup();
+    const failure = new GatewayOperationError("conflict", {
+      operationId: "operation-9",
+    });
+    changeGatewayAccessRole.mockRejectedValue(failure);
+
+    await expect(
+      operations.changeGatewayAccessRole("gateway-1", "user-1", "user"),
+    ).rejects.toBe(failure);
+
+    expect(received.slice(-2).map(({ fields }) => fields)).toEqual([
+      {
+        action: "change-access-role",
+        failureKind: "conflict",
+        outcome: "conflicted",
+      },
+      {
+        action: "change-access-role",
+        failureKind: "conflict",
+        outcome: "conflicted",
+      },
+    ]);
+  });
+
+  it("publishes a denied outcome when a grant is forbidden", async () => {
+    const { grantGatewayAccess, operations, received } = setup();
+    const failure = new GatewayOperationError("denied");
+    grantGatewayAccess.mockRejectedValue(failure);
+
+    await expect(
+      operations.grantGatewayAccess("gateway-1", {
+        role: "owner",
+        username: "erin",
+      }),
+    ).rejects.toBe(failure);
+
+    expect(received.slice(-1).map(({ fields }) => fields)).toEqual([
+      { action: "grant-access", failureKind: "denied", outcome: "denied" },
+    ]);
+  });
+
   it("publishes cancellation without turning it into an application error", async () => {
     const { listGateways, operations, received } = setup();
     const cancellation = Object.assign(new Error("cancelled"), {
@@ -267,5 +375,112 @@ describe("gateway application operations", () => {
         allowedConsumers.includes("trace"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("deriveGatewayVersionDrift", () => {
+  it("fires for a tracking gateway strictly behind its spoke default (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.1-rhaiv.3",
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("behind");
+  });
+
+  it("never fires for a pinned-image gateway, even when behind (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.1-rhaiv.3",
+        imagePinned: true,
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("none");
+  });
+
+  it("does not fire for an up-to-date gateway (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.2-rhaiv.7",
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("none");
+  });
+
+  it("does not fire when the running version is newer than the spoke default", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.3-rhaiv.1",
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("none");
+  });
+
+  it("fires when only the release suffix is behind on an equal core (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.2-rhaiv.3",
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("behind");
+  });
+
+  it("does not fire when either version is missing (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({ provisioningVersion: "v0.1.2-rhaiv.7" }),
+    ).toBe("none");
+    expect(
+      deriveGatewayVersionDrift({ gatewayVersion: "v0.1.1-rhaiv.3" }),
+    ).toBe("none");
+    expect(deriveGatewayVersionDrift({})).toBe("none");
+  });
+
+  it("does not fire when either version is unparseable (GVV-03)", () => {
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "latest",
+        provisioningVersion: "v0.1.2-rhaiv.7",
+      }),
+    ).toBe("none");
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.1-rhaiv.3",
+        provisioningVersion: "nightly-build",
+      }),
+    ).toBe("none");
+  });
+
+  it("compares dotted, suffixed version tags semantically, not as strings", () => {
+    // String comparison would place "v0.1.10" before "v0.1.9"; semantic
+    // comparison must not.
+    const older = parseGatewayVersion("v0.1.9-rhaiv.2");
+    const newer = parseGatewayVersion("v0.1.10-rhaiv.1");
+    if (!older || !newer) {
+      throw new Error("expected both versions to parse");
+    }
+    expect(compareGatewayVersions(older, newer)).toBeLessThan(0);
+    expect(
+      deriveGatewayVersionDrift({
+        gatewayVersion: "v0.1.9-rhaiv.2",
+        provisioningVersion: "v0.1.10-rhaiv.1",
+      }),
+    ).toBe("behind");
+  });
+
+  it("treats a suffixless tag as newer than an equal-core suffixed tag", () => {
+    const suffixed = parseGatewayVersion("v1.0.0-rhaiv.1");
+    const release = parseGatewayVersion("v1.0.0");
+    if (!suffixed || !release) {
+      throw new Error("expected both versions to parse");
+    }
+    expect(compareGatewayVersions(suffixed, release)).toBeLessThan(0);
+    expect(compareGatewayVersions(release, suffixed)).toBeGreaterThan(0);
+  });
+
+  it("rejects unparseable version strings", () => {
+    expect(parseGatewayVersion(undefined)).toBeUndefined();
+    expect(parseGatewayVersion("")).toBeUndefined();
+    expect(parseGatewayVersion("v1.2")).toBeUndefined();
+    expect(parseGatewayVersion("1.2.3.4")).toBeUndefined();
   });
 });

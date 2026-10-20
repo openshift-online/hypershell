@@ -21,7 +21,6 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		},
 		Name:               d.Name,
 		ClusterId:          d.ClusterId,
-		ReleaseId:          d.ReleaseId,
 		Namespace:          d.Namespace,
 		ExternalDns:        d.ExternalDns,
 		TlsMode:            d.TlsMode,
@@ -33,12 +32,21 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		RouteAddress:       d.RouteAddress,
 		ConsoleAddress:     d.ConsoleAddress,
 		GatewayVersion:     d.GatewayVersion,
-		ObservedReleaseId:  d.ObservedReleaseId,
 		Oidc:               d.Oidc,
 		Route:              d.Route,
 		CredentialDriver:   d.CredentialDriver,
+		RepositoryId:       d.RepositoryId,
 		Generation:         d.Generation,
 		ObservedGeneration: &d.ObservedGeneration,
+		// provisioning_version (proto field 28) is intentionally left unset on the
+		// gRPC path: it is derived from the cluster's gateway-version capability at
+		// REST read time, and the only gRPC consumer is the control plane, which
+		// reconciles its own cluster and has no use for the derived value. Unlike
+		// image_pinned, it is not derivable from the Gateway row alone.
+		ImagePinned: func() *bool {
+			v := gatewayImagePinned(d)
+			return &v
+		}(),
 		ActiveSandboxCount: func() *int32 {
 			if d.ActiveSandboxCount != nil {
 				v := int32(*d.ActiveSandboxCount)

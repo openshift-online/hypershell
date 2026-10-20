@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -11,7 +12,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
@@ -24,10 +27,15 @@ type gatewayGRPCHandler struct {
 	generic    services.GenericService
 	brokerFunc func() *pkgserver.EventBroker
 	clusters   RegisteredClusterLookup
+	placement  PlacementResolver
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup) pb.GatewayServiceServer {
-	return &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
+	if len(placement) > 0 {
+		h.placement = placement[0]
+	}
+	return h
 }
 
 // validateGatewayPhase rejects a phase outside the canonical vocabulary. An
@@ -58,18 +66,72 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("cluster_id", req.ClusterId, true); err != nil {
-		return nil, err
-	}
-	if err := grpcutil.ValidateStringField("release_id", req.ReleaseId, true); err != nil {
-		return nil, err
-	}
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
-	if svcErr := validateClusterReference(ctx, h.clusters, req.ClusterId); svcErr != nil {
-		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	// cluster_id is optional: a gateway is either pinned to a cluster (cluster_id)
+	// or late-bound by a placement selector. Exactly one must be supplied. See
+	// data-model.spec.md, "Gateway Placement and Late Binding".
+	clusterID := strings.TrimSpace(req.ClusterId)
+	hasCluster := clusterID != ""
+	intent := openapi.GatewayPlacementIntent{}
+	hasPlacement := false
+	if req.Placement != nil {
+		if selector := req.Placement.GetCapabilitySelector(); selector != nil {
+			intent.Selector = selector.Selector
+			hasPlacement = true
+		} else if req.Placement.GetLocalKind() != nil {
+			mode := "local-kind"
+			intent.Mode = &mode
+			hasPlacement = true
+		} else {
+			return nil, status.Error(codes.InvalidArgument, "placement intent is empty")
+		}
 	}
+	if hasCluster && hasPlacement {
+		return nil, status.Error(codes.InvalidArgument, "provide exactly one of cluster_id or placement, not both")
+	}
+	if !hasCluster && !hasPlacement {
+		return nil, status.Error(codes.InvalidArgument, "a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
+	}
+
+	phase := req.Phase
+	statusField := req.Status
+	var placementJSON *string
+	if hasPlacement {
+		if h.placement == nil {
+			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
+		}
+		if svcErr := validatePlacementIntent(intent); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+		marshaled, marshalErr := marshalPlacement(intent)
+		if marshalErr != nil {
+			return nil, status.Errorf(codes.Internal, "persist gateway placement: %v", marshalErr)
+		}
+		placementJSON = marshaled
+		resolved, didResolve, svcErr := h.placement(ctx, intent)
+		if svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+		if didResolve {
+			clusterID = resolved
+		} else {
+			// No eligible cluster yet: create the gateway unplaced (Pending,
+			// awaiting placement) rather than fail, and bind it when a matching
+			// cluster appears (gateway-provision-placement.spec.md GP-07).
+			clusterID = ""
+			pending := string(gatewayhealth.PhasePending)
+			phase = &pending
+			awaiting := awaitingPlacementStatus
+			statusField = &awaiting
+		}
+	} else {
+		if svcErr := validateClusterReference(ctx, h.clusters, clusterID); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+	}
+
 	var serverDnsNamesJSON *string
 	if len(req.ServerDnsNames) > 0 {
 		data, _ := json.Marshal(req.ServerDnsNames)
@@ -79,17 +141,18 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 
 	gateway := &Gateway{
 		Name:           req.Name,
-		ClusterId:      req.ClusterId,
-		ReleaseId:      req.ReleaseId,
+		ClusterId:      clusterID,
+		Placement:      placementJSON,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,
-		Status:         req.Status,
-		Phase:          req.Phase,
+		Status:         statusField,
+		Phase:          phase,
 		Image:          req.Image,
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,
 		Route:          req.Route,
+		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
 	if svcErr != nil {
@@ -112,11 +175,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
-	if req.ReleaseId != nil {
-		if err := grpcutil.ValidateStringField("release_id", *req.ReleaseId, false); err != nil {
-			return nil, err
-		}
-	}
 	if req.ExternalDns != nil {
 		if err := grpcutil.ValidateStringField("external_dns", *req.ExternalDns, false); err != nil {
 			return nil, err
@@ -129,11 +187,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.ServiceType != nil {
 		if err := grpcutil.ValidateStringField("service_type", *req.ServiceType, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.ObservedReleaseId != nil {
-		if err := grpcutil.ValidateStringField("observed_release_id", *req.ObservedReleaseId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -155,6 +208,12 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
+	// In an import context, refuse a write to a gateway owned by a different
+	// Repository (or to an unowned one). Outside an import context this is a no-op,
+	// so the control-plane health/status write-back path is unaffected.
+	if err := pkgrbac.EnforceImportOwnership(ctx, gateway.RepositoryId); err != nil {
+		return nil, err
+	}
 	if req.Name != nil {
 		gateway.Name = *req.Name
 	}
@@ -165,9 +224,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}
 		gateway.ClusterId = *req.ClusterId
-	}
-	if req.ReleaseId != nil {
-		gateway.ReleaseId = *req.ReleaseId
 	}
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns
@@ -197,12 +253,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.ConsoleAddress != nil {
 		gateway.ConsoleAddress = req.ConsoleAddress
-	}
-	// observed_release_id is control-plane-owned: the control plane advances it
-	// (via this whole-row path, like phase/status/route_address) only after a new
-	// revision passes its health gates. It is readOnly to REST clients.
-	if req.ObservedReleaseId != nil {
-		gateway.ObservedReleaseId = req.ObservedReleaseId
 	}
 	if req.Oidc != nil {
 		gateway.Oidc = req.Oidc
@@ -291,8 +341,23 @@ func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGa
 		return nil, err
 	}
 
-	svcErr := h.service.Delete(ctx, req.Id)
+	// Load first so a missing gateway is a clean NotFound (nil-found guard) and so
+	// import ownership can be enforced: in an import context a gateway owned by
+	// another Repository (or unowned) is refused, so one Repository's prune cannot
+	// delete another's gateway. Outside an import context EnforceImportOwnership is a
+	// no-op, so per-gateway RBAC delete over gRPC is unaffected.
+	gateway, svcErr := h.service.Get(ctx, req.Id)
 	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if gateway == nil {
+		return nil, status.Errorf(codes.NotFound, "gateway %s not found", req.Id)
+	}
+	if err := pkgrbac.EnforceImportOwnership(ctx, gateway.RepositoryId); err != nil {
+		return nil, err
+	}
+
+	if svcErr := h.service.Delete(ctx, req.Id); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.DeleteGatewayResponse{}, nil
@@ -320,6 +385,23 @@ func (h *gatewayGRPCHandler) ListGateways(ctx context.Context, req *pb.ListGatew
 			return nil, err
 		}
 		listArgs.Search = fmt.Sprintf("cluster_id = '%s'", clusterID)
+	}
+
+	// repository_id is the declarative import reconciler's Repository-scoped read:
+	// it restricts the list to gateways owned by that Repository so the reconciler
+	// can enumerate and prune them. Validate before interpolating into the search DSL
+	// for the same reason cluster_id is validated above. The cluster caller binding
+	// exemption that lets this read span clusters is decided in pkg/rbac.
+	if repositoryID := req.GetRepositoryId(); repositoryID != "" {
+		if err := grpcutil.ValidateStringField("repository_id", repositoryID, false); err != nil {
+			return nil, err
+		}
+		clause := fmt.Sprintf("repository_id = '%s'", repositoryID)
+		if listArgs.Search != "" {
+			listArgs.Search += " and " + clause
+		} else {
+			listArgs.Search = clause
+		}
 	}
 
 	var gateways []Gateway

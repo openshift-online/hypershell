@@ -30,6 +30,18 @@ type Promotion struct {
 	versioner VersionResolver
 	analyzer  AnalysisResolver
 	bundler   BundleEnricher
+	history   ReleaseHistory
+	// historyLimit caps the total number of release bundles in the payload (the
+	// currently-deployed ones plus previously-deployed history cards). 0 disables
+	// history entirely.
+	historyLimit int
+}
+
+// ReleaseHistory lists the most recent DISTINCT release bundles the fleet has
+// deployed, newest first, so previously-deployed bundles still render as history
+// cards once no environment runs them. nil disables the feature.
+type ReleaseHistory interface {
+	Recent(ctx context.Context, limit int) []*Release
 }
 
 // VersionResolver maps a gitops commit SHA to a release version. Implementations
@@ -45,10 +57,25 @@ type Release struct {
 	Tag     string `json:"tag,omitempty"`
 	Date    string `json:"date,omitempty"`
 	SHA     string `json:"sha,omitempty"`
+	// Digest is the release bundle's stable identity (the versions lock's
+	// reference.digest), when a lock resolver supplied it. It, not the gitops
+	// SHA, is how environments on the same bundle are collapsed: two dry SHAs
+	// that render the same bundle share one Release. Empty under the short-SHA
+	// fallback, where SHA is the only identity.
+	Digest string `json:"digest,omitempty"`
 	// PRs is the set of pull requests this build introduced since the previous
-	// build (Bundle tab). Populated by a BundleEnricher; nil when GitHub
-	// enrichment is disabled or there is no prior build to diff against.
+	// build (Bundle tab, "In this bundle"). These are UPSTREAM product-source PRs
+	// (openshift-online/hypershell) -- the changes the bundle actually ships -- not
+	// the gitops lock-bump PR that promoted it. Populated by a BundleEnricher; nil
+	// when GitHub enrichment is disabled or there is no prior build to diff against.
 	PRs []PR `json:"prs,omitempty"`
+	// ManifestsRev is the PUBLIC product source revision the bundle's manifests
+	// were built from (the lock's bundle.manifests.git.revision). The
+	// BundleEnricher diffs consecutive bundles' ManifestsRev over the upstream repo
+	// to list the PRs "in this bundle". Internal only (not serialized): the UI
+	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
+	// provenance.
+	ManifestsRev string `json:"-"`
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.
@@ -70,7 +97,7 @@ func (ShortSHAResolver) Resolve(_ context.Context, sha string) *Release {
 // to ShortSHAResolver; a nil analyzer defaults to the no-op resolver (GitHub
 // enrichment disabled), so analysisUrl is simply omitted; a nil bundler defaults
 // to the no-op enricher, so release dates/PRs are simply omitted.
-func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver, bundler BundleEnricher) *Promotion {
+func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver, bundler BundleEnricher, history ReleaseHistory) *Promotion {
 	if versioner == nil {
 		versioner = ShortSHAResolver{}
 	}
@@ -81,17 +108,19 @@ func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionReso
 		bundler = noopBundles{}
 	}
 	return &Promotion{
-		dyn:       dyn,
-		ns:        c.PromoterNamespace,
-		strategy:  c.PromotionStrategyName,
-		argoNS:    c.ArgoNamespaces,
-		argoBase:  c.ArgoBaseURL,
-		psGVR:     schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "promotionstrategies"},
-		ctpGVR:    schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "changetransferpolicies"},
-		appGVR:    schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
-		versioner: versioner,
-		analyzer:  analyzer,
-		bundler:   bundler,
+		dyn:          dyn,
+		ns:           c.PromoterNamespace,
+		strategy:     c.PromotionStrategyName,
+		argoNS:       c.ArgoNamespaces,
+		argoBase:     c.ArgoBaseURL,
+		psGVR:        schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "promotionstrategies"},
+		ctpGVR:       schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "changetransferpolicies"},
+		appGVR:       schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
+		versioner:    versioner,
+		analyzer:     analyzer,
+		bundler:      bundler,
+		history:      history,
+		historyLimit: c.ReleaseHistoryLimit,
 	}
 }
 
@@ -104,12 +133,20 @@ type PromotionPayload struct {
 	Frontier     *Release               `json:"frontier"`
 }
 
+// VerificationTarget correlates logs using exact deployed revision and workload identity.
+type VerificationTarget struct {
+	Revision  string `json:"revision"`
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+}
+
 // Environment is one promotion environment.
 type Environment struct {
-	Branch         string   `json:"branch"`
-	Active         *Release `json:"active"`
-	Proposed       *Release `json:"proposed"`
-	ActiveHydrated string   `json:"activeHydrated"`
+	Verification   *VerificationTarget `json:"verification,omitempty"`
+	Branch         string              `json:"branch"`
+	Active         *Release            `json:"active"`
+	Proposed       *Release            `json:"proposed"`
+	ActiveHydrated string              `json:"activeHydrated"`
 	// AnalysisURL links to the hypershell-analysis GitHub check-run for the
 	// active hydrated commit (nullable -- spec §5). Empty/omitted when GitHub
 	// enrichment is disabled or the run is absent/unreachable.
@@ -129,11 +166,21 @@ type Environment struct {
 	ArgoURL    string `json:"argoUrl,omitempty"`
 	ArgoHealth string `json:"argoHealth,omitempty"`
 	ArgoSync   string `json:"argoSync,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Env        string `json:"env,omitempty"`
-	Cluster    string `json:"cluster,omitempty"`
-	ConsoleURL string `json:"consoleUrl,omitempty"`
+	// SyncRetries is the Argo CD sync-operation retry count
+	// (status.operationState.retryCount) for the core Application. nil means no
+	// operation state was recorded (unknown), kept distinct from a genuine 0
+	// (synced on the first attempt) so a wedged, looping gate is visible. Omitted
+	// from the payload when nil.
+	SyncRetries *int   `json:"syncRetries,omitempty"`
+	Role        string `json:"role,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Env         string `json:"env,omitempty"`
+	Cluster     string `json:"cluster,omitempty"`
+	ConsoleURL  string `json:"consoleUrl,omitempty"`
+	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
+	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
+	// stays authoritative for the host (no hostname pattern is baked in here).
+	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 
 // Gate is a promoter commit status.
@@ -189,9 +236,15 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			Proposed:       pv,
 			ActiveHydrated: shortSHA(activeHydrated),
 			AnalysisURL:    p.analyzer.AnalysisURL(ctx, activeHydrated),
-			UpToDate:       activeSHA == proposedSHA && activeSHA != "",
-			ActiveGates:    gatesOf(active),
-			ProposedGates:  gatesOf(proposed),
+			// Up-to-date means active and proposed run the SAME release bundle, by
+			// the digest identity the release cards dedup on -- NOT by raw gitops
+			// dry SHA. Two dry commits that render the same bundle (e.g. a delivery
+			// -plumbing commit) share a digest, so the env is up to date even though
+			// the SHAs differ. Falls back to SHA identity when the lock is
+			// unreadable (releaseKey), matching canonicalRelease.
+			UpToDate:      sameRelease(av, pv),
+			ActiveGates:   gatesOf(active),
+			ProposedGates: gatesOf(proposed),
 		}
 		if pr, ok := prByBranch[branch]; ok {
 			env.PRState = pr.state
@@ -203,20 +256,30 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.ArgoURL = p.argoAppURL(a.ns, a.app)
 			env.ArgoHealth = a.health
 			env.ArgoSync = a.sync
+			env.SyncRetries = a.syncRetries
 			env.Role = a.role
 			env.Provider = a.provider
 			env.Env = a.env
 			env.Cluster = a.cluster
+			if activeHydrated != "" && a.cluster != "" && a.workloadNamespace != "" {
+				env.Verification = &VerificationTarget{Revision: activeHydrated, Cluster: a.cluster, Namespace: a.workloadNamespace}
+			}
 			env.ConsoleURL = a.consoleURL
+			env.GrafanaURL = a.grafanaURL
 		}
 		payload.Environments[key] = env
 	}
 
-	// Enrich release bundles (dates + PR lists) best-effort before frontier
-	// selection, which depends on the date the enricher fills in.
-	p.bundler.Enrich(ctx, payload.Releases)
+	// Resolve bundle dates best-effort before frontier selection, which depends on
+	// the date. (A lock resolver already fills Date from the bundle tag; this only
+	// matters in the short-SHA fallback.) PR lists are diffed later, after history
+	// is merged, so a fleet converged on one bundle still has a prior bundle to
+	// diff the frontier against.
+	p.bundler.ResolveDates(ctx, payload.Releases)
 
-	// Frontier = newest release by bundle date across all envs.
+	// Frontier = newest release by bundle date across the DEPLOYED envs (computed
+	// before history is merged, so a dimmed previously-deployed card never becomes
+	// the frontier).
 	for _, r := range payload.Releases {
 		if r.Date == "" {
 			continue
@@ -225,22 +288,97 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			payload.Frontier = r
 		}
 	}
+
+	// Merge previously-deployed bundles so the freight bar shows release history,
+	// not just what is live right now. These arrive with no environment pointing
+	// at them, so the UI renders them as dimmed, zero-deployment cards.
+	p.mergeHistory(ctx, &payload)
+
+	// Diff PR lists over the full set (deployed + history), so the frontier's "in
+	// this bundle" list is populated even when every environment runs the same
+	// bundle (the single-deployed-bundle case has no peer to diff against until
+	// history is present).
+	p.bundler.Enrich(ctx, payload.Releases)
 	return payload, nil
 }
 
-// canonicalRelease resolves sha to a release, deduplicating by SHA into the
-// shared map: the first resolution for a SHA wins and is stored, later callers
-// get that same pointer. Returns nil for an empty/unresolvable SHA.
+// mergeHistory adds previously-deployed release bundles to payload.Releases so the
+// timeline shows history. It is a no-op when the history source is disabled.
+//
+// Only bundles no newer than the frontier are added: a lock commit on the default
+// branch that is newer than every deployed env is a bundle not yet promoted
+// anywhere (a pending/future release), which is not "previously deployed" and
+// would otherwise appear as a stray dimmed card ahead of the fleet. Currently
+// deployed bundles are already in the map (added by canonicalRelease) and keep
+// their shared pointer. The total distinct bundle count is capped at historyLimit.
+func (p *Promotion) mergeHistory(ctx context.Context, payload *PromotionPayload) {
+	if p.history == nil || p.historyLimit <= 0 {
+		return
+	}
+	// Ceiling for "previously deployed": the newest bundle any env actually runs.
+	// Empty when nothing resolved to a dated bundle, in which case we add nothing
+	// rather than guess which history entries were deployed.
+	frontierDate := ""
+	if payload.Frontier != nil {
+		frontierDate = payload.Frontier.Date
+	}
+	if frontierDate == "" {
+		return
+	}
+	for _, r := range p.history.Recent(ctx, p.historyLimit) {
+		if len(payload.Releases) >= p.historyLimit {
+			break
+		}
+		if r.Date == "" || r.Date > frontierDate {
+			continue // undated or not-yet-deployed-anywhere (ahead of the fleet)
+		}
+		key := releaseKey(r)
+		if _, ok := payload.Releases[key]; ok {
+			continue // already present as a currently-deployed bundle
+		}
+		payload.Releases[key] = r
+	}
+}
+
+// canonicalRelease resolves sha to a release, deduplicating into the shared map
+// by release identity: the bundle digest when the resolver supplied one, else
+// the SHA. Keying on the digest collapses two gitops SHAs that render the same
+// bundle onto one shared *Release (and one map entry, which the UI consumes as
+// releaseByDigest), so an env is only "behind" when it runs a genuinely older
+// bundle. The first resolution for an identity wins; later callers get that same
+// pointer. Returns nil for an empty/unresolvable SHA.
 func (p *Promotion) canonicalRelease(ctx context.Context, sha string, releases map[string]*Release) *Release {
 	r := p.versioner.Resolve(ctx, sha)
 	if r == nil {
 		return nil
 	}
-	if existing, ok := releases[r.SHA]; ok {
+	key := releaseKey(r)
+	if existing, ok := releases[key]; ok {
 		return existing
 	}
-	releases[r.SHA] = r
+	releases[key] = r
 	return r
+}
+
+// releaseKey is a release's identity for deduplication and for the wire
+// `releases` map the UI keys by digest: the bundle digest when present, else the
+// SHA (short-SHA fallback, where the gitops commit is the only identity).
+func releaseKey(r *Release) string {
+	if r.Digest != "" {
+		return r.Digest
+	}
+	return r.SHA
+}
+
+// sameRelease reports whether active and proposed resolve to the same release
+// bundle, by the same identity canonicalRelease dedups on (digest, else SHA).
+// Two nil releases (both unresolvable) are not "the same" -- an env with no
+// resolvable active bundle is not meaningfully up to date.
+func sameRelease(active, proposed *Release) bool {
+	if active == nil || proposed == nil {
+		return false
+	}
+	return releaseKey(active) == releaseKey(proposed)
 }
 
 type prInfo struct{ state, url string }
@@ -296,7 +434,11 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 }
 
 type argoInfo struct {
-	app, ns, health, sync, role, provider, env, cluster, consoleURL string
+	workloadNamespace                                                           string
+	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
+	// syncRetries is status.operationState.retryCount, nil when no operation state
+	// is recorded (unknown) so it stays distinct from a genuine 0.
+	syncRetries *int
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -337,16 +479,27 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 		ann := stringMap(obj, "metadata", "annotations")
 		health, _ := nestedString(obj, "status", "health", "status")
 		sync, _ := nestedString(obj, "status", "sync", "status")
+		// retryCount lives on the already-fetched Application; read it from the same
+		// object (no new query). nil when operationState is absent (no operation),
+		// so the UI can omit the row rather than show a misleading "0".
+		var syncRetries *int
+		if rc, ok := nestedInt(obj, "status", "operationState", "retryCount"); ok {
+			syncRetries = &rc
+		}
+		workloadNamespace, _ := nestedString(obj, "spec", "destination", "namespace")
 		out[key] = argoInfo{
-			app:        name,
-			ns:         ns,
-			health:     health,
-			sync:       sync,
-			role:       labels[deliveryLabelPrefix+"role"],
-			provider:   labels[deliveryLabelPrefix+"provider"],
-			env:        labels[deliveryLabelPrefix+"env"],
-			cluster:    labels[deliveryLabelPrefix+"cluster"],
-			consoleURL: ann["link.argocd.argoproj.io/external-link"],
+			workloadNamespace: workloadNamespace,
+			app:               name,
+			ns:                ns,
+			health:            health,
+			sync:              sync,
+			syncRetries:       syncRetries,
+			role:              labels[deliveryLabelPrefix+"role"],
+			provider:          labels[deliveryLabelPrefix+"provider"],
+			env:               labels[deliveryLabelPrefix+"env"],
+			cluster:           labels[deliveryLabelPrefix+"cluster"],
+			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
+			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
 		}
 	}
 	return out

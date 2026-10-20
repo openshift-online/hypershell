@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
 	"github.com/openshift-online/hypershell/components/cli/pkg/connection"
+	"github.com/openshift-online/hypershell/components/cli/pkg/kustomize"
 	"github.com/openshift-online/hypershell/components/cli/pkg/urls"
 )
 
@@ -65,7 +66,7 @@ func run(cmd *cobra.Command, argv []string) error {
 		return err
 	}
 
-	conn, err := connection.NewConnection().Config(cfg).Build()
+	conn, err := connection.NewConnectionBuilder().Config(cfg).Build()
 	if err != nil {
 		return err
 	}
@@ -210,35 +211,18 @@ func loadFromKustomize(dir string) ([]Resource, error) {
 		}
 	}
 
-	// Find kustomize binary
-	kustomizeBin, err := exec.LookPath("kustomize")
+	// Render the kustomization in-process through the shared pkg/kustomize library,
+	// the same implementation the control plane's RepositoryReconciler uses, so the
+	// CLI and server render identically. No external `kustomize` binary is required.
+	// The library disables plugins and restricts local file loading to the kustomize
+	// root. Build errors are already wrapped with "kustomize build failed".
+	rendered, err := kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)
 	if err != nil {
-		return nil, fmt.Errorf("kustomize binary not found in PATH - install from https://kustomize.io/")
+		return nil, err
 	}
 
-	// Run kustomize build with security flags
-	// --enable-alpha-plugins=false prevents arbitrary plugin execution
-	// --load-restrictor=LoadRestrictionsRootOnly restricts file loading to root directory
-	cmd := exec.Command(kustomizeBin, "build",
-		"--enable-alpha-plugins=false",
-		"--load-restrictor=LoadRestrictionsRootOnly",
-		dir)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		// Include stderr for better error messages
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		return nil, fmt.Errorf("kustomize build failed: %s", errMsg)
-	}
-
-	// Parse the YAML stream from kustomize output
-	resources, err := parseYAMLStream(&stdout)
+	// Parse the rendered YAML stream into the apply command's resource model.
+	resources, err := parseYAMLStream(bytes.NewReader(rendered))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse kustomize output: %w", err)
 	}
@@ -287,12 +271,17 @@ func getName(resource Resource) string {
 
 func isSupportedKind(kind string) bool {
 	supportedKinds := map[string]bool{
-		"Gateway":        true,
-		"GatewayNetwork": true,
-		"GatewayRelease": true,
-		"ManagedCluster": true,
-		"Role":           true,
-		"RoleBinding":    true,
+		"Gateway":         true,
+		"ManagedCluster":  true,
+		"Role":            true,
+		"RoleBinding":     true,
+		"AgentRuntime":    true,
+		"SandboxTemplate": true,
+		"ProviderSpec":    true,
+		"ProviderBinding": true,
+		"InferenceRoute":  true,
+		"SecretSource":    true,
+		"Repository":      true,
 	}
 	return supportedKinds[kind]
 }
@@ -310,16 +299,26 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 	switch kind {
 	case "Gateway":
 		basePath = urls.GatewaysPath
-	case "GatewayNetwork":
-		basePath = urls.GatewayNetworksPath
-	case "GatewayRelease":
-		basePath = urls.GatewayReleasesPath
 	case "ManagedCluster":
 		basePath = urls.ManagedClustersPath
 	case "Role":
 		basePath = urls.RolesPath
 	case "RoleBinding":
 		basePath = urls.RoleBindingsPath
+	case "AgentRuntime":
+		basePath = urls.AgentRuntimesPath
+	case "SandboxTemplate":
+		basePath = urls.SandboxTemplatesPath
+	case "ProviderSpec":
+		basePath = urls.ProviderSpecsPath
+	case "ProviderBinding":
+		basePath = urls.ProviderBindingsPath
+	case "InferenceRoute":
+		basePath = urls.InferenceRoutesPath
+	case "SecretSource":
+		basePath = urls.SecretSourcesPath
+	case "Repository":
+		basePath = urls.RepositoriesPath
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}

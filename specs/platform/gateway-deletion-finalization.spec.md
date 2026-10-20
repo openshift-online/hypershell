@@ -37,7 +37,8 @@ and coordinates the deletion requirements defined in:
   - per-gateway database and role cleanup on the gateway database server, and
     the `PostgreSQLDatabase` orphan signal.
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
-  - credential-namespace RBAC cleanup.
+  - credential-namespace RBAC cleanup, and purge of the gateway's provider-credential
+    Vault KV path, with the `VaultCredentialPath` orphan signal.
 
 Where a per-resource spec already defines a resource's cleanup behavior, that
 spec remains authoritative for that resource. This spec defines the enumeration
@@ -77,7 +78,7 @@ finalization and no-silent-orphan guarantees that span all of them.
 
 ## Requirements
 
-### Requirement: Deletion Enumerates Every Gateway-Owned Resource Class
+### Requirement: GTW-DEL-01 -- Deletion Enumerates Every Gateway-Owned Resource Class
 
 When the control plane processes a Gateway delete event, it SHALL reconcile
 every gateway-owned resource class toward absence. The complete set of owned
@@ -97,13 +98,18 @@ resource classes is:
    controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
+6. For a Vault-backed gateway, the provider secrets stored under the gateway's
+   Vault KV path (`secret/data/openshell/<tenant-namespace>/*` and its metadata) on
+   the per-cluster provider Vault, purged by authenticating as the gateway's own
+   identity before the ServiceAccount and namespace are removed (see
+   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)).
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
 be reconciled explicitly on the delete-event path, because the namespace cascade
 cannot reach it.
 
-#### Scenario: Normal deletion reclaims all owned resource classes
+#### Scenario: GTW-DEL-01.01 -- Normal deletion reclaims all owned resource classes
 
 - GIVEN a running Gateway with a managed namespace, a ClusterRoleBinding,
   provisioned Keycloak clients, per-gateway database resources, and (if
@@ -116,7 +122,7 @@ cannot reach it.
   credential-namespace RBAC
 - AND when every class is absent it SHALL report the delete complete
 
-#### Scenario: Owned resource is reclaimed even when the namespace survives
+#### Scenario: GTW-DEL-01.02 -- Owned resource is reclaimed even when the namespace survives
 
 - GIVEN a Gateway whose managed namespace cannot be deleted by the cascade
   (for example the namespace is shared, pre-existing, or already terminating)
@@ -125,7 +131,7 @@ cannot reach it.
   by an owned-resource sweep rather than relying on the namespace cascade
 - AND it SHALL still reconcile every out-of-namespace owned resource toward absence
 
-### Requirement: In-Namespace Owned-Resource Sweep Covers Every Owned Type
+### Requirement: GTW-DEL-02 -- In-Namespace Owned-Resource Sweep Covers Every Owned Type
 
 When the managed namespace is not deleted (it survives, is unmanaged, is shared,
 or belongs to another instance), the control plane SHALL reclaim the gateway's
@@ -136,7 +142,7 @@ sweep SHALL identify owned resources by the management label
 (`hypershell.redhat.io/managed=true`) and SHALL treat an absent resource type
 (for example a missing optional CRD) and an already-absent resource as success.
 
-#### Scenario: Surviving namespace still has its gateway resources swept
+#### Scenario: GTW-DEL-02.01 -- Surviving namespace still has its gateway resources swept
 
 - GIVEN a Gateway delete event whose managed namespace survives the delete
 - WHEN the control plane sweeps the namespace for owned resources
@@ -145,14 +151,14 @@ sweep SHALL identify owned resources by the management label
 - AND a resource type whose CRD is not installed SHALL be skipped without failing
   the sweep
 
-#### Scenario: New owned resource type is not leaked
+#### Scenario: GTW-DEL-02.02 -- New owned resource type is not leaked
 
 - GIVEN the platform gains a new owned in-namespace resource type
 - WHEN a Gateway whose namespace survives is deleted
 - THEN the owned-resource sweep SHALL include that new type
 - AND the resource SHALL NOT be left behind
 
-### Requirement: Partial Deletion Failures Are Aggregated, Retried, and Never Silently Swallowed
+### Requirement: GTW-DEL-03 -- Partial Deletion Failures Are Aggregated, Retried, and Never Silently Swallowed
 
 Deletion SHALL attempt every owned-resource class regardless of an individual
 class's failure, and SHALL aggregate the failures rather than stop at the first
@@ -164,7 +170,7 @@ SHALL be treated as success for that class. No owned-resource cleanup failure
 SHALL be swallowed without either propagating for retry or being recorded through
 the no-silent-orphan signal below.
 
-#### Scenario: One resource class fails, the rest still run
+#### Scenario: GTW-DEL-03.01 -- One resource class fails, the rest still run
 
 - GIVEN a Gateway delete where deleting the database resources fails transiently
 - WHEN the control plane processes the delete
@@ -175,7 +181,7 @@ the no-silent-orphan signal below.
 - AND the delete SHALL NOT be reported complete until the database resources are
   absent
 
-#### Scenario: Already-absent resources make deletion succeed
+#### Scenario: GTW-DEL-03.02 -- Already-absent resources make deletion succeed
 
 - GIVEN a Gateway delete event replayed after its owned resources were already
   reclaimed
@@ -183,7 +189,7 @@ the no-silent-orphan signal below.
 - THEN every cleanup step SHALL treat its target as already absent
 - AND the delete SHALL be reported complete without error
 
-### Requirement: Transient API and gRPC Disconnection Pauses Safely
+### Requirement: GTW-DEL-04 -- Transient API and gRPC Disconnection Pauses Safely
 
 Deletion SHALL be safe across a transient loss of the API server or the watch
 stream. When a read the teardown depends on cannot be confirmed (for example
@@ -196,7 +202,7 @@ surfaced (logged as a warning and, where a recovery path does not otherwise
 cover it, recorded through the no-silent-orphan signal) rather than discarded
 such that only the namespace garbage collector could ever recover it.
 
-#### Scenario: API unreachable during teardown defers the delete
+#### Scenario: GTW-DEL-04.01 -- API unreachable during teardown defers the delete
 
 - GIVEN a Gateway delete is in progress
 - WHEN the API server becomes unreachable so a required read fails
@@ -204,14 +210,14 @@ such that only the namespace garbage collector could ever recover it.
 - AND it SHALL return an error so the delete event is retried later
 - AND it SHALL NOT delete or skip a resource based on the failed read
 
-#### Scenario: Watch stream drops mid-deletion and reconnects
+#### Scenario: GTW-DEL-04.02 -- Watch stream drops mid-deletion and reconnects
 
 - GIVEN a Gateway delete has partially completed when the watch stream drops
 - WHEN the watch client reconnects with bounded backoff
 - THEN the pending delete SHALL still be retried from the reconcile queue
 - AND the completed steps SHALL be idempotent so re-running them causes no error
 
-### Requirement: Delete Intent Survives Reconnects and Process Restarts
+### Requirement: GTW-DEL-05 -- Delete Intent Survives Reconnects and Process Restarts
 
 A Gateway delete, once observed, SHALL remain durable until finalization. The
 reconcile queue SHALL retry a failed delete indefinitely with bounded backoff,
@@ -222,7 +228,7 @@ snapshot from re-provisioning the gone Gateway. Because the delete event carries
 the resource snapshot, teardown SHALL be possible after a control-plane restart
 with no in-memory state.
 
-#### Scenario: Delete retries persist across a restart via the snapshot
+#### Scenario: GTW-DEL-05.01 -- Delete retries persist across a restart via the snapshot
 
 - GIVEN the control plane restarts with no in-memory state while a Gateway delete
   is pending
@@ -230,14 +236,14 @@ with no in-memory state.
 - THEN it SHALL read the namespace and other fields from the snapshot
 - AND it SHALL reclaim the owned resources without depending on any in-memory cache
 
-#### Scenario: A stale create snapshot cannot resurrect a deleted gateway
+#### Scenario: GTW-DEL-05.02 -- A stale create snapshot cannot resurrect a deleted gateway
 
 - GIVEN a Gateway was deleted and its teardown completed, leaving a tombstone
 - WHEN a stale inventory seed still lists that Gateway
 - THEN the control plane SHALL NOT re-provision it
 - AND the tombstone SHALL be preserved
 
-### Requirement: Finalization Gates Record Removal on Required Cleanup or a Recovery Path
+### Requirement: GTW-DEL-06 -- Finalization Gates Record Removal on Required Cleanup or a Recovery Path
 
 A Gateway SHALL NOT be considered finalized until each owned resource class is
 either reclaimed (or confirmed absent) or has been handed to an explicit,
@@ -261,7 +267,7 @@ service-account barrier SHALL remain authoritative for service-account cleanup a
 specified in
 [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-accounts.spec.md).
 
-#### Scenario: Service accounts are cleaned before the gateway client and record
+#### Scenario: GTW-DEL-06.01 -- Service accounts are cleaned before the gateway client and record
 
 - GIVEN a Gateway with active service-account clients
 - WHEN the Gateway is deleted
@@ -271,7 +277,7 @@ specified in
   precondition is unmet, which SHALL surface as a retryable error rather than a
   silent success
 
-#### Scenario: Namespace teardown that cannot complete is owned by the recovery path
+#### Scenario: GTW-DEL-06.02 -- Namespace teardown that cannot complete is owned by the recovery path
 
 - GIVEN a Gateway delete whose managed namespace deletion could not be completed
   inline
@@ -280,7 +286,7 @@ specified in
   garbage collector
 - AND that hand-off SHALL be a specified recovery path, not a manual step
 
-### Requirement: No Owned Resource Is Orphaned Silently
+### Requirement: GTW-DEL-07 -- No Owned Resource Is Orphaned Silently
 
 The platform SHALL NOT leave credentials, databases, routes, or namespaces (or
 any other owned resource) behind without either a recovery path that will reclaim
@@ -295,7 +301,7 @@ SHALL be recorded where it outlives the deleted resources (for example a
 Kubernetes Event in the control-plane namespace, consistent with the garbage
 collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 
-#### Scenario: Leaked Keycloak client with no recovery is recorded durably
+#### Scenario: GTW-DEL-07.01 -- Leaked Keycloak client with no recovery is recorded durably
 
 - GIVEN a Gateway delete where the Keycloak provisioner is deconfigured, so the
   gateway's Keycloak client cannot be deleted inline
@@ -305,7 +311,7 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 - AND that signal SHALL survive the deletion of the gateway's namespace
 - AND it SHALL NOT contain any secret
 
-#### Scenario: Failed database cleanup is recorded as a PostgreSQLDatabase orphan
+#### Scenario: GTW-DEL-07.02 -- Failed database cleanup is recorded as a PostgreSQLDatabase orphan
 
 - GIVEN a Gateway delete whose database cleanup fails (the server is unreachable,
   the existence query fails, or a `DROP` fails)
@@ -319,7 +325,17 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   (recovery per the runbook in
   [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
 
-#### Scenario: Invalid stored identity does not silently orphan the client
+#### Scenario: GTW-DEL-07.03 -- Failed Vault KV purge is recorded as a VaultCredentialPath orphan
+
+- GIVEN a Vault-backed Gateway delete whose KV purge cannot complete (the provider
+  Vault is unreachable, or the gateway identity is already gone)
+- WHEN the control plane returns the error for retry
+- THEN it SHALL record a durable, operator-visible `VaultCredentialPath` orphan
+  signal in the control-plane namespace naming the tenant namespace and the reason
+- AND the signal SHALL NOT contain any provider secret value
+- AND the delete SHALL NOT be reported complete while the KV path remains reclaimable
+
+#### Scenario: GTW-DEL-07.04 -- Invalid stored identity does not silently orphan the client
 
 - GIVEN a Gateway delete whose stored OIDC client identity is invalid or not
   owned by the gateway
@@ -329,7 +345,7 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   client for operator recovery
 - AND it SHALL NOT report the client reclaimed
 
-### Requirement: Deletion Is Idempotent and Re-runnable
+### Requirement: GTW-DEL-08 -- Deletion Is Idempotent and Re-runnable
 
 Every deletion step SHALL be idempotent: re-running the delete against
 already-absent, already-terminating, or partially-cleaned state SHALL converge to
@@ -337,14 +353,14 @@ absence without error. Replaying the delete event any number of times SHALL
 produce the same final state and SHALL NOT recreate, resurrect, or partially
 recreate any owned resource.
 
-#### Scenario: Repeated delete replays converge without error
+#### Scenario: GTW-DEL-08.01 -- Repeated delete replays converge without error
 
 - GIVEN a Gateway delete event delivered more than once
 - WHEN the control plane processes each delivery
 - THEN each SHALL reconcile the owned resources toward absence
 - AND once all are absent, each subsequent delivery SHALL succeed as a no-op
 
-#### Scenario: Already-terminating namespace is treated as success
+#### Scenario: GTW-DEL-08.02 -- Already-terminating namespace is treated as success
 
 - GIVEN a Gateway delete whose managed namespace is already terminating
 - WHEN the control plane processes the delete

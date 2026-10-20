@@ -282,7 +282,7 @@ data:
           "fullScopeAllowed": true,
           "redirectUris": ["https://console.hypershell.localhost/*", "https://console.hypershell.localhost:*"],
           "webOrigins": ["+"],
-          "defaultClientScopes": ["openid", "email", "profile", "roles"],
+          "defaultClientScopes": ["openid", "email", "profile", "broker-roles"],
           "protocolMappers": [
             {
               "name": "audience",
@@ -290,7 +290,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -358,7 +358,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -435,7 +435,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -459,7 +459,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -494,6 +494,33 @@ data:
         }
       ],
       "clientScopes": [
+        {
+          "name": "broker-roles",
+          "description": "Emits only broker client roles (resource_access.broker.roles) so the console can present read-token. Used instead of roles on hypershell-frontend, which leaks gateway roles (oidc-integration.spec.md).",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "broker-client-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-client-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "usermodel.clientRoleMapping.clientId": "broker",
+                "multivalued": "true",
+                "claim.name": "resource_access.${client_id}.roles",
+                "jsonType.label": "String",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "false",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
+        },
         {
           "name": "gateway-roles",
           "description": "Emits a user's gateway client roles under resource_access.${client_id}.roles. Realm prerequisite for per-gateway OpenShell console clients (openshell-gateway-keycloak.spec.md).",

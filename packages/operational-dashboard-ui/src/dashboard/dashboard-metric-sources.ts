@@ -2,6 +2,8 @@ import type {
   DashboardMetricSourceId,
   OperationalDashboardMetrics,
   ReliabilityMetricSourceId,
+  UsageDashboardMetrics,
+  UsageMetricSourceId,
 } from "../application/dashboard-types";
 
 export type { DashboardMetricSourceId };
@@ -9,6 +11,7 @@ export type { DashboardMetricSourceId };
 export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   Record<DashboardMetricSourceId, readonly string[]>
 > = {
+  adoption: ["adoption"],
   "gateway-metrics": [
     "provisioned-gateways",
     "provisioned-sandboxes",
@@ -35,6 +38,19 @@ export const RELIABILITY_METRIC_SOURCE_METRIC_IDS: Readonly<
     "reconciliation-lag",
     "stale-resource-status-count",
   ],
+};
+
+export const USAGE_METRIC_SOURCE_METRIC_IDS: Readonly<
+  Record<UsageMetricSourceId, readonly string[]>
+> = {
+  "usage-gateways": [
+    "gateway-request-volume",
+    "gateway-error-rate",
+    "active-gateways",
+    "unused-gateways",
+  ],
+  "usage-sandboxes": ["sandbox-utilization"],
+  "usage-sandbox-lifetime": ["sandbox-lifetime"],
 };
 
 function mergeDashboardMetricsBySourceMap(
@@ -86,5 +102,47 @@ export function mergeReliabilityDashboardMetrics(
     previous,
     next,
     RELIABILITY_METRIC_SOURCE_METRIC_IDS,
+  );
+}
+
+export function mergeUsageDashboardMetrics(
+  previous: UsageDashboardMetrics | undefined,
+  next: UsageDashboardMetrics,
+): UsageDashboardMetrics {
+  if (
+    previous === undefined ||
+    next.failedSources === undefined ||
+    next.failedSources.length === 0
+  ) {
+    return next;
+  }
+
+  const mergedById = new Map(next.metrics.map((metric) => [metric.id, metric]));
+  const staleMetricIds = new Set(
+    next.failedSources.flatMap(
+      (sourceId) => USAGE_METRIC_SOURCE_METRIC_IDS[sourceId],
+    ),
+  );
+
+  for (const metric of previous.metrics) {
+    if (staleMetricIds.has(metric.id) && !mergedById.has(metric.id)) {
+      mergedById.set(metric.id, metric);
+    }
+  }
+
+  return {
+    ...next,
+    metrics: [...mergedById.values()],
+  };
+}
+
+export function mergeAdoptionDashboardMetrics(
+  previous: OperationalDashboardMetrics | undefined,
+  next: OperationalDashboardMetrics,
+): OperationalDashboardMetrics {
+  return mergeDashboardMetricsBySourceMap(
+    previous,
+    next,
+    DASHBOARD_METRIC_SOURCE_METRIC_IDS,
   );
 }

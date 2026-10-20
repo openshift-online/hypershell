@@ -1,4 +1,5 @@
 import {
+  Bullseye,
   Button,
   Card,
   CardBody,
@@ -13,9 +14,13 @@ import {
   DescriptionListGroup,
   DescriptionListTerm,
   Divider,
+  EmptyState,
+  EmptyStateBody,
+  EmptyStateVariant,
   Flex,
   FlexItem,
   Icon,
+  Label,
   Stack,
   StackItem,
   Title,
@@ -32,6 +37,7 @@ import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
+import { useDashboardUi } from "../dashboard-ui-provider";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -45,11 +51,6 @@ import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-
 import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { SandboxStatusChart } from "../dashboard/sandbox-status-chart";
-import {
-  hasSandboxAttentionData,
-  hasSandboxAttentionRequired,
-  SandboxAttentionSection,
-} from "../dashboard/sandbox-attention-section";
 import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
@@ -58,6 +59,10 @@ import { ProvisionReliabilityChart } from "../dashboard/provision-reliability-ch
 import { getProvisionReliabilitySummaryTermMessage } from "../dashboard/provision-reliability-data";
 import { ProvisionTimeChart } from "../dashboard/provision-time-chart";
 import { isPodCapacityMetric } from "../dashboard/pod-capacity-metric";
+import {
+  formatProvisionDurationValue,
+  parseProvisionDurationStats,
+} from "../dashboard/provision-time-data";
 import {
   getUtilizationPercentage,
   getUtilizationStatusLevel,
@@ -91,6 +96,80 @@ function WidgetContent({
         ) : null}
       </CardBody>
     </Card>
+  );
+}
+
+export function DashboardWidgetContent({
+  bodyClassName,
+  children,
+}: Readonly<PropsWithChildren<{ bodyClassName?: string }>>) {
+  return (
+    <WidgetContent bodyClassName={bodyClassName}>{children}</WidgetContent>
+  );
+}
+
+export function DashboardMetricUnavailable() {
+  return (
+    <Bullseye>
+      <EmptyState headingLevel="h3" variant={EmptyStateVariant.sm}>
+        <Title headingLevel="h3">
+          <FormattedMessage {...messages.metricUnavailableTitle} />
+        </Title>
+        <EmptyStateBody>
+          <FormattedMessage {...messages.metricUnavailableBody} />
+        </EmptyStateBody>
+      </EmptyState>
+    </Bullseye>
+  );
+}
+
+export type DashboardSummaryTone = "positive" | "negative" | "warning";
+
+export type DashboardSummaryIndicator = Readonly<{
+  content: ReactNode;
+  tone: DashboardSummaryTone;
+}>;
+
+export type DashboardSummaryItem = Readonly<{
+  indicator?: DashboardSummaryIndicator;
+  key: string;
+  label: ReactNode;
+  value: ReactNode;
+}>;
+
+export function DashboardSummaryList({
+  ariaLabel,
+  items,
+}: Readonly<{
+  ariaLabel?: string;
+  items: readonly DashboardSummaryItem[];
+}>) {
+  return (
+    <DescriptionList
+      aria-label={ariaLabel}
+      className="hypershell-dashboard-summary-list"
+      isHorizontal
+    >
+      {items.map((item) => (
+        <DescriptionListGroup key={item.key}>
+          <DescriptionListTerm>{item.label}</DescriptionListTerm>
+          <DescriptionListDescription>
+            <span className="hypershell-dashboard-summary-list__value">
+              <span
+                className={
+                  item.indicator
+                    ? `hypershell-dashboard-summary-list__indicator--${item.indicator.tone}`
+                    : "hypershell-dashboard-summary-list__indicator"
+                }
+              >
+                {item.indicator?.content}
+              </span>
+              <strong>{item.value}</strong>
+            </span>
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      ))}
+    </DescriptionList>
   );
 }
 
@@ -320,26 +399,10 @@ export function UsersCard({
 export function GatewayStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
-  const intl = useIntl();
-  const trendTitle = intl.formatMessage(messages.provisionedGateways);
-
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
-        <Stack hasGutter>
-          <StackItem>
-            <GatewayStatusChart metric={metric} />
-          </StackItem>
-          {metric.trend && metric.trend.points.length >= 2 ? (
-            <StackItem>
-              <TrendSparklineChart
-                caption={intl.formatMessage(messages.trendLast7Days)}
-                trend={metric.trend}
-                title={trendTitle}
-              />
-            </StackItem>
-          ) : null}
-        </Stack>
+        <GatewayStatusChart metric={metric} />
       </Content>
     </WidgetContent>
   );
@@ -348,94 +411,12 @@ export function GatewayStatusCard({
 export function SandboxStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
-  const intl = useIntl();
-  const sparklineTooltipMetric = intl.formatMessage(messages.widgetSandboxes);
-  const hourlySparklineTitle = intl.formatMessage(
-    messages.sandboxActiveSandboxesPerHour,
-  );
-  const dailySparklineTitle = intl.formatMessage(
-    messages.sandboxActiveSandboxesPerDay,
-  );
-  const hourlyTrend =
-    metric.hourlyTrend !== undefined && metric.hourlyTrend.points.length >= 2
-      ? metric.hourlyTrend
-      : undefined;
-  const dailyTrend =
-    metric.trend !== undefined && metric.trend.points.length >= 2
-      ? metric.trend
-      : undefined;
-  const hasSparklines = hourlyTrend !== undefined || dailyTrend !== undefined;
-  const showAttention =
-    hasSandboxAttentionRequired(metric) || !hasSandboxAttentionData(metric);
-
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <div className="hypershell-dashboard-status-donut-card">
-        <Stack hasGutter>
-          <StackItem>
-            <Content>
-              <SandboxStatusChart metric={metric} />
-            </Content>
-          </StackItem>
-          {showAttention ? (
-            <StackItem>
-              <SandboxAttentionSection metric={metric} />
-            </StackItem>
-          ) : null}
-          {hasSparklines ? (
-            <StackItem>
-              <Stack
-                hasGutter
-                className="hypershell-dashboard-sandbox-status-card__sparklines"
-              >
-                {hourlyTrend !== undefined ? (
-                  <StackItem>
-                    <Stack
-                      hasGutter
-                      className="hypershell-dashboard-sandbox-status-card__sparkline"
-                    >
-                      <StackItem>
-                        <Title headingLevel="h4" size="md">
-                          {hourlySparklineTitle}
-                        </Title>
-                      </StackItem>
-                      <StackItem>
-                        <TrendSparklineChart
-                          caption={intl.formatMessage(
-                            messages.trendLast24Hours,
-                          )}
-                          trend={hourlyTrend}
-                          title={sparklineTooltipMetric}
-                        />
-                      </StackItem>
-                    </Stack>
-                  </StackItem>
-                ) : null}
-                {dailyTrend !== undefined ? (
-                  <StackItem>
-                    <Stack
-                      hasGutter
-                      className="hypershell-dashboard-sandbox-status-card__sparkline"
-                    >
-                      <StackItem>
-                        <Title headingLevel="h4" size="md">
-                          {dailySparklineTitle}
-                        </Title>
-                      </StackItem>
-                      <StackItem>
-                        <TrendSparklineChart
-                          caption={intl.formatMessage(messages.trendLast7Days)}
-                          trend={dailyTrend}
-                          title={sparklineTooltipMetric}
-                        />
-                      </StackItem>
-                    </Stack>
-                  </StackItem>
-                ) : null}
-              </Stack>
-            </StackItem>
-          ) : null}
-        </Stack>
+        <Content>
+          <SandboxStatusChart metric={metric} />
+        </Content>
       </div>
     </WidgetContent>
   );
@@ -443,11 +424,12 @@ export function SandboxStatusCard({
 
 export function NodeStatusCard({
   metric,
-}: Readonly<{ metric: OperationalMetric }>) {
+  title,
+}: Readonly<{ metric: OperationalMetric; title?: string }>) {
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
-        <NodeStatusChart metric={metric} />
+        <NodeStatusChart metric={metric} title={title} />
       </Content>
     </WidgetContent>
   );
@@ -479,7 +461,8 @@ export function ManagedClusterRegionsCard({
 
 export function PodCapacityCard({
   metric,
-}: Readonly<{ metric: OperationalMetric }>) {
+  showTrend = true,
+}: Readonly<{ metric: OperationalMetric; showTrend?: boolean }>) {
   const intl = useIntl();
   const trendTitle = intl.formatMessage(messages.widgetPods);
 
@@ -490,7 +473,7 @@ export function PodCapacityCard({
           <StackItem>
             <PodCapacityChart metric={metric} />
           </StackItem>
-          {metric.trend && metric.trend.points.length >= 2 ? (
+          {showTrend && metric.trend && metric.trend.points.length >= 2 ? (
             <StackItem>
               <TrendSparklineChart
                 caption={intl.formatMessage(messages.trendLast7Days)}
@@ -521,10 +504,106 @@ export function GatewayReleasesCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
   return (
-    <WidgetContent>
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.gatewayReleasesHelp} />}
+    >
       <Content className="hypershell-dashboard-provision-time-card">
         <GatewayReleasesChart metric={metric} />
       </Content>
+    </WidgetContent>
+  );
+}
+
+export function ActiveSandboxesCard({
+  metric,
+}: Readonly<{
+  metric: OperationalMetric;
+}>) {
+  const intl = useIntl();
+
+  return (
+    <WidgetContent>
+      <Stack hasGutter>
+        {metric.trend && metric.trend.points.length >= 2 ? (
+          <StackItem>
+            <TrendSparklineChart
+              trend={metric.trend}
+              title={intl.formatMessage(messages.activeSandboxesWidget)}
+            />
+          </StackItem>
+        ) : (
+          <SummaryUnavailableValue />
+        )}
+      </Stack>
+    </WidgetContent>
+  );
+}
+
+export function ProvisioningSnapshotCard({
+  metrics,
+}: Readonly<{ metrics: readonly OperationalMetric[] }>) {
+  const intl = useIntl();
+  const gateways = metrics.find(
+    (metric) => metric.id === "provisioned-gateways",
+  );
+  const duration = metrics.find((metric) => metric.id === "provision-time");
+  const reliability = metrics.find(
+    (metric) => metric.id === "provision-reliability",
+  );
+  const durationStats = duration ? parseProvisionDurationStats(duration) : null;
+  const successRate = reliability?.provisionOutcomes?.successRatePercent;
+  const medianDuration = durationStats
+    ? durationStats.p50Seconds >= 60
+      ? intl.formatMessage(messages.durationMinutesSeconds, {
+          minutes: Math.floor(durationStats.p50Seconds / 60),
+          seconds: Math.round(durationStats.p50Seconds % 60),
+        })
+      : formatProvisionDurationValue(
+          intl,
+          durationStats.p50Seconds,
+          duration?.unit,
+        )
+    : undefined;
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.provisioningSnapshotHelp} />}
+    >
+      <DescriptionList
+        isHorizontal
+        className="hypershell-dashboard-compact-list hypershell-dashboard-provisioning-snapshot"
+      >
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.provisionSuccessRate24h} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {successRate ? (
+              intl.formatMessage(messages.provisionReliabilityRate, {
+                rate: successRate,
+              })
+            ) : (
+              <SummaryUnavailableValue />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.provisioningMedianTime} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {medianDuration ?? <SummaryUnavailableValue />}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.provisioningInProgress} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {gateways?.status?.provisioning ?? 0}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      </DescriptionList>
     </WidgetContent>
   );
 }
@@ -605,8 +684,14 @@ function utilizationTrendTitle(
 }
 
 export function UtilizationCard({
+  trendCaption,
   metric,
-}: Readonly<{ metric: OperationalMetric }>) {
+  color,
+}: Readonly<{
+  metric: OperationalMetric;
+  color?: string;
+  trendCaption?: string;
+}>) {
   const intl = useIntl();
   const trendTitle = utilizationTrendTitle(metric, intl);
 
@@ -616,13 +701,15 @@ export function UtilizationCard({
         <Stack hasGutter>
           {isUtilizationMetric(metric) ? (
             <StackItem>
-              <UtilizationChart metric={metric} />
+              <UtilizationChart color={color} metric={metric} />
             </StackItem>
           ) : null}
           {metric.trend && metric.trend.points.length >= 2 ? (
             <StackItem>
               <TrendSparklineChart
-                caption={intl.formatMessage(messages.trendLast7Days)}
+                caption={
+                  trendCaption ?? intl.formatMessage(messages.trendLast7Days)
+                }
                 trend={metric.trend}
                 title={trendTitle}
               />
@@ -855,10 +942,12 @@ function SummaryUtilizationValue({
   );
 }
 
+const summaryUnavailableValue = "-";
+
 function SummaryUnavailableValue() {
   return (
     <span className="hypershell-dashboard-summary-unavailable">
-      <FormattedMessage {...messages.metricUnavailableTitle} />
+      {summaryUnavailableValue}
     </span>
   );
 }
@@ -1017,12 +1106,12 @@ function SummaryGatewayValue({
   );
 }
 
-interface InventoryExceptionCounts {
+export interface InventoryExceptionCounts {
   danger: number;
   warning: number;
 }
 
-function getInventoryExceptionCounts(
+export function getInventoryExceptionCounts(
   inventoryStatus: Record<string, number> | undefined,
 ): InventoryExceptionCounts | undefined {
   if (inventoryStatus === undefined) {
@@ -1169,47 +1258,162 @@ function SummaryPodsValue({
 }
 
 const USAGE_SUMMARY_METRIC_IDS = [
-  "registered-users",
   "provisioned-gateways",
   "provisioned-sandboxes",
 ] as const;
 
 const USAGE_SUMMARY_LABELS = {
-  "registered-users": messages.registeredUsersSummary,
   "provisioned-gateways": messages.gateways,
   "provisioned-sandboxes": messages.widgetSandboxes,
 } as const;
+
+function getResourceSummaryCounts(metrics: readonly OperationalMetric[]) {
+  const gateways = metrics.find(
+    (metric) => metric.id === "provisioned-gateways",
+  );
+  const sandboxes = metrics.find(
+    (metric) => metric.id === "provisioned-sandboxes",
+  );
+  const gatewayTotal = Number(gateways?.value ?? 0);
+  const sandboxTotal = Number(sandboxes?.value ?? 0);
+  const gatewayAttention =
+    (gateways?.status?.degraded ?? 0) + (gateways?.status?.failed ?? 0);
+  const sandboxAttention =
+    (sandboxes?.expiringSandboxes ?? 0) +
+    (sandboxes?.idleSandboxes ?? 0) +
+    (sandboxes?.orphanedSandboxes ?? 0);
+  return {
+    attention: gatewayAttention + sandboxAttention,
+    healthy: gatewayTotal - gatewayAttention + sandboxTotal - sandboxAttention,
+  };
+}
 
 export function UsageSummaryCard({
   metrics,
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {
   const intl = useIntl();
+  const { isAdmin } = useDashboardUi();
+  const resourceSummary = getResourceSummaryCounts(metrics);
+  const items: DashboardSummaryItem[] = USAGE_SUMMARY_METRIC_IDS.map(
+    (metricId) => {
+      const metric = metrics.find((metric) => metric.id === metricId);
+      const trendChange = metric ? getMetricTrendChange(metric) : undefined;
+
+      return {
+        indicator:
+          metric && trendChange
+            ? {
+                content: (
+                  <SummaryTrendIndicator
+                    metric={metric}
+                    trendChange={trendChange}
+                  />
+                ),
+                tone:
+                  trendChange.direction === "increase"
+                    ? "positive"
+                    : "negative",
+              }
+            : undefined,
+        key: metricId,
+        label: <FormattedMessage {...USAGE_SUMMARY_LABELS[metricId]} />,
+        value: metric ? (
+          formatOperationalMetricDisplayValue(metric.value, intl)
+        ) : (
+          <SummaryUnavailableValue />
+        ),
+      };
+    },
+  );
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.resourceSummaryHelp} />}
+    >
+      {isAdmin ? (
+        <Label color="blue">
+          <FormattedMessage {...messages.adminBadge} />
+        </Label>
+      ) : null}
+      <DashboardSummaryList
+        ariaLabel={intl.formatMessage(messages.summaryUsageAriaLabel)}
+        items={[
+          ...items,
+          {
+            key: "healthy-resources",
+            label: <FormattedMessage {...messages.summaryHealthyResources} />,
+            value: resourceSummary.healthy,
+          },
+          {
+            indicator:
+              resourceSummary.attention > 0
+                ? {
+                    content: <ExclamationCircleIcon aria-hidden />,
+                    tone: "negative",
+                  }
+                : undefined,
+            key: "resources-needing-attention",
+            label: (
+              <FormattedMessage
+                {...messages.summaryResourcesNeedingAttention}
+              />
+            ),
+            value: resourceSummary.attention,
+          },
+        ]}
+      />
+    </WidgetContent>
+  );
+}
+
+export function AttentionRequiredCard({
+  metrics,
+}: Readonly<{ metrics: readonly OperationalMetric[] }>) {
+  const intl = useIntl();
+  const gateway = metrics.find(
+    (metric) => metric.id === "provisioned-gateways",
+  );
+  const sandboxes = metrics.find(
+    (metric) => metric.id === "provisioned-sandboxes",
+  );
+  const counts = [
+    [messages.gatewayStatusFailedGateways, gateway?.status?.failed ?? 0],
+    [messages.gatewayStatusDegradedGateways, gateway?.status?.degraded ?? 0],
+    [
+      messages.sandboxAttentionExpiringSandboxes,
+      sandboxes?.expiringSandboxes ?? 0,
+    ],
+    [
+      messages.sandboxAttentionIdleOrOrphaned,
+      (sandboxes?.idleSandboxes ?? 0) + (sandboxes?.orphanedSandboxes ?? 0),
+    ],
+  ] as const;
+  const hasAttention = counts.some(([, count]) => count > 0);
 
   return (
     <WidgetContent>
-      <DescriptionList
-        isHorizontal
-        aria-label={intl.formatMessage(messages.summaryUsageAriaLabel)}
-      >
-        {USAGE_SUMMARY_METRIC_IDS.map((metricId) => (
-          <DescriptionListGroup key={metricId}>
-            <DescriptionListTerm>
-              <FormattedMessage {...USAGE_SUMMARY_LABELS[metricId]} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {metricId === "provisioned-gateways" ? (
-                <SummaryGatewayValue
-                  metric={metrics.find((metric) => metric.id === metricId)}
-                />
-              ) : (
-                <SummaryMetricValue
-                  metric={metrics.find((metric) => metric.id === metricId)}
-                />
-              )}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-        ))}
-      </DescriptionList>
+      {hasAttention ? (
+        <DescriptionList
+          isHorizontal
+          className="hypershell-dashboard-attention-required"
+          aria-label={intl.formatMessage(messages.attentionRequiredWidget)}
+        >
+          {counts.map(([label, count]) =>
+            count > 0 ? (
+              <DescriptionListGroup key={label.id}>
+                <DescriptionListTerm>
+                  <FormattedMessage {...label} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>{count}</DescriptionListDescription>
+              </DescriptionListGroup>
+            ) : null,
+          )}
+        </DescriptionList>
+      ) : (
+        <Content>
+          <FormattedMessage {...messages.noResourcesNeedAttention} />
+        </Content>
+      )}
     </WidgetContent>
   );
 }

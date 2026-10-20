@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,7 +9,7 @@ import (
 
 func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
-	spec, err := parseSpec(specPath, "/api/hypershell/v1")
+	spec, err := parseSpec(specPath, "/api/hypershell")
 	if err != nil {
 		t.Fatalf("parse spec: %v", err)
 	}
@@ -29,7 +30,11 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 	if len(resource.ScopeParameters) != 1 || resource.ScopeParameters[0].Name != "gateway_id" {
 		t.Fatalf("scope parameters = %#v, want gateway_id", resource.ScopeParameters)
 	}
-	if !strings.Contains(resource.GoCollectionPath, "/gateways/%s/service_accounts") {
+	// Scoped paths must be absolute, matching the server routes and the
+	// non-scoped clients; the base HTTP clients add no prefix. Asserting the
+	// full /api/hypershell prefix (not just the suffix) guards against a
+	// relative-path regression like the one in #447.
+	if !strings.Contains(resource.GoCollectionPath, "/api/hypershell/v1/gateways/%s/service_accounts") {
 		t.Fatalf("Go collection path = %q", resource.GoCollectionPath)
 	}
 	if !strings.Contains(resource.TSItemPath, "encodeURIComponent(serviceAccountId)") {
@@ -68,4 +73,122 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestParseSpecProjectsGatewayCreateRequestFromOperationSchema(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	for _, resource := range spec.Resources {
+		if resource.Name != "Gateway" {
+			continue
+		}
+		responseFields := make(map[string]Field, len(resource.Fields))
+		for _, field := range resource.Fields {
+			responseFields[field.Name] = field
+		}
+		if responseFields["generation"].Name == "" || responseFields["observed_generation"].Name == "" {
+			t.Fatal("gateway response fields must retain generation and observed_generation")
+		}
+		if len(resource.CreateFields) == 0 {
+			t.Fatal("gateway create fields are missing")
+		}
+		fields := make(map[string]Field, len(resource.CreateFields))
+		for _, field := range resource.CreateFields {
+			fields[field.Name] = field
+		}
+		if fields["cluster_id"].Name != "" {
+			t.Fatal("cluster_id must not be in the create request")
+		}
+		if !fields["name"].Required || !fields["placement"].Required {
+			t.Fatal("name and placement must be required")
+		}
+		if fields["placement"].TSType != "GatewayPlacementIntent" {
+			t.Fatalf("placement type = %q", fields["placement"].TSType)
+		}
+		return
+	}
+	t.Fatal("gateway resource is missing")
+}
+
+func TestParseSpecProjectsGatewayProvisioningConditionsAsArray(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	for _, resource := range spec.Resources {
+		if resource.Name != "Gateway" {
+			continue
+		}
+		for _, field := range resource.Fields {
+			if field.Name != "provisioning_conditions" {
+				continue
+			}
+			if field.Type != "array" || field.GoType != "[]map[string]any" || field.TSType != "Record<string, unknown>[]" {
+				t.Fatalf("provisioning_conditions = type=%q go=%q ts=%q, want array []map[string]any Record<string, unknown>[]", field.Type, field.GoType, field.TSType)
+			}
+			return
+		}
+		t.Fatal("Gateway provisioning_conditions field is missing")
+	}
+	t.Fatal("gateway resource is missing")
+}
+
+func TestGeneratedGatewayBuildersValidateRequiredPlacement(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	outDir := t.TempDir()
+	header := GeneratedHeader{SpecPath: specPath, SpecHash: "test"}
+	goOut := filepath.Join(outDir, "go")
+	if err := generateGo(spec, goOut, header); err != nil {
+		t.Fatalf("generate Go SDK: %v", err)
+	}
+	goGateway, err := os.ReadFile(filepath.Join(goOut, "types", "gateway.go"))
+	if err != nil {
+		t.Fatalf("read generated Go gateway: %v", err)
+	}
+	if !strings.Contains(string(goGateway), "if !b.placementSet") {
+		t.Fatal("generated Go gateway builder does not validate required placement")
+	}
+
+	tsOut := filepath.Join(outDir, "typescript")
+	if err := generateTypeScript(spec, tsOut, header); err != nil {
+		t.Fatalf("generate TypeScript SDK: %v", err)
+	}
+	tsGateway, err := os.ReadFile(filepath.Join(tsOut, "src", "gateway.ts"))
+	if err != nil {
+		t.Fatalf("read generated TypeScript gateway: %v", err)
+	}
+	if !strings.Contains(string(tsGateway), "this.data['placement'] === undefined") {
+		t.Fatal("generated TypeScript gateway builder does not validate required placement")
+	}
+}
+
+func TestParseSpecPreservesWritableCreateFieldsWithoutPostOperation(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	for _, resource := range spec.Resources {
+		if resource.Name != "Role" {
+			continue
+		}
+		fields := make(map[string]Field, len(resource.CreateFields))
+		for _, field := range resource.CreateFields {
+			fields[field.Name] = field
+		}
+		if !fields["name"].Required || fields["description"].Name == "" {
+			t.Fatalf("role create fields were not preserved: %#v", fields)
+		}
+		return
+	}
+	t.Fatal("role resource is missing")
 }

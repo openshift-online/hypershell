@@ -41,7 +41,7 @@ func run(cmd *cobra.Command, argv []string) error {
 	if err != nil {
 		return err
 	}
-	conn, err := connection.NewConnection().Config(cfg).Build()
+	conn, err := connection.NewConnectionBuilder().Config(cfg).Build()
 	if err != nil {
 		return err
 	}

@@ -256,7 +256,7 @@ ensure_namespace_group() {
 
 # ensure_gateway_database_admin_secret stages the controller's single admin
 # credential Secret, hypershell-gateway-database-admin, in the platform project.
-# deploy/base/controller.yaml mounts it at /etc/hypershell/gateway-database and
+# deploy/base/platform-resources/controller.yaml mounts it at /etc/hypershell/gateway-database and
 # the controller refuses to start without it, so it must exist before the
 # overlay is applied. In production a platform team supplies it for a
 # cloud-managed server (deploy/components/gateway-database-admin-secret); this
@@ -1042,7 +1042,7 @@ seed_via_api() {
     echo "${resp}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
   }
 
-  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" GATEWAY_ID=""
+  local seed_failed="" CLUSTER_ID="" GATEWAY_ID=""
   local raw http body
 
   # The control plane registers local-openshift itself
@@ -1085,31 +1085,6 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
-    raw="$(api_exec GET /api/hypershell/v1/gateway_releases)"
-    http="$(printf '%s' "${raw}" | tail -1)"
-    body="$(printf '%s' "${raw}" | sed '$d')"
-    if [[ "${http}" == "200" ]]; then
-      RELEASE_ID="$(printf '%s' "${body}" | json_named_id dev-release)"
-    fi
-    if [[ -z "${RELEASE_ID}" ]]; then
-      info "Creating GatewayRelease..."
-      raw="$(api_exec POST /api/hypershell/v1/gateway_releases \
-        "{\"name\":\"dev-release\",\"image\":\"${GATEWAY_IMAGE}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      RELEASE_ID="$(extract_id "${body}")"
-      if [[ -z "${RELEASE_ID}" ]]; then
-        warn "GatewayRelease creation failed (HTTP ${http}): ${body:-no response}"
-        seed_failed=true
-      else
-        success "GatewayRelease created: ${RELEASE_ID}"
-      fi
-    else
-      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${seed_failed}" ]]; then
     raw="$(api_exec GET /api/hypershell/v1/gateways)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
@@ -1135,8 +1110,10 @@ seed_via_api() {
     info "Creating Gateway with OIDC..."
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    # Create takes a required placement intent, not a cluster_id. The selector
+    # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/openshift.
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"network/public\",\"provider/aws\"]},\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"
@@ -1149,7 +1126,7 @@ seed_via_api() {
 
   if [[ -n "${seed_failed}" ]]; then
     warn "Automatic seeding incomplete - create resources manually after the API server is ready"
-    warn "Hint: If your local branch has schema / contract changes (e.g. dropped 'fleet_id'), the baseline API server image in the registry might reject your seed request."
+    warn "Hint: If your local branch has schema / contract changes, the baseline API server image in the registry might reject your seed request."
     warn "      To resolve this, swap in your working-tree API server build first, then run 'make openshift-seed':"
     warn "      1. SKIP_SEED=true make openshift-up"
     warn "      2. make openshift-api-server-up"

@@ -20,15 +20,23 @@ message ProvisioningCondition {
   string message = 3;
 }
 
+message GatewayPlacementIntent {
+  oneof placement {
+    CapabilitySelectorPlacement capability_selector = 1;
+    LocalKindPlacement local_kind = 2;
+  }
+}
+
+message CapabilitySelectorPlacement {
+  repeated string selector = 1;
+}
+
+message LocalKindPlacement {}
+
 message Gateway {
   ObjectReference metadata = 1;
   string name = 2;
-  reserved 3;
-  reserved "fleet_id";
   string cluster_id = 4;
-  string release_id = 5;
-  reserved 6;
-  reserved "database_id";
   string namespace = 7;
   optional string external_dns = 8;
   optional string tls_mode = 9;
@@ -46,23 +54,26 @@ message Gateway {
   optional string console_address = 22;
   repeated ProvisioningCondition provisioning_conditions = 23;
   optional string gateway_version = 24;
-  // observed_release_id is the release the control plane has successfully rolled
-  // out and observed healthy, distinct from the desired release_id. It is
-  // control-plane-owned and advanced only after a new revision passes its
-  // health gates. See gateway-release-rollout.spec.md.
-  optional string observed_release_id = 25;
   int64 generation = 26;
   optional int64 observed_generation = 27;
+  // provisioning_version is the gateway version the gateway's cluster advertises
+  // provisioning onto new gateways (that cluster's single-valued gateway-version
+  // capability). It is read-only and derived at read time from cluster_id, never
+  // stored on the Gateway row. See gateway-version-visibility.spec.md.
+  optional string provisioning_version = 28;
+  // image_pinned reports whether this gateway pins an explicit image and so need
+  // not track its cluster's provisioning version. Read-only, derived from image.
+  optional bool image_pinned = 29;
+  // repository_id is the control-plane import ownership mark: the Repository that
+  // owns this Gateway through the declarative .hypershell import. Null for gateways
+  // created directly through the REST API or hsctl apply. Read-only; set server-side
+  // from the x-hypershell-import-repository-id binding, never from a client body.
+  optional string repository_id = 30;
 }
 
 message CreateGatewayRequest {
   string name = 1;
-  reserved 2;
-  reserved "fleet_id";
   string cluster_id = 3;
-  string release_id = 4;
-  reserved 5;
-  reserved "database_id";
   optional string external_dns = 6;
   optional string tls_mode = 7;
   optional string service_type = 8;
@@ -74,6 +85,7 @@ message CreateGatewayRequest {
   optional string oidc = 14;
   optional string route = 15;
   optional string credential_driver = 17;
+  GatewayPlacementIntent placement = 18;
 }
 
 message CreateGatewayResponse {
@@ -91,12 +103,7 @@ message GetGatewayResponse {
 message UpdateGatewayRequest {
   string id = 1;
   optional string name = 2;
-  reserved 3;
-  reserved "fleet_id";
   optional string cluster_id = 4;
-  optional string release_id = 5;
-  reserved 6;
-  reserved "database_id";
   optional string external_dns = 7;
   optional string tls_mode = 8;
   optional string service_type = 9;
@@ -115,11 +122,6 @@ message UpdateGatewayRequest {
   // openshell-gateway-sandbox-count.spec.md.
   optional string console_address = 20;
   repeated ProvisioningCondition provisioning_conditions = 21;
-  // observed_release_id is control-plane-owned. It shares this whole-row write
-  // path with phase/status/route_address (the control plane advances it only
-  // after a new revision passes its health gates); it is readOnly to REST
-  // clients. See gateway-release-rollout.spec.md.
-  optional string observed_release_id = 22;
   optional int64 observed_generation = 23;
 }
 
@@ -176,6 +178,14 @@ message ListGatewaysRequest {
   // so it only ever lists its cluster's gateways (managed-cluster pull model).
   // Unset preserves the prior behaviour of listing every gateway.
   optional string cluster_id = 3;
+  // repository_id, when set, restricts results to gateways owned by that Repository
+  // (the control-plane import ownership mark). It is the declarative import
+  // reconciler's cross-cluster, Repository-scoped read: a call that sets it AND
+  // carries the x-hypershell-import-repository-id import binding is exempted from
+  // the cluster caller binding so the single import reconciler can enumerate and
+  // prune a Repository's gateways across clusters. See
+  // security/rbac-enforcement.spec.md ("gRPC Authorization", import reads).
+  optional string repository_id = 4;
 }
 
 message ListGatewaysResponse {

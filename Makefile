@@ -128,7 +128,7 @@ help:
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    build-api-server         Build API server container image"
-	@echo "    build-cli                Build CLI binary"
+	@echo "    build-cli                Regenerate the generated commands, then build the CLI binary"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
@@ -136,9 +136,8 @@ help:
 	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
-	@echo "    e2e-console              Run browser E2E of the web console and OpenShell console (agent-browser)"
-	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
-	@echo "    e2e-performance-report   Tabulate recent local performance runs"
+	@echo "    e2e-console              Run Playwright E2E of the web console and OpenShell console"
+	@echo "    e2e-performance          Run the performance benchmark (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-cli                 Lint CLI (gofmt, go vet, golangci-lint)"
@@ -153,6 +152,7 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-deploy-orphans     Verify every deploy/base manifest is referenced by a kustomization"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -194,7 +194,9 @@ build-controller:
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
-build-cli:
+# Regenerate first so the binary always matches the OpenAPI description and the
+# pinned rh-trex-ai generators (the first run needs network access).
+build-cli: generate-cli
 	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console
@@ -227,13 +229,26 @@ check-dependency-pins: test-dependency-pin-policy
 check-ci-components:
 	python3 scripts/check_ci_components.py
 
+.PHONY: test-deploy-orphans-policy
+test-deploy-orphans-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_deploy_orphans.py
+
+.PHONY: check-deploy-orphans
+check-deploy-orphans: test-deploy-orphans-policy
+	python3 scripts/check_deploy_orphans.py
+
 .PHONY: test-dependency-age-policy
 test-dependency-age-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_age.py
 
 .PHONY: check-dependency-age
+# The pinned rh-trex-ai generators run during make check, hooks and CI, so their
+# module graphs are held to the same age policy as repository modules.
 check-dependency-age: test-dependency-age-policy
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS) \
+		--external-repo "$$(scripts/trex-checkout.sh)" \
+		--external-go-mod scripts/cli-generator/go.mod \
+		--external-go-mod scripts/tui-generator/go.mod
 
 .PHONY: sync-openshell-version
 sync-openshell-version:
@@ -247,8 +262,9 @@ vendor-openshell-chart:
 	  rm -rf charts/openshell && \
 	  cp -r /tmp/openshell-chart-vendor/deploy/helm/openshell charts/openshell && \
 	  rm -rf /tmp/openshell-chart-vendor && \
-	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g' && \
+	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r perl -pi -e 's/\xe2\x80\x94/-/g' && \
 	  echo "Vendored charts/openshell/ at $$OPENSHELL_TAG"
+	$(MAKE) sync-openshell-version
 
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
@@ -258,8 +274,12 @@ test-openshell-version-policy:
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
 
+.PHONY: check-cli-drift
+check-cli-drift: generate-tui-check
+	scripts/generate-cli.sh --check
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -325,6 +345,17 @@ lint-control-plane:
 	cd components/control-plane && go vet ./...
 	cd components/control-plane && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
+.PHONY: lint-e2e
+lint-e2e:
+	@unformatted="$$(gofmt -l tests/e2e)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following e2e files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd tests/e2e && go vet ./...
+	cd tests/e2e && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
 .PHONY: lint-sdk-typescript
 lint-sdk-typescript: install-js
 	$(PNPM) --filter @openshift-online/hypershell-sdk check
@@ -342,7 +373,7 @@ lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
 .PHONY: lint
-lint: check install-js lint-api-server lint-cli lint-control-plane lint-sdk-typescript lint-gateway-management-ui lint-web-console
+lint: check install-js lint-api-server lint-cli lint-control-plane lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-web-console
 
 # ============================================================================
 # Test targets
@@ -357,7 +388,6 @@ unit-test-all: install-js ci-test
 	cd components/api-server && $(MAKE) test
 	cd components/control-plane && go test ./...
 	cd components/cli && go test ./...
-	cd scripts/cli-generator && go test ./...
 	cd scripts/sdk-generator && go test ./...
 	$(PNPM) run test:web
 
@@ -577,18 +607,24 @@ openshift-web-console-down:
 openshift-test:
 	@bash scripts/cluster/lib_test.sh
 
-generate-cli:
-	cd scripts/cli-generator && go run . \
-		--spec ../../components/api-server/openapi/openapi.yaml \
-		--out ../../components/cli \
-		--binary hsctl \
-		--project hypershell \
-		--api-prefix /api/hypershell/v1 \
-		--module github.com/openshift-online/hypershell/components/cli
-	gofmt -w components/cli
+# Regenerate the hsctl CLI and TUI descriptor with the rh-trex-ai generators
+# pinned in scripts/rh-trex-ai.ref. The -check variants fail when stale.
+.PHONY: generate-cli generate-cli-check
+generate-cli: generate-tui
+	scripts/generate-cli.sh
+
+generate-cli-check:
+	scripts/generate-cli.sh --check
 
 generate-sdk-go:
 	$(MAKE) -C components/api-server generate-sdk
+
+.PHONY: generate-tui generate-tui-check
+generate-tui:
+	scripts/generate-tui.sh
+
+generate-tui-check:
+	scripts/generate-tui.sh --check
 # ============================================================================
 # E2E Tests
 # ============================================================================
@@ -597,19 +633,42 @@ generate-sdk-go:
 # (route.openshift.io => openshift, otherwise kind). Set E2E_INFRA_DRIVER
 # on the command line to override.
 
+# The functional e2e suite is the Go testify suite (TestE2E). It auto-detects the
+# infra driver from the current KUBECONFIG context (override with E2E_INFRA_DRIVER).
+# -failfast aborts on the first failing step (see the Three-Outcome Reporting
+# requirement in specs/platform/e2e-testing.spec.md).
+E2E_GO_TIMEOUT ?= 35m
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E tests"
+	@echo "==> Running E2E suite (go test TestE2E)"
 	@echo ""
-	@E2E_PROVISION_TIMEOUT=300 \
-		E2E_SANDBOX_TIMEOUT=180 \
-		bash tests/e2e/e2e-openshell.sh
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go -C tests/e2e test . -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
 
-# Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
-# console (agent-browser headless Chromium). Requires port 443 forwarding from
-# `make kind-up` (not KIND_NO_SUDO) and the agent-browser version pinned in
-# dependency-age-tools.json. See specs/platform/e2e-console-browser-testing.spec.md.
+# Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
+# registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
+.PHONY: e2e-matrix
+e2e-matrix:
+	@echo ""
+	@echo "==> Running E2E matrix (go test TestMatrix)"
+	@echo ""
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go -C tests/e2e test . -run TestMatrix -v -timeout $(E2E_GO_TIMEOUT)
+
+# Bash user-interaction smoke script (happy path; demonstration + sanity check).
+# Not the authoritative gate -- the Go suite short mode is. Honors E2E_PAUSE.
+.PHONY: e2e-smoke
+e2e-smoke:
+	@echo ""
+	@echo "==> Running E2E smoke (bash user-interaction walkthrough)"
+	@echo ""
+	@bash tests/e2e/smoke.sh
+
+# Browser-driven Playwright e2e of the HyperShell web console and per-gateway
+# OpenShell console. The shell entry point only discovers cluster routes.
 .PHONY: e2e-console
 e2e-console:
 	@echo ""
@@ -622,13 +681,12 @@ e2e-console:
 .PHONY: e2e-performance
 e2e-performance:
 	@echo ""
-	@echo "==> Running E2E performance harness"
+	@echo "==> Running E2E performance benchmark (BenchmarkGatewayProvisioning)"
 	@echo ""
-	@bash tests/e2e/e2e-performance.sh
-
-.PHONY: e2e-performance-report
-e2e-performance-report:
-	@bash scripts/perf-report.sh
+	# -benchtime 1x: provision the fleet once (this is a one-shot scale test, not a
+	# repeated micro-benchmark). b.ReportMetric surfaces ttr p50/p99, throughput,
+	# and success rate; compare runs with `benchstat`.
+	@go -C tests/e2e test . -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
 
 # Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
@@ -639,7 +697,7 @@ e2e-tracing:
 	@echo "==> Verifying end-to-end traces reach Jaeger (Kind)"
 	@echo "    (requires: KIND_JAEGER=true make kind-up)"
 	@echo ""
-	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
+	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:tracing:live
 
 .PHONY: test-release-bundle
 test-release-bundle:

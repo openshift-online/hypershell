@@ -27,13 +27,13 @@ Provider credential rotation depends on the driver and is largely delegated to t
 
 ## Requirements
 
-### Requirement: Config-Hash Coverage for Database Credentials
+### Requirement: OSG-ROT-01 -- Config-Hash Coverage for Database Credentials
 
 The existing `applyConfigHashAnnotation` function SHALL include the database credentials Secret (`openshell-gateway-db-credentials`) in the hash computation, in addition to the ConfigMap and TLS secret it already covers.
 
 This ensures that when the database credentials Secret content changes (for example when provisioning repair writes a new password after the Secret was lost), the Deployment pod template hash changes, triggering a rolling restart.
 
-#### Scenario: Config-hash includes database credentials
+#### Scenario: OSG-ROT-01.01 -- Config-hash includes database credentials
 
 - GIVEN the config-hash is computed from ConfigMap `openshell-gateway-config`, Secret `openshell-server-tls`, and Secret `openshell-gateway-db-credentials`
 - WHEN the database credentials Secret content changes
@@ -42,7 +42,7 @@ This ensures that when the database credentials Secret content changes (for exam
 
 ---
 
-### Requirement: KEK Rotation (Day-2, Deferred)
+### Requirement: OSG-ROT-02 -- KEK Rotation (Day-2, Deferred)
 
 KEK rotation is explicitly deferred to a follow-up specification. This section documents the design constraints and why it is not a day-1 requirement.
 
@@ -76,7 +76,7 @@ When KEK rotation is implemented, it SHALL:
 
 ---
 
-### Requirement: TLS Certificate Rotation
+### Requirement: OSG-ROT-03 -- TLS Certificate Rotation
 
 TLS certificate rotation is already handled by cert-manager. This section documents the existing behavior and confirms the config-hash mechanism ensures pod restarts.
 
@@ -87,7 +87,7 @@ TLS certificate rotation is already handled by cert-manager. This section docume
 3. The `applyConfigHashAnnotation` function includes `openshell-server-tls` in the Deployment pod template hash
 4. On the next reconciliation cycle, the hash changes and the Deployment rolls out new pods
 
-#### Scenario: cert-manager renews server certificate
+#### Scenario: OSG-ROT-03.01 -- cert-manager renews server certificate
 
 - GIVEN cert-manager renews the `openshell-server` Certificate
 - AND the Secret `openshell-server-tls` is updated with new cert/key data
@@ -110,7 +110,7 @@ When TLS certificates are regenerated, connected sandbox supervisors lose trust 
 
 ---
 
-### Requirement: Provider Credential Rotation by Driver Type
+### Requirement: OSG-ROT-04 -- Provider Credential Rotation by Driver Type
 
 When a gateway uses an external credential storage driver (`kubernetes-secrets` or `vault`), the provider credentials (API keys, tokens) are stored outside the gateway database. Each driver has its own rotation model. The control plane's responsibility varies by driver.
 
@@ -137,7 +137,7 @@ Provider credentials are stored as individual Kubernetes Secrets in the credenti
 - None required for rotation. The RBAC is persistent and the SA token is auto-managed by Kubernetes
 - If the ServiceAccount is deleted and recreated (e.g., namespace recreated), HyperShell re-provisions the RBAC on the next reconciliation cycle
 
-#### Scenario: Kubernetes Secrets driver -- SA token rotation
+#### Scenario: OSG-ROT-04.01 -- Kubernetes Secrets driver -- SA token rotation
 
 - GIVEN a gateway with `credential_driver.type` = `kubernetes-secrets`
 - WHEN the Kubernetes control plane rotates the bound ServiceAccount token
@@ -161,7 +161,7 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 - The projected SA token volume is correctly configured with the `vault` audience
 - If the Vault configuration changes (address, role, mount), the operator updates the `credential_driver` field on the Gateway API resource, and the reconciler regenerates the gateway.toml and restarts the pod
 
-#### Scenario: Vault driver -- SA token renewal
+#### Scenario: OSG-ROT-04.02 -- Vault driver -- SA token renewal
 
 - GIVEN a gateway with `credential_driver.type` = `vault` and `auth_method` = `kubernetes`
 - AND the projected SA token has `expirationSeconds: 3600`
@@ -170,7 +170,7 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 - AND the gateway's Vault client SHALL re-authenticate using the new token
 - AND no HyperShell intervention is required
 
-#### Scenario: Vault driver -- Vault configuration change
+#### Scenario: OSG-ROT-04.03 -- Vault driver -- Vault configuration change
 
 - GIVEN a gateway with `credential_driver.type` = `vault`
 - AND the Vault server address changes (e.g., migration to a new Vault cluster)
@@ -179,7 +179,7 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 - AND the config-hash SHALL change, triggering a rolling restart
 - AND the gateway SHALL connect to the new Vault server on startup
 
-#### Scenario: Vault dynamic secret lease renewal
+#### Scenario: OSG-ROT-04.04 -- Vault dynamic secret lease renewal
 
 - GIVEN a gateway using Vault dynamic secrets with a TTL
 - WHEN a dynamic secret lease approaches expiry

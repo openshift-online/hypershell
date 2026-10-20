@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// WorkspaceMembership binds an OIDC subject to a role (admin | member) within an
+// AgentWorkspace (data-model.spec.md "WorkspaceMembership"). A workspace that hosts
+// a refresh-bearing ProviderBinding requires at least one admin membership.
+message WorkspaceMembership {
+  ObjectReference metadata = 1;
+  string workspace_id = 2;
+  string subject = 3;
+  string role = 4;
+}
+
+message GetWorkspaceMembershipRequest {
+  string id = 1;
+}
+
+message GetWorkspaceMembershipResponse {
+  WorkspaceMembership workspace_membership = 1;
+}
+
+message CreateWorkspaceMembershipRequest {
+  string workspace_id = 1;
+  string subject = 2;
+  string role = 3;
+}
+
+message CreateWorkspaceMembershipResponse {
+  WorkspaceMembership workspace_membership = 1;
+}
+
+message UpdateWorkspaceMembershipRequest {
+  string id = 1;
+  optional string role = 2;
+}
+
+message UpdateWorkspaceMembershipResponse {
+  WorkspaceMembership workspace_membership = 1;
+}
+
+message DeleteWorkspaceMembershipRequest {
+  string id = 1;
+}
+
+message DeleteWorkspaceMembershipResponse {}
+
+message ListWorkspaceMembershipsRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListWorkspaceMembershipsResponse {
+  repeated WorkspaceMembership items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchWorkspaceMembershipsRequest {}
+
+message WatchWorkspaceMembershipsResponse {
+  EventType type = 1;
+  WorkspaceMembership workspace_membership = 2;
+  string resource_id = 3;
+}
+
+service WorkspaceMembershipService {
+  rpc GetWorkspaceMembership(GetWorkspaceMembershipRequest) returns (GetWorkspaceMembershipResponse);
+  rpc CreateWorkspaceMembership(CreateWorkspaceMembershipRequest) returns (CreateWorkspaceMembershipResponse);
+  rpc UpdateWorkspaceMembership(UpdateWorkspaceMembershipRequest) returns (UpdateWorkspaceMembershipResponse);
+  rpc DeleteWorkspaceMembership(DeleteWorkspaceMembershipRequest) returns (DeleteWorkspaceMembershipResponse);
+  rpc ListWorkspaceMemberships(ListWorkspaceMembershipsRequest) returns (ListWorkspaceMembershipsResponse);
+  rpc WatchWorkspaceMemberships(WatchWorkspaceMembershipsRequest) returns (stream WatchWorkspaceMembershipsResponse);
+}

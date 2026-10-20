@@ -7,6 +7,11 @@ export const TREND_CHANGE_THRESHOLD_PERCENT = 5;
 
 export type MetricTrendDirection = "increase" | "decrease";
 
+interface AvailableTrendPoint {
+  label: string;
+  value: number;
+}
+
 export interface MetricTrendChange {
   direction: MetricTrendDirection;
   percent: number;
@@ -16,7 +21,9 @@ export function getTrendChange(
   trend: OperationalMetricTrend | undefined,
   thresholdPercent = TREND_CHANGE_THRESHOLD_PERCENT,
 ): MetricTrendChange | undefined {
-  const trendPoints = trend?.points;
+  const trendPoints = trend?.points.filter(
+    (point): point is AvailableTrendPoint => point.value !== null,
+  );
   const firstPoint = trendPoints?.[0];
   const lastPoint = trendPoints?.at(-1);
   if (!firstPoint || !lastPoint) {

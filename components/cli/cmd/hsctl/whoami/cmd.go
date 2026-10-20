@@ -19,81 +19,90 @@ var args struct {
 
 var Cmd = &cobra.Command{
 	Use:   "whoami",
-	Short: "Show current login information",
-	Long:  "Display the user identity, token expiry, and API server from the saved configuration.",
-	Args:  cobra.NoArgs,
-	RunE:  run,
+	Short: "Show the logged-in identity",
+	Long: "Show who the saved credentials belong to, from the claims of the saved access token.\n\n" +
+		"The token is decoded without verifying its signature. The claims are for display only and\n" +
+		"are never an authorization decision: the API server verifies the token on every request.\n" +
+		"A token that is not a JWT is reported as opaque.",
+	Args: cobra.NoArgs,
+	RunE: run,
 }
 
 func init() {
-	Cmd.Flags().BoolVarP(&args.showToken, "show-token", "t", false, "Print only the raw access token.")
-	Cmd.Flags().BoolVar(&args.showTokenDecoded, "show-token-decoded", false, "Print only the decoded token claims as JSON.")
+	flags := Cmd.Flags()
+	flags.BoolVar(&args.showToken, "show-token", false, "Also print the raw access token.")
+	flags.BoolVar(&args.showTokenDecoded, "show-token-decoded", false, "Also print the decoded token claims as JSON.")
 }
 
 func run(cmd *cobra.Command, argv []string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("can't load config: %w", err)
+		return fmt.Errorf("can't load configuration file: %w", err)
+	}
+	if armed, reason := cfg.Armed(); !armed {
+		return fmt.Errorf("not logged in, %s, run the 'login' command", reason)
 	}
 
-	armed, reason := cfg.Armed()
-	if !armed {
-		return fmt.Errorf("not logged in: %s", reason)
-	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "API URL: %s\n", cfg.URL)
 
-	if err := config.EnsureFreshToken(cfg); err != nil {
-		return err
+	parsed, err := config.ParseToken(cfg.AccessToken)
+	claims, ok := jwt.MapClaims(nil), false
+	if err == nil {
+		claims, ok = parsed.Claims.(jwt.MapClaims)
 	}
-
-	if args.showToken {
-		fmt.Fprintln(os.Stdout, cfg.AccessToken)
-		return nil
-	}
-
-	token, err := config.ParseToken(cfg.AccessToken)
-	if err != nil {
-		return fmt.Errorf("can't parse token: %w", err)
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return fmt.Errorf("unexpected token claims type")
+		fmt.Fprintln(out, "Token: opaque (not a JWT), identity claims are not available")
+		return printToken(cmd, cfg, nil)
 	}
 
-	if args.showTokenDecoded {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any(claims))
+	user := stringClaim(claims, "preferred_username")
+	if user == "" {
+		user = stringClaim(claims, "sub")
 	}
-
-	username := stringClaim(claims, "preferred_username")
-	if username == "" {
-		username = stringClaim(claims, "sub")
-	}
-	email := stringClaim(claims, "email")
-	issuer := stringClaim(claims, "iss")
-
-	fmt.Fprintf(os.Stdout, "User:    %s\n", username)
-	if email != "" {
-		fmt.Fprintf(os.Stdout, "Email:   %s\n", email)
-	}
-	fmt.Fprintf(os.Stdout, "Issuer:  %s\n", issuer)
-	fmt.Fprintf(os.Stdout, "API URL: %s\n", cfg.URL)
-
+	printClaim(out, "User", user)
+	printClaim(out, "Email", stringClaim(claims, "email"))
+	printClaim(out, "Issuer", stringClaim(claims, "iss"))
 	if exp, ok := claims["exp"].(float64); ok && exp > 0 {
-		expTime := time.Unix(int64(exp), 0)
-		remaining := time.Until(expTime)
-		if remaining > 0 {
-			fmt.Fprintf(os.Stdout, "Expires: %s (in %s)\n", expTime.Local().Format(time.RFC3339), remaining.Truncate(time.Second))
-		} else {
-			fmt.Fprintf(os.Stdout, "Expires: %s (expired)\n", expTime.Local().Format(time.RFC3339))
+		expiry := time.Unix(int64(exp), 0)
+		state := "expires in " + time.Until(expiry).Round(time.Second).String()
+		if time.Until(expiry) <= 0 {
+			state = "expired"
 		}
+		fmt.Fprintf(out, "Expires: %s (%s)\n", expiry.Format(time.RFC3339), state)
 	}
+	if cfg.CanRefresh() {
+		fmt.Fprintln(out, "Session: renewable with a saved refresh token")
+	}
+	return printToken(cmd, cfg, claims)
+}
 
+func printToken(cmd *cobra.Command, cfg *config.Config, claims jwt.MapClaims) error {
+	out := cmd.OutOrStdout()
+	if args.showToken {
+		fmt.Fprintf(out, "Access token: %s\n", cfg.AccessToken)
+	}
+	if args.showTokenDecoded {
+		if claims == nil {
+			fmt.Fprintln(os.Stderr, "The access token is opaque, there are no claims to decode.")
+			return nil
+		}
+		encoded, err := json.MarshalIndent(claims, "", "  ")
+		if err != nil {
+			return fmt.Errorf("can't encode the token claims: %w", err)
+		}
+		fmt.Fprintf(out, "Claims:\n%s\n", encoded)
+	}
 	return nil
 }
 
-func stringClaim(claims jwt.MapClaims, key string) string {
-	v, _ := claims[key].(string)
-	return v
+func stringClaim(claims jwt.MapClaims, name string) string {
+	value, _ := claims[name].(string)
+	return value
+}
+
+func printClaim(out interface{ Write([]byte) (int, error) }, label, value string) {
+	if value != "" {
+		fmt.Fprintf(out, "%s: %s\n", label, value)
+	}
 }

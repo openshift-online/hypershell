@@ -2,32 +2,73 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Fill the card body (which fills the page section) so the stage below can flex to
+     consume the leftover height rather than adding a fixed viewport height on top of
+     the masthead + card chrome. min-height:0 lets it shrink inside the flex column. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* The map + detail drawer occupy a slice of the viewport sized to the CONTENT's
-   own aspect ratio (--stage-aspect = layout.width / layout.height), so a wide,
-   short scene gets a short stage instead of being letterboxed into a tall box
-   (empty bands above/below that you could pan into) and the whole dashboard fits
-   the viewport without a page scrollbar. The height is capped at 82vh (a tall
-   scene letterboxes horizontally instead of overflowing the screen) and floored
-   so it never collapses. Both the canvas and the panel fill this height; the
-   panel scrolls WITHIN itself instead of growing the page. */
+/* The map + detail drawer fill the leftover height of the single-screen view. The stage
+   FLEX-FILLS its parent chain (page section isFilled -> stack -> map StackItem isFilled ->
+   card -> card body -> .wrap) instead of taking a fixed slab of the viewport (was 82vh):
+   82vh was ADDITIVE on top of the masthead + card title + freight bar + paddings, so the
+   total exceeded 100vh and <main> scrolled. flex:1 + min-height:0 makes it consume exactly
+   the space that remains, with a modest floor so it never fully collapses on short screens.
+   The stage height is deliberately DECOUPLED from the content's own aspect ratio: a wide,
+   short scene used to drive a short stage (height = width / --stage-aspect), which left a
+   band of dead black space below the map inside the card. Now the gray container always
+   fills the available height and the SVG viewBox is re-fit to the canvas's live box (see
+   use-map-viewport) so the content scales up to fill it, centered. Both the canvas and the
+   panel fill this height; the panel scrolls WITHIN itself instead of growing the page. */
 .stage {
+  position: relative;
   width: 100%;
-  aspect-ratio: var(--stage-aspect, 2.2);
-  max-height: 82vh;
-  min-height: 460px;
+  flex: 1 1 auto;
+  min-height: 360px;
 }
 
-/* Make the drawer and its two columns fill the fixed stage height. min-height:0
-   lets these flex children actually shrink, which is what enables the panel's own
-   overflow scrolling rather than overflowing the page. */
+/* Anchor the drawer to the stage's box with absolute inset:0 so its height is DEFINITE
+   (not derived from flex-basis). Firefox will not resolve the inner height:100% chain
+   against a parent whose height comes only from `flex: 1 1 auto` - so for short-content
+   bundles it let the panel shrink to its content, which collapsed the resize splitter and
+   parked its (centered) handle at the top of the column. A definite inset:0 box resolves
+   height:100% in every engine, so the panel - and thus the full-height splitter - always
+   fills the stage regardless of how many PRs the bundle lists. (Chromium already honored
+   the flex-derived height; this just makes Firefox agree.) The stage keeps its own height
+   from the flex column even with only an absolutely-positioned child. */
+.stage > :global(.pf-v6-c-drawer) {
+  position: absolute;
+  inset: 0;
+}
+
+/* Make the drawer and its columns fill the fixed stage height. min-height:0 lets
+   these flex children actually shrink, which is what enables the panel's own
+   overflow scrolling rather than overflowing the page. __body (DrawerContentBody,
+   the canvas's direct parent) MUST be in this list: without min-height:0 it refuses
+   to shrink below the SVG's intrinsic size, so it overflows and grows an internal
+   scrollbar. That scrollbar steals width from the canvas, which re-fits the viewBox
+   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen.
+   __panel-main is the inner wrapper PatternFly 6.6 inserts between __panel and the
+   panel __body; WITHOUT it in this height chain the panel body's height:100% resolves
+   against an auto-height parent, so the panel grows to its (tall) content instead of
+   scrolling - stretching the whole stage past the viewport. It must be here too. */
 .stage :global(.pf-v6-c-drawer),
 .stage :global(.pf-v6-c-drawer__main),
 .stage :global(.pf-v6-c-drawer__content),
-.stage :global(.pf-v6-c-drawer__panel) {
+.stage :global(.pf-v6-c-drawer__body),
+.stage :global(.pf-v6-c-drawer__panel),
+.stage :global(.pf-v6-c-drawer__panel-main) {
   height: 100%;
   min-height: 0;
+}
+
+/* The canvas's parent never scrolls: the canvas clips its own overflow instead, so
+   no stray scrollbar can resize it out from under the viewBox fit. Scoped to the
+   CONTENT body (canvas) via the direct-child selector so it never lands on the panel
+   body - which also carries .pf-v6-c-drawer__body and must stay scrollable. */
+.stage :global(.pf-v6-c-drawer__content > .pf-v6-c-drawer__body) {
+  overflow: hidden;
 }
 
 .canvas {
@@ -79,6 +120,51 @@
   opacity: 0.9;
 }
 
+/* Fleet-level "health unavailable" banner: a prominent pill centered at the top of the
+   canvas, shown only when >=1 instance reports no Argo health. Color is NOT the sole
+   carrier - it pairs an exclamation icon with explicit count text (brand-color spec
+   UI-BRAND-03). The background danger color is set inline from TONE_COLOR so it matches
+   the node attention rings exactly. A slow glow pulse marks it as a severe, live signal;
+   it holds steady under prefers-reduced-motion. */
+.healthAlert {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 120px);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  animation: health-alert-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes health-alert-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 0 10px 1px rgba(0, 0, 0, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 0 16px 4px rgba(201, 70, 30, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .healthAlert {
+    animation: none;
+  }
+}
+
 /* Attention ring on a node with degraded health or a failed gateway. It flashes
    to draw the eye, but respects prefers-reduced-motion by holding a static ring. */
 .attention {
@@ -99,5 +185,126 @@
   .attention {
     animation: none;
     stroke-opacity: 1;
+  }
+}
+
+/* --- value-change animations ---------------------------------------------
+   Each is applied to an SVG <g> that React remounts (via a value-derived key)
+   ONLY when the underlying datum changes, so the keyframes replay exactly on a
+   change and never on an unchanged poll. transform-box:fill-box anchors the
+   transform origin to each group's own bounding box so scales/rotations pivot in
+   place. All collapse to no-op under prefers-reduced-motion. */
+
+/* Gateway count: a quick swell then settle when the tally changes. */
+.countPulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: count-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes count-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.45);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Identicon: a short lateral shake when the deployed bundle (seed) changes. */
+.identShake {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ident-shake 0.5s ease-in-out both;
+}
+
+@keyframes ident-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  15% {
+    transform: translateX(-2.5px) rotate(-4deg);
+  }
+  35% {
+    transform: translateX(2.5px) rotate(4deg);
+  }
+  55% {
+    transform: translateX(-1.8px) rotate(-2.5deg);
+  }
+  75% {
+    transform: translateX(1.8px) rotate(2.5deg);
+  }
+}
+
+/* Sand sparkline: a CONVEYOR. On each new history sample the whole series slides one
+   slot to the LEFT (newest band entering from the right, oldest leaving) rather than
+   re-filling in place. The chart is drawn one phantom slot wider on the left and the
+   group starts shifted right by exactly one slot (--sand-step, set per-node), easing
+   back to 0 - so it reads as a smooth leftward march. A clip window (in the SVG) keeps
+   the overshoot from spilling past the chart edges. */
+.sandShift {
+  animation: sand-shift 0.6s ease-out both;
+}
+
+@keyframes sand-shift {
+  from {
+    transform: translateX(var(--sand-step, 0));
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Freight bar: when a new release bundle arrives it enters at the LEFT in two beats.
+   First the slot opens - its max-width animates 0 -> full, which (via flex reflow) slides
+   every existing card to the RIGHT to make room. Then, once the gap is open, the new card
+   DROPS IN from above into it. Only freshly-mounted cards animate (keyed by seed), so
+   existing cards never replay. While the slot opens the dropping card is held at opacity 0
+   (freight-drop's backwards fill), so it stays hidden until there's room for it. */
+.freightSlot {
+  animation: freight-make-room 0.32s ease-out both;
+}
+
+@keyframes freight-make-room {
+  from {
+    max-width: 0;
+  }
+  to {
+    max-width: 600px;
+  }
+}
+
+.freightDrop {
+  /* delayed to start as the slot finishes opening - the "drop in" after room is made */
+  animation: freight-drop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both;
+}
+
+@keyframes freight-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* The promotion fly-in (the map's headliner) now lives in the shared flight-motion
+   primitive (../shared/flight-motion.module.css + .ts), reused by the Agent SDLC board
+   so both surfaces share one arc, dust burst, and timing (SDLC-VIS-12a). The map overlay
+   (flights.tsx) imports .flightTravel/.flightScale/.impactRing/.dust from there. */
+
+@media (prefers-reduced-motion: reduce) {
+  .countPulse,
+  .identShake,
+  .sandShift,
+  .freightSlot,
+  .freightDrop {
+    animation: none;
   }
 }

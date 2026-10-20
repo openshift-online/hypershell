@@ -8,11 +8,9 @@ import (
 
 	"github.com/golang/glog"
 
-	// Every Watch* service and the gateways plugin, linked as in the real
-	// server (cmd/hypershell/main.go), so the RBAC post-auth interceptors
-	// registered by this package run in front of them.
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
+	// The gateways plugin and RBAC plugin, linked as in the real server
+	// (cmd/hypershell/main.go), so the RBAC post-auth interceptors run in
+	// front of them.
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/test"

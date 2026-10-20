@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// Repository is a git repository registered for declarative .hypershell import.
+// The control-plane import reconciler reads it over WatchRepositories and owns the
+// gRPC write path (data-model.spec.md "Declarative .hypershell Import").
+message Repository {
+  ObjectReference metadata = 1;
+  string name = 2;
+  string url = 3;
+  string provider = 4;
+  string secret_source_id = 5;
+  optional string default_branch = 6;
+  optional string import_path = 7;
+  optional string status = 8;
+}
+
+message GetRepositoryRequest {
+  string id = 1;
+}
+
+message GetRepositoryResponse {
+  Repository repository = 1;
+}
+
+message CreateRepositoryRequest {
+  string name = 1;
+  string url = 2;
+  string provider = 3;
+  string secret_source_id = 4;
+  optional string default_branch = 5;
+  optional string import_path = 6;
+}
+
+message CreateRepositoryResponse {
+  Repository repository = 1;
+}
+
+message UpdateRepositoryRequest {
+  string id = 1;
+  optional string secret_source_id = 2;
+  optional string default_branch = 3;
+  optional string import_path = 4;
+  optional string status = 5;
+}
+
+message UpdateRepositoryResponse {
+  Repository repository = 1;
+}
+
+message DeleteRepositoryRequest {
+  string id = 1;
+}
+
+message DeleteRepositoryResponse {}
+
+message ListRepositoriesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListRepositoriesResponse {
+  repeated Repository items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchRepositoriesRequest {}
+
+message WatchRepositoriesResponse {
+  EventType type = 1;
+  Repository repository = 2;
+  string resource_id = 3;
+}
+
+service RepositoryService {
+  rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse);
+  rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
+  rpc UpdateRepository(UpdateRepositoryRequest) returns (UpdateRepositoryResponse);
+  rpc DeleteRepository(DeleteRepositoryRequest) returns (DeleteRepositoryResponse);
+  rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
+  rpc WatchRepositories(WatchRepositoriesRequest) returns (stream WatchRepositoriesResponse);
+}

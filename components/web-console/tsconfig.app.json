@@ -24,6 +24,7 @@
     ".react-router/types/**/*",
     "app/**/*",
     "shared/**/*",
+    ".storybook-mockups/**/*",
     "react-router.config.ts",
     "vite.config.ts"
   ],

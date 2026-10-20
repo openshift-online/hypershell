@@ -10,8 +10,7 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**ClusterId** | **string** |  | 
-**ReleaseId** | **string** |  | 
+**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
@@ -24,7 +23,8 @@ Name | Type | Description | Notes
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
-**ObservedReleaseId** | Pointer to **string** | Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane | [optional] [readonly] 
+**ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly] 
+**ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
@@ -33,12 +33,15 @@ Name | Type | Description | Notes
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 **Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
 **ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
+**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
+**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
+**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
 
 ## Methods
 
 ### NewGateway
 
-`func NewGateway(name string, clusterId string, releaseId string, namespace string, ) *Gateway`
+`func NewGateway(name string, clusterId string, namespace string, ) *Gateway`
 
 NewGateway instantiates a new Gateway object
 This constructor will assign default values to properties that have it defined,
@@ -216,26 +219,6 @@ and a boolean to check if the value has been set.
 `func (o *Gateway) SetClusterId(v string)`
 
 SetClusterId sets ClusterId field to given value.
-
-
-### GetReleaseId
-
-`func (o *Gateway) GetReleaseId() string`
-
-GetReleaseId returns the ReleaseId field if non-nil, zero value otherwise.
-
-### GetReleaseIdOk
-
-`func (o *Gateway) GetReleaseIdOk() (*string, bool)`
-
-GetReleaseIdOk returns a tuple with the ReleaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetReleaseId
-
-`func (o *Gateway) SetReleaseId(v string)`
-
-SetReleaseId sets ReleaseId field to given value.
 
 
 ### GetNamespace
@@ -533,30 +516,55 @@ SetGatewayVersion sets GatewayVersion field to given value.
 
 HasGatewayVersion returns a boolean if a field has been set.
 
-### GetObservedReleaseId
+### GetProvisioningVersion
 
-`func (o *Gateway) GetObservedReleaseId() string`
+`func (o *Gateway) GetProvisioningVersion() string`
 
-GetObservedReleaseId returns the ObservedReleaseId field if non-nil, zero value otherwise.
+GetProvisioningVersion returns the ProvisioningVersion field if non-nil, zero value otherwise.
 
-### GetObservedReleaseIdOk
+### GetProvisioningVersionOk
 
-`func (o *Gateway) GetObservedReleaseIdOk() (*string, bool)`
+`func (o *Gateway) GetProvisioningVersionOk() (*string, bool)`
 
-GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field if it's non-nil, zero value otherwise
+GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
-### SetObservedReleaseId
+### SetProvisioningVersion
 
-`func (o *Gateway) SetObservedReleaseId(v string)`
+`func (o *Gateway) SetProvisioningVersion(v string)`
 
-SetObservedReleaseId sets ObservedReleaseId field to given value.
+SetProvisioningVersion sets ProvisioningVersion field to given value.
 
-### HasObservedReleaseId
+### HasProvisioningVersion
 
-`func (o *Gateway) HasObservedReleaseId() bool`
+`func (o *Gateway) HasProvisioningVersion() bool`
 
-HasObservedReleaseId returns a boolean if a field has been set.
+HasProvisioningVersion returns a boolean if a field has been set.
+
+### GetImagePinned
+
+`func (o *Gateway) GetImagePinned() bool`
+
+GetImagePinned returns the ImagePinned field if non-nil, zero value otherwise.
+
+### GetImagePinnedOk
+
+`func (o *Gateway) GetImagePinnedOk() (*bool, bool)`
+
+GetImagePinnedOk returns a tuple with the ImagePinned field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetImagePinned
+
+`func (o *Gateway) SetImagePinned(v bool)`
+
+SetImagePinned sets ImagePinned field to given value.
+
+### HasImagePinned
+
+`func (o *Gateway) HasImagePinned() bool`
+
+HasImagePinned returns a boolean if a field has been set.
 
 ### GetOidc
 
@@ -757,6 +765,81 @@ SetObservedGeneration sets ObservedGeneration field to given value.
 `func (o *Gateway) HasObservedGeneration() bool`
 
 HasObservedGeneration returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *Gateway) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *Gateway) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *Gateway) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *Gateway) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
+
+### GetCanDelete
+
+`func (o *Gateway) GetCanDelete() bool`
+
+GetCanDelete returns the CanDelete field if non-nil, zero value otherwise.
+
+### GetCanDeleteOk
+
+`func (o *Gateway) GetCanDeleteOk() (*bool, bool)`
+
+GetCanDeleteOk returns a tuple with the CanDelete field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCanDelete
+
+`func (o *Gateway) SetCanDelete(v bool)`
+
+SetCanDelete sets CanDelete field to given value.
+
+### HasCanDelete
+
+`func (o *Gateway) HasCanDelete() bool`
+
+HasCanDelete returns a boolean if a field has been set.
+
+### GetCanEdit
+
+`func (o *Gateway) GetCanEdit() bool`
+
+GetCanEdit returns the CanEdit field if non-nil, zero value otherwise.
+
+### GetCanEditOk
+
+`func (o *Gateway) GetCanEditOk() (*bool, bool)`
+
+GetCanEditOk returns a tuple with the CanEdit field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCanEdit
+
+`func (o *Gateway) SetCanEdit(v bool)`
+
+SetCanEdit sets CanEdit field to given value.
+
+### HasCanEdit
+
+`func (o *Gateway) HasCanEdit() bool`
+
+HasCanEdit returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

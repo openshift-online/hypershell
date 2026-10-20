@@ -87,8 +87,6 @@ func TestAuthorizeUserGRPC(t *testing.T) {
 		{"admin deletes a cluster", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, []BindingSummary{adminBinding}, codes.OK},
 		{"no RoleBinding service for users", "/hypershell.v1.RoleBindingService/ListRoleBindings", &pb.ListRoleBindingsRequest{}, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
 		{"no RoleBinding watch for users", "/hypershell.v1.RoleBindingService/WatchRoleBindings", nil, []BindingSummary{adminBinding}, codes.PermissionDenied},
-		{"admin reads releases", "/hypershell.v1.GatewayReleaseService/ListGatewayReleases", &pb.ListGatewayReleasesRequest{}, []BindingSummary{adminBinding}, codes.OK},
-		{"admin alone cannot change a release", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{}, []BindingSummary{adminBinding}, codes.PermissionDenied},
 		{"unknown service denied", "/hypershell.v1.SomethingNew/DoIt", nil, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
 		{"health with a binding", "/grpc.health.v1.Health/Check", nil, []BindingSummary{creatorBinding}, codes.OK},
 		{"no bindings denied", gatewaySvc("GetGateway"), get, nil, codes.NotFound},
@@ -151,7 +149,7 @@ func TestUnaryInterceptor_AllowlistScope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := RBACUnaryInterceptor(owner, fakeProvisioner{userID: "user-1"}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{sa}})
+			interceptor := RBACUnaryInterceptor(owner, fakeProvisioner{userID: "user-1"}, nil, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{sa}})
 			called := false
 			_, err := interceptor(auth.SetUsernameContext(context.Background(), tt.username), tt.req, &grpc.UnaryServerInfo{FullMethod: tt.method},
 				func(context.Context, interface{}) (interface{}, error) {
@@ -170,7 +168,7 @@ func TestUnaryInterceptor_AllowlistScope(t *testing.T) {
 
 // Under enforcement an unauthenticated call reaches no hypershell.v1 method.
 func TestUnaryInterceptor_UnauthenticatedDenied(t *testing.T) {
-	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true})
+	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{}, nil, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true})
 	handler := func(context.Context, interface{}) (interface{}, error) { return nil, nil }
 	_, err := interceptor(context.Background(), &pb.ListGatewaysRequest{}, &grpc.UnaryServerInfo{FullMethod: gatewaySvc("ListGateways")}, handler)
 	if status.Code(err) != codes.PermissionDenied {

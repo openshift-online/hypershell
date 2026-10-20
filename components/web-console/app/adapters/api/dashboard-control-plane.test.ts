@@ -1,5 +1,6 @@
-import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { SDKClient } from "@openshift-online/hypershell-sdk";
 
 import {
   createDashboardControlPlaneAdapter,
@@ -8,21 +9,14 @@ import {
 import type { PlatformInventoryMetricsResponse } from "./platform-inventory-aggregation";
 
 const fetchMock = vi.fn();
-const gatewaysListMock = vi.fn();
-const gatewayReleasesListMock = vi.fn();
-const apiFactory = vi.fn(
-  () =>
-    ({
-      gateways: {
-        list: gatewaysListMock,
-      },
-      gatewayReleases: {
-        list: gatewayReleasesListMock,
-      },
-    }) as unknown as SDKClient,
-);
+const gatewayListMock = vi.fn();
+const apiFactoryMock = vi.fn(() => ({
+  gateways: { list: gatewayListMock },
+}));
 
-const adapter = createDashboardControlPlaneAdapter(apiFactory);
+const adapter = createDashboardControlPlaneAdapter(
+  apiFactoryMock as unknown as (correlationId: string) => SDKClient,
+);
 const context = {
   correlationId: "11111111-1111-4111-8111-111111111111",
 };
@@ -63,6 +57,70 @@ describe("mapControlPlaneReconciliationResponse", () => {
   });
 });
 
+describe("adoption metrics adapter", () => {
+  it("maps the adoption response and propagates a 30-day range", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      expect(url).toBe("/api/metrics/adoption?range=30");
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            registered_users: 450,
+            created_last_7_days: 48,
+            created_last_30_days: 123,
+            unique_logins_last_7_days: 312,
+            unique_logins_last_30_days: 398,
+            inactive_users_last_30_days: 52,
+            users_with_gateway: 306,
+            gateway_conversion_percent: 68,
+            daily_created_users: [{ date: "2026-10-15", count: 18 }],
+            daily_unique_logins: [{ date: "2026-10-15", count: 42 }],
+            retention_7_days_percent: 78,
+          }),
+        ok: true,
+      });
+    });
+
+    const metrics = await adapter.getAdoptionMetrics({
+      ...context,
+      timeRange: 30,
+    });
+
+    expect(metrics.metrics).toEqual([
+      {
+        createdLast30Days: "123",
+        createdLast7Days: "48",
+        createdTrend: {
+          points: [{ label: "2026-10-15", value: 18 }],
+        },
+        dailyActiveUsers: "42",
+        gatewayConversionPercent: "68.0",
+        id: "adoption",
+        inactiveUsersLast30Days: "52",
+        retention7DaysPercent: "78.0",
+        trend: {
+          points: [{ label: "2026-10-15", value: 42 }],
+        },
+        uniqueLoginsLast7Days: "312",
+        uniqueLoginsLast30Days: "398",
+        usersWithGateway: "306",
+        value: "450",
+      },
+    ]);
+    expect(metrics.timeRange).toBe(30);
+  });
+
+  it("maps omitted optional fields without inventing values", async () => {
+    fetchMock.mockResolvedValue({
+      json: () => Promise.resolve({ registered_users: 42 }),
+      ok: true,
+    });
+
+    const metrics = await adapter.getAdoptionMetrics(context);
+
+    expect(metrics.metrics).toEqual([{ id: "adoption", value: "42" }]);
+  });
+});
+
 const mockClusterPodsResponse = {
   available_pods: 1452,
   capacity_pods: 2000,
@@ -82,6 +140,10 @@ const mockGatewayProvisionDurationResponse = {
 };
 
 const mockGatewayProvisionOutcomesResponse = {
+  daily_success_rate: [
+    { date: "2026-08-09", success_rate_percent: 80 },
+    { date: "2026-08-10", success_rate_percent: 100 },
+  ],
   failure_count_24h: 1,
   hourly_success_rate: [
     {
@@ -112,6 +174,7 @@ function defaultPlatformInventory(): PlatformInventoryMetricsResponse {
       by_provider: {},
       by_region: {},
       by_status: {},
+      created_last_7_days: 0,
       created_last_30_days: 0,
       total: 0,
     },
@@ -163,6 +226,10 @@ function delegateDashboardFetch(
   return baseFetch(url);
 }
 
+function isMetricUrl(url: string, path: string): boolean {
+  return url === path || url.startsWith(`${path}?`);
+}
+
 function mockClusterMetricsResponses(
   capacityBytes: number,
   usedBytes: number,
@@ -200,7 +267,7 @@ function mockClusterMetricsResponses(
         ok: true,
       });
     }
-    if (url === "/api/metrics/cluster-memory") {
+    if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
       return Promise.resolve({
         json: () =>
           Promise.resolve({
@@ -211,7 +278,7 @@ function mockClusterMetricsResponses(
         ok: true,
       });
     }
-    if (url === "/api/metrics/cluster-cpu") {
+    if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
       return Promise.resolve({
         json: () =>
           Promise.resolve({
@@ -331,27 +398,18 @@ function resolveStandardPrometheusSupportRoutes(
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
-  gatewaysListMock.mockReset();
-  gatewayReleasesListMock.mockReset();
-  gatewaysListMock.mockResolvedValue({
+  gatewayListMock.mockReset();
+  gatewayListMock.mockResolvedValue({
     items: [
-      { release_id: "rel-1" },
-      { release_id: "rel-1" },
-      { release_id: "rel-2" },
-      { release_id: "" },
+      { gateway_version: "v1.0.0" },
+      { gateway_version: "v1.0.0" },
+      { gateway_version: "v1.1.0" },
+      { gateway_version: "" },
     ],
+    kind: "GatewayList",
     page: 1,
-    size: 100,
+    size: 4,
     total: 4,
-  });
-  gatewayReleasesListMock.mockResolvedValue({
-    items: [
-      { id: "rel-1", name: "OpenShell 2.0" },
-      { id: "rel-2", name: "OpenShell 2.1" },
-    ],
-    page: 1,
-    size: 100,
-    total: 2,
   });
 });
 
@@ -364,6 +422,63 @@ function defaultRegisteredUsersResponse(total = 0) {
 }
 
 describe("createDashboardControlPlaneAdapter", () => {
+  it("limits non-admin operational metrics to authorized gateway data", async () => {
+    mockClusterMetricsResponses(254468212736, 236223201280, {
+      Provisioning: 1,
+      Running: 2,
+    });
+
+    const metrics = await adapter.getOperationalMetrics({
+      ...context,
+      isAdmin: false,
+    });
+
+    expect(metrics.metrics.map((metric) => metric.id)).toEqual([
+      "provisioned-gateways",
+      "provisioned-sandboxes",
+      "gateway-releases",
+    ]);
+    expect(metrics.failedSources).toBeUndefined();
+  });
+
+  it("aggregates gateway versions into gateway-releases metrics", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayReleasesMetric = metrics.metrics.find(
+      (metric) => metric.id === "gateway-releases",
+    );
+
+    expect(gatewayReleasesMetric).toEqual({
+      id: "gateway-releases",
+      releaseDistribution: {
+        unknown: 1,
+        "v1.0.0": 2,
+        "v1.1.0": 1,
+      },
+      value: "4",
+    });
+    expect(gatewayListMock).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+  });
+
+  it("omits gateway-releases when the gateway list fails", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    gatewayListMock.mockRejectedValue(new Error("gateway list failed"));
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["gateway-release-distribution"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "gateway-releases"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
   it("aggregates Prometheus dashboard metrics into operational metrics", async () => {
     mockClusterMetricsResponses(
       254468212736,
@@ -460,20 +575,29 @@ describe("createDashboardControlPlaneAdapter", () => {
         failureCount24h: "1",
         successCount24h: "9",
         successRatePercent: "90.0",
+        successRateTrend: {
+          points: [
+            { label: "2026-08-09", value: 80 },
+            { label: "2026-08-10", value: 100 },
+          ],
+        },
       },
       successRateTrend: {
         points: [
-          { label: "2026-08-09T12:00", value: 80 },
-          { label: "2026-08-09T13:00", value: 100 },
+          { label: "2026-08-09", value: 80 },
+          { label: "2026-08-10", value: 100 },
         ],
       },
       value: "90.0",
     });
-    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-memory", {
-      credentials: "same-origin",
-      signal: undefined,
-    });
-    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-cpu", {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/metrics/cluster-memory?range=7",
+      {
+        credentials: "same-origin",
+        signal: undefined,
+      },
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-cpu?range=7", {
       credentials: "same-origin",
       signal: undefined,
     });
@@ -572,11 +696,17 @@ describe("createDashboardControlPlaneAdapter", () => {
         failureCount24h: "1",
         successCount24h: "9",
         successRatePercent: "90.0",
+        successRateTrend: {
+          points: [
+            { label: "2026-08-09", value: 80 },
+            { label: "2026-08-10", value: 100 },
+          ],
+        },
       },
       successRateTrend: {
         points: [
-          { label: "2026-08-09T12:00", value: 80 },
-          { label: "2026-08-09T13:00", value: 100 },
+          { label: "2026-08-09", value: 80 },
+          { label: "2026-08-10", value: 100 },
         ],
       },
       value: "90.0",
@@ -586,6 +716,7 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("omits provision reliability when success rate is null", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
       provisionOutcomes: {
+        daily_success_rate: [],
         failure_count_24h: 0,
         hourly_success_rate: [],
         success_count_24h: 0,
@@ -684,7 +815,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -695,7 +826,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -753,11 +884,14 @@ describe("createDashboardControlPlaneAdapter", () => {
       signal: controller.signal,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-memory", {
-      credentials: "same-origin",
-      signal: controller.signal,
-    });
-    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-cpu", {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/metrics/cluster-memory?range=7",
+      {
+        credentials: "same-origin",
+        signal: controller.signal,
+      },
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-cpu?range=7", {
       credentials: "same-origin",
       signal: controller.signal,
     });
@@ -787,6 +921,27 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  it("requests the selected range for memory and CPU metrics", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    await adapter.getOperationalMetrics({ ...context, timeRange: 30 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/metrics/cluster-memory?range=30",
+      {
+        credentials: "same-origin",
+        signal: undefined,
+      },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/metrics/cluster-cpu?range=30",
+      {
+        credentials: "same-origin",
+        signal: undefined,
+      },
+    );
+  });
+
   it("omits memory metrics when cluster memory is unavailable", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === "/api/metrics/gateways") {
@@ -795,13 +950,13 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           ok: false,
           status: 502,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -857,7 +1012,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -868,7 +1023,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           ok: false,
           status: 502,
@@ -919,7 +1074,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -930,7 +1085,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -983,7 +1138,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -994,7 +1149,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -1039,8 +1194,7 @@ describe("createDashboardControlPlaneAdapter", () => {
 
   it("fails when every metric source is unavailable", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
-    gatewaysListMock.mockRejectedValue(new Error("network down"));
-    gatewayReleasesListMock.mockRejectedValue(new Error("network down"));
+    gatewayListMock.mockRejectedValue(new Error("network down"));
 
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
       "All operational dashboard metric sources failed",
@@ -1073,6 +1227,7 @@ describe("createDashboardControlPlaneAdapter", () => {
               Ready: 99,
               unknown: 1,
             },
+            created_last_7_days: 1,
             created_last_30_days: 2,
             total: 150,
           },
@@ -1087,6 +1242,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
 
     expect(clustersMetric).toEqual({
+      createdLast7Days: "1",
       createdLast30Days: "2",
       id: "managed-clusters",
       inventoryProviders: {
@@ -1123,7 +1279,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -1134,7 +1290,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -1229,48 +1385,6 @@ describe("createDashboardControlPlaneAdapter", () => {
       uniqueLoginsLast30Days: "312",
       value: "450",
     });
-  });
-
-  it("aggregates gateway release distribution into gateway-releases metric", async () => {
-    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
-
-    const metrics = await adapter.getOperationalMetrics(context);
-    const gatewayReleasesMetric = metrics.metrics.find(
-      (metric) => metric.id === "gateway-releases",
-    );
-
-    expect(gatewayReleasesMetric).toEqual({
-      id: "gateway-releases",
-      releaseDistribution: {
-        "OpenShell 2.0": 2,
-        "OpenShell 2.1": 1,
-        unknown: 1,
-      },
-      value: "4",
-    });
-    expect(gatewaysListMock).toHaveBeenCalledWith(
-      { orderBy: "name asc", page: 1, size: 100 },
-      { signal: undefined },
-    );
-    expect(gatewayReleasesListMock).toHaveBeenCalledWith(
-      { orderBy: "name asc", page: 1, size: 100 },
-      { signal: undefined },
-    );
-  });
-
-  it("omits gateway-releases when gateway list aggregation fails", async () => {
-    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
-    gatewaysListMock.mockRejectedValue(new Error("gateway list failed"));
-
-    const metrics = await adapter.getOperationalMetrics(context);
-
-    expect(metrics.failedSources).toEqual(["gateway-release-distribution"]);
-    expect(
-      metrics.metrics.find((metric) => metric.id === "gateway-releases"),
-    ).toBeUndefined();
-    expect(
-      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
-    ).toBeDefined();
   });
 
   it("maps gateway daily_fleet_totals into provisioned-gateways trend", async () => {
@@ -1432,7 +1546,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
     fetchMock.mockImplementation((url: string) => {
-      if (url === "/api/metrics/cluster-memory") {
+      if (isMetricUrl(url, "/api/metrics/cluster-memory")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({
@@ -1444,7 +1558,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           ok: true,
         });
       }
-      if (url === "/api/metrics/cluster-cpu") {
+      if (isMetricUrl(url, "/api/metrics/cluster-cpu")) {
         return Promise.resolve({
           json: () =>
             Promise.resolve({

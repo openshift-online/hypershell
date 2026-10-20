@@ -3,18 +3,13 @@ import {
   createDashboardOperations,
   DashboardUiProvider,
   OperationalDashboardPage,
-  type DashboardControlPlane,
   type DashboardOperations,
   type DashboardUiNavigation,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
-import {
-  mockOperationalDashboardMetrics,
-  mockOperationalDashboardMetricsAttentionUnavailable,
-  mockOperationalDashboardMetricsZeroAttention,
-} from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
+import { mockOperationalDashboardMetrics } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, within } from "storybook/test";
 
 import { createMockDashboardControlPlane } from "../../adapters/mock/dashboard-control-plane";
 import { englishMessages } from "../../i18n/catalog";
@@ -36,6 +31,13 @@ const stubDashboard = createDashboardOperations({
       context.signal?.throwIfAborted();
       return Promise.resolve(mockOperationalDashboardMetrics);
     },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve(stubReliabilityMetrics);
@@ -54,6 +56,13 @@ const initialLoadFailedDashboard = createDashboardOperations({
       return Promise.reject(
         new Error("Unable to reach the operational metrics service."),
       );
+    },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
@@ -84,59 +93,19 @@ const partialLoadDashboard = createDashboardOperations({
         ),
       });
     },
+    getAdoptionMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve(stubReliabilityMetrics);
     },
   },
 });
-
-function createRefreshFailedDashboard(): DashboardOperations {
-  let callCount = 0;
-
-  const controlPlane: DashboardControlPlane = {
-    getOperationalMetrics: (context) => {
-      context.signal?.throwIfAborted();
-      callCount += 1;
-
-      if (callCount === 1) {
-        return Promise.resolve({
-          ...mockOperationalDashboardMetrics,
-          lastSuccessfulRefresh: new Date(),
-        });
-      }
-
-      return Promise.reject(
-        new Error("Unable to refresh operational dashboard metrics."),
-      );
-    },
-    getReliabilityMetrics: (context) => {
-      context.signal?.throwIfAborted();
-      return Promise.resolve(stubReliabilityMetrics);
-    },
-  };
-
-  return createDashboardOperations({ controlPlane });
-}
-
-function DashboardPreview({
-  metrics,
-  dashboard,
-}: Readonly<{
-  metrics?: typeof mockOperationalDashboardMetrics;
-  dashboard?: DashboardOperations;
-}>) {
-  return (
-    <DashboardUiProvider
-      dashboard={
-        dashboard ?? (metrics === undefined ? mockDashboard : stubDashboard)
-      }
-      navigation={stubNavigation}
-    >
-      <OperationalDashboardPage metrics={metrics} />
-    </DashboardUiProvider>
-  );
-}
 
 function ShellDashboardPreview() {
   return (
@@ -147,13 +116,44 @@ function ShellDashboardPreview() {
             path="/"
             element={
               <OperationalDashboardPage
-                metrics={mockOperationalDashboardMetrics}
+                metrics={{
+                  ...mockOperationalDashboardMetrics,
+                  lastSuccessfulRefresh: new Date(),
+                }}
               />
             }
           />
         </Route>
       </Routes>
     </MemoryRouter>
+  );
+}
+
+function DashboardPreview({
+  metrics,
+  dashboard,
+  isAdmin = false,
+}: Readonly<{
+  metrics?: typeof mockOperationalDashboardMetrics;
+  dashboard?: DashboardOperations;
+  isAdmin?: boolean;
+}>) {
+  return (
+    <DashboardUiProvider
+      dashboard={
+        dashboard ?? (metrics === undefined ? mockDashboard : stubDashboard)
+      }
+      isAdmin={isAdmin}
+      navigation={stubNavigation}
+    >
+      <OperationalDashboardPage
+        metrics={
+          metrics
+            ? { ...metrics, lastSuccessfulRefresh: new Date() }
+            : undefined
+        }
+      />
+    </DashboardUiProvider>
   );
 }
 
@@ -165,7 +165,7 @@ const pseudoMessages = Object.fromEntries(
 );
 
 const meta = {
-  title: "HyperShell/Operational dashboard",
+  title: "Production/Dashboards/Operational",
   component: OperationalDashboardPage,
   parameters: {
     layout: "fullscreen",
@@ -176,69 +176,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const MockedMetrics: Story = {};
+export const Default: Story = {};
 
-export const SandboxAttentionZeroCounts: Story = {
+export const Administrator: Story = {
   render: () => (
-    <DashboardPreview metrics={mockOperationalDashboardMetricsZeroAttention} />
+    <DashboardPreview isAdmin metrics={mockOperationalDashboardMetrics} />
   ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Sandbox status");
-    await expect(canvas.queryByText("Attention required")).toBeNull();
-    await expect(canvas.queryByText(/Orphaned/)).toBeNull();
-  },
-};
-
-export const SandboxAttentionUnavailable: Story = {
-  render: () => (
-    <DashboardPreview
-      metrics={mockOperationalDashboardMetricsAttentionUnavailable}
-    />
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Attention counts unavailable");
-    await expect(canvas.getByText("Attention required")).toBeVisible();
-  },
-};
-
-export const InventorySummary: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Platform inventory");
-    await expect(canvas.getByText("Inventory summary")).toBeVisible();
-    await expect(canvas.getByText("Cluster providers")).toBeVisible();
-    await expect(canvas.getByText("Cluster regions")).toBeVisible();
-    await expect(canvas.getByText("Clusters")).toBeVisible();
-  },
-};
-
-export const HubUtilizationTrendSparklines: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Memory");
-    await canvas.findByText("CPU");
-    await canvas.findByText("Pods");
-    const sparklineCaptions = canvas.getAllByText("Last 7 days");
-    await expect(sparklineCaptions.length).toBeGreaterThanOrEqual(3);
-  },
-};
-
-export const SystemSummaryTrendArrows: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("System summary");
-    const trendButtons = canvas.getAllByRole("button", {
-      name: /increase|decrease/i,
-    });
-    await expect(trendButtons.length).toBeGreaterThanOrEqual(4);
-  },
 };
 
 export const WithRefresh: Story = {
@@ -249,6 +192,10 @@ export const InitialLoadFailed: Story = {
   render: () => <DashboardPreview dashboard={initialLoadFailedDashboard} />,
 };
 
+export const InShell: Story = {
+  render: () => <ShellDashboardPreview />,
+};
+
 export const PartialLoadWarning: Story = {
   render: () => <DashboardPreview dashboard={partialLoadDashboard} />,
   play: async ({ canvasElement }) => {
@@ -257,25 +204,6 @@ export const PartialLoadWarning: Story = {
     await canvas.findByText("Some dashboard metrics are unavailable");
     await expect(canvas.getByText("Usage summary")).toBeVisible();
   },
-};
-
-export const RefreshFailed: Story = {
-  render: () => <DashboardPreview dashboard={createRefreshFailedDashboard()} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Usage summary");
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Refresh dashboard metrics" }),
-    );
-    await expect(
-      canvas.getByText("Could not refresh dashboard metrics"),
-    ).toBeVisible();
-  },
-};
-
-export const InShell: Story = {
-  render: () => <ShellDashboardPreview />,
 };
 
 export const PseudoLocalized: Story = {

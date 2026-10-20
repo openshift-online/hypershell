@@ -43,7 +43,6 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "reject-create",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release_id",
 		Phase:     &badPhase,
 	})
 	Expect(err).To(HaveOccurred(), "create with an unknown phase must be rejected")
@@ -54,7 +53,6 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "accept-create",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release_id",
 		Phase:     &goodPhase,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -84,7 +82,6 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "accept-absent-phase",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release_id",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create without a phase must be accepted")
 }
@@ -123,12 +120,10 @@ func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:      "reject-rest-create",
-		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release_id",
-		Phase:     openapi.PtrString("Booting"),
-	}).Execute()
+	registerTestCluster(t)
+	request := managedGatewayCreateRequest("reject-rest-create")
+	request.Phase = openapi.PtrString("Booting")
+	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(request).Execute()
 	Expect(err).To(HaveOccurred(), "REST create with an unknown phase must be rejected")
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 }
