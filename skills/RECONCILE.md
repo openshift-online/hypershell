@@ -222,7 +222,7 @@ Stacks on the capability placement work above. Spec changes reconciled:
 | WEB-VER-03 | Neutral "Newer Version Available" drift indicator; real is-older-than compare over suffixed tags; suppressed for pinned/missing/unparseable/equal/newer | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
 | GVV-04-FE | Drift verdict derived once in the application layer; facts via domain-probe fan-out | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
 | WEB-VER-05 / WEB-PLC-10 | Localization + accessibility of all new surfaces; `en.json` regenerated | FE (subagent) | `packages/gateway-management-ui/src/messages.ts`, `components/web-console/locales/en.json` | GVV-W4 |
-| WEB-PLC-11 | Provision-form provisioning-version selector driven by advertised versions; default "Any version" omits the label; resets on network/provider change; no local-kind version | FE (subagent) | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | GVV-W4 |
+| WEB-PLC-11 | Provision form omits version selection and version-bearing selectors; the backend selects the placed cluster version and gateway version visibility remains available | Present | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | GVV-W4 |
 
 **Backend verification:** api-server/control-plane/cli `go build`+`go vet` clean; `managedClusters` and `gateways` integration test packages green (testcontainers); new `capabilities_test.go`, `presenter_test.go`, and `test_sync_openshell_version.py` pass; `make check-forbidden-terms`, `check-openshell-version`, `generate-tui-check`, and SDK regeneration all reproduce in-tree. FE wave verified via the gateway-management-ui + web-console checks (see PR).
 
