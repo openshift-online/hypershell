@@ -27,6 +27,16 @@ func TestIsMissingKeycloakClient(t *testing.T) {
 	}
 }
 
+func TestIsMissingKeycloakUser(t *testing.T) {
+	notFound := fmt.Errorf("resolve user: %w", &keycloak.UserNotFoundError{Username: "user-a"})
+	if !isMissingKeycloakUser(notFound) {
+		t.Fatal("a wrapped user-not-found error must be retried")
+	}
+	if isMissingKeycloakUser(errors.New("permission denied")) {
+		t.Fatal("a permanent error must not be retried")
+	}
+}
+
 func TestIsRoleBindingRetryable(t *testing.T) {
 	notFound := fmt.Errorf("assign role: %w", &keycloak.ClientNotFoundError{ClientID: "gateway-1"})
 	if !isRoleBindingRetryable(notFound) {
@@ -40,6 +50,10 @@ func TestIsRoleBindingRetryable(t *testing.T) {
 	}
 	if !isRoleBindingRetryable(errors.New("role binding rb-1: role name not yet resolved")) {
 		t.Fatal("an unresolved role name must be retried")
+	}
+	userNotFound := fmt.Errorf("assign role: %w", &keycloak.UserNotFoundError{Username: "user-a"})
+	if !isRoleBindingRetryable(userNotFound) {
+		t.Fatal("an unresolvable bound user (provisioning race) must be retried")
 	}
 
 	gatewayMissing := status.Error(codes.NotFound, "Gateway with id='gw-1' not found")

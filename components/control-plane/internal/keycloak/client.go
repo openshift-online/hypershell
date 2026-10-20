@@ -103,6 +103,18 @@ func (e *ClientNotFoundError) Error() string {
 	return fmt.Sprintf("keycloak client %s not found", e.ClientID)
 }
 
+// UserNotFoundError is returned when a Keycloak user lookup finds no matching
+// username. The RoleBindingReconciler uses this to distinguish the expected
+// provisioning race (the user record has not yet propagated to Keycloak) from
+// permanent failures, mirroring ClientNotFoundError.
+type UserNotFoundError struct {
+	Username string
+}
+
+func (e *UserNotFoundError) Error() string {
+	return fmt.Sprintf("keycloak user %s not found", e.Username)
+}
+
 // ProvisionGatewayClient creates a Keycloak OIDC client for a gateway with
 // roles and protocol mappers. Returns the Keycloak-internal client UUID.
 func (c *Client) ProvisionGatewayClient(ctx context.Context, gatewayName string) (string, error) {
@@ -321,6 +333,15 @@ func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, ro
 
 	userUUID, err := c.getUserUUID(ctx, username)
 	if err != nil {
+		var notFound *UserNotFoundError
+		if errors.As(err, &notFound) {
+			// The user holds no roles once absent from Keycloak, so there is
+			// nothing to remove. Mirror the missing-client no-op above and treat
+			// this as a terminal success rather than a retryable provisioning
+			// race (which only applies to the assign path).
+			log.Printf("INFO keycloak: user %s not found, nothing to remove", username)
+			return nil
+		}
 		return fmt.Errorf("get user UUID for %s: %w", username, err)
 	}
 
@@ -945,7 +966,7 @@ func (c *Client) getUserUUID(ctx context.Context, username string) (string, erro
 			return u.ID, nil
 		}
 	}
-	return "", fmt.Errorf("keycloak user %s not found", username)
+	return "", &UserNotFoundError{Username: username}
 }
 
 func (c *Client) deleteClientByUUID(ctx context.Context, clientUUID string) error {
