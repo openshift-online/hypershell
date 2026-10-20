@@ -317,6 +317,13 @@ responsible for it until it is placed.
 - THEN it SHALL reject the request with a validation error
 - AND no Gateway SHALL be created
 
+#### Scenario: Declarative import creates a late-bound Gateway through placement
+
+- GIVEN a `.hypershell` Gateway manifest that declares a `placement` selector and NO `cluster_id`
+- WHEN the control-plane `RepositoryReconciler` imports it (see [`control-plane.spec.md`](./control-plane.spec.md), "Requirement: Import Writer Maps Gateway Placement")
+- THEN the import writer SHALL send a create that carries the `placement` selector and no `cluster_id`
+- AND the API server SHALL accept it under the exactly-one-of contract and late-bind it
+
 ### Requirement: Gateway Namespace Ownership
 
 The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic gateway counts (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
@@ -627,11 +634,15 @@ way to support an anonymous public read.
 
 **Anonymous-read rate limit.** The unauthenticated GitHub REST API is rate limited
 to roughly 60 requests per hour. A public-repository import loop that re-reads the
-subtree on every reconcile tick can exhaust this budget. The mitigation is a
-configured platform GitHub token (`cfg.GitHubTokenFile`, already present in the
-control plane), which authenticates the read without any per-`Repository`
-`SecretSource`. The implementation SHALL call out the import cadence against the
-unauthenticated limit.
+whole subtree on every short fixed-interval tick exhausts this budget. The PRIMARY
+mitigation is the event-driven import with a slow hourly drift re-check and a
+CONDITIONAL upstream fetch (`If-None-Match`/ETag or branch head commit SHA compare):
+an unchanged subtree costs no heavy git-tree or file reads, which keeps the
+steady-state import within the anonymous limit even with no credential (see
+[`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
+Reconciliation"). A configured platform GitHub token (`cfg.GitHubTokenFile`, already
+present in the control plane) additionally raises the limit without any
+per-`Repository` `SecretSource`.
 
 **Open follow-up: private repositories (NOT solved here).** A PRIVATE repository
 needs a read credential. That credential is `Repository`-scoped and has no
@@ -685,10 +696,17 @@ objects, and the `GatewayReconciler` reconciles an imported `Gateway` into
 Kubernetes). This division of labor is the established control-plane pattern.
 
 The `RepositoryReconciler` SHALL be hosted by the **control plane**, the reconciler
-of the system, NOT by the API server. It SHALL run as a reconcile LOOP and SHALL perform
-the read and render entirely in-process and in-memory: no git clone, no working
-directory, no persistent disk or PVC, no external `git` / `kustomize` / `hsctl`
-binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
+of the system, NOT by the API server. It SHALL be driven event-first off the
+`WatchRepositories` stream (so a created or changed `Repository` imports in real
+time) with a slow HOURLY periodic drift re-check for upstream changes that produce no
+`Repository` event, and SHALL make the upstream read CONDITIONAL (`If-None-Match`/ETag
+or branch head commit SHA compare) so an unchanged subtree costs no heavy git-tree or
+file reads; the cadence and conditional-fetch contract are defined canonically in
+[`control-plane.spec.md`](./control-plane.spec.md) ("Declarative `.hypershell` Import
+Reconciliation"). It SHALL perform the read and render entirely in-process and
+in-memory: no git clone, no working directory, no persistent disk or PVC, no external
+`git` / `kustomize` / `hsctl` binary, and no Kubernetes `Job`. For each `Repository`
+the control plane SHALL:
 
 1. Resolve the credential used to read the `Repository` subtree. The platform
    GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
@@ -721,7 +739,14 @@ binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
    divergent Kustomize implementation.
 4. Reconcile (create / update / prune) the rendered ext resources into the API
    over the generated gRPC write path, marking each written resource with its
-   owning `Repository` (`repository_id`).
+   owning `Repository` (`repository_id`). For an imported `Gateway`, the writer SHALL
+   map the rendered spec's `placement` (a capability-label `selector` list, or
+   `mode: local-kind`) into the create and update request `placement` field so a
+   declarative late-bound Gateway (placement, no `cluster_id`) satisfies the
+   exactly-one-of create contract in "Requirement: Gateway Placement and Late
+   Binding"; the pinned (`cluster_id`) path is unchanged. The placement-mapping
+   contract is defined canonically in [`control-plane.spec.md`](./control-plane.spec.md)
+   ("Requirement: Import Writer Maps Gateway Placement").
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server

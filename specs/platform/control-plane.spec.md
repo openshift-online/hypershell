@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, AgentRuntimes, and Repositories). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below). Repository events are dispatched to the `RepositoryReconciler` so a created or changed `Repository` is imported in real time, instead of waiting for the next periodic drift pass (see "Requirement: Declarative `.hypershell` Import Reconciliation" below).
 
 ### Reconciler
 
@@ -503,13 +503,42 @@ objects. This division of labor is the established control-plane pattern: the
 `RepositoryReconciler` turns git into API desired state, and the per-Kind
 reconcilers turn API desired state into cluster state.
 
-The `RepositoryReconciler` SHALL run as a reconcile LOOP: it SHALL periodically
-enumerate every registered `Repository` and reconcile each one, and it SHALL be
-idempotent so repeated runs over unchanged repository state are side-effect free.
+The `RepositoryReconciler` SHALL be driven in two complementary ways, and it SHALL
+be idempotent so repeated runs over unchanged repository state are side-effect free:
+
+- **Event-driven (primary).** The control plane SHALL open a `WatchRepositories`
+  gRPC stream (the RPC already exists on `RepositoryService`) and SHALL reconcile a
+  `Repository` as soon as a create or update event for it arrives, so a newly
+  registered or changed `Repository` is imported in real time instead of waiting for
+  the next periodic pass. This stream SHALL reuse the same reconnect-with-backoff,
+  HTTP/2 keepalive, idle-watchdog, and seed-on-reconnect machinery as the other
+  watch streams ("gRPC Watch Streams", "Watch Stream Liveness"), and every RPC SHALL
+  carry the control plane's OIDC bearer token as per-RPC credentials.
+- **Periodic drift re-check (secondary).** The control plane SHALL additionally run
+  a SLOW periodic pass that enumerates every registered `Repository` and reconciles
+  each one, to catch UPSTREAM changes that produce no `Repository` event (a commit to
+  the watched branch does not emit a `Repository` event). This pass SHALL run at an
+  HOURLY cadence, NOT the former short fixed interval: the short interval re-fetched
+  the entire subtree every tick and exhausted the anonymous GitHub rate limit.
+
 The reconciler SHALL NOT clone the repository, SHALL NOT write any working
 directory or persistent disk (no PVC), SHALL NOT shell out to a `git`, `kustomize`,
 or `hsctl` binary, and SHALL NOT dispatch a Kubernetes `Job`. The entire read and
 render SHALL happen in-process and in-memory.
+
+**Conditional upstream fetch.** Both the event-driven and the periodic paths SHALL
+make the upstream read CONDITIONAL. Before it re-fetches and re-renders the
+`import_path` subtree, the reconciler SHALL first determine whether the upstream
+subtree changed since its last successful import for that `Repository` - through an
+`If-None-Match`/ETag conditional request, or by comparing the watched branch head
+commit SHA against the SHA recorded at the last successful import. When nothing
+changed, the reconciler SHALL skip the heavy git-tree and per-file reads and the
+re-render, and SHALL make no API write. Only when the conditional check reports a
+change (or no prior import state exists for that `Repository`) SHALL the reconciler
+perform the full read, render, and reconcile described below. This conditional fetch
+removes the rate-limit pressure even on the anonymous public read path, where the
+unauthenticated GitHub API allows only roughly 60 requests per hour, and it is what
+keeps the steady-state import from exhausting that limit.
 
 For each registered `Repository` the control plane SHALL:
 
@@ -527,9 +556,11 @@ For each registered `Repository` the control plane SHALL:
    NO `secret_source_id` and no platform credential is configured, the resolver
    yields an empty token and the import reads a PUBLIC repository ANONYMOUSLY: the
    GitHub fetcher omits the `Authorization` header for an empty token. The
-   unauthenticated GitHub API is rate limited to roughly 60 requests per hour; a
-   configured platform GitHub token (`cfg.GitHubTokenFile`) mitigates this without a
-   per-`Repository` `SecretSource`.
+   unauthenticated GitHub API is rate limited to roughly 60 requests per hour; the
+   conditional upstream fetch (above) keeps the steady-state import within this limit
+   by skipping the heavy reads when nothing changed, and a configured platform GitHub
+   token (`cfg.GitHubTokenFile`) raises the limit without a per-`Repository`
+   `SecretSource`.
 2. Read ONLY the `import_path` subtree (default `.hypershell`, the Kustomize root)
    through the GitHub API at the `Repository`'s `default_branch` (or the branch
    otherwise specified), authenticating with the credential resolved in step 1 - the
@@ -670,6 +701,84 @@ The authorization contract is specified in
 - WHEN the gRPC create is authorized for the control-plane identity
 - THEN the server SHALL set `repository_id` from the reconciled `Repository`
 - AND it SHALL ignore the client-supplied `repository_id`
+
+#### Scenario: Newly registered Repository is imported from the watch stream
+
+- GIVEN the control plane has an open `WatchRepositories` stream
+- WHEN a `Repository` is created (or its fields change) and the create/update event arrives on that stream
+- THEN the `RepositoryReconciler` SHALL reconcile that `Repository` without waiting for the next periodic drift pass
+- AND the import SHALL perform the conditional upstream fetch, read, render, and reconcile for that `Repository`
+
+#### Scenario: Unchanged upstream subtree performs no heavy GitHub reads
+
+- GIVEN a `Repository` whose upstream `import_path` subtree is unchanged since the last successful import
+- WHEN the periodic drift re-check (or a redundant watch event) reconciles that `Repository` again
+- THEN the reconciler SHALL determine no change through the conditional request (ETag not-modified) or an unchanged branch head commit SHA
+- AND it SHALL skip the git-tree and per-file reads and the re-render
+- AND it SHALL make no create, update, or prune write to the API
+
+#### Scenario: Periodic drift re-check catches an upstream change with no Repository event
+
+- GIVEN a `Repository` whose watched branch receives a new commit that changes `.hypershell`, and no `Repository` record field changed
+- WHEN the hourly drift re-check runs
+- THEN the conditional fetch SHALL report a change (new ETag or new branch head commit SHA)
+- AND the reconciler SHALL read, render, and reconcile the changed subtree into the API
+
+### Requirement: Import Writer Maps Gateway Placement
+
+When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL map the
+rendered Gateway spec's `placement` into the gRPC create and update requests, so a
+declarative late-bound Gateway (one that declares a placement selector and no
+`cluster_id`) imports successfully under the exactly-one-of create contract defined
+in [`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Placement and
+Late Binding") and [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
+(GP-01, GP-07). Mapping the `cluster_id` alone is NOT sufficient: a late-bound
+manifest sets no `cluster_id`, so an import that omits `placement` renders a create
+with neither field, which the API server rejects.
+
+The import writer SHALL:
+
+- Read the rendered Gateway spec's `placement`. When `placement` declares a
+  `selector` (a list of ManagedCluster capability labels), the writer SHALL build a
+  `GatewayPlacementIntent` whose `capability_selector` (`CapabilitySelectorPlacement`)
+  carries that selector list. When `placement` declares `mode: local-kind`, the
+  writer SHALL build a `GatewayPlacementIntent` whose `local_kind`
+  (`LocalKindPlacement`) is set. The proto contract is `GatewayPlacementIntent`
+  (`placement` field `18`) in `components/api-server/proto/hypershell/v1/gateways.proto`.
+- Set `placement` on `CreateGatewayRequest` when the spec declares a placement and no
+  `cluster_id`, so the created Gateway supplies exactly one of `cluster_id` or
+  `placement`.
+- Set `placement` on `UpdateGatewayRequest` when the imported placement changes, and
+  include `placement` in the idempotency (no-op) comparison, so an imported Gateway
+  whose placement is unchanged produces no update churn.
+- Keep the existing PINNED path unchanged: when the rendered spec declares a
+  `cluster_id`, the writer SHALL continue to map `cluster_id` and SHALL NOT also send
+  a `placement`.
+
+#### Scenario: Import of a late-bound Gateway maps the capability selector
+
+- GIVEN a `.hypershell` Gateway manifest with `placement.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
+- WHEN the import writer creates the Gateway over the gRPC write path
+- THEN the `CreateGatewayRequest` SHALL carry a `placement` with `capability_selector.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
+- AND the API server SHALL late-bind the Gateway to a matching `ManagedCluster`, or create it `Pending` with an awaiting-placement status when none matches
+
+#### Scenario: Import of a local-kind Gateway maps the local-kind mode
+
+- GIVEN a `.hypershell` Gateway manifest with `placement: { mode: local-kind }` and no `cluster_id`
+- WHEN the import writer creates the Gateway
+- THEN the `CreateGatewayRequest` SHALL carry a `placement` with `local_kind` set
+
+#### Scenario: Import of a pinned Gateway is unchanged
+
+- GIVEN a `.hypershell` Gateway manifest with an explicit `cluster_id`
+- WHEN the import writer creates the Gateway
+- THEN the `CreateGatewayRequest` SHALL carry that `cluster_id` and SHALL NOT carry a `placement`
+
+#### Scenario: Re-import of an unchanged placement is a no-op
+
+- GIVEN an imported late-bound Gateway whose manifest placement is unchanged since the last import
+- WHEN the import reconciles that Gateway again
+- THEN the writer SHALL include `placement` in its drift comparison, find no change, and SHALL make no update write
 
 ### Requirement: Watch Stream Liveness
 
@@ -883,7 +992,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings and AgentRuntimes
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings, AgentRuntimes and Repositories
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
@@ -937,6 +1046,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
-| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). The import is driven event-first off the `WatchRepositories` stream with a slow hourly drift re-check and a conditional upstream fetch, so a `Repository` change imports in real time while an unchanged subtree costs no heavy GitHub reads, rather than a short fixed-interval full re-fetch that exhausted the anonymous GitHub rate limit. |
 | Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
 | Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |
