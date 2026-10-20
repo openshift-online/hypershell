@@ -161,9 +161,9 @@ A `make check` script SHALL fail the build when:
 5. A reference to an ID in `specs/`, `skills/`, or code does not resolve to
    an ID that exists.
 
-This check is not yet wired into `make check`; `specs/standards/platform/cross-cutting.spec.md`
-and the CI component registration track its implementation as follow-up
-build work once this spec is approved.
+This check is not yet wired into `make check`. Its implementation is tracked
+as follow-up build work under the same work item as this spec,
+[issue #636](https://github.com/openshift-online/hypershell/issues/636).
 
 #### Scenario: STD-IDS-06.01 -- Duplicate ID fails the check
 
@@ -173,9 +173,9 @@ build work once this spec is approved.
 
 ## Retired IDs
 
-None yet. The 315 ad-hoc identifiers that predated this scheme (for example
-`OP-DASH-08`, `CP-OBS-07`, `GAM-01`, `CRED-1`, `WEB-UI-03A`) were renamed, not
-retired: each maps to exactly one new ID in the migration's rename map, and
+None yet. The 411 ad-hoc identifiers that predated this scheme (for example
+`OP-DASH-08`, `CP-OBS-07`, `GAM-01`, `WEB-UI-03A`) were renamed, not
+retired: each maps to exactly one new ID in `specs/id-rename-map.md`, and
 every reference to the old form in `specs/` was rewritten to the new one in
 the same change. A rename is not a retirement because the requirement the ID
 names did not go away.

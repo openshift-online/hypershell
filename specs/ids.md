@@ -245,4 +245,5 @@ from a registered, collision-free code instead of inventing one ad hoc.
 ## Retired IDs
 
 None yet. See `specs/standards/platform/spec-identifiers.spec.md` for why
-the pre-migration ad-hoc IDs were renamed rather than retired.
+the pre-migration ad-hoc IDs were renamed rather than retired, and
+`specs/id-rename-map.md` for the old-to-new mapping.
