@@ -660,8 +660,9 @@ later becomes unreachable.
 
 The per-cluster Vault is stood up by `hypershell-gitops`
 (`specs/openshell-gateway-vault.spec.md`). These values are shared literally across both
-repos; a mismatch breaks authentication. This section is the authoritative reference the
-GitOps repo implements against.
+repos; a mismatch breaks authentication. The **authoritative** definition is that spec's
+§5 (Vault configuration contract), since GitOps owns and operates the Vault; the table
+below mirrors it for convenience, and on any divergence the GitOps spec wins.
 
 | Item | Value |
 |---|---|

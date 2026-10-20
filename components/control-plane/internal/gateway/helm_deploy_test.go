@@ -2,9 +2,8 @@ package gateway
 
 import "testing"
 
-// TestEffectiveCredentialDriver locks in the HYPERSHELL-369 rollout selector:
-// an omitted credential_driver defaults to kek-db unless the deployment opts into
-// vault via GATEWAY_DEFAULT_CREDENTIAL_DRIVER; an explicit driver is never changed.
+// TestEffectiveCredentialDriver locks in the HYPERSHELL-369 flat default: an omitted
+// (or empty-type) credential_driver resolves to vault; an explicit driver is never changed.
 func TestEffectiveCredentialDriver(t *testing.T) {
 	t.Run("omitted (nil) resolves to the flat vault default", func(t *testing.T) {
 		got := effectiveCredentialDriver(nil)
