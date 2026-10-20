@@ -4,7 +4,11 @@ import { Content, PageSection, Title } from "@patternfly/react-core";
 
 import { ProvisionGatewayForm } from "./provision-gateway";
 
-export function ProvisionGatewayPageSurface() {
+export function ProvisionGatewayPageSurface({
+  localDevelopmentOnly = false,
+}: {
+  localDevelopmentOnly?: boolean;
+}) {
   return (
     <>
       <PageSection
@@ -25,7 +29,7 @@ export function ProvisionGatewayPageSurface() {
         isFilled
         variant="secondary"
       >
-        <ProvisionGatewayForm />
+        <ProvisionGatewayForm localDevelopmentOnly={localDevelopmentOnly} />
       </PageSection>
     </>
   );

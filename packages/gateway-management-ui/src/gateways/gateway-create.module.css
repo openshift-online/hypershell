@@ -4,15 +4,6 @@
 .choiceTooltip {
   display: inline-block;
 }
-.choiceDescription {
-  margin-left: 0.25rem;
-}
-.choiceDescription::before {
-  content: "(";
-}
-.choiceDescription::after {
-  content: ")";
-}
 .visuallyHidden {
   position: absolute;
   width: 1px;
@@ -75,9 +66,6 @@
 .descriptionAfterLabel {
   display: block;
   margin-top: 0.25rem;
-}
-.help {
-  margin-top: 1.5rem;
 }
 .recommendationCard {
   min-height: 14rem;

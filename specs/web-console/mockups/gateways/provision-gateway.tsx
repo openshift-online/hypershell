@@ -10,6 +10,7 @@ import {
   ExpandableSection,
   Form,
   FormGroup,
+  FormSection,
   FormSelect,
   FormSelectOption,
   Grid,
@@ -103,7 +104,7 @@ function YesNoQuestion({
         id={`${id}-yes`}
         isChecked={value === "yes"}
         isDisabled={disabledValue === "yes"}
-        label="Yes"
+        label="Yes, use Kata"
         name={id}
         onChange={() => onChange("yes")}
         value="yes"
@@ -112,7 +113,7 @@ function YesNoQuestion({
         id={`${id}-no`}
         isChecked={value === "no"}
         isDisabled={disabledValue === "no"}
-        label="No"
+        label="No, use the default runtime"
         name={id}
         onChange={() => onChange("no")}
         value="no"
@@ -136,7 +137,7 @@ function RecommendationCard({
   recommended?: boolean;
   specialized?: boolean;
   title: string;
-  version: string;
+  version?: string;
 }) {
   const featureColors = {
     AWS: "orange",
@@ -185,19 +186,27 @@ function RecommendationCard({
           height="40"
           src={provider === "aws" ? awsLogo : ibmCloudLogo}
         />
-        <p className="gateway-set-card-version">OpenShell version: {version}</p>
+        {version ? (
+          <p className="gateway-set-card-version">
+            OpenShell version: {version}
+          </p>
+        ) : null}
         <p className="gateway-set-card-description">{description}</p>
       </CardBody>
     </Card>
   );
 }
 
-export function ProvisionGatewayForm() {
+export function ProvisionGatewayForm({
+  localDevelopmentOnly = false,
+}: {
+  localDevelopmentOnly?: boolean;
+}) {
   const [kata, setKata] = useState<YesNo>("no");
   const [name, setName] = useState("");
   const [needsInternalServices, setNeedsInternalServices] = useState(false);
   const [provider, setProvider] = useState<Provider>("ibm");
-  const [version, setVersion] = useState("1.2.3");
+  const [version, setVersion] = useState("any");
 
   const isAws = provider === "aws";
   const isVpn = needsInternalServices;
@@ -218,7 +227,7 @@ export function ProvisionGatewayForm() {
     recommended: !isVpn && !isAws && kata === "no",
     specialized: kata === "yes",
     title: `${isVpn ? "VPN" : "Public"}${kata === "yes" ? " Kata" : ""} ${isAws ? "AWS" : "IBM Cloud"}`,
-    version,
+    version: version === "any" ? undefined : version,
   };
 
   return (
@@ -237,89 +246,114 @@ export function ProvisionGatewayForm() {
               value={name}
             />
           </FormGroup>
-          <ChoiceQuestion
-            id="chunky-internal-services"
-            label="Does the gateway need to reach GitLab or other internal Red Hat services?"
-            onChange={(value) => {
-              setNeedsInternalServices(value === "yes");
-              if (value === "yes") {
-                setKata("no");
-                setProvider("aws");
-              } else {
-                setProvider("ibm");
-              }
-            }}
-            options={[
-              {
-                label: "No",
-                value: "no",
-              },
-              {
-                description: "Requires Red Hat VPN",
-                label: "Yes",
-                value: "yes",
-              },
-            ]}
-            value={needsInternalServices ? "yes" : "no"}
-          />
-          <ChoiceQuestion
-            disabledOption={{
-              reason: isVpn
-                ? "This option is not available behind VPN"
-                : "This option is not available with Public network access",
-              value: isVpn ? "ibm" : "aws",
-            }}
-            id="chunky-provider"
-            label="Cloud provider"
-            onChange={(value) => setProvider(value as Provider)}
-            options={[
-              {
-                description: "default",
-                label: "IBM",
-                value: "ibm",
-              },
-              {
-                description:
-                  "For workloads that rely heavily on AWS services or data",
-                label: "AWS",
-                value: "aws",
-              },
-            ]}
-            value={provider}
-          />
-          <ExpandableSection toggleText="Advanced options">
-            <YesNoQuestion
-              disabledValue={isVpn || isAws ? "yes" : undefined}
-              id="chunky-kata"
-              label="Is Kata required?"
-              onChange={setKata}
-              value={kata}
-            />
+          {localDevelopmentOnly ? (
             <FormGroup
-              fieldId="chunky-openshell-version"
+              fieldId="chunky-local-development"
               isRequired
-              label="OpenShell version"
+              label="Local development"
+              role="radiogroup"
             >
-              <FormSelect
-                id="chunky-openshell-version"
-                onChange={(_event, value) => setVersion(value)}
-                value={version}
-              >
-                <FormSelectOption
-                  label="OpenShell version 1.2.3"
-                  value="1.2.3"
-                />
-                <FormSelectOption
-                  label="OpenShell version 1.2.2"
-                  value="1.2.2"
-                />
-                <FormSelectOption
-                  label="OpenShell version 1.1.0"
-                  value="1.1.0"
-                />
-              </FormSelect>
+              <Radio
+                id="chunky-local-kind"
+                isChecked
+                label="Use local-kind"
+                name="chunky-local-development"
+                onChange={() => undefined}
+                value="local-kind"
+              />
             </FormGroup>
-          </ExpandableSection>
+          ) : (
+            <>
+              <ChoiceQuestion
+                id="chunky-internal-services"
+                label="Does the gateway need to reach GitLab or other internal Red Hat services?"
+                onChange={(value) => {
+                  setNeedsInternalServices(value === "yes");
+                  if (value === "yes") {
+                    setKata("no");
+                    setProvider("aws");
+                  } else {
+                    setProvider("ibm");
+                  }
+                }}
+                options={[
+                  {
+                    label: "No",
+                    value: "no",
+                  },
+                  {
+                    description: "Requires Red Hat VPN",
+                    label: "Yes",
+                    value: "yes",
+                  },
+                ]}
+                value={needsInternalServices ? "yes" : "no"}
+              />
+              <ChoiceQuestion
+                disabledOption={{
+                  reason: isVpn
+                    ? "This option is not available behind VPN"
+                    : "This option is not available with Public network access",
+                  value: isVpn ? "ibm" : "aws",
+                }}
+                id="chunky-provider"
+                label="Cloud provider"
+                onChange={(value) => setProvider(value as Provider)}
+                options={[
+                  {
+                    description: "default",
+                    label: "IBM",
+                    value: "ibm",
+                  },
+                  {
+                    description:
+                      "For workloads that rely heavily on AWS services or data",
+                    label: "AWS",
+                    value: "aws",
+                  },
+                ]}
+                value={provider}
+              />
+            </>
+          )}
+          {!localDevelopmentOnly ? (
+            <ExpandableSection toggleText="Advanced options">
+              <FormSection>
+                <YesNoQuestion
+                  disabledValue={isVpn || isAws ? "yes" : undefined}
+                  id="chunky-kata"
+                  label="Is Kata required?"
+                  onChange={setKata}
+                  value={kata}
+                />
+                <FormGroup
+                  fieldId="chunky-openshell-version"
+                  isRequired
+                  label="OpenShell version"
+                >
+                  <FormSelect
+                    id="chunky-openshell-version"
+                    onChange={(_event, value) => setVersion(value)}
+                    value={version}
+                  >
+                    <FormSelectOption label="Any version" value="any" />
+                    <FormSelectOption
+                      label="OpenShell version 1.2.3"
+                      value="1.2.3"
+                    />
+                    <FormSelectOption
+                      label="OpenShell version 1.2.2"
+                      value="1.2.2"
+                    />
+                    <FormSelectOption
+                      label="OpenShell version 1.1.0"
+                      value="1.1.0"
+                    />
+                  </FormSelect>
+                </FormGroup>
+              </FormSection>
+            </ExpandableSection>
+          ) : null}
           <ActionGroup>
             <Button type="submit" variant="primary">
               Provision gateway
@@ -330,17 +364,25 @@ export function ProvisionGatewayForm() {
           </ActionGroup>
         </Form>
       </GridItem>
-      <GridItem span={5}>
-        <RecommendationCard {...recommendation} />
-      </GridItem>
+      {!localDevelopmentOnly ? (
+        <GridItem span={5}>
+          <RecommendationCard {...recommendation} />
+        </GridItem>
+      ) : null}
     </Grid>
   );
 }
 
-export function ProvisionGatewayParityMockup() {
+export function ProvisionGatewayParityMockup({
+  localDevelopmentOnly = false,
+}: {
+  localDevelopmentOnly?: boolean;
+}) {
   return (
     <MockupShell>
-      <ProvisionGatewayPageSurface />
+      <ProvisionGatewayPageSurface
+        localDevelopmentOnly={localDevelopmentOnly}
+      />
     </MockupShell>
   );
 }

@@ -2260,8 +2260,16 @@
     "description": "Alternative text for the AWS provider logo."
   },
   "app.page.gatewayProvision.awsProviderDescription": {
-    "defaultMessage": "For workloads that rely heavily on AWS services or data.",
+    "defaultMessage": "For publicly accessible workloads that rely heavily on AWS services or data.",
     "description": "Description of the AWS provider option."
+  },
+  "app.page.gatewayProvision.awsProviderRadioLabel": {
+    "defaultMessage": "AWS (For workloads that rely heavily on AWS services or data)",
+    "description": "Accessible label for the AWS provider radio."
+  },
+  "app.page.gatewayProvision.choiceUnavailable": {
+    "defaultMessage": "This option is not available for the selected placement.",
+    "description": "Fallback reason shown when a placement choice is disabled."
   },
   "app.page.gatewayProvision.cloudProvider": {
     "defaultMessage": "Cloud provider",
@@ -2288,12 +2296,16 @@
     "description": "IBM Cloud provider option."
   },
   "app.page.gatewayProvision.ibmCloudProviderDescription": {
-    "defaultMessage": "The default home for gateways. General-purpose workloads with no special network or data needs.",
+    "defaultMessage": "General-purpose workloads with no special network or data needs.",
     "description": "Description of the IBM Cloud provider option."
   },
   "app.page.gatewayProvision.ibmProviderAlt": {
     "defaultMessage": "IBM Cloud",
     "description": "Alternative text for the IBM Cloud provider logo."
+  },
+  "app.page.gatewayProvision.ibmProviderRadioLabel": {
+    "defaultMessage": "IBM (default)",
+    "description": "Accessible label for the default IBM provider radio."
   },
   "app.page.gatewayProvision.internalServicesNo": {
     "defaultMessage": "No",
@@ -2307,6 +2319,22 @@
     "defaultMessage": "Yes",
     "description": "Option for a gateway that needs internal Red Hat services."
   },
+  "app.page.gatewayProvision.internalServicesYesVpn": {
+    "defaultMessage": "Yes (Requires Red Hat VPN)",
+    "description": "Option for a gateway that needs internal Red Hat services and VPN access."
+  },
+  "app.page.gatewayProvision.kataFeature": {
+    "defaultMessage": "Kata",
+    "description": "Recommendation-card feature label for Kata runtime."
+  },
+  "app.page.gatewayProvision.kataNo": {
+    "defaultMessage": "No, use the default runtime",
+    "description": "Option for a gateway that does not need Kata runtime."
+  },
+  "app.page.gatewayProvision.kataProviderDescription": {
+    "defaultMessage": "For workloads that require special security considerations.",
+    "description": "Recommendation-card description for Kata runtime placement."
+  },
   "app.page.gatewayProvision.kataQuestion": {
     "defaultMessage": "Is Kata required?",
     "description": "Question asking whether the gateway needs Kata runtime isolation."
@@ -2314,6 +2342,10 @@
   "app.page.gatewayProvision.kataUnavailableReason": {
     "defaultMessage": "Kata is not available for the selected placement.",
     "description": "Tooltip explaining why Kata cannot be selected."
+  },
+  "app.page.gatewayProvision.kataYes": {
+    "defaultMessage": "Yes, use Kata",
+    "description": "Option for a gateway that needs Kata runtime."
   },
   "app.page.gatewayProvision.localDevelopment": {
     "defaultMessage": "Local development",
@@ -2343,6 +2375,10 @@
     "defaultMessage": "OpenShell version: {version}",
     "description": "Selected OpenShell version shown in the recommendation card."
   },
+  "app.page.gatewayProvision.openShellVersionOption": {
+    "defaultMessage": "OpenShell version {version}",
+    "description": "Option label for a selectable OpenShell version."
+  },
   "app.page.gatewayProvision.pending": {
     "defaultMessage": "Provisioning gateway",
     "description": "Accessible progress text while a gateway is provisioning."
@@ -2355,6 +2391,10 @@
     "defaultMessage": "A matching managed cluster is selected at random for the chosen network and provider.",
     "description": "Explanation of automatic gateway placement."
   },
+  "app.page.gatewayProvision.provisioningVersionsError": {
+    "defaultMessage": "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
+    "description": "Warning shown when the provisioning-version list cannot be retrieved."
+  },
   "app.page.gatewayProvision.publicNetwork": {
     "defaultMessage": "Public",
     "description": "Public network placement option."
@@ -2362,6 +2402,14 @@
   "app.page.gatewayProvision.publicNetworkDescription": {
     "defaultMessage": "Accessible through a public endpoint.",
     "description": "Description of public network placement."
+  },
+  "app.page.gatewayProvision.recommendationKataTitle": {
+    "defaultMessage": "{network} Kata {provider}",
+    "description": "Title for a Kata gateway placement recommendation."
+  },
+  "app.page.gatewayProvision.recommendationTitle": {
+    "defaultMessage": "{network} {provider}",
+    "description": "Title for a gateway placement recommendation."
   },
   "app.page.gatewayProvision.recommended": {
     "defaultMessage": "Recommended",
@@ -2384,7 +2432,7 @@
     "description": "Explanation shown when a provider cannot currently accept placement."
   },
   "app.page.gatewayProvision.version": {
-    "defaultMessage": "Provisioning version",
+    "defaultMessage": "OpenShell version",
     "description": "Label for the provisioning-version choice on the gateway provision form."
   },
   "app.page.gatewayProvision.vpnNetwork": {

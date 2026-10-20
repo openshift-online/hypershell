@@ -80,9 +80,11 @@ const getGatewayPlacementAvailability = (
     })),
   });
 
+const getGatewayProvisioningVersions = () => Promise.resolve(["1.2.3"]);
+
 const gatewayOperations = {
   getGatewayPlacementAvailability,
-  getGatewayProvisioningVersions: () => Promise.resolve(["1.2.3"]),
+  getGatewayProvisioningVersions,
   provisionGateway: () => Promise.resolve(previewGateway),
 } as unknown as GatewayOperations;
 
@@ -95,8 +97,10 @@ const navigation: GatewayUiNavigation = {
 
 function GatewayCreatePreview({
   availability = placementAvailability,
+  versionListError = false,
 }: {
   availability?: GatewayPlacementAvailability;
+  versionListError?: boolean;
 }) {
   const operationsForStory = {
     ...gatewayOperations,
@@ -104,6 +108,9 @@ function GatewayCreatePreview({
       availability === placementAvailability
         ? getGatewayPlacementAvailability
         : () => Promise.resolve(availability),
+    getGatewayProvisioningVersions: versionListError
+      ? () => Promise.reject(new Error("Versions unavailable"))
+      : getGatewayProvisioningVersions,
   } as GatewayOperations;
   return (
     <GatewayUiProvider gateways={operationsForStory} navigation={navigation}>
@@ -132,15 +139,21 @@ export const Default: Story = {
       canvas.queryByRole("radio", { name: "Use local-kind" }),
     ).toBeNull();
     await expect(canvas.getByRole("radio", { name: "No" })).toBeVisible();
-    await expect(canvas.getByRole("radio", { name: "Yes" })).toBeVisible();
     await expect(
-      canvas.queryByRole("radio", { name: "Amazon Web Services" }),
+      canvas.getByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("radio", {
+        name: "AWS (For workloads that rely heavily on AWS services or data)",
+      }),
     ).toBeNull();
     await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
 
     await userEvent.click(canvas.getByRole("radio", { name: "No" }));
     await expect(
-      canvas.getByRole("radio", { name: "Amazon Web Services" }),
+      canvas.getByRole("radio", {
+        name: "AWS (For workloads that rely heavily on AWS services or data)",
+      }),
     ).toBeVisible();
     await expect(
       canvas.getByRole("radio", { name: "IBM Cloud" }),
@@ -159,11 +172,16 @@ export const LocalDevelopmentOnly: Story = {
       canvas.getByRole("radio", { name: "Use local-kind" }),
     ).toBeVisible();
     await expect(canvas.queryByRole("radio", { name: "No" })).toBeNull();
-    await expect(canvas.queryByRole("radio", { name: "Yes" })).toBeNull();
     await expect(
-      canvas.queryByRole("radio", { name: "Amazon Web Services" }),
+      canvas.queryByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),
+    ).toBeNull();
+    await expect(
+      canvas.queryByRole("radio", {
+        name: "AWS (For workloads that rely heavily on AWS services or data)",
+      }),
     ).toBeNull();
     await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
+    await expect(canvas.queryByText("Public IBM Cloud")).toBeNull();
   },
 };
 
@@ -174,14 +192,35 @@ export const VpnUnavailable: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const publicNetwork = canvas.getByRole("radio", { name: "No" });
-    const vpnNetwork = canvas.getByRole("radio", { name: "Yes" });
+    const vpnNetwork = canvas.getByRole("radio", {
+      name: "Yes (Requires Red Hat VPN)",
+    });
 
     await expect(publicNetwork).toBeEnabled();
     await expect(vpnNetwork).toBeDisabled();
+    const vpnReason = canvas.getByText(
+      "VPN is unavailable: no eligible managed cluster is connected.",
+    );
+    await expect(vpnReason.className).toContain("visuallyHidden");
+  },
+};
+
+export const VersionListUnavailable: Story = {
+  render: () => <GatewayCreatePreview versionListError />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await userEvent.click(canvas.getByRole("radio", { name: "No" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Advanced options" }),
+    );
     await expect(
       canvas.getByText(
-        "VPN is unavailable: no eligible managed cluster is connected.",
+        "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
       ),
     ).toBeVisible();
+    await expect(
+      canvas.getByRole("combobox", { name: "OpenShell version" }),
+    ).toHaveValue("");
   },
 };

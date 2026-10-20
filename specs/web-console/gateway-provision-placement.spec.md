@@ -4,7 +4,7 @@
 
 Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (GP-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
 
-The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
+The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, `VpnUnavailable`, and `VersionListUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 - `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
 - `{ mode: "local-kind" }`
 
-A managed-placement selector MAY additionally carry one `gateway-version/<tag>` label when the user targets a specific provisioning version, for example `{ selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"] }`. When the user leaves the version choice at its default, the selector SHALL omit the `gateway-version` label, and the backend SHALL place on any eligible cluster regardless of the version it advertises. The selector SHALL carry at most one `gateway-version` label. The `local-kind` mode SHALL NOT carry a version selector.
+A managed-placement selector MAY additionally carry one `gateway-version/<tag>` label when the user targets a specific OpenShell version, for example `{ selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"] }`. When the user leaves the version choice at its default, the selector SHALL omit the `gateway-version` label, and the backend SHALL place on any eligible cluster regardless of the version it advertises. The selector SHALL carry at most one `gateway-version` label. The `local-kind` mode SHALL NOT carry a version selector.
 
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
@@ -24,7 +24,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
-- AND selects the provisioning version `v0.1.2-rhaiv.7`
+- AND selects the OpenShell version `v0.1.2-rhaiv.7`
 - WHEN the user submits the form
 - THEN the request SHALL contain `selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
@@ -33,7 +33,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
-- AND leaves the provisioning version at its default
+- AND leaves the OpenShell version at its default
 - WHEN the user submits the form
 - THEN the request selector SHALL NOT contain a `gateway-version` label
 
@@ -56,7 +56,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 
 ### Requirement: GP-02 -- Network Visibility Selection
 
-The provision form SHALL present VPN and Public as mutually exclusive choices. The form SHALL require exactly one network visibility before submission. Selecting one visibility SHALL clear the other visibility. When both Public and VPN are available and the user has not made a choice, Public SHALL be selected by default. When only one network is available, that network SHALL be selected automatically.
+The provision form SHALL present the question "Does the gateway need to reach GitLab or other internal Red Hat services?" with mutually exclusive choices labeled "No" and "Yes (Requires Red Hat VPN)". The form SHALL require exactly one answer before submission. "No" SHALL map to Public and "Yes" SHALL map to VPN. When both Public and VPN are available and the user has not made a choice, "No" SHALL be selected by default. When only one network is available, the corresponding answer SHALL be selected automatically.
 
 The form SHALL NOT present the former cluster selector.
 
@@ -68,23 +68,24 @@ The form SHALL NOT present the former cluster selector.
 - THEN the form SHALL identify network visibility as required
 - AND no provision request SHALL be sent
 
-#### Scenario: VPN and Public cannot both be selected
+#### Scenario: Internal-services answers are mutually exclusive
 
-- GIVEN Public is selected
-- WHEN the user selects VPN
-- THEN VPN SHALL become selected
-- AND Public SHALL become unselected
+- GIVEN "No" is selected
+- WHEN the user selects "Yes (Requires Red Hat VPN)"
+- THEN "Yes" SHALL become selected
+- AND "No" SHALL become unselected
 
 ### Requirement: GP-03 -- Provider Selection
 
 The provision form SHALL present AWS and IBM Cloud as mutually exclusive choices. The form SHALL require exactly one provider before submission.
 
-The provider choices SHALL be labeled Amazon Web Services and IBM Cloud and include the following user guidance:
+The provider choices SHALL be labeled "IBM (default)" and "AWS (For workloads that rely heavily on AWS services or data)" and include the following preview-card guidance:
 
-- IBM Cloud: "The default home for gateways. General-purpose workloads with no special network or data needs."
-- Amazon Web Services: "For workloads that rely heavily on AWS services or data."
+- IBM Cloud: "General-purpose workloads with no special network or data needs."
+- AWS: "For publicly accessible workloads that rely heavily on AWS services or data."
+- Kata: "For workloads that require special security considerations."
 
-The VPN network choice SHALL display the label "Red Hat VPN required" above the guidance "For gateways that need to reach GitLab and other internal Red Hat services."
+The internal-services "Yes" choice SHALL communicate "Requires Red Hat VPN", and the VPN preview SHALL use the feature label "Red Hat VPN required".
 
 IBM Cloud SHALL be selected by default when Public becomes active when its selector is available. When VPN becomes active, the form SHALL select an available provider. A provider SHALL be disabled only when no connected cluster matches the corresponding provider and network selector.
 
@@ -173,6 +174,9 @@ Local-kind SHALL be mutually exclusive with VPN and Public. Local-kind SHALL be 
 
 When local-kind is the only available placement, Kind SHALL be the only placement choice rendered. The managed network and provider groups SHALL NOT be rendered in that state.
 
+When local-kind is the only available placement, the provision preview card
+SHALL NOT render a default managed-placement recommendation.
+
 Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 
 #### Scenario: Local-kind appears for Kind development
@@ -183,6 +187,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - THEN Kind SHALL be visible under Local development
 - AND Kind SHALL be available for selection
 - AND Public, VPN, Amazon Web Services, and IBM Cloud SHALL NOT be rendered
+- AND the provision preview card SHALL NOT render
 
 #### Scenario: Local-kind is hidden with managed placement
 
@@ -290,11 +295,29 @@ The Gateway schema SHALL carry a persisted `placement` field. The placement sele
 
 ### Requirement: GP-11 -- Provisioning Version Selection
 
-The provision form SHALL present a provisioning-version choice for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
+The provision form SHALL present an "OpenShell version" choice under Advanced options for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
 
 The version choice SHALL default to "Any version". Changing the network or provider SHALL re-derive the available versions from availability data and SHALL reset the version choice to "Any version" when the previously selected version is no longer advertised for the new network and provider. The version choice SHALL have no effect on, and SHALL NOT be shown for, `local-kind` placement.
 
-When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version-bearing selector that matches no eligible cluster at submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a cluster advertising that version becomes eligible, consistent with GP-04 and GP-07.
+The provision preview card SHALL render only after placement availability has
+loaded and the currently selected network/provider pair is available. It SHALL
+NOT render a default managed recommendation while availability is loading, when
+no managed placement is available, or for local-kind-only development. The card
+SHALL show an OpenShell version row only when a specific version remains offered
+for the selected placement. While "Any version" is selected, or when the
+previously selected version is no longer offered, the preview card SHALL omit
+that row rather than infer, retain, or display a placeholder version.
+
+When no eligible cluster matches the selected network and provider, the form
+SHALL offer only "Any version". A version-bearing selector that matches no
+eligible cluster at submission SHALL NOT be rejected by the backend; the Gateway
+SHALL be created unplaced in the `Pending` phase and late-bound when a cluster
+advertising that version becomes eligible, consistent with GP-04 and GP-07.
+
+When the provisioning-version list cannot be loaded, the form SHALL explain the
+failure. It MAY continue to offer "Any version" because that selector remains
+valid, but it SHALL NOT silently present an empty version list as though no
+specific versions existed.
 
 Because the single batched placement-availability request (GP-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
 
@@ -314,6 +337,13 @@ Because the single batched placement-availability request (GP-04) carries a boun
 - THEN the selector SHALL NOT carry a `gateway-version` label
 - AND the backend SHALL place on any eligible cluster for that network and provider
 
+#### Scenario: Any version omits the preview version row
+
+- GIVEN the user selects a network and provider with at least one eligible cluster
+- AND leaves the version choice at "Any version"
+- WHEN the provision preview card renders
+- THEN the card SHALL NOT include an OpenShell version row
+
 #### Scenario: Version resets when no longer offered
 
 - GIVEN the user selected `v0.1.2-rhaiv.7` for Public and Amazon Web Services
@@ -321,9 +351,23 @@ Because the single batched placement-availability request (GP-04) carries a boun
 - WHEN the user changes the provider to IBM Cloud
 - THEN the version choice SHALL reset to "Any version"
 
+#### Scenario: Version-list failure is explained
+
+- GIVEN the gateway provisioning-version request fails
+- AND placement availability loads successfully
+- WHEN the provision form renders
+- THEN the form SHALL show a version-list warning
+- AND SHALL offer only "Any version"
+
 ### Requirement: GP-10 -- Accessibility and Localization
 
-The network, provider, version, availability, disabled-state, validation, local-kind, and error messages SHALL be localized. The controls SHALL expose accessible names and selected or disabled state through semantic PatternFly form controls. Keyboard users SHALL be able to select and change network, provider, version, and local-kind placement without pointer input.
+The internal-services, provider, Kata, version, availability, disabled-state,
+validation, local-kind, recommendation, and error messages SHALL be localized.
+Yes/no controls SHALL use labels that remain specific outside their visual
+group context. The controls SHALL expose accessible names and selected or
+disabled state through semantic PatternFly form controls. Keyboard users SHALL
+be able to select and change network, provider, Kata, version, and local-kind
+placement without pointer input.
 
 #### Scenario: Disabled provider is announced
 

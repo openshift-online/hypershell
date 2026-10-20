@@ -116,10 +116,12 @@ async function enterNameAndSelectPublic(
 function radio(name: string) {
   const accessibleName =
     name === "IBM Cloud"
-      ? "IBM"
+      ? "IBM (default)"
       : name === "Amazon Web Services"
-        ? "AWS"
-        : name;
+        ? "AWS (For workloads that rely heavily on AWS services or data)"
+        : name === "Yes"
+          ? "Yes (Requires Red Hat VPN)"
+          : name;
   return screen.getByRole<HTMLInputElement>("radio", { name: accessibleName });
 }
 
@@ -171,7 +173,7 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "Yes" }));
+    await user.click(radio("Yes"));
 
     expect(radio("Amazon Web Services").checked).toBe(true);
     expect(radio("IBM Cloud").disabled).toBe(true);
@@ -196,7 +198,7 @@ describe("GatewayCreatePage", () => {
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.click(screen.getByRole("radio", { name: "Yes" }));
+    await user.click(radio("Yes"));
 
     expect(radio("IBM Cloud").disabled).toBe(false);
     expect(radio("IBM Cloud").checked).toBe(true);
@@ -268,7 +270,7 @@ describe("GatewayCreatePage", () => {
     ).toBeTruthy();
     await user.click(screen.getByRole("radio", { name: "No" }));
     expect(radio("No").checked).toBe(true);
-    await user.click(screen.getByRole("radio", { name: "Yes" }));
+    await user.click(radio("Yes"));
     expect(radio("Yes").checked).toBe(true);
     expect(radio("No").checked).toBe(false);
   });
@@ -323,7 +325,10 @@ describe("GatewayCreatePage", () => {
       ).checked,
     ).toBe(true);
     expect(screen.queryByRole("radio", { name: "No" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: "Yes" })).toBeNull();
+    expect(
+      screen.queryByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),
+    ).toBeNull();
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
@@ -348,6 +353,29 @@ describe("GatewayCreatePage", () => {
       expect(radio("No").checked).toBe(true);
     });
     expect(radio("Yes").checked).toBe(false);
+  });
+
+  it("does not show a default preview while availability loads", async () => {
+    let resolveAvailability:
+      ((value: ReturnType<typeof placementAvailability>) => void) | undefined;
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAvailability = resolve;
+        }),
+    );
+    renderPage();
+
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
+
+    resolveAvailability?.(
+      placementAvailability([false, false, false, false], true),
+    );
+    const localKind = await screen.findByRole<HTMLInputElement>("radio", {
+      name: "Use local-kind",
+    });
+    expect(localKind.checked).toBe(true);
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
 
   it("fails closed when placement availability cannot be loaded", async () => {
@@ -378,24 +406,24 @@ describe("GatewayCreatePage", () => {
     expect(vpn.getAttribute("aria-describedby")).toBe(
       "internal-services-yes-description",
     );
-    expect(
-      (
-        await screen.findByText(
-          "VPN is unavailable: no eligible managed cluster is connected.",
-        )
-      ).id,
-    ).toBe("internal-services-yes-description");
+    const vpnReason = await screen.findByText(
+      "VPN is unavailable: no eligible managed cluster is connected.",
+    );
+    expect(vpnReason.className).toContain("visuallyHidden");
+    expect(vpnReason.id).toBe("internal-services-yes-description");
+    expect(vpn.getAttribute("aria-describedby")).toBe(
+      "internal-services-yes-description",
+    );
     await user.click(screen.getByRole("radio", { name: "No" }));
 
     expect(radio("IBM Cloud").disabled).toBe(true);
     expect(radio("IBM Cloud").getAttribute("aria-describedby")).toBe(
       "cloud-provider-ibm-description",
     );
-    expect(
-      screen.getByText(
-        "IBM Cloud is unavailable: no eligible managed cluster is connected.",
-      ),
-    ).toBeTruthy();
+    const ibmReason = screen.getByText(
+      "IBM Cloud is unavailable: no eligible managed cluster is connected.",
+    );
+    expect(ibmReason.className).toContain("visuallyHidden");
   });
 
   it("explains when neither managed nor local placement is available", async () => {
@@ -408,6 +436,7 @@ describe("GatewayCreatePage", () => {
       await screen.findByText("No managed placement is currently available."),
     ).toBeTruthy();
     expect(screen.queryByRole("radio", { name: "Kind" })).toBeNull();
+    expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
 
   it("offers only advertised versions for the selected network and provider (GP-11)", async () => {
@@ -430,20 +459,49 @@ describe("GatewayCreatePage", () => {
       "team-gateway",
     );
     await user.click(screen.getByRole("radio", { name: "No" }));
-    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(radio("Amazon Web Services"));
     await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole("combobox", {
-      name: "Provisioning version",
+      name: "OpenShell version",
     });
     const options = within(select)
       .getAllByRole<HTMLOptionElement>("option")
       .map((option) => option.textContent);
     expect(options).toEqual([
       "Any version",
+      "OpenShell version v0.1.2-rhaiv.7",
+      "OpenShell version v0.1.1-rhaiv.3",
+    ]);
+  });
+
+  it("hides the preview version when Any version is selected (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
       "v0.1.1-rhaiv.3",
     ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        "network/public|provider/ibm|gateway-version/v0.1.1-rhaiv.3",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+
+    expect(screen.queryByText(/^OpenShell version:/)).toBeNull();
+    expect(screen.queryByText("OpenShell version: v0.1.2-rhaiv.7")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "OpenShell version",
+    });
+    await user.selectOptions(select, "v0.1.1-rhaiv.3");
+
+    expect(screen.getByText("OpenShell version: v0.1.1-rhaiv.3")).toBeTruthy();
   });
 
   it("adds the chosen version to the placement selector (GP-11)", async () => {
@@ -464,11 +522,11 @@ describe("GatewayCreatePage", () => {
       "team-gateway",
     );
     await user.click(screen.getByRole("radio", { name: "No" }));
-    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(radio("Amazon Web Services"));
     await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole("combobox", {
-      name: "Provisioning version",
+      name: "OpenShell version",
     });
     await user.selectOptions(select, "v0.1.2-rhaiv.7");
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
@@ -532,23 +590,48 @@ describe("GatewayCreatePage", () => {
       "team-gateway",
     );
     await user.click(screen.getByRole("radio", { name: "No" }));
-    await user.click(screen.getByRole("radio", { name: "AWS" }));
+    await user.click(radio("Amazon Web Services"));
     await user.click(screen.getByRole("button", { name: "Advanced options" }));
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", {
-      name: "Provisioning version",
+      name: "OpenShell version",
     });
     await user.selectOptions(select, "v0.1.2-rhaiv.7");
     expect(select.value).toBe("v0.1.2-rhaiv.7");
 
-    await user.click(screen.getByRole("radio", { name: "IBM" }));
+    await user.click(radio("IBM Cloud"));
+    expect(screen.queryByText("OpenShell version: v0.1.2-rhaiv.7")).toBeNull();
 
     await waitFor(() => {
       expect(
         screen.getByRole<HTMLSelectElement>("combobox", {
-          name: "Provisioning version",
+          name: "OpenShell version",
         }).value,
       ).toBe("");
     });
+  });
+
+  it("explains when provisioning versions cannot be loaded", async () => {
+    operations.getGatewayProvisioningVersions.mockRejectedValue(
+      new Error("unavailable"),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+
+    expect(
+      await screen.findByText(
+        "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
+      ),
+    ).toBeTruthy();
+    const select = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "OpenShell version",
+    });
+    expect(
+      within(select)
+        .getAllByRole<HTMLOptionElement>("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Any version"]);
   });
 });

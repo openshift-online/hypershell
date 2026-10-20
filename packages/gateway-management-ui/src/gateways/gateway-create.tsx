@@ -10,6 +10,7 @@ import {
   ExpandableSection,
   Form,
   FormGroup,
+  FormSection,
   FormSelect,
   FormSelectOption,
   Gallery,
@@ -278,22 +279,24 @@ function ChoiceQuestion({
   label: string;
   onChange: (value: string) => void;
   options: {
-    description?: string;
     isDisabled?: boolean;
     label: string;
+    unavailableReason?: string;
     value: string;
   }[];
   value: string;
 }) {
+  const intl = useIntl();
   return (
     <FormGroup fieldId={id} isInline isRequired label={label} role="radiogroup">
       {options.map((option) => {
         const isDisabled =
           option.isDisabled === true || disabledOption?.value === option.value;
         const disabledReason =
-          disabledOption?.value === option.value
+          option.unavailableReason ??
+          (disabledOption?.value === option.value
             ? disabledOption.reason
-            : "This option is not available for the selected placement.";
+            : intl.formatMessage(messages.choiceUnavailable));
         const radio = (
           <Radio
             id={`${id}-${option.value}`}
@@ -314,11 +317,6 @@ function ChoiceQuestion({
           <Tooltip content={disabledReason} key={option.value} position="top">
             <span className={styles.choiceTooltip}>
               {radio}
-              {option.description ? (
-                <span className={styles.choiceDescription}>
-                  {option.description}
-                </span>
-              ) : null}
               <span
                 className={styles.visuallyHidden}
                 id={`${id}-${option.value}-description`}
@@ -330,11 +328,6 @@ function ChoiceQuestion({
         ) : (
           <span className={styles.choiceTooltip} key={option.value}>
             {radio}
-            {option.description ? (
-              <span className={styles.choiceDescription}>
-                {option.description}
-              </span>
-            ) : null}
           </span>
         );
       })}
@@ -346,14 +339,18 @@ function YesNoQuestion({
   disabledValue,
   id,
   label,
+  noLabel,
   onChange,
   value,
+  yesLabel,
 }: {
   disabledValue?: "yes" | "no";
   id: string;
   label: string;
+  noLabel: string;
   onChange: (value: "yes" | "no") => void;
   value: "yes" | "no";
+  yesLabel: string;
 }) {
   const intl = useIntl();
   return (
@@ -374,12 +371,17 @@ function YesNoQuestion({
         }
       }}
       options={[
-        { label: "Yes", value: "yes" },
-        { label: "No", value: "no" },
+        { label: yesLabel, value: "yes" },
+        { label: noLabel, value: "no" },
       ]}
       value={value}
     />
   );
+}
+
+interface RecommendationFeature {
+  color: "blue" | "green" | "orange" | "purple" | "teal";
+  label: string;
 }
 
 function RecommendationCard({
@@ -392,21 +394,14 @@ function RecommendationCard({
   version,
 }: {
   description: string;
-  features: string[];
+  features: RecommendationFeature[];
   provider: "aws" | "ibm";
   recommended: boolean;
   specialized: boolean;
   title: string;
-  version: string;
+  version?: string;
 }) {
   const intl = useIntl();
-  const featureColors = {
-    AWS: "orange",
-    "IBM Cloud": "purple",
-    Kata: "green",
-    "VPN required": "blue",
-    Public: "teal",
-  } as const;
   return (
     <Card className={styles.recommendationCard}>
       <CardHeader>
@@ -429,13 +424,9 @@ function RecommendationCard({
           aria-label={intl.formatMessage(messages.gatewaySetFeatures)}
           isCompact
         >
-          {features.map((feature) => (
-            <Label
-              color={featureColors[feature as keyof typeof featureColors]}
-              isCompact
-              key={feature}
-            >
-              {feature}
+          {features.map(({ color, label }) => (
+            <Label color={color} isCompact key={label}>
+              {label}
             </Label>
           ))}
         </LabelGroup>
@@ -448,12 +439,14 @@ function RecommendationCard({
           className={provider === "aws" ? styles.awsLogo : styles.ibmLogo}
           src={provider === "aws" ? awsLogo : ibmCloudLogo}
         />
-        <p className={styles.recommendationVersion}>
-          <FormattedMessage
-            {...messages.openShellVersion}
-            values={{ version }}
-          />
-        </p>
+        {version ? (
+          <p className={styles.recommendationVersion}>
+            <FormattedMessage
+              {...messages.openShellVersion}
+              values={{ version }}
+            />
+          </p>
+        ) : null}
         <p className={styles.recommendationDescription}>{description}</p>
       </CardBody>
     </Card>
@@ -723,27 +716,82 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         ? awsVpnKata
         : ibmVpnKata;
   const kataAvailable = kataAvailability?.available === true;
-  const recommendation = {
-    description:
-      network === "vpn"
-        ? intl.formatMessage(messages.vpnNetworkDescription)
-        : provider === "aws"
-          ? intl.formatMessage(messages.awsProviderDescription)
-          : intl.formatMessage(messages.ibmCloudProviderDescription),
-    features: [
-      network === "vpn" ? "VPN required" : "Public",
-      ...(kata ? ["Kata"] : []),
-      provider === "aws" ? "AWS" : "IBM Cloud",
-    ] as string[],
-    provider: provider ?? "ibm",
-    recommended: network === "public" && provider === "ibm" && !kata,
-    specialized: kata,
-    title: `${network === "vpn" ? "VPN" : "Public"}${kata ? " Kata" : ""} ${provider === "aws" ? "AWS" : "IBM Cloud"}`,
-    version:
-      version === anyVersionOption
-        ? (candidateVersions[0] ?? intl.formatMessage(messages.anyVersion))
-        : version,
-  } as const;
+  const selectedPlacement =
+    network === "public"
+      ? provider === "aws"
+        ? awsPublic
+        : ibmPublic
+      : network === "vpn"
+        ? provider === "aws"
+          ? awsVpn
+          : ibmVpn
+        : undefined;
+  const selectedPlacementAvailable = selectedPlacement?.available === true;
+  const showRecommendation =
+    availability.data !== undefined &&
+    !localKind &&
+    selectedPlacementAvailable &&
+    (!kata || kataAvailable);
+  const selectedVersion =
+    version !== anyVersionOption && offeredVersions.includes(version)
+      ? version
+      : undefined;
+  const recommendationFeatures: RecommendationFeature[] = [
+    {
+      color: network === "vpn" ? "blue" : "teal",
+      label: intl.formatMessage(
+        network === "vpn" ? messages.vpnRequiresLabel : messages.publicNetwork,
+      ),
+    },
+    ...(kata
+      ? [
+          {
+            color: "green" as const,
+            label: intl.formatMessage(messages.kataFeature),
+          },
+        ]
+      : []),
+    {
+      color: provider === "aws" ? "orange" : "purple",
+      label: intl.formatMessage(
+        provider === "aws" ? messages.awsProvider : messages.ibmCloudProvider,
+      ),
+    },
+  ];
+  const recommendationProvider: "aws" | "ibm" =
+    provider === "aws" ? "aws" : "ibm";
+  const recommendation = showRecommendation
+    ? {
+        description:
+          network === "vpn"
+            ? intl.formatMessage(messages.vpnNetworkDescription)
+            : kata
+              ? intl.formatMessage(messages.kataProviderDescription)
+              : provider === "aws"
+                ? intl.formatMessage(messages.awsProviderDescription)
+                : intl.formatMessage(messages.ibmCloudProviderDescription),
+        features: recommendationFeatures,
+        provider: recommendationProvider,
+        recommended: network === "public" && provider === "ibm" && !kata,
+        specialized: kata,
+        title: intl.formatMessage(
+          kata
+            ? messages.recommendationKataTitle
+            : messages.recommendationTitle,
+          {
+            network: intl.formatMessage(
+              network === "vpn" ? messages.vpnNetwork : messages.publicNetwork,
+            ),
+            provider: intl.formatMessage(
+              provider === "aws"
+                ? messages.awsProvider
+                : messages.ibmCloudProvider,
+            ),
+          },
+        ),
+        version: selectedVersion,
+      }
+    : null;
 
   const submit = handleSubmit((values) => {
     if (values.localKind) {
@@ -879,12 +927,12 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         isFilled
         variant="secondary"
       >
-        <Form
-          aria-label={intl.formatMessage(messages.provisionGateway)}
-          onSubmit={(event) => void submit(event)}
-        >
-          <Grid hasGutter>
-            <GridItem span={7}>
+        <Grid hasGutter>
+          <GridItem span={7}>
+            <Form
+              aria-label={intl.formatMessage(messages.provisionGateway)}
+              onSubmit={(event) => void submit(event)}
+            >
               {createGateway.isError ? (
                 <Alert
                   isInline
@@ -1004,7 +1052,6 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                       }}
                       options={[
                         {
-                          description: undefined,
                           isDisabled:
                             availability.data === undefined ||
                             !publicPlacementAvailable,
@@ -1014,14 +1061,11 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                           value: "no",
                         },
                         {
-                          description: intl.formatMessage(
-                            messages.vpnRequiresLabel,
-                          ),
                           isDisabled:
                             availability.data === undefined ||
                             !vpnPlacementAvailable,
                           label: intl.formatMessage(
-                            messages.internalServicesYes,
+                            messages.internalServicesYesVpn,
                           ),
                           value: "yes",
                         },
@@ -1051,7 +1095,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                       }}
                       options={[
                         {
-                          description:
+                          unavailableReason:
                             availability.data &&
                             !(network === "vpn"
                               ? ibmVpn?.available
@@ -1073,17 +1117,19 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                                     ),
                                   },
                                 )
-                              : "default",
+                              : undefined,
                           isDisabled:
                             availability.data === undefined ||
                             !(network === "vpn"
                               ? ibmVpn?.available
                               : ibmPublic?.available),
-                          label: "IBM",
+                          label: intl.formatMessage(
+                            messages.ibmProviderRadioLabel,
+                          ),
                           value: "ibm",
                         },
                         {
-                          description:
+                          unavailableReason:
                             availability.data &&
                             !(network === "vpn"
                               ? awsVpn?.available
@@ -1105,15 +1151,15 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                                     ),
                                   },
                                 )
-                              : intl.formatMessage(
-                                  messages.awsProviderDescription,
-                                ),
+                              : undefined,
                           isDisabled:
                             availability.data === undefined ||
                             !(network === "vpn"
                               ? awsVpn?.available
                               : awsPublic?.available),
-                          label: "AWS",
+                          label: intl.formatMessage(
+                            messages.awsProviderRadioLabel,
+                          ),
                           value: "aws",
                         },
                       ]}
@@ -1126,56 +1172,65 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                 <ExpandableSection
                   toggleText={intl.formatMessage(messages.advancedOptions)}
                 >
-                  <Controller
-                    control={control}
-                    name="kata"
-                    render={({ field }) => (
-                      <YesNoQuestion
-                        disabledValue={kataAvailable ? undefined : "yes"}
-                        id="kata"
-                        label={intl.formatMessage(messages.kataQuestion)}
-                        onChange={(value) => {
-                          field.onChange(value === "yes");
-                        }}
-                        value={field.value ? "yes" : "no"}
-                      />
-                    )}
-                  />
-                  <Controller
-                    control={control}
-                    name="version"
-                    render={({ field }) => (
-                      <FormGroup
-                        fieldId="provisioning-version"
-                        label={intl.formatMessage(messages.provisioningVersion)}
-                      >
-                        <FormSelect
-                          aria-label={intl.formatMessage(
+                  <FormSection>
+                    <Controller
+                      control={control}
+                      name="kata"
+                      render={({ field }) => (
+                        <YesNoQuestion
+                          disabledValue={kataAvailable ? undefined : "yes"}
+                          id="kata"
+                          label={intl.formatMessage(messages.kataQuestion)}
+                          noLabel={intl.formatMessage(messages.kataNo)}
+                          onChange={(value) => {
+                            field.onChange(value === "yes");
+                          }}
+                          value={field.value ? "yes" : "no"}
+                          yesLabel={intl.formatMessage(messages.kataYes)}
+                        />
+                      )}
+                    />
+                    <Controller
+                      control={control}
+                      name="version"
+                      render={({ field }) => (
+                        <FormGroup
+                          fieldId="provisioning-version"
+                          label={intl.formatMessage(
                             messages.provisioningVersion,
                           )}
-                          id="provisioning-version"
-                          isDisabled={createGateway.isPending}
-                          onChange={(_event, value) => {
-                            field.onChange(value);
-                          }}
-                          value={field.value}
                         >
-                          <FormSelectOption
-                            key="any-version"
-                            label={intl.formatMessage(messages.anyVersion)}
-                            value={anyVersionOption}
-                          />
-                          {offeredVersions.map((offeredVersion) => (
+                          <FormSelect
+                            aria-label={intl.formatMessage(
+                              messages.provisioningVersion,
+                            )}
+                            id="provisioning-version"
+                            isDisabled={createGateway.isPending}
+                            onChange={(_event, value) => {
+                              field.onChange(value);
+                            }}
+                            value={field.value}
+                          >
                             <FormSelectOption
-                              key={offeredVersion}
-                              label={offeredVersion}
-                              value={offeredVersion}
+                              key="any-version"
+                              label={intl.formatMessage(messages.anyVersion)}
+                              value={anyVersionOption}
                             />
-                          ))}
-                        </FormSelect>
-                      </FormGroup>
-                    )}
-                  />
+                            {offeredVersions.map((offeredVersion) => (
+                              <FormSelectOption
+                                key={offeredVersion}
+                                label={intl.formatMessage(
+                                  messages.openShellVersionOption,
+                                  { version: offeredVersion },
+                                )}
+                                value={offeredVersion}
+                              />
+                            ))}
+                          </FormSelect>
+                        </FormGroup>
+                      )}
+                    />
+                  </FormSection>
                 </ExpandableSection>
               ) : null}
               {availability.data && !hasManagedPlacement && !canUseLocalKind ? (
@@ -1194,7 +1249,14 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   variant="warning"
                 />
               ) : null}
-              <p className={styles.help}>
+              {!localKind && provisioningVersionsQuery.isError ? (
+                <Alert
+                  isInline
+                  title={intl.formatMessage(messages.provisioningVersionsError)}
+                  variant="warning"
+                />
+              ) : null}
+              <p>
                 <FormattedMessage {...messages.placementHelp} />
               </p>
               <ActionGroup>
@@ -1224,12 +1286,14 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   <FormattedMessage {...messages.cancel} />
                 </Button>
               </ActionGroup>
-            </GridItem>
+            </Form>
+          </GridItem>
+          {recommendation ? (
             <GridItem span={5}>
               <RecommendationCard {...recommendation} />
             </GridItem>
-          </Grid>
-        </Form>
+          ) : null}
+        </Grid>
       </PageSection>
     </>
   );
