@@ -356,9 +356,13 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 // into tracked issues (pull requests grouped under the execution record they resolve
 // to) and one-off pull requests (no tracked issue). The work-item -> PRs resolver is
 // inverted into a PR -> issue map and used only to group, never to attribute issues
-// to bundles. Shipped records whose pull requests are absent from every bundle collect
-// in the single top Unreleased row, which holds only genuinely in-flight tracked work
-// (SDLC-VIS-11).
+// to bundles. The released-vs-unreleased decision does not depend on the compare-window
+// horizon: a record whose pull requests fall in no resolved window but which merged at
+// or before the oldest resolved bundle's build date is contained in that bundle (and
+// every newer one), so it is grouped under that oldest bundle row rather than reported
+// in-flight (SDLC-VIS-11a). Only records genuinely merged after the newest resolved
+// bundle collect in the single top Unreleased row, which holds only genuinely in-flight
+// tracked work (SDLC-VIS-11).
 func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	m := SDLCMatrix{HubClusters: []SDLCHubCluster{}, Rows: []SDLCBundleRow{}}
 
@@ -475,15 +479,58 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		})
 	}
 
-	// Unreleased holds only genuinely in-flight tracked work: shipped records whose
-	// pull requests are absent from every bundle's PR set. One-off PRs never collect
-	// here (they appear only under the bundle that shipped them).
+	// SDLC-VIS-11a: decouple the released-vs-unreleased decision from the compare-window
+	// horizon. The resolved bundle set is bounded, so its SHA compare windows span only
+	// from the oldest to the newest resolved bundle; a pull request merged before the
+	// oldest resolved bundle falls inside no window even though it is contained in that
+	// bundle and every newer one. Find the oldest resolved bundle row and its build date
+	// (relRows mirrors the newest-first `ordered`; the minimum parseable Date is the
+	// oldest). This is purely in-memory over Release.Date fields already in hand: no
+	// additional GitHub call (SDLC-VIS-04).
+	oldestIdx := -1
+	var oldestDate time.Time
+	for i := range relRows {
+		d, err := time.Parse(time.RFC3339, relRows[i].Date)
+		if err != nil {
+			continue
+		}
+		if oldestIdx == -1 || d.Before(oldestDate) {
+			oldestIdx = i
+			oldestDate = d
+		}
+	}
+
+	// Unreleased holds only genuinely in-flight tracked work: shipped records whose pull
+	// requests are absent from every resolved bundle's compare window AND which merged
+	// after the oldest resolved bundle's build date. One-off PRs never collect here (they
+	// appear only under the bundle that shipped them). A window-unplaced record that
+	// merged at or before the oldest resolved bundle's date is pre-horizon: it is already
+	// contained in that bundle, so it is grouped under the oldest resolved bundle row
+	// (SDLC-VIS-11a) rather than dropped or reported in-flight.
 	var unreleased []SDLCShippedIssue
+	var preHorizon []SDLCShippedIssue
 	for _, rec := range shipped {
 		if placed[rec.Number] {
 			continue
 		}
-		unreleased = append(unreleased, SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy})
+		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy}
+		// A record whose merge time is missing or unparseable cannot be proven
+		// pre-horizon, so it falls through to Unreleased: that keeps it visible rather
+		// than dropped, which is the safe direction when the boundary is undecidable.
+		if oldestIdx >= 0 {
+			if mt, err := time.Parse(time.RFC3339, rec.ClosedAt); err == nil && !mt.After(oldestDate) {
+				preHorizon = append(preHorizon, si)
+				continue
+			}
+		}
+		unreleased = append(unreleased, si)
+	}
+
+	// Keep pre-horizon items visible in a released position: group them under the oldest
+	// resolved bundle row (SDLC-VIS-11a). They carry no bundle PRs of their own (no window
+	// placed them), so they simply join that row's tracked issues.
+	if len(preHorizon) > 0 && oldestIdx >= 0 {
+		relRows[oldestIdx].Issues = sortedShipped(append(relRows[oldestIdx].Issues, preHorizon...))
 	}
 
 	// Unreleased always sits at the top (no version, no hub-cluster markers, no PRs).
