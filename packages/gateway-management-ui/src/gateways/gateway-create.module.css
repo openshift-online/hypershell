@@ -1,6 +1,20 @@
 .choice {
   min-height: 7rem;
 }
+.choiceTooltip {
+  display: inline-block;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .choiceTitle {
   font-weight: 700;
   font-size: 1.1rem;
@@ -33,11 +47,6 @@
   width: 5rem;
   height: 5rem;
 }
-.providerLogoSvg svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
 :global(html[data-color-scheme="light"]) .providerLogoDark {
   display: none !important;
 }
@@ -58,6 +67,30 @@
   display: block;
   margin-top: 0.25rem;
 }
-.help {
-  margin-top: 1.5rem;
+.recommendationCard {
+  min-height: 14rem;
+}
+.recommendationTitle {
+  margin-right: 0.625rem;
+}
+.recommendationVersion {
+  margin-top: 0.625rem;
+  font-weight: 700;
+}
+.recommendationDescription {
+  margin-top: 0.625rem;
+}
+.awsLogo,
+.ibmLogo {
+  position: absolute;
+  right: 1.5rem;
+  object-fit: contain;
+}
+.awsLogo {
+  top: 2.5rem;
+  width: 3.125rem;
+}
+.ibmLogo {
+  top: 2.25rem;
+  width: 2.8125rem;
 }

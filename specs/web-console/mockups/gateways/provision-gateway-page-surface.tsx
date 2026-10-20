@@ -5,9 +5,9 @@ import { Content, PageSection, Title } from "@patternfly/react-core";
 import { ProvisionGatewayForm } from "./provision-gateway";
 
 export function ProvisionGatewayPageSurface({
-  showValidationErrors = false,
+  localDevelopmentOnly = false,
 }: {
-  showValidationErrors?: boolean;
+  localDevelopmentOnly?: boolean;
 }) {
   return (
     <>
@@ -29,7 +29,7 @@ export function ProvisionGatewayPageSurface({
         isFilled
         variant="secondary"
       >
-        <ProvisionGatewayForm showValidationErrors={showValidationErrors} />
+        <ProvisionGatewayForm localDevelopmentOnly={localDevelopmentOnly} />
       </PageSection>
     </>
   );
