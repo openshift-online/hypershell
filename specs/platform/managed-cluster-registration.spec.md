@@ -445,7 +445,7 @@ For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRu
 A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
 
 - It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
-- It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, and `SetActiveSandboxCount` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through.
+- It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, and `ReportSandboxEvents` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through, and a sandbox-events report for such a namespace is a no-op as well (`platform/gateway-sandbox-events.spec.md`, GSE-02).
 - It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
 - Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
@@ -463,6 +463,14 @@ The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so
 - AND it has registered, so its `sub` is the `oidc_subject` of cluster `X`
 - WHEN it calls `SetActiveSandboxCount` for the namespace of a gateway assigned to `X`
 - THEN the call is authorized without any role binding
+
+#### Scenario: PLAT-CLUS-11.05 -- New spoke reports sandbox events with no hub change
+
+- GIVEN a spoke control plane whose OIDC client is not on `RBAC_SERVICE_ACCOUNTS`
+- AND it has registered, so its `sub` is the `oidc_subject` of cluster `X`
+- WHEN it calls `ReportSandboxEvents` for the namespace of a gateway assigned to `X`
+- THEN the call is authorized without any role binding
+- AND the report for any other cluster's gateway namespace SHALL be denied
 
 #### Scenario: PLAT-CLUS-11.02 -- Control plane writes another cluster's gateway
 

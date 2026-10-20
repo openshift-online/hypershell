@@ -115,6 +115,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-gateway-namespace-gc.spec.md` | platform | Orphaned-namespace garbage collection, cluster-filtered reclamation | CP | openshell-gateway, gateway-deletion-finalization |
 | `platform/openshell-gateway-sandbox-count.spec.md` | platform | Active sandbox count derivation and gauge export | CP, WEB | openshell-gateway, gateway-metrics-dashboard |
 | `platform/gateway-sandbox-attention-status.spec.md` | platform | Orphaned/expiring/idle sandbox attention gauges, BFF attention fields, widget | CP, WEB | gateway-metrics-dashboard, openshell-gateway-sandbox-count, web-console/operational-dashboard |
+| `platform/gateway-sandbox-events.spec.md` | platform | Periodic sandbox pod Event snapshots, TTL cache, gateway-bound REST diagnostic read | CP, API, SDK | openshell-gateway-sandbox-count, gateway-sandbox-attention-status, rbac-enforcement, data-model |
 | `platform/openshell-gateway-helm-adoption.spec.md` | platform | Runtime Helm-chart install of gateways via Helm CLI, upstream-chart adoption | CP | openshell-gateway, control-plane |
 | `platform/generated-gateway-config-validation.spec.md` | platform | Validation gate on the rendered gateway configuration artifact | CP | openshell-gateway, openshell-gateway-helm-adoption |
 | `platform/watch-delete-events.spec.md` | platform | Full resource snapshot in delete watch events for reconciler cleanup | API, CP | data-model, control-plane |
