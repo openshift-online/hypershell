@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (GP-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (WEB-PLC-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
 
 The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, `VpnUnavailable`, and `VersionListUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
 ## Requirements
 
-### Requirement: GP-01 -- Placement Intent Contract
+### Requirement: WEB-PLC-01 -- Placement Intent Contract
 
 The gateway provision request SHALL contain the gateway name and one of these placement intents:
 
@@ -20,7 +20,7 @@ A managed-placement selector MAY additionally carry one `gateway-version/<tag>` 
 
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
-#### Scenario: Version choice is added to the selector
+#### Scenario: WEB-PLC-01.01 -- Version choice is added to the selector
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
@@ -29,7 +29,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - THEN the request SHALL contain `selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
-#### Scenario: Default version omits the version label
+#### Scenario: WEB-PLC-01.02 -- Default version omits the version label
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
@@ -37,7 +37,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - WHEN the user submits the form
 - THEN the request selector SHALL NOT contain a `gateway-version` label
 
-#### Scenario: Public IBM placement is submitted as intent
+#### Scenario: WEB-PLC-01.03 -- Public IBM placement is submitted as intent
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public
@@ -46,7 +46,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - THEN the request SHALL contain `selector: ["network/public", "provider/ibm"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
-#### Scenario: VPN placement is submitted as AWS intent
+#### Scenario: WEB-PLC-01.04 -- VPN placement is submitted as AWS intent
 
 - GIVEN the user enters a valid gateway name
 - AND selects VPN
@@ -54,13 +54,13 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - THEN the request SHALL contain `selector: ["network/vpn", "provider/aws"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
-### Requirement: GP-02 -- Network Visibility Selection
+### Requirement: WEB-PLC-02 -- Network Visibility Selection
 
 The provision form SHALL present the question "Does the gateway need to reach GitLab or other internal Red Hat services?" with mutually exclusive choices labeled "No" and "Yes (Requires Red Hat VPN)". The form SHALL require exactly one answer before submission. "No" SHALL map to Public and "Yes" SHALL map to VPN. When both Public and VPN are available and the user has not made a choice, "No" SHALL be selected by default. When only one network is available, the corresponding answer SHALL be selected automatically.
 
 The form SHALL NOT present the former cluster selector.
 
-#### Scenario: Network visibility is required
+#### Scenario: WEB-PLC-02.01 -- Network visibility is required
 
 - GIVEN the gateway name is valid
 - AND neither VPN nor Public is selected
@@ -68,14 +68,14 @@ The form SHALL NOT present the former cluster selector.
 - THEN the form SHALL identify network visibility as required
 - AND no provision request SHALL be sent
 
-#### Scenario: Internal-services answers are mutually exclusive
+#### Scenario: WEB-PLC-02.02 -- Internal-services answers are mutually exclusive
 
 - GIVEN "No" is selected
 - WHEN the user selects "Yes (Requires Red Hat VPN)"
 - THEN "Yes" SHALL become selected
 - AND "No" SHALL become unselected
 
-### Requirement: GP-03 -- Provider Selection
+### Requirement: WEB-PLC-03 -- Provider Selection
 
 The provision form SHALL present AWS and IBM Cloud as mutually exclusive choices. The form SHALL require exactly one provider before submission.
 
@@ -91,7 +91,7 @@ IBM Cloud SHALL be selected by default when Public becomes active when its selec
 
 When Public is the default network, IBM Cloud SHALL be the default provider when available. When only one provider is available for the selected network, that provider SHALL be selected automatically.
 
-#### Scenario: Public defaults to IBM Cloud
+#### Scenario: WEB-PLC-03.01 -- Public defaults to IBM Cloud
 
 - GIVEN the user selects Public
 - AND a connected cluster matches `provider/ibm` and `network/public`
@@ -99,14 +99,14 @@ When Public is the default network, IBM Cloud SHALL be the default provider when
 - THEN IBM Cloud SHALL be selected
 - AND Amazon Web Services SHALL be unselected
 
-#### Scenario: VPN provider choices follow capabilities
+#### Scenario: WEB-PLC-03.02 -- VPN provider choices follow capabilities
 
 - GIVEN the user selects VPN
 - WHEN the provider controls render
 - THEN each provider SHALL be enabled only when a connected cluster matches its provider and `network/vpn` labels
 - AND the form SHALL select an available provider when one exists
 
-#### Scenario: Provider is required
+#### Scenario: WEB-PLC-03.03 -- Provider is required
 
 - GIVEN a network visibility is selected
 - AND neither AWS nor IBM Cloud is selected
@@ -114,9 +114,9 @@ When Public is the default network, IBM Cloud SHALL be the default provider when
 - THEN the form SHALL identify provider as required
 - AND no provision request SHALL be sent
 
-### Requirement: GP-04 -- Placement Availability
+### Requirement: WEB-PLC-04 -- Placement Availability
 
-The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (GP-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
+The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (WEB-PLC-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
 
@@ -126,9 +126,9 @@ Placement availability SHALL NOT depend on CPU, memory, pod usage, or other capa
 
 The form SHALL load placement availability automatically when it opens. The form SHALL refresh placement availability after a placement-related submission error. The form SHALL NOT require a separate manual refresh or Retry control.
 
-A placement pair that becomes unavailable before submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a matching cluster appears (GP-07). The form MAY surface the resulting awaiting-placement status so the user understands the Gateway is waiting for a matching cluster.
+A placement pair that becomes unavailable before submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a matching cluster appears (WEB-PLC-07). The form MAY surface the resulting awaiting-placement status so the user understands the Gateway is waiting for a matching cluster.
 
-#### Scenario: AWS is unavailable for Public
+#### Scenario: WEB-PLC-04.01 -- AWS is unavailable for Public
 
 - GIVEN no eligible AWS cluster matches Public
 - AND an eligible IBM Cloud cluster matches Public
@@ -136,7 +136,7 @@ A placement pair that becomes unavailable before submission SHALL NOT be rejecte
 - THEN AWS SHALL be disabled
 - AND IBM Cloud SHALL remain selectable
 
-#### Scenario: IBM Cloud VPN availability is data-driven
+#### Scenario: WEB-PLC-04.02 -- IBM Cloud VPN availability is data-driven
 
 - GIVEN no connected cluster has both `provider/ibm` and `network/vpn`
 - AND the user selects VPN
@@ -144,14 +144,14 @@ A placement pair that becomes unavailable before submission SHALL NOT be rejecte
 - THEN IBM Cloud SHALL be disabled
 - AND the form SHALL communicate that no eligible cluster matches the choice
 
-#### Scenario: A new capability combination needs no schema change
+#### Scenario: WEB-PLC-04.03 -- A new capability combination needs no schema change
 
 - GIVEN a connected cluster registers `provider/ibm` and `network/vpn`
 - WHEN the form requests availability for that selector
 - THEN the selector SHALL be available
 - AND no gateway API schema or placement code change SHALL be required
 
-#### Scenario: Both managed networks are unavailable
+#### Scenario: WEB-PLC-04.04 -- Both managed networks are unavailable
 
 - GIVEN no eligible AWS or IBM Cloud cluster matches Public or VPN
 - WHEN the provision form renders
@@ -159,14 +159,14 @@ A placement pair that becomes unavailable before submission SHALL NOT be rejecte
 - AND the form SHALL explain that no managed placement is currently available
 - AND the Provision gateway button SHALL remain enabled
 
-#### Scenario: Capacity data does not affect availability
+#### Scenario: WEB-PLC-04.05 -- Capacity data does not affect availability
 
 - GIVEN an eligible IBM Cloud cluster matches Public
 - AND capacity data for that cluster is unavailable
 - WHEN the provider controls render
 - THEN IBM Cloud SHALL remain selectable
 
-### Requirement: GP-05 -- Local-kind Development Placement
+### Requirement: WEB-PLC-05 -- Local-kind Development Placement
 
 When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Kind** option under **Local development**. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
 
@@ -179,7 +179,7 @@ SHALL NOT render a default managed-placement recommendation.
 
 Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 
-#### Scenario: Local-kind appears for Kind development
+#### Scenario: WEB-PLC-05.01 -- Local-kind appears for Kind development
 
 - GIVEN the platform is running in the Kind development environment
 - AND the registered `local-kind` cluster is connected
@@ -189,7 +189,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - AND Public, VPN, Amazon Web Services, and IBM Cloud SHALL NOT be rendered
 - AND the provision preview card SHALL NOT render
 
-#### Scenario: Local-kind is hidden with managed placement
+#### Scenario: WEB-PLC-05.02 -- Local-kind is hidden with managed placement
 
 - GIVEN a managed placement pair is available
 - AND the platform is running in the Kind development environment
@@ -198,7 +198,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - THEN Kind SHALL NOT be visible
 - AND managed placement choices SHALL remain available
 
-#### Scenario: Local-kind is hidden outside Kind development
+#### Scenario: WEB-PLC-05.03 -- Local-kind is hidden outside Kind development
 
 - GIVEN no managed placement pair is available
 - AND the platform is not running in the Kind development environment
@@ -206,27 +206,27 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - THEN Kind SHALL NOT be visible
 - AND the form SHALL explain that no managed placement is currently available
 
-### Requirement: GP-06 -- Form Submission Validation
+### Requirement: WEB-PLC-06 -- Form Submission Validation
 
 The Provision gateway button SHALL remain enabled regardless of whether the form is complete, valid, or displaying validation errors. Activating the button SHALL run form validation and show field-level errors for invalid or missing values. The form SHALL NOT send a provision request until validation succeeds.
 
 The existing gateway-name validation and normalization rules SHALL remain unchanged.
 
-#### Scenario: Invalid form does not submit
+#### Scenario: WEB-PLC-06.01 -- Invalid form does not submit
 
 - GIVEN the gateway name or placement choices are invalid
 - WHEN the user activates Provision gateway
 - THEN the corresponding field-level errors SHALL be shown
 - AND no provision request SHALL be sent
 
-#### Scenario: Valid form submits
+#### Scenario: WEB-PLC-06.02 -- Valid form submits
 
 - GIVEN the gateway name and placement choices are valid
 - WHEN the user activates Provision gateway
 - THEN the placement-intent request SHALL be sent
 - AND the button MAY show a loading state while the request is pending
 
-### Requirement: GP-07 -- Backend Placement Resolution
+### Requirement: WEB-PLC-07 -- Backend Placement Resolution
 
 The backend SHALL validate every selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every requested label. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
 
@@ -238,21 +238,21 @@ If no eligible cluster matches the selector, the backend SHALL NOT reject the cr
 
 The backend SHALL persist BOTH the `placement` selector (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
 
-#### Scenario: Backend randomly selects a matching cluster
+#### Scenario: WEB-PLC-07.01 -- Backend randomly selects a matching cluster
 
 - GIVEN two eligible AWS clusters match a public AWS intent
 - WHEN the backend creates the gateway
 - THEN the backend SHALL randomly select one of the two clusters
 - AND the persisted Gateway record SHALL contain the selected cluster's identifier
 
-#### Scenario: Backend does not use capacity
+#### Scenario: WEB-PLC-07.02 -- Backend does not use capacity
 
 - GIVEN two eligible IBM Cloud clusters match a public IBM Cloud intent
 - AND one cluster has more available capacity than the other
 - WHEN the backend creates the gateway
 - THEN both clusters SHALL remain eligible for random selection
 
-#### Scenario: Backend re-evaluates stale availability
+#### Scenario: WEB-PLC-07.03 -- Backend re-evaluates stale availability
 
 - GIVEN the client submits a valid placement intent
 - AND the cluster available when the form rendered is no longer eligible
@@ -260,7 +260,7 @@ The backend SHALL persist BOTH the `placement` selector (so it can re-resolve fo
 - THEN the backend SHALL select another eligible matching cluster
 - OR the backend SHALL create the Gateway unplaced in the `Pending` phase, awaiting late binding
 
-#### Scenario: Selector with no eligible cluster creates an unplaced Gateway
+#### Scenario: WEB-PLC-07.04 -- Selector with no eligible cluster creates an unplaced Gateway
 
 - GIVEN a valid placement selector that no connected cluster matches
 - WHEN the backend creates the gateway
@@ -268,32 +268,32 @@ The backend SHALL persist BOTH the `placement` selector (so it can re-resolve fo
 - AND the create SHALL NOT return a placement-unavailable error
 - AND the backend SHALL assign `cluster_id` when a matching cluster later becomes eligible
 
-### Requirement: GP-08 -- Local-kind Placement Resolution
+### Requirement: WEB-PLC-08 -- Local-kind Placement Resolution
 
 When local-kind intent is submitted, the backend SHALL resolve it to the registered `local-kind` `ManagedCluster` in the Kind development environment.
 
 The backend SHALL reject local-kind placement with a typed client-visible error when the platform is not running in the Kind development environment, `local-kind` is not registered, or `local-kind` is not connected.
 
-#### Scenario: Local-kind resolves to the local cluster
+#### Scenario: WEB-PLC-08.01 -- Local-kind resolves to the local cluster
 
 - GIVEN the client submits a valid local-kind intent
 - AND the registered `local-kind` cluster is connected
 - WHEN the backend creates the gateway
 - THEN the gateway SHALL be assigned to `local-kind`
 
-### Requirement: GP-09 -- API and Persistence Compatibility
+### Requirement: WEB-PLC-09 -- API and Persistence Compatibility
 
 The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. `cluster_id` SHALL be OPTIONAL (nullable) on Gateway create: a create SHALL supply EITHER an explicit `cluster_id` (pinned) OR a `placement` selector (late-bound), and SHALL NOT accept the former provider/network request shape. The web-console provision form submits only the selector shape; the pinned shape remains available to `hsctl apply` and the declarative `.hypershell` import.
 
-The Gateway schema SHALL carry a persisted `placement` field. The placement selector is NO LONGER merely request-scoped: it SHALL be persisted on the Gateway record so the backend can re-resolve it for late binding after create (GP-07). A late-bound Gateway's `cluster_id` is nullable until placement resolves.
+The Gateway schema SHALL carry a persisted `placement` field. The placement selector is NO LONGER merely request-scoped: it SHALL be persisted on the Gateway record so the backend can re-resolve it for late binding after create (WEB-PLC-07). A late-bound Gateway's `cluster_id` is nullable until placement resolves.
 
-#### Scenario: Existing gateway placement remains readable
+#### Scenario: WEB-PLC-09.01 -- Existing gateway placement remains readable
 
 - GIVEN a gateway was created through the placement-intent flow
 - WHEN a gateway detail or list API is read
 - THEN the response SHALL expose the resolved cluster using the existing gateway placement representation
 
-### Requirement: GP-11 -- Provisioning Version Selection
+### Requirement: WEB-PLC-11 -- Provisioning Version Selection
 
 The provision form SHALL present an "OpenShell version" choice under Advanced options for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
 
@@ -312,16 +312,16 @@ When no eligible cluster matches the selected network and provider, the form
 SHALL offer only "Any version". A version-bearing selector that matches no
 eligible cluster at submission SHALL NOT be rejected by the backend; the Gateway
 SHALL be created unplaced in the `Pending` phase and late-bound when a cluster
-advertising that version becomes eligible, consistent with GP-04 and GP-07.
+advertising that version becomes eligible, consistent with WEB-PLC-04 and WEB-PLC-07.
 
 When the provisioning-version list cannot be loaded, the form SHALL explain the
 failure. It MAY continue to offer "Any version" because that selector remains
 valid, but it SHALL NOT silently present an empty version list as though no
 specific versions existed.
 
-Because the single batched placement-availability request (GP-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
+Because the single batched placement-availability request (WEB-PLC-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
 
-#### Scenario: Version options follow advertised capabilities
+#### Scenario: WEB-PLC-11.01 -- Version options follow advertised capabilities
 
 - GIVEN two connected clusters match Public and Amazon Web Services
 - AND one advertises `gateway-version/v0.1.2-rhaiv.7` and the other `gateway-version/v0.1.1-rhaiv.3`
@@ -329,7 +329,7 @@ Because the single batched placement-availability request (GP-04) carries a boun
 - THEN the version choice SHALL offer "Any version", `v0.1.2-rhaiv.7`, and `v0.1.1-rhaiv.3`
 - AND no other version SHALL be offered
 
-#### Scenario: Default selects any advertised version
+#### Scenario: WEB-PLC-11.02 -- Default selects any advertised version
 
 - GIVEN the user selects a network and provider with at least one eligible cluster
 - AND leaves the version choice at "Any version"
@@ -337,21 +337,21 @@ Because the single batched placement-availability request (GP-04) carries a boun
 - THEN the selector SHALL NOT carry a `gateway-version` label
 - AND the backend SHALL place on any eligible cluster for that network and provider
 
-#### Scenario: Any version omits the preview version row
+#### Scenario: WEB-PLC-11.03 -- Any version omits the preview version row
 
 - GIVEN the user selects a network and provider with at least one eligible cluster
 - AND leaves the version choice at "Any version"
 - WHEN the provision preview card renders
 - THEN the card SHALL NOT include an OpenShell version row
 
-#### Scenario: Version resets when no longer offered
+#### Scenario: WEB-PLC-11.04 -- Version resets when no longer offered
 
 - GIVEN the user selected `v0.1.2-rhaiv.7` for Public and Amazon Web Services
 - AND no eligible IBM Cloud cluster advertises that version for Public
 - WHEN the user changes the provider to IBM Cloud
 - THEN the version choice SHALL reset to "Any version"
 
-#### Scenario: Version-list failure is explained
+#### Scenario: WEB-PLC-11.05 -- Version-list failure is explained
 
 - GIVEN the gateway provisioning-version request fails
 - AND placement availability loads successfully
@@ -359,7 +359,7 @@ Because the single batched placement-availability request (GP-04) carries a boun
 - THEN the form SHALL show a version-list warning
 - AND SHALL offer only "Any version"
 
-### Requirement: GP-10 -- Accessibility and Localization
+### Requirement: WEB-PLC-10 -- Accessibility and Localization
 
 The internal-services, provider, Kata, version, availability, disabled-state,
 validation, local-kind, recommendation, and error messages SHALL be localized.
@@ -369,7 +369,7 @@ disabled state through semantic PatternFly form controls. Keyboard users SHALL
 be able to select and change network, provider, Kata, version, and local-kind
 placement without pointer input.
 
-#### Scenario: Disabled provider is announced
+#### Scenario: WEB-PLC-10.01 -- Disabled provider is announced
 
 - GIVEN VPN is selected
 - WHEN a keyboard or assistive-technology user inspects the provider controls
@@ -384,6 +384,6 @@ placement without pointer input.
 - A free-text or unvalidated version field, or offering a version no connected spoke advertises.
 - In-place gateway upgrades: a version choice only targets newly created gateways.
 - Capacity-aware cluster selection or placement scoring.
-- Offering every distinct advertised version in the provision form when a fleet advertises more than the availability-batch cap allows: the form offers the newest capped set (GP-11).
+- Offering every distinct advertised version in the provision form when a fleet advertises more than the availability-batch cap allows: the form offers the newest capped set (WEB-PLC-11).
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.

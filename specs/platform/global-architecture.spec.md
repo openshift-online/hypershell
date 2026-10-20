@@ -604,7 +604,7 @@ mirroring), unset `GATEWAY_INGRESS_MODE` (or set it to `gateway-api`) and comple
 the shared-Gateway bootstrap; the control plane then emits `GRPCRoute`s and cleans
 up the Routes. The AWS reference (`gateway-api` mode) is unchanged.
 
-### Requirements
+### Requirement: PLAT-ARCH-01 -- s
 
 #### Requirement: Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
 
@@ -957,7 +957,7 @@ There is a single provisioning model with no provider selection. See
 Cloud-managed servers supply the backup, point-in-time recovery, and HA properties the
 platform relies on, so HyperShell does not reimplement them.
 
-### Requirements
+### Requirement: PLAT-ARCH-02 -- s
 
 #### Requirement: Externally Provisioned Gateway Database Servers
 
@@ -1046,7 +1046,7 @@ This namespace-per-gateway strategy provides:
 
 Tekton pipelines provide a reproducible installer for HyperShell deployments. The pipeline replaces manual bash scripts with deterministic, auditable steps.
 
-### Requirements
+### Requirement: PLAT-ARCH-03 -- s
 
 #### Requirement: Deterministic Installation
 
@@ -1134,7 +1134,7 @@ graph TB
     style Global fill:#e1f5ff
 ```
 
-### Requirements
+### Requirement: PLAT-ARCH-04 -- s
 
 #### Requirement: Managed Cluster Metrics
 

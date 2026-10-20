@@ -49,7 +49,7 @@ marked explicitly so a reviewer can resolve them against OpenShell upstream.
 
 ## Requirements
 
-### Requirement: Extension Kind to OpenShell Resource Mapping
+### Requirement: AGT-EXT-01 -- Extension Kind to OpenShell Resource Mapping
 
 Each HyperShell Extension kind SHALL be realized as the OpenShell native resource named in
 the mapping table below, and each of its lifecycle operations SHALL be realized through the
@@ -73,14 +73,14 @@ alias) plus durable **material** for secret-valued fields; it SHALL NOT send
 HyperShell-internal identifiers or backend-specific field names, which are OpenShell's own
 translation concern.
 
-#### Scenario: AgentWorkspace realized as an OpenShell workspace
+#### Scenario: AGT-EXT-01.01 -- AgentWorkspace realized as an OpenShell workspace
 
 - GIVEN an `AgentRuntime` whose `AgentWorkspace.name` is `amber-reviews`
 - WHEN the control plane reconciles it
 - THEN it SHALL realize an OpenShell workspace named `amber-reviews` through OpenShell's existing workspace-create operation
 - AND re-reconciling with the workspace already present SHALL make no change
 
-#### Scenario: ProviderBinding realized as an OpenShell provider
+#### Scenario: AGT-EXT-01.02 -- ProviderBinding realized as an OpenShell provider
 
 - GIVEN a `ProviderBinding` named `claude` referencing an `inference` `ProviderSpec` of type `google-vertex-ai`, with a `google-service-account-jwt` `refresh_strategy` whose material is present cluster-local
 - WHEN the control plane reconciles the owning `AgentRuntime`
@@ -89,7 +89,7 @@ translation concern.
 
 ---
 
-### Requirement: Field-by-Field Mapping
+### Requirement: AGT-EXT-02 -- Field-by-Field Mapping
 
 Each HyperShell Extension field that crosses to OpenShell SHALL map to the OpenShell field or
 flag named below. Fields marked "HyperShell-only" are desired-state or reconcile bookkeeping
@@ -140,7 +140,7 @@ that never cross to OpenShell.
 | `model` | `inference set --model <alias>` | model alias resolved by OpenShell at the route |
 | `workspace_id` | `inference set --workspace` | |
 
-#### Scenario: No backend-specific field names cross the boundary
+#### Scenario: AGT-EXT-02.01 -- No backend-specific field names cross the boundary
 
 - GIVEN a `ProviderBinding` with a `refresh_strategy`
 - WHEN the control plane realizes it through OpenShell's existing API
@@ -149,7 +149,7 @@ that never cross to OpenShell.
 
 ---
 
-### Requirement: Refresh Strategy Mapping and Upstream Gaps
+### Requirement: AGT-EXT-03 -- Refresh Strategy Mapping and Upstream Gaps
 
 The HyperShell credential model names refresh strategies `app-installation-token`,
 `google-service-account-jwt`, and `static-token`
@@ -170,14 +170,14 @@ CLI has no `app-installation-token` refresh strategy.
 | `app-installation-token` (GitHub App) | `provider create --type github --credential GH_TOKEN` / `provider update --credential GH_TOKEN`, where the control plane mints `GH_TOKEN` from the stored PEM and re-mints before expiry | **Control plane** (decided, HYPERSHELL-412): `app-installation-token` is NOT a CLI `--strategy`, so a bounded control-plane GitHub rotator mints the ~1h installation token from the PEM and sets it on the provider through `provider update --credential`, matching the production `provision_workspace_providers` GitHub path. OpenShell does NOT own GitHub rotation |
 | `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role` | native OpenShell strategies | **OpenShell** (confirmed available) in the CLI; not currently used by any HyperShell `ProviderBinding` (reserved for future providers) |
 
-#### Scenario: Vertex provider uses the OpenShell-owned refresh strategy
+#### Scenario: AGT-EXT-03.01 -- Vertex provider uses the OpenShell-owned refresh strategy
 
 - GIVEN a Claude `ProviderBinding` with `refresh_strategy.type = google-service-account-jwt`
 - WHEN the control plane realizes it
 - THEN it SHALL configure the provider refresh with the `google-service-account-jwt` strategy, the `client_email` material, and the private key as secret material, matching the production coordinator sequence
 - AND OpenShell SHALL own minting and rotation of the usable Vertex access token
 
-#### Scenario: GitHub provider is rotated by the control plane
+#### Scenario: AGT-EXT-03.02 -- GitHub provider is rotated by the control plane
 
 - GIVEN a GitHub `ProviderBinding` with `refresh_strategy.type = app-installation-token` whose `SecretSource` holds the GitHub App PEM
 - WHEN the control plane realizes and maintains it
@@ -186,7 +186,7 @@ CLI has no `app-installation-token` refresh strategy.
 
 ---
 
-### Requirement: Two-Direction Gap Analysis
+### Requirement: AGT-EXT-04 -- Two-Direction Gap Analysis
 
 The mapping SHALL be auditable in both directions. Every OpenShell resource reachable from the
 installed CLI SHALL be classified against a HyperShell Extension kind, and every HyperShell
@@ -216,7 +216,7 @@ Extension kind SHALL be classified against an OpenShell resource, each labeled *
 | `SecretSource` | none | intentionally-not-mapped: an abstract reference to durable material. It never becomes an OpenShell resource; its material is consumed into `provider create --credential` and `provider refresh configure` material |
 | `AgentWorkspace`, `WorkspaceMembership`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute` | as mapped above | covered |
 
-#### Scenario: Every covered kind has a named OpenShell operation
+#### Scenario: AGT-EXT-04.01 -- Every covered kind has a named OpenShell operation
 
 - GIVEN the mapping table
 - WHEN a reviewer audits each HyperShell Extension kind labeled covered
@@ -225,7 +225,7 @@ Extension kind SHALL be classified against an OpenShell resource, each labeled *
 
 ---
 
-### Requirement: Fully Declarative Model Over OpenShell Kinds
+### Requirement: AGT-EXT-05 -- Fully Declarative Model Over OpenShell Kinds
 
 Applying the HyperShell Extension kinds declaratively SHALL provision the complete OpenShell
 resource graph an agent needs to run, with no imperative step outside the declarative model.
@@ -270,14 +270,14 @@ graph - workspace, memberships, providers with their refresh strategies, and the
 route - SHALL be fully realizable from the declarative HyperShell Extension kinds; the GitHub
 credential value is control-plane-supplied and rotated, which is the decided model.
 
-#### Scenario: Coordinator self-provisioning is replaced by declarative realization
+#### Scenario: AGT-EXT-05.01 -- Coordinator self-provisioning is replaced by declarative realization
 
 - GIVEN an `AgentRuntime` whose `AgentWorkspace`, memberships, provider bindings, and inference route are declared in HyperShell
 - WHEN the control plane reconciles it against OpenShell's existing API
 - THEN the complete OpenShell workspace graph SHALL be provisioned without the coordinator running `provision_workspace_providers`
 - AND the GitHub credential value SHALL be minted and set by the control-plane GitHub rotator, and the only residual imperative step SHALL be the enumerated gap G-5
 
-#### Scenario: Declarative re-apply is idempotent against the OpenShell graph
+#### Scenario: AGT-EXT-05.02 -- Declarative re-apply is idempotent against the OpenShell graph
 
 - GIVEN a fully realized OpenShell workspace graph for an `AgentRuntime`
 - WHEN the control plane re-reconciles the unchanged Extension kinds

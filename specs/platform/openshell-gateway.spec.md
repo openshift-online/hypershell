@@ -181,11 +181,11 @@ The `gw-` prefix produces a hostname that is a subdomain of `<base-domain>`. Wit
 
 ## Requirements
 
-### Requirement: Gateway as API Resource
+### Requirement: OSG-CORE-01 -- Gateway as API Resource
 
 Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL and exposed via the REST API. Each Gateway declares an OpenShell gateway deployment with specific configuration, while the API server owns its namespace assignment.
 
-#### Scenario: Create a Gateway via hsctl apply
+#### Scenario: OSG-CORE-01.01 -- Create a Gateway via hsctl apply
 
 - GIVEN a kustomize overlay containing a `gateway.yaml`:
   ```yaml
@@ -200,7 +200,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 - AND the API server SHALL emit a gRPC watch event for the new Gateway
 - AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the assigned namespace
 
-#### Scenario: Update a Gateway via overlay patch
+#### Scenario: OSG-CORE-01.02 -- Update a Gateway via overlay patch
 
 - GIVEN a Gateway already exists for `tenant-a` with image `v0.0.70`
 - AND a kustomize patch changes the image to `v0.0.71`
@@ -208,7 +208,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 - THEN the CLI SHALL PATCH the existing Gateway resource
 - AND the GatewayReconciler SHALL detect the change and update the gateway Deployment
 
-#### Scenario: Gateway namespace does not exist yet
+#### Scenario: OSG-CORE-01.03 -- Gateway namespace does not exist yet
 
 - GIVEN a newly persisted Gateway whose API-assigned namespace does not exist
 - WHEN the GatewayReconciler processes its creation event
@@ -217,11 +217,11 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 ---
 
-### Requirement: Shared Kustomize Library
+### Requirement: OSG-CORE-02 -- Shared Kustomize Library
 
 The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This package does not exist yet; it is desired state to be built. Once built it SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
 
-#### Scenario: Library extraction
+#### Scenario: OSG-CORE-02.01 -- Library extraction
 
 - GIVEN the kustomize engine currently lives in `components/cli/cmd/hsctl/apply/cmd.go`
 - WHEN the shared library is created
@@ -230,7 +230,7 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
 - AND the existing `hsctl apply -k` command SHALL be refactored to use the shared library, removing its current external-`kustomize`-binary shell-out
 - AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL use the same shared library for rendering, so no second kustomize implementation exists
 
-#### Scenario: Supported kinds
+#### Scenario: OSG-CORE-02.02 -- Supported kinds
 
 - GIVEN the shared kustomize library renders manifests
 - THEN it SHALL support the following HyperShell resource kinds:
@@ -238,7 +238,7 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
   - `Gateway` *(new)*
 - AND documents with unrecognized `kind` values SHALL be skipped with a warning
 
-#### Scenario: Unit testability
+#### Scenario: OSG-CORE-02.03 -- Unit testability
 
 - GIVEN the shared kustomize library
 - THEN it SHALL be fully unit-testable without a running cluster or API server
@@ -246,11 +246,11 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
 
 ---
 
-### Requirement: GatewayReconciler
+### Requirement: OSG-CORE-03 -- GatewayReconciler
 
 The control plane SHALL include a GatewayReconciler in `internal/reconciler/` that watches Gateway resource events via the gRPC informer and reconciles them into Kubernetes gateway deployments.
 
-#### Scenario: Gateway ADDED event
+#### Scenario: OSG-CORE-03.01 -- Gateway ADDED event
 
 - GIVEN the GatewayReconciler receives a Gateway ADDED event
 - WHEN the reconciler processes the event
@@ -260,7 +260,7 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - AND all resources SHALL carry the label `hypershell.redhat.io/managed-by=hypershell-control-plane`
 - AND the reconciler SHALL use update-or-create semantics (SSA or equivalent)
 
-#### Scenario: Gateway MODIFIED event
+#### Scenario: OSG-CORE-03.02 -- Gateway MODIFIED event
 
 - GIVEN the GatewayReconciler receives a Gateway MODIFIED event
 - WHEN the reconciler processes the event
@@ -268,14 +268,14 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - AND it SHALL update the affected K8s resources
 - AND the update SHALL be a rolling update for Deployments (zero downtime)
 
-#### Scenario: Gateway DELETED event
+#### Scenario: OSG-CORE-03.03 -- Gateway DELETED event
 
 - GIVEN the GatewayReconciler receives a Gateway DELETED event
 - WHEN the reconciler processes the event
 - THEN it SHALL delete gateway K8s resources from the namespace
 - AND it SHALL NOT delete the namespace itself because legacy Gateway records may reference caller-selected or shared namespaces
 
-#### Scenario: Validation failure
+#### Scenario: OSG-CORE-03.04 -- Validation failure
 
 - GIVEN a Gateway resource with an invalid image reference or malformed TOML config
 - WHEN the GatewayReconciler processes the event
@@ -283,7 +283,7 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - AND it SHALL NOT apply any K8s resources
 - AND it SHALL retry on the next reconciliation cycle
 
-#### Scenario: Namespace creation fails
+#### Scenario: OSG-CORE-03.05 -- Namespace creation fails
 
 - GIVEN the GatewayReconciler receives a Gateway event whose assigned namespace does not exist
 - WHEN namespace creation fails
@@ -292,11 +292,11 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 
 ---
 
-### Requirement: Gateway Manifest Templating
+### Requirement: OSG-CORE-04 -- Gateway Manifest Templating
 
 The GatewayReconciler SHALL load gateway resource manifests from the container filesystem and apply namespace-specific substitutions. This reuses the existing manifest loading and templating logic from the `internal/gateway/manifests.go` module.
 
-#### Scenario: Load gateway manifests from filesystem
+#### Scenario: OSG-CORE-04.01 -- Load gateway manifests from filesystem
 
 - GIVEN the HyperShell container includes gateway manifests at `/manifests/gateway/`
 - WHEN the GatewayReconciler loads manifests
@@ -305,7 +305,7 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 - AND it SHALL substitute `NAMESPACE_PLACEHOLDER` with the target namespace name
 - AND it SHALL substitute `IMAGE_PLACEHOLDER` with the Gateway resource's `image` field
 
-#### Scenario: Required manifest files missing
+#### Scenario: OSG-CORE-04.02 -- Required manifest files missing
 
 - GIVEN the `/manifests/gateway/` directory is missing or empty
 - WHEN the GatewayReconciler attempts to load manifests
@@ -314,7 +314,7 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 
 ---
 
-### Requirement: TLS Certificate Management via cert-manager
+### Requirement: OSG-CORE-05 -- TLS Certificate Management via cert-manager
 
 The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle management. cert-manager is a required cluster prerequisite. See [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) for full details.
 
@@ -326,13 +326,13 @@ The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle manag
 
 ---
 
-### Requirement: Trusted CA Bundle Injection
+### Requirement: OSG-CORE-06 -- Trusted CA Bundle Injection
 
 Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
 
 The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and mounted into the gateway Deployment so that the gateway process trusts the additional CA certificates.
 
-#### Scenario: Trusted CA ConfigMap present in HyperShell namespace
+#### Scenario: OSG-CORE-06.01 -- Trusted CA ConfigMap present in HyperShell namespace
 
 - GIVEN a ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - AND the ConfigMap has a `ca-bundle.crt` key containing one or more PEM-encoded CA certificates
@@ -342,7 +342,7 @@ The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in th
 - AND it SHALL add an `SSL_CERT_FILE` environment variable set to `/etc/pki/tls/certs/ca-bundle.crt` on the gateway container
 - AND the mounted CA bundle SHALL be used by the gateway's TLS client for OIDC discovery and JWKS fetching
 
-#### Scenario: Trusted CA ConfigMap absent
+#### Scenario: OSG-CORE-06.02 -- Trusted CA ConfigMap absent
 
 - GIVEN no ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - WHEN the GatewayReconciler reconciles a gateway
@@ -350,7 +350,7 @@ The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in th
 - AND the gateway SHALL use its built-in trust store (default behavior)
 - AND this SHALL be the default for environments with publicly-trusted IdP certificates (e.g., production with a public CA)
 
-#### Scenario: Trusted CA ConfigMap updated
+#### Scenario: OSG-CORE-06.03 -- Trusted CA ConfigMap updated
 
 - GIVEN a `gateway-trusted-ca` ConfigMap exists and has been updated (new certificates added or removed)
 - WHEN the GatewayReconciler runs its next reconciliation cycle
@@ -361,17 +361,17 @@ The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in th
 
 ---
 
-### Requirement: Gateway Configuration Validation
+### Requirement: OSG-CORE-07 -- Gateway Configuration Validation
 
 The GatewayReconciler SHALL validate Gateway resource fields before applying K8s manifests.
 
-#### Scenario: Valid Gateway configuration
+#### Scenario: OSG-CORE-07.01 -- Valid Gateway configuration
 
 - GIVEN a Gateway with a valid image reference, RFC-1123-compliant DNS names, and valid TOML config
 - WHEN the GatewayReconciler validates the configuration
 - THEN validation SHALL pass and reconciliation SHALL proceed
 
-#### Scenario: Invalid image reference
+#### Scenario: OSG-CORE-07.02 -- Invalid image reference
 
 - GIVEN a Gateway with an `image` or `supervisor_image` reference
   containing invalid characters
@@ -381,7 +381,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 
 > **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.3-rhaiv.3`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
-#### Scenario: Invalid DNS name
+#### Scenario: OSG-CORE-07.03 -- Invalid DNS name
 
 - GIVEN a Gateway with a `serverDnsNames` entry that violates RFC 1123
 - WHEN the GatewayReconciler validates the configuration
@@ -389,11 +389,11 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 
 ---
 
-### Requirement: Kustomize Overlay Structure for Gateways
+### Requirement: OSG-CORE-08 -- Kustomize Overlay Structure for Gateways
 
 Gateway resources SHALL be expressible in the existing `examples/` kustomize overlay structure alongside Project resources.
 
-#### Scenario: Gateway in a tenant overlay
+#### Scenario: OSG-CORE-08.01 -- Gateway in a tenant overlay
 
 - GIVEN the directory `examples/overlays/tenant-a/`:
   ```
@@ -416,7 +416,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 - AND the GatewayReconciler SHALL create the Gateway's distinct API-assigned namespace
 - AND the GatewayReconciler SHALL deploy the gateway into its assigned namespace
 
-#### Scenario: Gateway base with per-tenant patches
+#### Scenario: OSG-CORE-08.02 -- Gateway base with per-tenant patches
 
 - GIVEN a base gateway configuration in `examples/base/gateway.yaml`:
   ```yaml
@@ -438,7 +438,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 
 ---
 
-### Requirement: Gateway Deployment Resources
+### Requirement: OSG-CORE-09 -- Gateway Deployment Resources
 
 For each Gateway resource, the GatewayReconciler SHALL deploy the following Kubernetes resources into the API-assigned namespace:
 
@@ -485,7 +485,7 @@ The gateway Deployment SHALL specify:
   - `/etc/openshell-tls/server` - Secret `openshell-server-tls` (readOnly)
   - `/etc/openshell-tls/client-ca` - Secret `openshell-client-tls` (only `ca.crt` key, readOnly)
 
-#### Scenario: Deploy gateway to assigned namespace
+#### Scenario: OSG-CORE-09.01 -- Deploy gateway to assigned namespace
 
 - GIVEN a Gateway resource has the assigned namespace `openshell-abc123`
 - WHEN the GatewayReconciler reconciles
@@ -493,7 +493,7 @@ The gateway Deployment SHALL specify:
 - AND it SHALL apply all gateway manifests with namespace set to `openshell-abc123`
 - AND it SHALL use update-or-create semantics (never create-and-ignore-AlreadyExists)
 
-#### Scenario: Gateway already exists (idempotency)
+#### Scenario: OSG-CORE-09.02 -- Gateway already exists (idempotency)
 
 - GIVEN `tenant-a` has an OpenShell gateway already deployed
 - WHEN the GatewayReconciler reconciles again
@@ -502,7 +502,7 @@ The gateway Deployment SHALL specify:
 
 ---
 
-### Requirement: Per-Gateway RBAC Resources
+### Requirement: OSG-CORE-10 -- Per-Gateway RBAC Resources
 
 The GatewayReconciler SHALL create RBAC resources that grant the gateway pod and sandbox pods the permissions they need to operate.
 
@@ -562,21 +562,21 @@ The JWT key generation Job runs as ServiceAccount `openshell-gateway-certgen` wi
 
 ---
 
-### Requirement: JWT Key Generation Job
+### Requirement: OSG-CORE-11 -- JWT Key Generation Job
 
 The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to generate JWT signing keys for the gateway. The certgen job creates a Secret named `openshell-gateway-jwt-keys` containing:
 - `signing.pem` - ECDSA private key for signing gateway JWTs
 - `public.pem` - corresponding public key
 - `kid` - key identifier
 
-#### Scenario: Certgen job runs alongside cert-manager
+#### Scenario: OSG-CORE-11.01 -- Certgen job runs alongside cert-manager
 
 - GIVEN cert-manager is installed and creates TLS secrets
 - WHEN the certgen job runs
 - THEN it SHALL detect existing TLS secrets and skip TLS generation
 - AND it SHALL only create JWT keys in `openshell-gateway-jwt-keys`
 
-#### Scenario: Certgen job SecurityContext
+#### Scenario: OSG-CORE-11.02 -- Certgen job SecurityContext
 
 - GIVEN the certgen job is created
 - THEN the job container SHALL specify: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `seccompProfile.type: RuntimeDefault`, capabilities `drop: [ALL]`
@@ -585,7 +585,7 @@ The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to genera
 
 ---
 
-### Requirement: Gateway NetworkPolicies
+### Requirement: OSG-CORE-12 -- Gateway NetworkPolicies
 
 The control plane SHALL NOT create any NetworkPolicies in gateway namespaces.
 On OVN-Kubernetes the default network posture is allow-all; installing any
@@ -605,7 +605,7 @@ Gateway databases are provisioned on the externally provisioned PostgreSQL serve
 
 ---
 
-### Requirement: Gateway Configuration (gateway.toml)
+### Requirement: OSG-CORE-13 -- Gateway Configuration (gateway.toml)
 
 The GatewayReconciler SHALL create a ConfigMap (`openshell-gateway-config`) containing a `gateway.toml` file that configures the OpenShell gateway process. The TOML is assembled from the Gateway resource fields and cluster-derived values.
 
@@ -700,7 +700,7 @@ When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OI
 
 ---
 
-### Requirement: OpenShift-Specific Gateway Provisioning
+### Requirement: OSG-CORE-14 -- OpenShift-Specific Gateway Provisioning
 
 When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
 
@@ -708,7 +708,7 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 
 **TLS is NOT disabled.** The NVIDIA docs show `--set server.disableTls=true` for evaluation scenarios. HyperShell does NOT use this setting because BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, which requires the gateway to serve TLS. The gateway's self-signed certificate (generated by cert-manager) is used for the backend TLS segment.
 
-#### Scenario: SCC binding for sandbox service account
+#### Scenario: OSG-CORE-14.01 -- SCC binding for sandbox service account
 
 - GIVEN the GatewayReconciler is deploying a gateway to an OpenShift cluster
 - AND the target namespace exists
@@ -718,7 +718,7 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - AND the binding SHALL be equivalent to: `oc adm policy add-scc-to-user privileged -z openshell-gateway-sandbox -n <namespace>`
 - AND the reconciler SHALL use update-or-create semantics for the SCC binding (idempotent)
 
-#### Scenario: Pod security context adjustments for OpenShift
+#### Scenario: OSG-CORE-14.02 -- Pod security context adjustments for OpenShift
 
 - GIVEN the GatewayReconciler is deploying a gateway to an OpenShift cluster
 - WHEN the reconciler applies gateway manifests
@@ -726,7 +726,7 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - AND it SHALL clear the `securityContext.runAsUser` field (set to null/omit) so that OpenShift's SCC admission controller assigns the UID from the namespace's allocated range
 - AND all gateway containers SHALL set `securityContext.seccompProfile.type` to `RuntimeDefault` to satisfy the `restricted:latest` PodSecurity standard
 
-#### Scenario: Gateway deployment on vanilla Kubernetes (unchanged)
+#### Scenario: OSG-CORE-14.03 -- Gateway deployment on vanilla Kubernetes (unchanged)
 
 - GIVEN the GatewayReconciler is deploying a gateway to a non-OpenShift cluster (e.g., Kind, EKS, GKE)
 - WHEN the reconciler applies gateway manifests
@@ -734,7 +734,7 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - AND it SHALL NOT create SCC bindings (SCC is an OpenShift-only concept)
 - AND the `seccompProfile.type: RuntimeDefault` SHALL still be set (it is valid on all Kubernetes clusters)
 
-#### Scenario: Platform detection reuse
+#### Scenario: OSG-CORE-14.04 -- Platform detection reuse
 
 - GIVEN the GatewayReconciler already detects OpenShift for SCC/security adjustments
 - AND the GatewayReconciler detects Gateway API availability for GRPCRoute provisioning
@@ -745,11 +745,11 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 
 ---
 
-### Requirement: Gateway Deployment Failure Handling
+### Requirement: OSG-CORE-15 -- Gateway Deployment Failure Handling
 
 When gateway deployment fails (e.g., ImagePullBackOff, insufficient permissions), the GatewayReconciler SHALL log the error and retry on subsequent reconcile cycles without crashing.
 
-#### Scenario: Image pull failure
+#### Scenario: OSG-CORE-15.01 -- Image pull failure
 
 - GIVEN a Gateway resource specifies an image that does not exist
 - WHEN Kubernetes attempts to pull the image
@@ -757,7 +757,7 @@ When gateway deployment fails (e.g., ImagePullBackOff, insufficient permissions)
 - AND the GatewayReconciler SHALL log an error with the Gateway name, project, and failure reason
 - AND the GatewayReconciler SHALL retry on the next reconcile cycle
 
-#### Scenario: Insufficient RBAC permissions
+#### Scenario: OSG-CORE-15.02 -- Insufficient RBAC permissions
 
 - GIVEN the CP ServiceAccount does NOT have permission to create Deployments in a namespace
 - WHEN the GatewayReconciler attempts to apply gateway manifests
@@ -766,13 +766,13 @@ When gateway deployment fails (e.g., ImagePullBackOff, insufficient permissions)
 
 ---
 
-### Requirement: Separation from Agent Configuration
+### Requirement: OSG-CORE-16 -- Separation from Agent Configuration
 
 Gateway provisioning SHALL be independent of agent definitions. Agent-specific configuration (schedules, prompts, policies) is out of scope for this specification.
 
 ---
 
-### Requirement: Payload Delivery via SSH-over-gRPC
+### Requirement: OSG-CORE-17 -- Payload Delivery via SSH-over-gRPC
 
 When the control plane needs to write payload files (`.mcp.json`, `CLAUDE.md`, credential configs) into a running sandbox, it SHALL use the OpenShell SSH-over-gRPC mechanism rather than `ExecSandbox`. Sandbox containers use a read-only root filesystem, so `ExecSandbox`-based writes (which run as the sandbox user) fail with "Permission denied". The SSH path routes through the supervisor's embedded SSH server (russh), which runs as root and can write to any path.
 

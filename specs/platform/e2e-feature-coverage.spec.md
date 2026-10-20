@@ -81,7 +81,7 @@ counterpart), and authoring a `PrometheusRule` for the alerting feature (see
 
 ## Requirements
 
-### Requirement: Provider Credential Driver Coverage
+### Requirement: E2E-COV-01 -- Provider Credential Driver Coverage
 
 The e2e test suite SHALL validate the per-gateway credential storage drivers
 specified in `openshell-gateway-credentials.spec.md` across all three explicit
@@ -146,7 +146,7 @@ Credential-driver gateways SHALL be owned and torn down by the phase (delete plu
 namespace-GC wait, as the `deletion-namespace-gc` phase (P2.3) does for its own
 gateway), leaving nothing behind.
 
-#### Scenario: Kubernetes Secrets driver reconciled
+#### Scenario: E2E-COV-01.01 -- Kubernetes Secrets driver reconciled
 
 - GIVEN a long-mode run on any target
 - WHEN the suite creates a gateway with `credential_driver.type = kubernetes-secrets` and waits for `Running`
@@ -154,40 +154,40 @@ gateway), leaving nothing behind.
 - AND the chart-generated KEK Secret (`<fullname>-credential-storage-key-encryption-key`) SHALL NOT exist and the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL NOT be on the Deployment
 - AND a Role and RoleBinding `openshell-gateway-credential-secrets` SHALL exist in the credential namespace, bound to the `openshell-gateway` ServiceAccount
 
-#### Scenario: Vault driver qualification (opt-in)
+#### Scenario: E2E-COV-01.02 -- Vault driver qualification (opt-in)
 
 - GIVEN `E2E_QUALIFY_VAULT=1` with `E2E_VAULT_ADDR` and `E2E_VAULT_ROLE` set to a reachable Vault
 - WHEN the suite creates a gateway with `credential_driver.type = vault` and waits for `Running`
 - THEN the generated configuration SHALL contain `credential_drivers = ["vault"]` and SHALL omit the KEK sections
 - AND the gateway Deployment SHALL mount a projected ServiceAccount token volume with audience `vault` at `/var/run/secrets/vault`
 
-#### Scenario: Vault qualification skipped by default
+#### Scenario: E2E-COV-01.03 -- Vault qualification skipped by default
 
 - GIVEN `E2E_QUALIFY_VAULT` is unset
 - WHEN the suite reaches the Vault sub-check of the `credential-drivers` phase
 - THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
-#### Scenario: Explicit kek-db driver provisions the KEK store
+#### Scenario: E2E-COV-01.04 -- Explicit kek-db driver provisions the KEK store
 
 - GIVEN a long-mode run on any target, regardless of `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
 - WHEN the suite creates a gateway with `credential_driver.type = kek-db` and waits for `Running`
 - THEN the generated config SHALL contain `[openshell.gateway.credential_storage]`, the chart-generated KEK Secret (`<fullname>-credential-storage-key-encryption-key`, key `key-encryption-key`) SHALL exist, and the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL be on the Deployment
 
-#### Scenario: Omitted driver resolves to the deployment default
+#### Scenario: E2E-COV-01.05 -- Omitted driver resolves to the deployment default
 
 - GIVEN a gateway created with no `credential_driver` and the deployment's resolved `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
 - WHEN the `credential-drivers` phase inspects its reconciled configuration
 - THEN the generated config SHALL match the resolved default (KEK sections on a `kek-db` default; the vault driver section and no KEK on a `vault` default)
 - AND the suite SHALL NOT assert KEK unconditionally for the omitted-driver gateway
 
-#### Scenario: Invalid driver and post-storage change rejected
+#### Scenario: E2E-COV-01.06 -- Invalid driver and post-storage change rejected
 
 - GIVEN a gateway-create request with `credential_driver.type = s3`
 - WHEN the suite submits it through the API
 - THEN the request SHALL be rejected (at the API, or surfaced as a reconcile error) rather than silently accepted
 - AND when the suite attempts to change a gateway's `credential_driver` after provider credentials have been stored, the API SHALL reject the update
 
-### Requirement: Gateway Sharing Coverage
+### Requirement: E2E-COV-02 -- Gateway Sharing Coverage
 
 The e2e test suite SHALL validate a complete "owner shares a gateway with a
 second user" flow through the `role_bindings` API
@@ -236,28 +236,28 @@ SHALL be rejected when creating a `gateway:viewer`/`gateway:owner` binding, and 
 
 The suite SHALL clean up any binding and gateway it creates on every exit path.
 
-#### Scenario: Owner shares viewer access and the reconciler propagates it
+#### Scenario: E2E-COV-02.01 -- Owner shares viewer access and the reconciler propagates it
 
 - GIVEN the admin owns the phase's dedicated `Running` gateway, the second user's id is resolved from `/users`, and the `gateway:viewer` role id is resolved from `Roles().List`
 - WHEN the owner creates a `role_bindings` entry with `scope = gateway`, the resolved `role_id`, the second user's `user_id`, and the dedicated `gateway_id`
 - THEN `E2EInfraDriver.AcquireGatewayTokenWithRole` for the second user SHALL observe the `openshell-user` role on the per-gateway client within the role-reconcile timeout
 - AND the second user SHALL be able to create a sandbox on that gateway
 
-#### Scenario: Revoking the binding removes access
+#### Scenario: E2E-COV-02.02 -- Revoking the binding removes access
 
 - GIVEN a `gateway:viewer` binding the owner created for the second user
 - WHEN the owner deletes that binding
 - THEN a newly minted per-gateway token for the second user SHALL NOT carry `openshell-user`
 - AND a sandbox create by the second user SHALL be denied
 
-#### Scenario: Non-owner cannot share and privileged roles are refused
+#### Scenario: E2E-COV-02.03 -- Non-owner cannot share and privileged roles are refused
 
 - GIVEN a caller who does not hold `gateway:owner` on the target gateway
 - WHEN that caller creates a `gateway:viewer` binding for the gateway
 - THEN the API SHALL reject the request
 - AND a `role_bindings` create requesting `gateway:creator` or `platform:admin` SHALL be refused as Keycloak-only, regardless of caller
 
-### Requirement: Kata Runtime Sandbox Coverage
+### Requirement: E2E-COV-03 -- Kata Runtime Sandbox Coverage
 
 The e2e test suite SHALL validate that a sandbox honors a configured Kata
 RuntimeClass, closing the gap that the suite exercises only the cluster-default
@@ -277,20 +277,20 @@ wait for the pod to reach `Running`; where the qualification cluster provides th
 RuntimeClass object but no node handler, asserting the pod's `runtimeClassName`
 field is set SHALL suffice and the readiness wait SHALL `t.Skipf`, not fail.
 
-#### Scenario: Sandbox lands on the configured Kata runtime
+#### Scenario: E2E-COV-03.01 -- Sandbox lands on the configured Kata runtime
 
 - GIVEN `E2E_QUALIFY_KATA=1` and a gateway configured with `default_runtime_class_name = <E2E_KATA_RUNTIME_CLASS>`
 - WHEN the suite creates a sandbox on that gateway
 - THEN the sandbox pod's `spec.runtimeClassName` SHALL equal `E2E_KATA_RUNTIME_CLASS`
 - AND where the cluster can schedule that runtime, the pod SHALL reach `Running` within `E2E_SANDBOX_TIMEOUT`
 
-#### Scenario: Kata qualification skipped by default
+#### Scenario: E2E-COV-03.02 -- Kata qualification skipped by default
 
 - GIVEN `E2E_QUALIFY_KATA` is unset
 - WHEN the suite reaches the `kata-runtime` phase
 - THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
-### Requirement: Alerting and Incident Signal Coverage
+### Requirement: E2E-COV-04 -- Alerting and Incident Signal Coverage
 
 The e2e test suite SHALL validate that an operational fault surfaces an observable
 signal. This is the `alerting-signal` phase (P2.10), long-tagged.
@@ -330,26 +330,26 @@ therefore has two tiers:
 The suite SHALL restore any state it perturbed (delete the fault-inducing gateway,
 wait out its namespace GC) on every exit path.
 
-#### Scenario: Reconcile fault increments the failure metric
+#### Scenario: E2E-COV-04.01 -- Reconcile fault increments the failure metric
 
 - GIVEN a ready in-cluster Prometheus and a baseline query of the reconcile failure/outcome series (`PROMETHEUS_URL`, the control plane exports via OTLP to the otel-collector)
 - WHEN the suite drives a condition that fails a reconcile
 - THEN a follow-up Prometheus query SHALL show the failure series incremented above the baseline within the provisioning timeout, allowing for the scrape interval
 - AND the suite SHALL clear the condition and clean up the gateway it created
 
-#### Scenario: Alert firing qualification (deferred)
+#### Scenario: E2E-COV-04.02 -- Alert firing qualification (deferred)
 
 - GIVEN `E2E_QUALIFY_ALERTING=1`, an authored alert rule, and a reachable Alertmanager/Prometheus
 - WHEN the suite provokes the rule's condition
 - THEN the corresponding alert SHALL reach `firing` and SHALL clear when the condition resolves
 
-#### Scenario: Alert firing skipped until the feature exists
+#### Scenario: E2E-COV-04.03 -- Alert firing skipped until the feature exists
 
 - GIVEN `E2E_QUALIFY_ALERTING` is unset (the default while no `PrometheusRule` exists)
 - WHEN the suite reaches the alert-firing tier of the `alerting-signal` phase
 - THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
-### Requirement: CLI and UI Command Parity Coverage
+### Requirement: E2E-COV-05 -- CLI and UI Command Parity Coverage
 
 The e2e test suite SHALL assert that the CLI commands the web console renders are
 the same commands the e2e suite executes, and that they stay valid across
@@ -388,26 +388,26 @@ Validity across upgrades SHALL be exercised by driving the parity assertion from
 the live reconciled `gateway_version` rather than a pinned constant, so a version
 bump that breaks suffix handling or branch selection fails this phase.
 
-#### Scenario: UI install command equals the executed command
+#### Scenario: E2E-COV-05.01 -- UI install command equals the executed command
 
 - GIVEN the live reconciled `gateway_version` of a `Running` gateway
 - WHEN the suite derives the UI-rendered install command and the command it executes for that version
 - THEN the two command strings SHALL be equal, including version-suffix handling and the install-script branch selected
 
-#### Scenario: UI-rendered install command produces a matching CLI
+#### Scenario: E2E-COV-05.02 -- UI-rendered install command produces a matching CLI
 
 - GIVEN the UI-rendered install command and its `OPENSHELL_VERSION` value
 - WHEN the suite runs it through `scripts/install-openshell.sh` into an isolated location
 - THEN the installed `openshell --version` SHALL match the deployed gateway version
 - AND the checksum-verified GitHub-release branch SHALL be used for plain-semver versions and the quay-image branch for suffixed versions
 
-#### Scenario: Provider-add command runs end to end
+#### Scenario: E2E-COV-05.03 -- Provider-add command runs end to end
 
 - GIVEN a connected gateway and the UI's `buildProviderCreateCommand` output
 - WHEN the suite executes that `openshell provider create ... --from-gcloud-adc` command (or a credential-free equivalent)
 - THEN the provider SHALL be created on the gateway, giving the `--from-gcloud-adc` path e2e coverage
 
-#### Scenario: Parity is driven by the live version, not a constant
+#### Scenario: E2E-COV-05.04 -- Parity is driven by the live version, not a constant
 
 - GIVEN an OpenShell upgrade that changes `gateway_version`
 - WHEN the `cli-ui-parity` phase runs against the upgraded gateway
@@ -440,10 +440,10 @@ only observable effects are covered by the trex integration tests, by a prior
 phase (sandbox-count gRPC write-back at the `sandbox-lifecycle` phase, P2.1), or
 by a dedicated unit test (`plugins/gateways/metrics_test.go` for the
 `managed_cluster` metric attribution, which
-`gateway-managed-cluster-attribution.spec.md` GMCA-06 assigns to unit tests).
+`gateway-managed-cluster-attribution.spec.md` GTW-ATTR-06 assigns to unit tests).
 Those SHALL NOT be re-tested in e2e.
 
-### Requirement: ManagedCluster Delete and Re-Registration Coverage
+### Requirement: E2E-COV-06 -- ManagedCluster Delete and Re-Registration Coverage
 
 The e2e test suite SHALL validate the orphan-on-delete and
 restore-on-re-registration semantics in `managed-cluster-registration.spec.md`:
@@ -467,25 +467,25 @@ within a bounded window, then wait for the second control plane's next
 leaving the fleet as it found it. The suite SHALL delete the throwaway gateway on
 all exit paths.
 
-#### Scenario: Deleting a registered cluster orphans its gateways
+#### Scenario: E2E-COV-06.01 -- Deleting a registered cluster orphans its gateways
 
 - GIVEN `E2E_MULTICLUSTER=1` and a throwaway gateway on the second registered cluster
 - WHEN the suite deletes that cluster's record
 - THEN the gateway SHALL be detached and no longer reconciled within a bounded window
 
-#### Scenario: Re-registration restores the cluster and re-attaches gateways
+#### Scenario: E2E-COV-06.02 -- Re-registration restores the cluster and re-attaches gateways
 
 - GIVEN a deleted second-cluster record whose control plane is still running
 - WHEN that control plane issues its next `/registration`
 - THEN the record SHALL be restored with the same `cluster_id` and the gateway SHALL re-attach and reconcile again
 
-#### Scenario: Single-cluster run skips the delete
+#### Scenario: E2E-COV-06.03 -- Single-cluster run skips the delete
 
 - GIVEN a single-cluster run (no `E2E_MULTICLUSTER`)
 - WHEN the suite reaches the cluster-delete sub-check of `managedcluster-lifecycle`
 - THEN it SHALL `t.Skipf`, because deleting the only registered cluster would break the run and a synthetic record cannot hold a gateway
 
-### Requirement: Phase Placement and Mode Tags
+### Requirement: E2E-COV-07 -- Phase Placement and Mode Tags
 
 The five feature phases SHALL register as new long-tagged steps of `E2ESuite`
 in `p2ParallelSteps()` (and mirrored in the scheduler golden order), and the
@@ -506,14 +506,14 @@ rather than restating their content here; this spec owns their content.
 | P2.11 | `cli-ui-parity` | long | none (Kind-hostable) |
 | P2.4 (ext) | `managedcluster-lifecycle` | long | `E2E_MULTICLUSTER=1` (single-cluster skips the delete) |
 
-#### Scenario: New phases skipped in short mode
+#### Scenario: E2E-COV-07.01 -- New phases skipped in short mode
 
 - GIVEN `E2E_MODE=short` (including the matrix's default short runs)
 - WHEN the suite runs
 - THEN each new phase above SHALL `t.Skipf` and SHALL NOT execute, exactly as P2.4-P2.6 do
 - AND `E2E_MODE=perf` SHALL remain an invalid mode (performance is a separate benchmark)
 
-#### Scenario: New phases run in long mode
+#### Scenario: E2E-COV-07.02 -- New phases run in long mode
 
 - GIVEN `E2E_MODE=long` (or unset)
 - WHEN the suite runs

@@ -72,11 +72,11 @@ The router removes the top-level `"model"` field (it moves into the URL path), i
 
 ## Requirements
 
-### Requirement: Credential-free cloud-model access from sandboxes
+### Requirement: AGT-INF-01 -- Credential-free cloud-model access from sandboxes
 
 Sandbox agents SHALL be able to invoke cloud inference models without any provider credential (API key, OAuth token, service-account material) being injected into, stored in, or readable from the sandbox.
 
-#### Scenario: No provider credential in the sandbox environment
+#### Scenario: AGT-INF-01.01 -- No provider credential in the sandbox environment
 
 - GIVEN a `google-vertex-ai` provider configured on the gateway with a valid token
 - AND a workspace inference route pointing `inference.local` at that provider
@@ -84,7 +84,7 @@ Sandbox agents SHALL be able to invoke cloud inference models without any provid
 - THEN the request SHALL succeed
 - AND no GCP token, service-account key, or Anthropic key SHALL be present in the sandbox's environment, filesystem, or process arguments
 
-#### Scenario: Caller-supplied credential is ignored
+#### Scenario: AGT-INF-01.02 -- Caller-supplied credential is ignored
 
 - GIVEN an inference route configured on `inference.local`
 - WHEN a sandbox client sends any `Authorization` or `x-api-key` header (including a real secret or the sentinel)
@@ -94,7 +94,7 @@ Sandbox agents SHALL be able to invoke cloud inference models without any provid
 
 ---
 
-### Requirement: Workspace inference route configuration
+### Requirement: AGT-INF-02 -- Workspace inference route configuration
 
 The platform SHALL support a workspace-scoped inference route that binds a provider and a forced model to the `inference.local` virtual host, configured via `openshell inference set --provider <name> --model <id>`.
 
@@ -103,14 +103,14 @@ The platform SHALL support a workspace-scoped inference route that binds a provi
 | user-facing | `inference.local` | agent/user code in sandboxes |
 | system | `sandbox-system` | platform functions (agent harness); not reachable by user code |
 
-#### Scenario: User route configured for a Vertex Claude model
+#### Scenario: AGT-INF-02.01 -- User route configured for a Vertex Claude model
 
 - GIVEN a `google-vertex-ai` provider `vertex-claude` holding a valid GCP token
 - WHEN the operator runs `openshell inference set --provider vertex-claude --model claude-sonnet-4-5@<date>`
 - THEN `openshell inference get` SHALL report the user route as configured with that provider and model
 - AND requests to `https://inference.local/v1/messages` SHALL be served by that model
 
-#### Scenario: Global-region routes skip client-side endpoint verification
+#### Scenario: AGT-INF-02.02 -- Global-region routes skip client-side endpoint verification
 
 - GIVEN a Vertex provider whose region is `global`
 - WHEN the operator configures the route
@@ -118,11 +118,11 @@ The platform SHALL support a workspace-scoped inference route that binds a provi
 
 ---
 
-### Requirement: Client request shape must match the provider API contract
+### Requirement: AGT-INF-03 -- Client request shape must match the provider API contract
 
 Because the inference router performs a targeted field-level adaptation (not a full schema transpile), the client's request body fields SHALL be compatible with the upstream provider's API version. Newer client fields that the provider's validation rejects SHALL be avoided at the client, since the router does not strip them.
 
-#### Scenario: Vertex Anthropic partner endpoint rejects newer client fields
+#### Scenario: AGT-INF-03.01 -- Vertex Anthropic partner endpoint rejects newer client fields
 
 - GIVEN Claude Code configured with `ANTHROPIC_BASE_URL=https://inference.local` against a Vertex Anthropic route (`anthropic_version = vertex-2023-10-16`, strict body validation)
 - WHEN Claude Code uses an effort-capable model that emits `thinking: {type: "adaptive"}` and `output_config.effort`
@@ -133,7 +133,7 @@ Because the inference router performs a targeted field-level adaptation (not a f
 > env var strips them. Pinning a non-effort model is the supported lever. See the
 > [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill for the exact recipe.
 
-#### Scenario: Native-provider client mode must be disabled
+#### Scenario: AGT-INF-03.02 -- Native-provider client mode must be disabled
 
 - GIVEN Claude Code inside a sandbox
 - WHEN it is configured for a provider's native auth mode (`CLAUDE_CODE_USE_VERTEX=1`)

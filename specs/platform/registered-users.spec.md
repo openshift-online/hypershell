@@ -19,16 +19,16 @@ The **Users** widget (widget type `registered-users`) SHALL present:
 
 - Hero total: registered user count
 - **Added** counts for rolling 7-day and 30-day windows (from `created_at`)
-- **Unique logins** rollups for rolling 7-day and 30-day UTC calendar windows (distinct registered users with API activity; see RU-10)
+- **Unique logins** rollups for rolling 7-day and 30-day UTC calendar windows (distinct registered users with API activity; see PLAT-USR-10)
 - A 30-day sparkline of daily unique logins (UTC calendar days)
 
-The usage summary **Users** row SHALL show the same total registered user count with an optional trend arrow driven by unique-login activity (RU-13).
+The usage summary **Users** row SHALL show the same total registered user count with an optional trend arrow driven by unique-login activity (PLAT-USR-13).
 
 The users List API remains available for future collection workflows but is not the preferred source for operational dashboard aggregates.
 
 ## Requirements
 
-### Requirement: RU-01 -- Read-Only User Inventory API
+### Requirement: PLAT-USR-01 -- Read-Only User Inventory API
 
 The API server SHALL expose read-only HTTP endpoints:
 
@@ -39,15 +39,15 @@ The endpoints SHALL NOT support Create, Patch, or Delete. User records SHALL con
 
 OpenAPI definitions SHALL live in `components/api-server/openapi/openapi.users.yaml` and SHALL be embedded in the composite OpenAPI document. `make generate` SHALL regenerate the Go and TypeScript SDK clients.
 
-#### Scenario: Authenticated dashboard operator lists users
+#### Scenario: PLAT-USR-01.01 -- Authenticated dashboard operator lists users
 
-- GIVEN a caller authorized for user inventory (RU-03)
+- GIVEN a caller authorized for user inventory (PLAT-USR-03)
 - WHEN the caller sends `GET /api/hypershell/v1/users?page=1&size=20&orderBy=username asc`
 - THEN the API SHALL respond with HTTP `200` and a `UserList` body
 - AND `items` SHALL contain at most 20 `User` resources ordered by username ascending
 - AND `total` SHALL equal the number of registered users in the database
 
-#### Scenario: User creation via API is not supported
+#### Scenario: PLAT-USR-01.02 -- User creation via API is not supported
 
 - GIVEN an authenticated caller
 - WHEN the caller sends `POST /api/hypershell/v1/users`
@@ -55,7 +55,7 @@ OpenAPI definitions SHALL live in `components/api-server/openapi/openapi.users.y
 
 ---
 
-### Requirement: RU-02 -- User Resource Schema
+### Requirement: PLAT-USR-02 -- User Resource Schema
 
 The `User` OpenAPI schema SHALL expose:
 
@@ -71,7 +71,7 @@ The `User` OpenAPI schema SHALL expose:
 
 The schema SHALL NOT expose internal RBAC bindings, Keycloak subject identifiers, or session metadata.
 
-#### Scenario: Auto-provisioned user appears in List output
+#### Scenario: PLAT-USR-02.01 -- Auto-provisioned user appears in List output
 
 - GIVEN user `alice` authenticated for the first time and auto-provisioned by middleware
 - WHEN an authorized caller lists users
@@ -79,9 +79,9 @@ The schema SHALL NOT expose internal RBAC bindings, Keycloak subject identifiers
 
 ---
 
-### Requirement: RU-03 -- User Inventory Authorization
+### Requirement: PLAT-USR-03 -- User Inventory Authorization
 
-User inventory endpoints SHALL require **dashboard-operator authorization**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04):
+User inventory endpoints SHALL require **dashboard-operator authorization**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` WEB-OPS-04):
 
 - Caller holds an effective `platform:admin` RoleBinding (including JWT-synced `platform:admin` realm role)
 
@@ -96,25 +96,25 @@ The RBAC middleware SHALL treat resource `users` explicitly; user inventory SHAL
 
 Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant user inventory access when `platform:admin` is absent.
 
-#### Scenario: Gateway creator without platform admin cannot list users
+#### Scenario: PLAT-USR-03.01 -- Gateway creator without platform admin cannot list users
 
 - GIVEN a caller with only `gateway:creator`
 - WHEN the caller sends `GET /api/hypershell/v1/users`
 - THEN the API SHALL respond with HTTP `403`
 
-#### Scenario: Platform admin can list users
+#### Scenario: PLAT-USR-03.02 -- Platform admin can list users
 
 - GIVEN a caller with effective `platform:admin`
 - WHEN the caller sends `GET /api/hypershell/v1/users`
 - THEN the API SHALL respond with HTTP `200`
 
-#### Scenario: Legacy hypershell-admins role alone cannot list users
+#### Scenario: PLAT-USR-03.03 -- Legacy hypershell-admins role alone cannot list users
 
 - GIVEN a caller whose JWT includes `hypershell-admins` but who lacks effective `platform:admin`
 - WHEN the caller sends `GET /api/hypershell/v1/users`
 - THEN the API SHALL respond with HTTP `403`
 
-#### Scenario: Unauthorized singleton lookup is opaque
+#### Scenario: PLAT-USR-03.04 -- Unauthorized singleton lookup is opaque
 
 - GIVEN a caller without dashboard-operator authorization
 - WHEN the caller sends `GET /api/hypershell/v1/users/{id}`
@@ -122,7 +122,7 @@ Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant 
 
 ---
 
-### Requirement: RU-04 -- Paginated List Contract
+### Requirement: PLAT-USR-04 -- Paginated List Contract
 
 `GET /api/hypershell/v1/users` SHALL support the standard HyperShell list query parameters: `page`, `size`, `orderBy`, `search`, and `fields`.
 
@@ -130,7 +130,7 @@ Default ordering SHALL be `username asc`. Maximum page `size` SHALL follow the s
 
 The List response SHALL include accurate `page`, `size`, `total`, and `items` fields per the shared `List` schema.
 
-#### Scenario: Total count is available without fetching every page
+#### Scenario: PLAT-USR-04.01 -- Total count is available without fetching every page
 
 - GIVEN 250 registered users exist
 - WHEN an authorized caller sends `GET /api/hypershell/v1/users?page=1&size=1&orderBy=username asc`
@@ -139,9 +139,9 @@ The List response SHALL include accurate `page`, `size`, `total`, and `items` fi
 
 ---
 
-### Requirement: RU-05 -- Operational Dashboard Metric
+### Requirement: PLAT-USR-05 -- Operational Dashboard Metric
 
-The operational dashboard host adapter SHALL populate an `OperationalMetric` with `id: "registered-users"` and fields mapped from BFF `GET /api/metrics/registered-users` per RU-12.
+The operational dashboard host adapter SHALL populate an `OperationalMetric` with `id: "registered-users"` and fields mapped from BFF `GET /api/metrics/registered-users` per PLAT-USR-12.
 
 | `OperationalMetric` field | Source (when present) | Meaning |
 | --- | --- | --- |
@@ -154,9 +154,9 @@ The operational dashboard host adapter SHALL populate an `OperationalMetric` wit
 
 The adapter SHALL obtain all fields from the BFF Prometheus proxy. The adapter SHALL NOT paginate the users List API for dashboard aggregates.
 
-When optional adoption fields are absent from the BFF response, the adapter SHALL still emit the `registered-users` metric if `total_registered` is present and SHALL omit only the missing optional fields (RU-14).
+When optional adoption fields are absent from the BFF response, the adapter SHALL still emit the `registered-users` metric if `total_registered` is present and SHALL omit only the missing optional fields (PLAT-USR-14).
 
-#### Scenario: Dashboard shows registered user total and adoption fields
+#### Scenario: PLAT-USR-05.01 -- Dashboard shows registered user total and adoption fields
 
 - GIVEN 450 registered users exist with complete adoption metrics
 - AND an authorized dashboard operator opens `/dashboard`
@@ -166,18 +166,18 @@ When optional adoption fields are absent from the BFF response, the adapter SHAL
 - AND the Users widget SHALL show hero copy equivalent to `450 Registered users`
 - AND added, unique-login rollups, and `trend.points` SHALL render when present
 
-#### Scenario: Unauthorized BFF call omits registered-users metric
+#### Scenario: PLAT-USR-05.02 -- Unauthorized BFF call omits registered-users metric
 
 - GIVEN the signed-in user lacks dashboard-operator BFF authorization
 - AND at least one other metric source succeeds
 - WHEN the host adapter calls `GET /api/metrics/registered-users`
 - THEN the `registered-users` metric SHALL be omitted from the adapter response
-- AND the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- AND the dashboard SHALL show its localized partial-load warning (WEB-OPS-09)
 - AND the Users widget and usage-summary row SHALL render the localized metric-unavailable state (not a silent zero count)
 
 ---
 
-### Requirement: RU-06 -- Users Widget Presentation
+### Requirement: PLAT-USR-06 -- Users Widget Presentation
 
 The `registered-users` widget SHALL render through a dedicated **Users** card presentation (`UsersCard`), not the generic `MetricCard`.
 
@@ -194,15 +194,15 @@ Below the hero, the widget SHALL render a 2×2 stat grid:
 
 When `trend.points` is present, a `TrendSparklineChart` SHALL render below the stat grid with localized title **Unique logins per day** and subtitle **Last 30 days**.
 
-When an optional field is absent (RU-14), the corresponding stat cell or sparkline SHALL render the localized metric-unavailable state for that subsection; the widget shell SHALL remain.
+When an optional field is absent (PLAT-USR-14), the corresponding stat cell or sparkline SHALL render the localized metric-unavailable state for that subsection; the widget shell SHALL remain.
 
 The usage summary card SHALL include a **Users** row sourced from the same metric `value`. User-facing copy SHALL use **Users** in the summary row label (not "Active users").
 
 All user-visible strings SHALL use `defineMessages` in `operational-dashboard-ui` and SHALL be extracted into the web-console `locales/en.json` catalog.
 
-The default layout template SHALL place `registered-users` spanning columns 1–2 on the platform adoption first row (OP-DASH-10) with height `REGISTERED_USERS_WIDGET_HEIGHT` (taller than `METRIC_WIDGET_HEIGHT` to fit the stat grid and sparkline). `usage-summary` SHALL share `REGISTERED_USERS_WIDGET_HEIGHT` in column 0 on the same row. `gateway-status` SHALL render in column 3 on the platform adoption second row at height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT`.
+The default layout template SHALL place `registered-users` spanning columns 1–2 on the platform adoption first row (WEB-OPS-10) with height `REGISTERED_USERS_WIDGET_HEIGHT` (taller than `METRIC_WIDGET_HEIGHT` to fit the stat grid and sparkline). `usage-summary` SHALL share `REGISTERED_USERS_WIDGET_HEIGHT` in column 0 on the same row. `gateway-status` SHALL render in column 3 on the platform adoption second row at height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT`.
 
-#### Scenario: Users widget shows adoption layout
+#### Scenario: PLAT-USR-06.01 -- Users widget shows adoption layout
 
 - GIVEN `registered-users` is on the dashboard layout and metrics loaded successfully with all adoption fields
 - WHEN the widget renders
@@ -210,7 +210,7 @@ The default layout template SHALL place `registered-users` spanning columns 1–
 - AND the four stat cells SHALL display their respective values
 - AND the sparkline SHALL render with 30 daily points
 
-#### Scenario: Missing login fields degrade the widget
+#### Scenario: PLAT-USR-06.02 -- Missing login fields degrade the widget
 
 - GIVEN `registered-users` has `value` and `createdLast7Days` but lacks `uniqueLoginsLast7Days` and `trend`
 - WHEN the widget renders
@@ -220,15 +220,15 @@ The default layout template SHALL place `registered-users` spanning columns 1–
 
 ---
 
-### Requirement: RU-07 -- Refresh and Error Semantics
+### Requirement: PLAT-USR-07 -- Refresh and Error Semantics
 
-Registered user metrics SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior defined in `web-console/operational-dashboard.spec.md` OP-DASH-09.
+Registered user metrics SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior defined in `web-console/operational-dashboard.spec.md` WEB-OPS-09.
 
-A failed `GET /api/metrics/registered-users` request (HTTP non-success or missing `total_registered`) SHALL fail only the `registered-users` metric source (OP-DASH-19); the dashboard SHALL NOT display `0` as a fallback count.
+A failed `GET /api/metrics/registered-users` request (HTTP non-success or missing `total_registered`) SHALL fail only the `registered-users` metric source (WEB-OPS-19); the dashboard SHALL NOT display `0` as a fallback count.
 
-A successful BFF response with `total_registered` but missing optional adoption fields SHALL NOT fail the metric source (RU-14).
+A successful BFF response with `total_registered` but missing optional adoption fields SHALL NOT fail the metric source (PLAT-USR-14).
 
-#### Scenario: Refresh updates the displayed total
+#### Scenario: PLAT-USR-07.01 -- Refresh updates the displayed total
 
 - GIVEN the dashboard previously showed `42` registered users
 - AND a new user auto-provisioned since the last refresh
@@ -237,7 +237,7 @@ A successful BFF response with `total_registered` but missing optional adoption 
 
 ---
 
-### Requirement: RU-08 -- Verification
+### Requirement: PLAT-USR-08 -- Verification
 
 The API server SHALL include integration tests for:
 
@@ -252,7 +252,7 @@ The web console SHALL include unit tests for the dashboard adapter mapping BFF `
 
 The operational dashboard package SHALL update Storybook fixtures and `mockOperationalDashboardMetrics` with adoption fields and `UsersCard` presentation.
 
-#### Scenario: CI exercises authorization and mapping
+#### Scenario: PLAT-USR-08.01 -- CI exercises authorization and mapping
 
 - GIVEN the integration test suite runs with RBAC enforcement enabled
 - WHEN user inventory and activity tests execute
@@ -261,23 +261,23 @@ The operational dashboard package SHALL update Storybook fixtures and `mockOpera
 
 ---
 
-### Requirement: RU-09 -- Registered Users Prometheus Collector and BFF Route
+### Requirement: PLAT-USR-09 -- Registered Users Prometheus Collector and BFF Route
 
-The API server SHALL register a Prometheus collector that emits user adoption gauges by querying the users DAO and daily-activity store on each scrape (RU-10, RU-11). When a required database query fails, the collector SHALL emit `prometheus.NewInvalidMetric` for the affected series.
+The API server SHALL register a Prometheus collector that emits user adoption gauges by querying the users DAO and daily-activity store on each scrape (PLAT-USR-10, PLAT-USR-11). When a required database query fails, the collector SHALL emit `prometheus.NewInvalidMetric` for the affected series.
 
-The web-console BFF SHALL expose `GET /api/metrics/registered-users` as a same-origin proxy route that queries Prometheus instant vectors/scalars and returns JSON per RU-12. Dashboard-operator authorization SHALL match `web-console/operational-dashboard.spec.md` OP-DASH-04 (`platform:admin` only).
+The web-console BFF SHALL expose `GET /api/metrics/registered-users` as a same-origin proxy route that queries Prometheus instant vectors/scalars and returns JSON per PLAT-USR-12. Dashboard-operator authorization SHALL match `web-console/operational-dashboard.spec.md` WEB-OPS-04 (`platform:admin` only).
 
 When Prometheus is unreachable or `hypershell_users_registered_total` cannot be resolved, the BFF SHALL respond with HTTP `502`.
 
-When `total_registered` resolves but optional login-series queries fail, the BFF SHALL respond with HTTP `200` and a degraded JSON body per RU-14.
+When `total_registered` resolves but optional login-series queries fail, the BFF SHALL respond with HTTP `200` and a degraded JSON body per PLAT-USR-14.
 
-#### Scenario: Collector emits registered user gauge on scrape
+#### Scenario: PLAT-USR-09.01 -- Collector emits registered user gauge on scrape
 
 - GIVEN 42 registered users exist in the database
 - WHEN Prometheus scrapes the API server `/metrics` endpoint
 - THEN a sample for `hypershell_users_registered_total` with value `42` SHALL be present
 
-#### Scenario: BFF returns registered user adoption JSON
+#### Scenario: PLAT-USR-09.02 -- BFF returns registered user adoption JSON
 
 - GIVEN Prometheus returns current user adoption gauge values
 - WHEN an authorized caller sends `GET /api/metrics/registered-users`
@@ -285,7 +285,7 @@ When `total_registered` resolves but optional login-series queries fail, the BFF
 
 ---
 
-### Requirement: RU-10 -- Registered User Daily Activity Recording
+### Requirement: PLAT-USR-10 -- Registered User Daily Activity Recording
 
 The API server SHALL record authenticated API activity for **registered users only** in RBAC middleware after JWT validation and user resolution.
 
@@ -295,13 +295,13 @@ Requests from callers who are authenticated but not yet registered (no `users` r
 
 Activity recording SHALL be best-effort: persistence failures SHALL be logged and SHALL NOT fail the API request.
 
-#### Scenario: Repeated requests dedupe to one daily row
+#### Scenario: PLAT-USR-10.01 -- Repeated requests dedupe to one daily row
 
 - GIVEN registered user `alice` sends multiple authenticated API requests on UTC day `2026-09-11`
 - WHEN activity recording runs
 - THEN exactly one daily activity row SHALL exist for `alice` on `2026-09-11`
 
-#### Scenario: Same user on two UTC days counts once in rollups
+#### Scenario: PLAT-USR-10.02 -- Same user on two UTC days counts once in rollups
 
 - GIVEN registered user `alice` has activity on UTC days `2026-09-10` and `2026-09-11`
 - WHEN unique-login rollups are computed
@@ -310,7 +310,7 @@ Activity recording SHALL be best-effort: persistence failures SHALL be logged an
 
 ---
 
-### Requirement: RU-11 -- User Adoption Prometheus Metrics
+### Requirement: PLAT-USR-11 -- User Adoption Prometheus Metrics
 
 The users metrics collector SHALL emit the following Prometheus series on each scrape:
 
@@ -325,7 +325,7 @@ The users metrics collector SHALL emit the following Prometheus series on each s
 
 There SHALL be no historical backfill for login metrics before this instrumentation ships. Days without instrumentation SHALL appear as zero in the sparkline after rollout.
 
-#### Scenario: Added windows use rolling UTC hours
+#### Scenario: PLAT-USR-11.01 -- Added windows use rolling UTC hours
 
 - GIVEN a user was auto-provisioned 8 days ago UTC
 - WHEN the collector scrapes
@@ -334,7 +334,7 @@ There SHALL be no historical backfill for login metrics before this instrumentat
 
 ---
 
-### Requirement: RU-12 -- Extended BFF JSON and Adapter Mapping
+### Requirement: PLAT-USR-12 -- Extended BFF JSON and Adapter Mapping
 
 `GET /api/metrics/registered-users` SHALL return JSON with the following fields when Prometheus data is available:
 
@@ -351,7 +351,7 @@ The host adapter SHALL map optional numeric fields to string optional fields on 
 
 `OperationalMetric` SHALL gain optional `uniqueLoginsLast7Days` and `uniqueLoginsLast30Days` string fields and optional `createdLast7Days` for this metric (reusing existing `createdLast30Days` where applicable).
 
-#### Scenario: Adapter maps daily series into trend points
+#### Scenario: PLAT-USR-12.01 -- Adapter maps daily series into trend points
 
 - GIVEN the BFF returns `daily_unique_logins: [{ "date": "2026-09-01", "count": 5 }, { "date": "2026-09-02", "count": 7 }]`
 - WHEN the adapter builds `registered-users`
@@ -359,17 +359,17 @@ The host adapter SHALL map optional numeric fields to string optional fields on 
 
 ---
 
-### Requirement: RU-13 -- Usage Summary Trend Arrow
+### Requirement: PLAT-USR-13 -- Usage Summary Trend Arrow
 
 The usage summary **Users** row SHALL display `registered-users.value` (total registered users).
 
-When `registered-users.trend` is present, the row SHALL evaluate `getMetricTrendChange` (5% threshold between first and last trend points) and SHALL show the localized increase/decrease indicator used by other summary rows (OP-DASH-13).
+When `registered-users.trend` is present, the row SHALL evaluate `getMetricTrendChange` (5% threshold between first and last trend points) and SHALL show the localized increase/decrease indicator used by other summary rows (WEB-OPS-13).
 
 The trend arrow SHALL reflect **unique login activity** (daily unique logins), not registered-user growth.
 
 When `trend` is absent, the row SHALL show the total only without a trend indicator.
 
-#### Scenario: Login activity decrease shows down arrow
+#### Scenario: PLAT-USR-13.01 -- Login activity decrease shows down arrow
 
 - GIVEN `registered-users` has `value: "450"` and `trend.points` where the last day is at least 5% lower than the first day
 - WHEN the usage summary renders
@@ -377,36 +377,36 @@ When `trend` is absent, the row SHALL show the total only without a trend indica
 
 ---
 
-### Requirement: RU-14 -- Degraded Adoption Payload
+### Requirement: PLAT-USR-14 -- Degraded Adoption Payload
 
 Partial availability SHALL be expressed by omitting optional JSON fields or adapter fields, not by synthesizing zero for missing login data.
 
 | Condition | Behavior |
 | --- | --- |
 | `total_registered` available, login fields missing | Emit metric with `value` and any present added fields; omit login rollups and `trend` |
-| `total_registered` missing | Treat `registered-users` source as failed (OP-DASH-19) |
+| `total_registered` missing | Treat `registered-users` source as failed (WEB-OPS-19) |
 | Login rollups present, `daily_unique_logins` missing | Emit rollups; omit `trend` and sparkline |
 | Widget stat field missing | Localized unavailable state in that cell only |
 
 The dashboard SHALL NOT fail the entire `registered-users` metric source solely because login-series queries failed when `total_registered` succeeded.
 
-#### Scenario: Degraded BFF response still populates the metric
+#### Scenario: PLAT-USR-14.01 -- Degraded BFF response still populates the metric
 
 - GIVEN the BFF returns HTTP `200` with `total_registered: 450` and `created_last_30_days: 12` but without login fields
 - WHEN the adapter processes the response
 - THEN `registered-users` SHALL be present with `value: "450"` and `createdLast30Days: "12"`
 - AND unique-login fields and `trend` SHALL be absent
-- AND the Users widget SHALL render in degraded mode per RU-06
+- AND the Users widget SHALL render in degraded mode per PLAT-USR-06
 
 ---
 
-### Requirement: RU-15 -- Activity Retention
+### Requirement: PLAT-USR-15 -- Activity Retention
 
 Daily activity rows SHALL be retained for **30 UTC calendar days** (aligned with the sparkline window). A scheduled or scrape-driven pruning job SHALL delete rows older than the retention window.
 
 Pruning failures SHALL be logged and SHALL NOT block API requests or metric scrapes.
 
-#### Scenario: Pruning removes expired rows
+#### Scenario: PLAT-USR-15.01 -- Pruning removes expired rows
 
 - GIVEN a daily activity row with `activity_date` older than 30 UTC days before today
 - WHEN retention pruning runs

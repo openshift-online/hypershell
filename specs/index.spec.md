@@ -24,6 +24,12 @@ UI standards cover accessible, usable, trustworthy, resilient, and verifiable we
 
 SDLC standards cover the agent-based development funnel and its synchronization with Jira in `standards/sdlc/`.
 
+## Requirement and Scenario IDs
+
+Every requirement and scenario has a stable `MODULE-GROUP-NN` identifier
+(`specs/standards/platform/spec-identifiers.spec.md`). The module/group
+registry lives in [`ids.md`](ids.md).
+
 ## Spec Registry
 
 Machine-readable index for autonomous reconciliation (`/reconcile` skill).
@@ -64,6 +70,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/cluster-pods.spec.md` | platform | Hub cluster pod utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, hub-cluster-utilization-trends, cluster-memory, cluster-cpu, gateway-metrics-dashboard, local-development |
 | `platform/cluster-nodes.spec.md` | platform | Hub cluster node inventory for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-pods, gateway-metrics-dashboard, local-development |
 | `platform/gateway-provision-time.spec.md` | platform | Gateway provision duration (mean, P50, P95) from control-plane histogram for operational dashboard | WEB, deploy, CP | web-console/operational-dashboard, control-plane-observability, cluster-memory |
+| `standards/platform/spec-identifiers.spec.md` | standards | Requirement/scenario ID syntax, `ids.md` registry, stability rules, verification method | ALL | - |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |

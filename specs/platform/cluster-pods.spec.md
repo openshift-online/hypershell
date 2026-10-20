@@ -21,7 +21,7 @@ The operational dashboard `pods` widget and `system-summary` row already exist a
 
 ### Relationship to other specifications
 
-- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `pods` widget, `UtilizationChart` presentation (OP-DASH-13), refresh policy (OP-DASH-09), and dashboard-operator access (OP-DASH-04).
+- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `pods` widget, `UtilizationChart` presentation (WEB-OPS-13), refresh policy (WEB-OPS-09), and dashboard-operator access (WEB-OPS-04).
 - **Cluster memory** and **cluster CPU** (`platform/cluster-memory.spec.md`, `platform/cluster-cpu.spec.md`) follow the same Prometheus/BFF/adapter pattern for utilization widgets. Cluster pods uses **kube-state-metrics** (not node-exporter) and exposes a separate BFF route and `pods` metric mapping.
 - **Provisioned sandboxes** (`platform/openshell-gateway-sandbox-count.spec.md`) counts gateway sandbox pods for product telemetry. Cluster pods counts **all** hub-cluster pods and is unrelated to sandbox lifecycle.
 - **Registered users** (`platform/registered-users.spec.md`) sources Prometheus via BFF `GET /api/metrics/registered-users`.
@@ -31,7 +31,7 @@ Node inventory and provision-time metrics are out of scope for this spec (see No
 
 ## Requirements
 
-### Requirement: CLP-01 -- Hub Cluster Scope
+### Requirement: OBS-POD-01 -- Hub Cluster Scope
 
 Cluster pod metrics SHALL aggregate **schedulable nodes** and **all namespaces** on the hub Kubernetes cluster where HyperShell platform components are deployed.
 
@@ -41,7 +41,7 @@ The metric SHALL count platform, system, gateway, and tenant-namespace pods on t
 
 The metric SHALL NOT be scoped to a single gateway namespace, a single HyperShell microservice Deployment, or registered managed clusters.
 
-#### Scenario: Kind hub cluster reports pod utilization
+#### Scenario: OBS-POD-01.01 -- Kind hub cluster reports pod utilization
 
 - GIVEN HyperShell is running on a Kind cluster with one control-plane node
 - WHEN cluster pod metrics are collected
@@ -50,7 +50,7 @@ The metric SHALL NOT be scoped to a single gateway namespace, a single HyperShel
 
 ---
 
-### Requirement: CLP-02 -- Pod Measurement Contract
+### Requirement: OBS-POD-02 -- Pod Measurement Contract
 
 The platform SHALL compute three non-negative integer values in **pods** (schedulable pod slots / running workload objects):
 
@@ -60,17 +60,17 @@ The platform SHALL compute three non-negative integer values in **pods** (schedu
 | `used_pods` | Count of all pod objects on the hub cluster at collection time (all phases) |
 | `available_pods` | `capacity_pods - used_pods` |
 
-`used_pods` SHALL be derived from kube-state-metrics pod series (see CLP-03). Values SHALL be whole numbers; the BFF SHALL NOT round fractional samples (Prometheus results SHALL be integral).
+`used_pods` SHALL be derived from kube-state-metrics pod series (see OBS-POD-03). Values SHALL be whole numbers; the BFF SHALL NOT round fractional samples (Prometheus results SHALL be integral).
 
 Version 1 SHALL count **every** pod object toward `used_pods`, including `Failed` and `Succeeded` pods, while those objects still exist in the API. Failed pods remain in `used_pods` because they typically still hold a schedulable pod slot on a node until deleted.
 
 All three values SHALL use the same collection timestamp (Prometheus instant query evaluation time).
 
-`used_pods` SHALL NOT exceed `capacity_pods`. When `capacity_pods` is zero (no scrape data), the collection SHALL be treated as a failure (CLP-06).
+`used_pods` SHALL NOT exceed `capacity_pods`. When `capacity_pods` is zero (no scrape data), the collection SHALL be treated as a failure (OBS-POD-06).
 
 The BFF SHALL also collect per-phase pod counts (`phase_pending_pods`, `phase_running_pods`, `phase_succeeded_pods`, `phase_failed_pods`, `phase_unknown_pods`) from kube-state-metrics. The sum of phase counts SHALL equal `used_pods`; otherwise collection SHALL fail.
 
-#### Scenario: Used and available sum to capacity
+#### Scenario: OBS-POD-02.01 -- Used and available sum to capacity
 
 - GIVEN `capacity_pods` is `2000` and `used_pods` is `548`
 - WHEN the BFF formats the response
@@ -79,11 +79,11 @@ The BFF SHALL also collect per-phase pod counts (`phase_pending_pods`, `phase_ru
 
 ---
 
-### Requirement: CLP-03 -- Prometheus Data Source
+### Requirement: OBS-POD-03 -- Prometheus Data Source
 
-Hub-cluster pod utilization SHALL be derived from Prometheus instant queries executed by the web-console BFF against the configured `PROMETHEUS_URL` (same origin configuration as `platform/gateway-metrics-dashboard.spec.md` DASH-05).
+Hub-cluster pod utilization SHALL be derived from Prometheus instant queries executed by the web-console BFF against the configured `PROMETHEUS_URL` (same origin configuration as `platform/gateway-metrics-dashboard.spec.md` OBS-GMD-05).
 
-Version 1 SHALL use **kube-state-metrics** pod and node series scraped into the hub Prometheus stack (CLP-06). Canonical PromQL expressions SHALL be documented in `packages/operational-dashboard-ui/DATA_SOURCES.md` during implementation. Version 1 baseline:
+Version 1 SHALL use **kube-state-metrics** pod and node series scraped into the hub Prometheus stack (OBS-POD-06). Canonical PromQL expressions SHALL be documented in `packages/operational-dashboard-ui/DATA_SOURCES.md` during implementation. Version 1 baseline:
 
 | Measurement | PromQL (baseline) |
 | --- | --- |
@@ -99,21 +99,21 @@ PromQL queries SHALL aggregate with `sum(...)` or `count(...)` across in-scope n
 
 The BFF SHALL NOT contact the Kubernetes API directly for pod counts in version 1.
 
-#### Scenario: Prometheus unavailable fails collection
+#### Scenario: OBS-POD-03.01 -- Prometheus unavailable fails collection
 
 - GIVEN Prometheus is unreachable from the BFF within the query timeout
 - WHEN a dashboard operator loads operational metrics
 - THEN the BFF pods route SHALL respond with HTTP `502`
-- AND the operational metrics workflow SHALL fail (CLP-07)
+- AND the operational metrics workflow SHALL fail (OBS-POD-07)
 
 ---
 
-### Requirement: CLP-04 -- BFF Cluster Pods Route
+### Requirement: OBS-POD-04 -- BFF Cluster Pods Route
 
 The web-console BFF SHALL expose `GET /api/metrics/cluster-pods` as a same-origin route that:
 
-1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `platform:admin` only)
-2. Executes Prometheus instant queries for hub-cluster pods (CLP-03)
+1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` WEB-OPS-04: `platform:admin` only)
+2. Executes Prometheus instant queries for hub-cluster pods (OBS-POD-03)
 3. Returns JSON:
 
 ```json
@@ -133,22 +133,22 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, or non-success Prometheus response status, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed pod figures as a fallback.
 
-When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used pod counts) per `platform/hub-cluster-utilization-trends.spec.md` HCUT-03 and HCUT-06.
+When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used pod counts) per `platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-03 and OBS-HCUT-06.
 
-#### Scenario: Dashboard administrator receives pod counts
+#### Scenario: OBS-POD-04.01 -- Dashboard administrator receives pod counts
 
 - GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the caller sends `GET /api/metrics/cluster-pods`
-- THEN the BFF SHALL respond with HTTP `200` and the CLP-04 JSON body
+- THEN the BFF SHALL respond with HTTP `200` and the OBS-POD-04 JSON body
 
-#### Scenario: Authenticated non-admin is rejected
+#### Scenario: OBS-POD-04.02 -- Authenticated non-admin is rejected
 
 - GIVEN OIDC is enabled and the caller has only `hypershell-users`
 - WHEN the caller sends `GET /api/metrics/cluster-pods`
 - THEN the BFF SHALL respond with HTTP `403`
 
-#### Scenario: Unauthenticated caller is rejected
+#### Scenario: OBS-POD-04.03 -- Unauthenticated caller is rejected
 
 - GIVEN OIDC is enabled and the caller has no session
 - WHEN the caller sends `GET /api/metrics/cluster-pods`
@@ -156,7 +156,7 @@ When instant queries succeed, the route MAY also include optional `daily_used` (
 
 ---
 
-### Requirement: CLP-05 -- Operational Dashboard Metric Mapping
+### Requirement: OBS-POD-05 -- Operational Dashboard Metric Mapping
 
 The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SHALL fetch `GET /api/metrics/cluster-pods` with same-origin credentials and emit an `OperationalMetric`:
 
@@ -174,15 +174,15 @@ The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SH
 
 The adapter SHALL NOT emit `status` for the `pods` metric in version 1.
 
-When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
+When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
 
-The `system-summary` card SHALL continue to source its pods row from the same `pods` metric (OP-DASH-13). The summary row SHALL show utilization percentage because `unit` and `total` are present. When `podPhases.failed` is non-zero, the pods row SHALL show a failed count with a danger status icon below the utilization value (same presentation as gateway and node exception counts).
+The `system-summary` card SHALL continue to source its pods row from the same `pods` metric (WEB-OPS-13). The summary row SHALL show utilization percentage because `unit` and `total` are present. When `podPhases.failed` is non-zero, the pods row SHALL show a failed count with a danger status icon below the utilization value (same presentation as gateway and node exception counts).
 
-The `pods` widget SHALL render `PodCapacityChart` (OP-DASH-17), not `UtilizationChart`.
+The `pods` widget SHALL render `PodCapacityChart` (WEB-OPS-17), not `UtilizationChart`.
 
 Available pods are derivable in the UI as `total - value` and SHALL be shown as an **Unused** segment in the capacity donut (gray).
 
-#### Scenario: Dashboard pods widget shows capacity and phase breakdown
+#### Scenario: OBS-POD-05.01 -- Dashboard pods widget shows capacity and phase breakdown
 
 - GIVEN `used_pods` is `548` and `capacity_pods` is `2000`
 - AND phase counts sum to `548` (`running: 500`, `pending: 12`, `succeeded: 20`, `failed: 16`, `unknown: 0`)
@@ -192,7 +192,7 @@ Available pods are derivable in the UI as `total - value` and SHALL be shown as 
 - AND the chart center title SHALL show `548`
 - AND the chart subtitle SHALL read "of 2000 pods"
 
-#### Scenario: Available pods are implied by capacity minus used
+#### Scenario: OBS-POD-05.02 -- Available pods are implied by capacity minus used
 
 - GIVEN the `pods` metric has `value: "548"` and `total: "2000"`
 - WHEN the operator reads the capacity donut subtitle ("of 2000 pods")
@@ -201,15 +201,15 @@ Available pods are derivable in the UI as `total - value` and SHALL be shown as 
 
 ---
 
-### Requirement: CLP-06 -- Prometheus Scrape Prerequisites
+### Requirement: OBS-POD-06 -- Prometheus Scrape Prerequisites
 
 Cluster pods SHALL require **kube-state-metrics** scraped into the hub Prometheus stack. Unlike cluster memory and CPU (node-exporter), pod and node allocatable series are not available from the existing node-exporter DaemonSet alone.
 
 Version 1 SHALL deploy kube-state-metrics (or an equivalent collector exposing compatible `kube_pod_info` and `kube_node_status_allocatable` series) with a `ServiceMonitor` selected by the hub Prometheus instance.
 
-`DATA_SOURCES.md` SHALL document the CLP-03 PromQL expressions and note the kube-state-metrics dependency.
+`DATA_SOURCES.md` SHALL document the OBS-POD-03 PromQL expressions and note the kube-state-metrics dependency.
 
-#### Scenario: Fresh Kind install exposes pod series
+#### Scenario: OBS-POD-06.01 -- Fresh Kind install exposes pod series
 
 - GIVEN a developer runs `make kind-up` with the documented Prometheus overlay and kube-state-metrics
 - WHEN an operator queries Prometheus for the documented capacity expression
@@ -217,24 +217,24 @@ Version 1 SHALL deploy kube-state-metrics (or an equivalent collector exposing c
 
 ---
 
-### Requirement: CLP-07 -- Refresh and Error Semantics
+### Requirement: OBS-POD-07 -- Refresh and Error Semantics
 
-Cluster pods SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
+Cluster pods SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (WEB-OPS-09).
 
-A failed `GET /api/metrics/cluster-pods` request SHALL fail only the cluster-pods metric source (OP-DASH-19). The adapter SHALL omit the `pods` metric from the response. The dashboard SHALL NOT display `0` pods as a fallback used or capacity figure.
+A failed `GET /api/metrics/cluster-pods` request SHALL fail only the cluster-pods metric source (WEB-OPS-19). The adapter SHALL omit the `pods` metric from the response. The dashboard SHALL NOT display `0` pods as a fallback used or capacity figure.
 
-#### Scenario: Pods query failure omits pod metrics
+#### Scenario: OBS-POD-07.01 -- Pods query failure omits pod metrics
 
 - GIVEN Prometheus is down
 - AND at least one other metric source succeeds
 - WHEN the operator opens `/dashboard`
-- THEN the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- THEN the dashboard SHALL show its localized partial-load warning (WEB-OPS-09)
 - AND the `pods` widget and system-summary pods row SHALL render the localized metric-unavailable state
 - AND the `pods` widget SHALL NOT silently show zero utilization
 
 ---
 
-### Requirement: CLP-08 -- Verification
+### Requirement: OBS-POD-08 -- Verification
 
 The web-console BFF SHALL include unit tests for:
 
@@ -248,7 +248,7 @@ The web console SHALL include unit tests for the dashboard adapter mapping `used
 
 The operational dashboard package SHALL update `mockOperationalDashboardMetrics` only as needed for Storybook fixtures (values may remain representative).
 
-#### Scenario: CI exercises adapter mapping
+#### Scenario: OBS-POD-08.01 -- CI exercises adapter mapping
 
 - GIVEN a mocked BFF response with `used_pods: 548`, `capacity_pods: 2000`, and phase fields summing to `548`
 - WHEN dashboard adapter unit tests run

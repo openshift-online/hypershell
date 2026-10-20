@@ -61,7 +61,7 @@ means a standing CI secret Keycloak or another in-cluster workload also consumes
 
 ## Requirements
 
-### Requirement: Standing CI Secrets Live in the Cloud Store, Not GitHub Actions
+### Requirement: CICD-SEC-01 -- Standing CI Secrets Live in the Cloud Store, Not GitHub Actions
 
 Every standing CI secret for the OpenShift pull-request workflow SHALL live in AWS
 Secrets Manager on `hysh-aws-01`. The origin repository and the GitHub organization
@@ -73,7 +73,7 @@ Terraform state.
 A later cloud cluster SHALL keep the same split (cloud store for standing secrets,
 OIDC into that store from CI) and swap only the store and the identity provider.
 
-#### Scenario: GitHub Actions has no standing cluster or OAuth secret
+#### Scenario: CICD-SEC-01.01 -- GitHub Actions has no standing cluster or OAuth secret
 
 - GIVEN a reader inspects the origin repository's Actions secrets
 - WHEN they look for the PR-environment kubeconfig, cluster token, or GitHub OAuth
@@ -81,7 +81,7 @@ OIDC into that store from CI) and swap only the store and the identity provider.
 - THEN none of those values SHALL be present as Actions secrets
 - AND `github.token` MAY still be present as the platform-provided job token
 
-#### Scenario: Rotation does not require a GitHub UI change
+#### Scenario: CICD-SEC-01.02 -- Rotation does not require a GitHub UI change
 
 - GIVEN an operator rotates the GitHub OAuth client secret in AWS Secrets Manager
 - WHEN ESO's refresh interval elapses
@@ -89,7 +89,7 @@ OIDC into that store from CI) and swap only the store and the identity provider.
 - AND no GitHub Actions secret update SHALL have been required
 - AND the OpenShift pull-request workflow SHALL NOT have fetched that client secret
 
-### Requirement: Secret Inventory and Ownership
+### Requirement: CICD-SEC-02 -- Secret Inventory and Ownership
 
 On `hysh-aws-01` the standing CI secrets SHALL be:
 
@@ -111,14 +111,14 @@ These secrets SHALL NOT include:
 - Test-tier principal passwords -- `hysh-aws-01/e2e/test-users`, owned by
   `ephemeral-test-credentials.spec.md`.
 
-#### Scenario: Cluster login is runner-only
+#### Scenario: CICD-SEC-02.01 -- Cluster login is runner-only
 
 - GIVEN secret `hysh-aws-01/ci/cluster-login`
 - WHEN ESO reconciles ephemeral namespaces
 - THEN it SHALL NOT copy that server URL or token into a pull-request namespace
 - AND only the GitHub Actions job SHALL read it
 
-#### Scenario: OAuth App material is shared with Keycloak
+#### Scenario: CICD-SEC-02.02 -- OAuth App material is shared with Keycloak
 
 - GIVEN secret `hysh-aws-01/ci/github-oauth`
 - WHEN a per-PR Keycloak is brought up
@@ -126,7 +126,7 @@ These secrets SHALL NOT include:
   Keycloak namespace
 - AND the GitHub identity provider SHALL use those values
 
-### Requirement: GitHub Actions Authenticates to AWS with OIDC
+### Requirement: CICD-SEC-03 -- GitHub Actions Authenticates to AWS with OIDC
 
 The OpenShift pull-request workflow SHALL assume an IAM role with GitHub's OIDC
 token (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`). Static
@@ -185,7 +185,7 @@ artifacts.
 This matches the existing GitHub OIDC issuer and `AssumeRoleWithWebIdentity` pattern
 already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 
-#### Scenario: Origin workflow can read cluster login
+#### Scenario: CICD-SEC-03.01 -- Origin workflow can read cluster login
 
 - GIVEN an origin-repository pull request runs the OpenShift environment workflow
 - AND `github.event.pull_request.head.repo.full_name` equals `github.repository`
@@ -195,7 +195,7 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND SHALL mask the `server` and `token` values in the runner before `oc login`
 - AND it SHALL NOT read `hysh-aws-01/ci/github-oauth`
 
-#### Scenario: Reusable e2e workflow inherits the caller's OIDC grant
+#### Scenario: CICD-SEC-03.02 -- Reusable e2e workflow inherits the caller's OIDC grant
 
 - GIVEN Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
 - WHEN Deploy OpenShift Environment runs `openshift-cluster-login`
@@ -205,7 +205,7 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND the OpenShift job SHALL receive a GitHub OIDC token it can exchange for the
   CI IAM role
 
-#### Scenario: CI IAM cannot read test-tier passwords
+#### Scenario: CICD-SEC-03.03 -- CI IAM cannot read test-tier passwords
 
 - GIVEN the OpenShift pull-request workflow's IAM role
 - WHEN it attempts `GetSecretValue` on `hysh-aws-01/e2e/test-users`
@@ -213,7 +213,7 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND any password-grant step SHALL read Secret `hypershell-e2e-test-users`
   from the CI-owned Keycloak namespace after cluster login instead
 
-#### Scenario: CI IAM cannot read the GitHub OAuth App secret
+#### Scenario: CICD-SEC-03.04 -- CI IAM cannot read the GitHub OAuth App secret
 
 - GIVEN the OpenShift pull-request workflow's IAM role
 - WHEN it attempts `GetSecretValue` on `hysh-aws-01/ci/github-oauth`
@@ -221,7 +221,7 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND Keycloak SHALL still receive that material from ESO as ESO Aligns
   In-Cluster Standing Secrets requires
 
-#### Scenario: Fork pull request does not get a PR environment
+#### Scenario: CICD-SEC-03.05 -- Fork pull request does not get a PR environment
 
 - GIVEN a pull request whose head branch lives in a fork
 - WHEN GitHub evaluates Deploy OpenShift Environment or OpenShift cluster login
@@ -229,14 +229,14 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
   CI IAM role
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
-#### Scenario: No static AWS key in Actions
+#### Scenario: CICD-SEC-03.06 -- No static AWS key in Actions
 
 - GIVEN a reader inspects the workflow and the repository's Actions secrets
 - WHEN they look for AWS access keys used to fetch these secrets
 - THEN none SHALL be present
 - AND the job SHALL use GitHub OIDC
 
-### Requirement: ESO Aligns In-Cluster Standing Secrets
+### Requirement: CICD-SEC-04 -- ESO Aligns In-Cluster Standing Secrets
 
 ESO SHALL copy in-cluster standing CI secrets from AWS Secrets Manager into the
 namespaces that need them, using the same IRSA SecretStore class
@@ -258,7 +258,7 @@ missing or not Ready, rather than leave an environment nobody can log into -- th
 same fail-closed rule `ephemeral-pr-environments.spec.md` already states for unset
 OAuth configuration.
 
-#### Scenario: Keycloak receives OAuth material from ESO, not from Actions
+#### Scenario: CICD-SEC-04.01 -- Keycloak receives OAuth material from ESO, not from Actions
 
 - GIVEN `make openshift-up` creates `hypershell-ci-pr-232-keycloak`
 - WHEN ESO has reconciled
@@ -267,13 +267,13 @@ OAuth configuration.
 - AND the workflow SHALL NOT have written that Secret from an Actions secret
 - AND no GitOps commit unique to pull request 232 SHALL have been required
 
-#### Scenario: Cluster login never appears in a PR namespace
+#### Scenario: CICD-SEC-04.02 -- Cluster login never appears in a PR namespace
 
 - GIVEN ESO is reconciling `hypershell-ci-pr-232`
 - WHEN a reader lists Secrets in that namespace
 - THEN no Secret SHALL contain the cluster-login `server` or `token`
 
-### Requirement: Rotation Stays in AWS
+### Requirement: CICD-SEC-05 -- Rotation Stays in AWS
 
 AWS Secrets Manager (or an out-of-band rotator with write access to it) SHALL own
 rotation of standing CI secrets. HyperShell workflows, ESO, and seed SHALL hold
@@ -284,7 +284,7 @@ Git commit.
 A compromised GitHub Actions secret is not an applicable recovery step; recovery is
 rotate the AWS secret and, if the IAM trust was wrong, correct the role.
 
-#### Scenario: OAuth client secret rotation reaches Keycloak
+#### Scenario: CICD-SEC-05.01 -- OAuth client secret rotation reaches Keycloak
 
 - GIVEN the GitHub OAuth `client_secret` is rotated in
   `hysh-aws-01/ci/github-oauth`

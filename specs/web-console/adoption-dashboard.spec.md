@@ -20,7 +20,7 @@ The web console SPA SHALL expose the Adoption dashboard at `/dashboard/adoption`
 
 When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard/adoption` and for `GET /api/metrics/adoption`. Authenticated non-administrators SHALL receive HTTP `403` on the metrics route. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled in no-auth development mode, both routes SHALL remain open.
 
-#### Scenario: Non-admin is turned away from the metrics route
+#### Scenario: ADO-DASH-01.01 -- Non-admin is turned away from the metrics route
 
 - GIVEN OIDC is enabled
 - AND an authenticated user does not have `platform:admin`
@@ -28,7 +28,7 @@ When OIDC is enabled, the BFF SHALL enforce the same role requirement for browse
 - THEN the BFF SHALL return HTTP `403`
 - AND the response SHALL NOT contain adoption metrics
 
-#### Scenario: Direct navigation to the adoption dashboard
+#### Scenario: ADO-DASH-01.02 -- Direct navigation to the adoption dashboard
 
 - GIVEN an authenticated platform administrator
 - WHEN the browser requests `GET /dashboard/adoption`
@@ -43,7 +43,7 @@ The dashboard SHALL support 7-day and 30-day ranges. The selected range SHALL up
 
 The trend response SHALL retain one point per UTC calendar day for the trailing 30 days. The Adoption trends widget SHALL display only the trailing points for the selected range: 7 points for 7-day selection and 30 points for 30-day selection. Seven-day range selection SHALL also select the corresponding current-period summary values without truncating the 30-point response contract.
 
-#### Scenario: Changing the selected range
+#### Scenario: ADO-DASH-02.01 -- Changing the selected range
 
 - GIVEN the Adoption dashboard is loaded with a 7-day range
 - WHEN the user selects 30 days
@@ -65,7 +65,7 @@ The Adoption summary widget SHALL include the point-in-time registration, activi
 
 Presentation code SHALL NOT call `fetch`, the SDK, or a BFF route directly. The host SHALL inject an adoption metrics workflow through the existing dashboard provider boundary. The dashboard secondary navigation SHALL include Adoption for administrators and hide it for non-administrators.
 
-#### Scenario: Host imports the adoption page
+#### Scenario: ADO-DASH-03.01 -- Host imports the adoption page
 
 - GIVEN the web console route module renders `AdoptionDashboardPage`
 - WHEN the page mounts inside `DashboardUiProvider`
@@ -97,7 +97,7 @@ The response SHALL use this contract:
 }
 ```
 
-#### Scenario: Partial metric-source failure
+#### Scenario: ADO-DASH-04.01 -- Partial metric-source failure
 
 - GIVEN the registered-users aggregate succeeds
 - AND the retention aggregate fails
@@ -106,7 +106,7 @@ The response SHALL use this contract:
 - AND the response SHALL omit `retention_7_days_percent`
 - AND the dashboard SHALL render dashes in affected summary rows and localized unavailable states in affected whole widgets
 
-#### Scenario: Aggregate-only response shape
+#### Scenario: ADO-DASH-04.02 -- Aggregate-only response shape
 
 - GIVEN any successful adoption metrics response
 - WHEN the BFF serializes the response
@@ -134,7 +134,7 @@ The BFF SHALL compute:
 
 The response field `unique_logins_last_7_days` SHALL represent weekly active users. The response field `unique_logins_last_30_days` SHALL represent monthly active users. The response field `daily_unique_logins` SHALL represent daily active users by UTC day. These names remain in the BFF contract for compatibility with the existing operational metric model.
 
-#### Scenario: Weekly active users
+#### Scenario: ADO-DASH-05.01 -- Weekly active users
 
 - GIVEN users performed qualifying activity on the current UTC day and each of the previous six UTC days
 - WHEN the BFF computes weekly active users
@@ -150,7 +150,7 @@ The BFF SHALL compute first-gateway conversion percentage as `users_with_gateway
 
 First-sandbox conversion and median time to first resource are unavailable. The route SHALL omit their response fields and the page SHALL render a dash for each summary-row value.
 
-#### Scenario: Gateway-owner role was later removed
+#### Scenario: ADO-DASH-06.01 -- Gateway-owner role was later removed
 
 - GIVEN a non-deleted user held a deleted `gateway-owner` role binding
 - WHEN the BFF computes first-gateway conversion
@@ -166,7 +166,7 @@ If `B` is empty, the route SHALL omit `retention_7_days_percent` and the dashboa
 
 Thirty-day retention is unavailable because a true previous-30-day comparison requires 60 days of activity history while the current activity store retains only 30 days. The route SHALL omit that field and the page SHALL render a dash in the 30-day-retention summary row with the data limitation documented in `DATA_SOURCES.md`.
 
-#### Scenario: Previous active set is empty
+#### Scenario: ADO-DASH-07.01 -- Previous active set is empty
 
 - GIVEN no users had qualifying activity in the preceding 7 UTC calendar days
 - WHEN the BFF builds the adoption response
@@ -181,7 +181,7 @@ The web console adapter SHALL map the adoption response into the existing `Opera
 
 When an optional response field is missing, its summary-row value SHALL render a dash. A missing whole-widget metric or chart SHALL render the existing localized unavailable states `app.dashboard.metricUnavailable.title` and `app.dashboard.metricUnavailable.body`. The UI SHALL NOT substitute zero, invent data, or silently hide a metric.
 
-#### Scenario: Optional field is omitted
+#### Scenario: ADO-DASH-08.01 -- Optional field is omitted
 
 - GIVEN the adoption response omits `users_with_gateway`
 - WHEN the dashboard renders the conversion widget
@@ -194,7 +194,7 @@ When an optional response field is missing, its summary-row value SHALL render a
 
 The repository SHALL document adoption metric sources, UTC windows, availability limitations, and response-field semantics in `packages/operational-dashboard-ui/DATA_SOURCES.md`. The operational dashboard package SHALL provide deterministic adoption fixtures and Storybook production coverage for the page's available and unavailable states.
 
-#### Scenario: Storybook renders deterministic adoption data
+#### Scenario: ADO-DASH-09.01 -- Storybook renders deterministic adoption data
 
 - GIVEN the web console Storybook adoption story uses the deterministic dashboard control-plane adapter
 - WHEN the story renders
@@ -215,7 +215,7 @@ Tests SHALL cover:
 - Unavailable-state handling for omitted fields
 - Aggregate-only response shape with no user identifiers
 
-#### Scenario: Range propagates to the BFF
+#### Scenario: ADO-DASH-10.01 -- Range propagates to the BFF
 
 - GIVEN the Adoption dashboard is set to 30 days
 - WHEN the host adapter loads metrics

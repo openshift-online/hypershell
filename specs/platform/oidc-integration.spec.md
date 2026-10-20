@@ -133,7 +133,7 @@ The BFF SHALL implement WEB-AUTH-01 through WEB-AUTH-03 from `specs/web-console/
 | `SESSION_SECRET` | Yes | - | 32-byte hex-encoded key for cookie encryption |
 | `SESSION_TTL_SECONDS` | No | `28800` (8 hours) | Session cookie max age |
 
-When `OIDC_ISSUER` is unset, the BFF SHALL operate in no-auth mode (WEB-AUTH-00)  -- identical to today's behavior. When `OIDC_ISSUER` is set, `SESSION_SECRET` and `OIDC_CLIENT_ID` SHALL be required; missing values SHALL fail BFF startup with a clear error message.
+When `OIDC_ISSUER` is unset, the BFF SHALL operate in no-auth mode (WEB-AUTH-04)  -- identical to today's behavior. When `OIDC_ISSUER` is set, `SESSION_SECRET` and `OIDC_CLIENT_ID` SHALL be required; missing values SHALL fail BFF startup with a clear error message.
 
 ### OIDC Endpoints
 
@@ -344,17 +344,17 @@ The ephemeral port variant (`console.hypershell.localhost:*`) covers Kind setups
 
 ## Requirements
 
-### Requirement: API Server JWT Validation
+### Requirement: SEC-OIDC-01 -- API Server JWT Validation
 
 The API server SHALL support JWT validation against a configurable JWKS endpoint. The `development_oidc` environment SHALL enable JWT while retaining development-mode conveniences.
 
-#### Scenario: JWT Validation Enabled
+#### Scenario: SEC-OIDC-01.01 -- JWT Validation Enabled
 - GIVEN the API server is started with `API_ENV=development_oidc`
 - WHEN a request arrives without a valid Bearer token
 - THEN the API server SHALL reject the request with 401 Unauthorized
 - AND the response SHALL include a `WWW-Authenticate` header
 
-#### Scenario: Valid Token Accepted
+#### Scenario: SEC-OIDC-01.02 -- Valid Token Accepted
 - GIVEN the API server is started with JWT enabled
 - AND a valid JWT is obtained from the configured IdP
 - WHEN a request is made with `Authorization: Bearer <token>`
@@ -363,57 +363,57 @@ The API server SHALL support JWT validation against a configurable JWKS endpoint
 - AND the token `aud` SHALL contain `hypershell-api`
 - AND the request SHALL be processed normally
 
-#### Scenario: Token Issued for Another Resource Is Rejected
+#### Scenario: SEC-OIDC-01.03 -- Token Issued for Another Resource Is Rejected
 - GIVEN the API server is started with issuer and audience validation enabled
 - AND a correctly signed token has a missing or different `iss`
 - OR its `aud` does not contain `hypershell-api`
 - WHEN the token is presented to an HTTP or gRPC management endpoint
 - THEN the API server SHALL reject the request as unauthenticated
 
-#### Scenario: gRPC Watch Streams Bypass JWT
+#### Scenario: SEC-OIDC-01.04 -- gRPC Watch Streams Bypass JWT
 - GIVEN the API server is started with JWT enabled
 - WHEN the control plane connects via gRPC watch streams
 - THEN the gRPC methods SHALL be exempted from JWT validation
 - AND the control plane SHALL function without an IdP token
 
-#### Scenario: Development Environment Unchanged
+#### Scenario: SEC-OIDC-01.05 -- Development Environment Unchanged
 - GIVEN the API server is started with `API_ENV=development` (default)
 - THEN JWT validation SHALL remain disabled
 - AND all existing no-auth behavior SHALL be preserved
 
-#### Scenario: Health and OpenAPI Bypass JWT
+#### Scenario: SEC-OIDC-01.06 -- Health and OpenAPI Bypass JWT
 - GIVEN the API server is started with JWT enabled
 - WHEN a request is made to `/healthcheck` or `/api/hypershell/v1/openapi`
 - THEN the request SHALL be processed without JWT validation
 
-### Requirement: Control Plane Service Token Reuse
+### Requirement: SEC-OIDC-02 -- Control Plane Service Token Reuse
 
 The control plane SHALL cache the access token that it gets with its Client Credentials grant. It SHALL interpret the token response's `expires_in` value as seconds. It SHALL reuse the token until 80 percent of its lifetime has passed. Concurrent calls SHALL use the same cached token.
 
-#### Scenario: Repeated gRPC calls reuse one token
+#### Scenario: SEC-OIDC-02.01 -- Repeated gRPC calls reuse one token
 
 - GIVEN Keycloak returns a control-plane access token with `expires_in=300`
 - WHEN the control plane makes two gRPC calls before 240 seconds have passed
 - THEN it SHALL make one Client Credentials grant
 - AND both gRPC calls SHALL use the same access token
 
-#### Scenario: The refresh threshold has passed
+#### Scenario: SEC-OIDC-02.02 -- The refresh threshold has passed
 
 - GIVEN the cached control-plane access token has passed 80 percent of its lifetime
 - WHEN the control plane makes another authenticated gRPC call
 - THEN it SHALL get a new access token before it makes the call
 
-### Requirement: BFF OIDC Authorization Code Flow
+### Requirement: SEC-OIDC-03 -- BFF OIDC Authorization Code Flow
 
 The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE when configured with an OIDC issuer. This fulfills WEB-AUTH-01.
 
-#### Scenario: Unauthenticated Browser Access
+#### Scenario: SEC-OIDC-03.01 -- Unauthenticated Browser Access
 - GIVEN the BFF is configured with `OIDC_ISSUER`
 - WHEN an unauthenticated browser requests any application route
 - THEN the BFF SHALL redirect to `/auth/login`
 - AND `/auth/login` SHALL redirect to the IdP authorization endpoint with PKCE parameters
 
-#### Scenario: Successful Authentication
+#### Scenario: SEC-OIDC-03.02 -- Successful Authentication
 - GIVEN the user has authenticated at the IdP
 - WHEN the IdP redirects to `/auth/callback` with an authorization code
 - THEN the BFF SHALL exchange the code for tokens
@@ -421,14 +421,14 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND set an encrypted session cookie
 - AND redirect to the application
 
-#### Scenario: Authenticated API Proxy
+#### Scenario: SEC-OIDC-03.03 -- Authenticated API Proxy
 - GIVEN the browser has a valid session cookie
 - WHEN the browser requests `/api/hypershell/v1/gateways`
 - THEN the BFF SHALL decrypt the session cookie
 - AND set `Authorization: Bearer <access_token>` on the upstream request
 - AND proxy the response back to the browser
 
-#### Scenario: Silent Token Refresh
+#### Scenario: SEC-OIDC-03.04 -- Silent Token Refresh
 - GIVEN the access token has expired or is within the skew window
 - AND the refresh token is still valid
 - WHEN the browser makes an API request
@@ -436,178 +436,178 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND persist the rotated refresh token
 - AND the request SHALL succeed without any browser-visible interruption
 
-#### Scenario: Full RP-Initiated Logout
+#### Scenario: SEC-OIDC-03.05 -- Full RP-Initiated Logout
 - GIVEN the browser has an active session
 - WHEN the user navigates to `/auth/logout`
 - THEN the BFF SHALL clear the session cookie
 - AND redirect to the IdP `end_session_endpoint` with `id_token_hint`
 - AND the IdP session SHALL be terminated
 
-#### Scenario: No-Auth Mode Preserved
+#### Scenario: SEC-OIDC-03.06 -- No-Auth Mode Preserved
 - GIVEN the BFF is started without `OIDC_ISSUER`
 - THEN the BFF SHALL operate in no-auth mode
 - AND no session, cookie, or authentication logic SHALL be active
 - AND the `/api/*` proxy SHALL forward requests without auth headers
 
-### Requirement: BFF Session Security
+### Requirement: SEC-OIDC-04 -- BFF Session Security
 
 The BFF session SHALL meet the security requirements in WEB-AUTH-02.
 
-#### Scenario: Cookie Attributes
+#### Scenario: SEC-OIDC-04.01 -- Cookie Attributes
 - GIVEN the BFF is configured with OIDC
 - WHEN a session cookie is set
 - THEN the cookie SHALL be `HttpOnly`, `Secure`, `SameSite=Lax`
 - AND the cookie SHALL use the narrowest practical path (`/`)
 - AND JavaScript SHALL NOT be able to read the session identifier
 
-#### Scenario: Session Rotation on Login
+#### Scenario: SEC-OIDC-04.02 -- Session Rotation on Login
 - GIVEN a browser has an existing session cookie
 - WHEN the user completes a new login flow
 - THEN the old session SHALL be replaced with a new encrypted cookie
 - AND the previous cookie value SHALL NOT be valid
 
-#### Scenario: CSRF Protection
+#### Scenario: SEC-OIDC-04.03 -- CSRF Protection
 - GIVEN the BFF is configured with OIDC
 - WHEN a POST/PATCH/PUT/DELETE request arrives without a valid same-origin `Origin` header
 - THEN the request SHALL be rejected with 403
 - AND the response SHALL NOT include any protected data
 
-### Requirement: BFF Browser Session Contract
+### Requirement: SEC-OIDC-05 -- BFF Browser Session Contract
 
 The BFF SHALL expose a session resource per WEB-AUTH-03.
 
-#### Scenario: Authenticated Session Resource
+#### Scenario: SEC-OIDC-05.01 -- Authenticated Session Resource
 - GIVEN the browser has a valid session
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain display identity, roles, and expiry
 - AND the response SHALL NOT contain access tokens, refresh tokens, or provider secrets
 
-#### Scenario: Unauthenticated Session Resource
+#### Scenario: SEC-OIDC-05.02 -- Unauthenticated Session Resource
 - GIVEN the browser has no session
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain `{ "authenticated": false }`
 
-### Requirement: Browser Identity and Sign-Out
+### Requirement: SEC-OIDC-06 -- Browser Identity and Sign-Out
 
 The console SHALL display the authenticated user's identity in the masthead and provide a sign-out control that performs full RP-initiated logout. Identity SHALL come from the `/auth/session` resource; the browser SHALL NOT read tokens.
 
-#### Scenario: Authenticated Identity in the Masthead
+#### Scenario: SEC-OIDC-06.01 -- Authenticated Identity in the Masthead
 - GIVEN an authenticated session
 - WHEN the console shell renders
 - THEN the masthead SHALL show an identity menu labeled with the user's display name from `/auth/session`
 - AND no token SHALL be exposed to the browser
 
-#### Scenario: Sign Out Performs Full Logout
+#### Scenario: SEC-OIDC-06.02 -- Sign Out Performs Full Logout
 - GIVEN the user opens the identity menu
 - WHEN the user selects sign out
 - THEN the browser SHALL navigate to `/auth/logout`
 - AND the BFF SHALL clear both session cookies and redirect to the IdP `end_session_endpoint` with `id_token_hint`
 - AND the IdP session SHALL be terminated
 
-#### Scenario: No Identity Menu When Unauthenticated
+#### Scenario: SEC-OIDC-06.03 -- No Identity Menu When Unauthenticated
 - GIVEN no session, or the BFF running in no-auth mode
 - WHEN the console shell renders
 - THEN no identity menu SHALL be shown
 
-### Requirement: Silent Token Refresh and Rotation
+### Requirement: SEC-OIDC-07 -- Silent Token Refresh and Rotation
 
 The BFF SHALL maintain a valid access token without user interaction while the refresh token is valid, rotating refresh tokens and coalescing concurrent refreshes.
 
-#### Scenario: Proactive Refresh Before Expiry
+#### Scenario: SEC-OIDC-07.01 -- Proactive Refresh Before Expiry
 - GIVEN a session whose access token is within 30 seconds of expiry
 - WHEN the browser makes an `/api/*` request
 - THEN the BFF SHALL refresh the token before forwarding
 - AND set the new access token on the upstream request
 
-#### Scenario: Reactive Refresh on Upstream 401
+#### Scenario: SEC-OIDC-07.02 -- Reactive Refresh on Upstream 401
 - GIVEN the upstream API rejects a proxied request with 401
 - AND the refresh token is valid
 - WHEN the BFF receives the 401
 - THEN the BFF SHALL refresh once and retry the request
 - AND return the retried response on success
 
-#### Scenario: Refresh Token Rotation Persisted
+#### Scenario: SEC-OIDC-07.03 -- Refresh Token Rotation Persisted
 - GIVEN a successful refresh that returns a new refresh token
 - WHEN the BFF stores the token set
 - THEN the rotated refresh token SHALL replace the previous one in `session_tok`
 - AND the previous refresh token SHALL NOT be reused
 
-#### Scenario: Concurrent Requests Coalesce
+#### Scenario: SEC-OIDC-07.04 -- Concurrent Requests Coalesce
 - GIVEN several `/api/*` requests carrying the same expired session arrive together at one BFF instance
 - WHEN the BFF refreshes
 - THEN a single refresh exchange SHALL occur
 - AND all coalesced requests SHALL proceed with the refreshed token
 
-### Requirement: Re-authentication Without Dead Ends
+### Requirement: SEC-OIDC-08 -- Re-authentication Without Dead Ends
 
 An invalid, expired, or unrefreshable session SHALL route the user to the identity provider to re-authenticate and SHALL NOT surface as a generic application error. This refines WEB-AUTH-03.
 
-#### Scenario: Expired Session on Navigation
+#### Scenario: SEC-OIDC-08.01 -- Expired Session on Navigation
 - GIVEN a browser whose session cannot be refreshed
 - WHEN the browser requests an application route
 - THEN the BFF SHALL redirect to `/auth/login`
 - AND `/auth/login` SHALL redirect to the IdP with the current route preserved as `return_to`
 
-#### Scenario: Expired Session on API Request
+#### Scenario: SEC-OIDC-08.02 -- Expired Session on API Request
 - GIVEN a browser whose session cannot be refreshed
 - WHEN the browser makes an `/api/*` request
 - THEN the BFF SHALL respond 401 with a re-authentication signal (`reauth_required` and a `login_url`)
 - AND the browser SHALL perform a full-page navigation to the login URL
 - AND no generic error or permission-denied message SHALL be shown
 
-#### Scenario: Return To Original Route
+#### Scenario: SEC-OIDC-08.03 -- Return To Original Route
 - GIVEN a user was on `/gateways/{id}` when the session expired
 - WHEN re-authentication completes
 - THEN the browser SHALL land back on `/gateways/{id}`
 
-#### Scenario: Open-Redirect Rejected
+#### Scenario: SEC-OIDC-08.04 -- Open-Redirect Rejected
 - GIVEN a `return_to` value that is not a same-origin absolute path (an absolute URL, a scheme, or a protocol-relative `//host`)
 - WHEN `/auth/login` processes it
 - THEN the BFF SHALL ignore it and use the default post-login path
 
-#### Scenario: Authorization Denial Is Not Re-authentication
+#### Scenario: SEC-OIDC-08.05 -- Authorization Denial Is Not Re-authentication
 - GIVEN an authenticated user without access to a resource
 - WHEN the API returns 403
 - THEN the console SHALL show a denied state
 - AND SHALL NOT redirect to the identity provider
 
-### Requirement: Chunked Session Cookies Within Browser Limits
+### Requirement: SEC-OIDC-09 -- Chunked Session Cookies Within Browser Limits
 
 Session state SHALL be split so that no single cookie exceeds the browser per-cookie size limit, even with refresh and ID tokens stored server-side.
 
-#### Scenario: Two Encrypted Cookies
+#### Scenario: SEC-OIDC-09.01 -- Two Encrypted Cookies
 - GIVEN a completed login
 - WHEN the BFF sets the session
 - THEN identity and access-token state SHALL be written to the `session` cookie
 - AND the refresh and ID tokens SHALL be written to the `session_tok` cookie
 - AND each cookie SHALL remain under the 4KB browser limit after encryption
 
-#### Scenario: Tokens Never Reach the Browser
+#### Scenario: SEC-OIDC-09.02 -- Tokens Never Reach the Browser
 - GIVEN a valid session
 - WHEN the browser reads `GET /auth/session` or inspects cookies via JavaScript
 - THEN no access token, refresh token, or ID token SHALL be observable
 
-### Requirement: Kind OIDC Always-On
+### Requirement: SEC-OIDC-10 -- Kind OIDC Always-On
 
 OIDC in the local Kind cluster SHALL always be enabled. `make kind-up` configures all components for OIDC authentication automatically.
 
-#### Scenario: OIDC Configured on kind-up
+#### Scenario: SEC-OIDC-10.01 -- OIDC Configured on kind-up
 - WHEN a developer runs `make kind-up`
 - THEN the API server SHALL use `API_ENV=development_oidc`
 - AND the BFF SHALL be configured with OIDC env vars
 - AND the gateway SHALL be created with OIDC configuration
 - AND the banner SHALL display OIDC connection information
 
-#### Scenario: OIDC Status Reporting
+#### Scenario: SEC-OIDC-10.02 -- OIDC Status Reporting
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL show OIDC as active
 - AND display the IdP URL and test user credentials
 
-### Requirement: Identity Provider Client Security
+### Requirement: SEC-OIDC-11 -- Identity Provider Client Security
 
 The `hypershell-frontend` client SHALL be configured with deployment-appropriate redirect URI restrictions.
 
-#### Scenario: Redirect URI Restricted
+#### Scenario: SEC-OIDC-11.01 -- Redirect URI Restricted
 - GIVEN a Keycloak realm is configured for HyperShell
 - THEN `hypershell-frontend` redirect URIs SHALL be restricted to the console origin for that deployment
 - AND wildcard redirect URIs SHALL NOT be used
@@ -638,7 +638,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 
 ## References
 
-- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-00 through WEB-AUTH-03, WEB-BFF-01
+- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-04 through WEB-AUTH-03, WEB-BFF-01
 - `specs/platform/local-development.spec.md`  -- Kind cluster environment, Keycloak configuration
 - `specs/platform/openshell-gateway-oidc.spec.md`  -- Gateway OIDC configuration and CLI auth flow
 - `specs/platform/openshell-gateway-credentials.spec.md`  -- Per-gateway Keycloak client provisioning

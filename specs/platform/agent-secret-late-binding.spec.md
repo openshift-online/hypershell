@@ -55,7 +55,7 @@ conflated.
 
 ## Requirements
 
-### Requirement: Credentials Realized as OpenShell Providers, Not Rendered Secrets
+### Requirement: AGT-SEC-01 -- Credentials Realized as OpenShell Providers, Not Rendered Secrets
 
 On reconcile, the control plane SHALL realize each of an `AgentRuntime`'s declared
 `ProviderBinding`s as an OpenShell **provider** on the agent's gateway/workspace,
@@ -77,14 +77,14 @@ provider, and it is read cluster-local and wired as coordinator environment per
 [`data-model.spec.md`](./data-model.spec.md) ("SecretSource"). It is NOT a provider
 and is NOT a rendered agent credential `Secret` for provider material.
 
-#### Scenario: ProviderBindings become OpenShell providers, no credential Secret
+#### Scenario: AGT-SEC-01.01 -- ProviderBindings become OpenShell providers, no credential Secret
 
 - GIVEN an `AgentRuntime` whose `.hypershell` declares `ProviderBinding`s with `refresh_strategy` values
 - WHEN the control plane reconciles it and the referenced material is present in the assigned cluster's local Vault
 - THEN it SHALL create or update one OpenShell provider per `ProviderBinding` on the agent's gateway/workspace with the declared refresh strategy
 - AND it SHALL NOT render a raw Kubernetes `Secret` for the credential and SHALL NOT create an `ExternalSecret`
 
-### Requirement: Rotation Ownership by Refresh Strategy
+### Requirement: AGT-SEC-02 -- Rotation Ownership by Refresh Strategy
 
 Rotation ownership SHALL be determined by the provider `refresh_strategy`:
 
@@ -107,21 +107,21 @@ The control plane SHALL NOT render or rotate a raw Kubernetes `Secret` for any p
 credential; the usable credential lives inside OpenShell, set either by OpenShell's own
 refresh or by the GitHub control-plane rotator's `provider update`.
 
-#### Scenario: OpenShell-supported provider keeps working with no external rotation
+#### Scenario: AGT-SEC-02.01 -- OpenShell-supported provider keeps working with no external rotation
 
 - GIVEN an OpenShell provider realized from stored material with a `google-service-account-jwt` refresh strategy
 - WHEN more than one minted-token lifetime elapses
 - THEN the provider SHALL continue to authenticate because OpenShell refreshes the token
 - AND no control-plane component SHALL mint or rotate the credential
 
-#### Scenario: GitHub provider token is re-minted by the control-plane rotator
+#### Scenario: AGT-SEC-02.02 -- GitHub provider token is re-minted by the control-plane rotator
 
 - GIVEN an OpenShell GitHub provider realized from a stored GitHub App PEM
 - WHEN the installation token approaches its approximately one-hour expiry
 - THEN the control-plane GitHub rotator SHALL mint a fresh installation token from the PEM and set it through `provider update --credential`
 - AND no raw credential `Secret` SHALL be rendered
 
-### Requirement: Two Material Resolution Paths
+### Requirement: AGT-SEC-03 -- Two Material Resolution Paths
 
 HyperShell SHALL resolve credential material through two distinct, non-overlapping
 paths, and every `SecretSource` consumer SHALL use exactly one of them. The two paths
@@ -159,7 +159,7 @@ The co-located case is the single point where the two paths coincide, and it doe
 only because the hub and the cluster are the same cluster. It SHALL NOT be read as
 licensing one global store that a hub api-server writes and every spoke reads.
 
-#### Scenario: Repository credential resolves hub-side; AgentRuntime material resolves cluster-local
+#### Scenario: AGT-SEC-03.01 -- Repository credential resolves hub-side; AgentRuntime material resolves cluster-local
 
 - GIVEN a multi-cluster fleet with a hub api-server and spoke clusters each running a local Vault
 - WHEN the `RepositoryReconciler` needs the `Repository` import credential
@@ -168,7 +168,7 @@ licensing one global store that a hub api-server writes and every spoke reads.
 - THEN the spoke's control plane SHALL read it from that cluster's local Vault (path 2)
 - AND the `AgentRuntime` material SHALL NOT be written to or read from a hub store
 
-### Requirement: Reference-Only SecretSource Submission
+### Requirement: AGT-SEC-04 -- Reference-Only SecretSource Submission
 
 A `SecretSource` SHALL be a first-class, valid resource with NO material supplied at
 creation. A `SecretSource` holds durable provider **material** (a GitHub App PEM, a
@@ -196,7 +196,7 @@ submitted at the hub - the `Repository` import credential or the co-located
 single-cluster deployment - which is why "material never touches the hub" holds for
 distributed `AgentRuntime` credentials.
 
-#### Scenario: Create a value-less SecretSource reference
+#### Scenario: AGT-SEC-04.01 -- Create a value-less SecretSource reference
 
 - GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO material
 - WHEN the api-server accepts the request
@@ -204,21 +204,21 @@ distributed `AgentRuntime` credentials.
 - AND it SHALL NOT perform any `pkg/secretstore` write
 - AND the created `SecretSource` SHALL be a valid, consumable resource
 
-#### Scenario: Hub-submitted material follows the write-then-record flow
+#### Scenario: AGT-SEC-04.02 -- Hub-submitted material follows the write-then-record flow
 
 - GIVEN material legitimately submitted at the hub (the `Repository` import credential PEM, or any secret in a co-located single-cluster deployment)
 - WHEN it is supplied through the api-server secret-submission path
 - THEN the api-server SHALL write it to the store at the `SecretSource` convention path FIRST
 - AND it SHALL NOT persist the raw material in the database and SHALL NOT return it on any read
 
-#### Scenario: Distributed AgentRuntime material is never submitted to the api-server
+#### Scenario: AGT-SEC-04.03 -- Distributed AgentRuntime material is never submitted to the api-server
 
 - GIVEN a reference-only `SecretSource` consumed by an `AgentRuntime` placed on a spoke cluster
 - WHEN the material is provided
 - THEN it SHALL be uploaded directly into the assigned cluster's local Vault by the per-cluster writer
 - AND it SHALL NOT be submitted to the hub api-server and SHALL NOT transit the hub
 
-### Requirement: Distributed Per-Cluster Material Read
+### Requirement: AGT-SEC-05 -- Distributed Per-Cluster Material Read
 
 The referenced material SHALL be read cluster-locally and used to configure the
 agent's OpenShell providers. When the control plane reconciles an `AgentRuntime` whose
@@ -237,7 +237,7 @@ be a SEPARATE secret plane from the gateway-provider Vault defined by
 from the application-secret plane (Secrets Manager plus External Secrets Operator). The
 three planes SHALL NOT share paths, policies, or identities and SHALL NOT be conflated.
 
-#### Scenario: Material is read from the assigned cluster's local Vault to configure providers
+#### Scenario: AGT-SEC-05.01 -- Material is read from the assigned cluster's local Vault to configure providers
 
 - GIVEN an `AgentRuntime` placed on `cluster_id: Y` with a `SecretSource` reference
 - WHEN the control plane registered as `Y` reconciles the `AgentRuntime` and the material is present in cluster `Y`'s local Vault
@@ -245,14 +245,14 @@ three planes SHALL NOT share paths, policies, or identities and SHALL NOT be con
 - AND no hub store and no other cluster's Vault SHALL be read
 - AND no raw credential `Secret` SHALL be rendered by the control plane
 
-#### Scenario: No material is ever written to a hub or global store
+#### Scenario: AGT-SEC-05.02 -- No material is ever written to a hub or global store
 
 - GIVEN a reference-only `SecretSource`
 - WHEN its material is supplied and later consumed
 - THEN the material SHALL exist only in the assigned cluster's local Vault (and inside the OpenShell provider configured from it)
 - AND no hub-side or global store SHALL hold the material
 
-### Requirement: SecretPending Condition Gates Provider Creation
+### Requirement: AGT-SEC-06 -- SecretPending Condition Gates Provider Creation
 
 When referenced `SecretSource` material is absent from the assigned cluster's local
 Vault, the control-plane reconcile SHALL treat this as an expected waiting state, not
@@ -282,7 +282,7 @@ thereafter is owned by OpenShell for its native strategies and by the bounded
 control-plane GitHub rotator for GitHub App credentials (see "Rotation Ownership by
 Refresh Strategy"); the control plane does not re-place a raw credential `Secret`.
 
-#### Scenario: Missing material sets SecretPending and holds, not Ready
+#### Scenario: AGT-SEC-06.01 -- Missing material sets SecretPending and holds, not Ready
 
 - GIVEN an `AgentRuntime` whose `SecretSource` material has not yet been uploaded to the assigned cluster's Vault
 - WHEN the control plane reconciles the `AgentRuntime`
@@ -290,14 +290,14 @@ Refresh Strategy"); the control plane does not re-place a raw credential `Secret
 - AND it SHALL NOT create the dependent OpenShell provider and SHALL NOT mark the workspace `Ready`
 - AND it SHALL NOT crash-loop
 
-#### Scenario: Converges the moment the material appears
+#### Scenario: AGT-SEC-06.02 -- Converges the moment the material appears
 
 - GIVEN an `AgentRuntime` reporting `SecretPending`
 - WHEN the operator writes the material into the assigned cluster's Vault at the given path
 - THEN the next reconcile SHALL read the material, realize the OpenShell provider, clear `SecretPending`, and converge the `AgentRuntime` to `Running`
 - AND no manual reconcile trigger SHALL be required
 
-#### Scenario: Reachable-but-missing is Pending, unreachable is Degraded
+#### Scenario: AGT-SEC-06.03 -- Reachable-but-missing is Pending, unreachable is Degraded
 
 - GIVEN an `AgentRuntime` with a `SecretSource` reference
 - WHEN the assigned cluster's Vault is reachable and reports the material missing
@@ -305,7 +305,7 @@ Refresh Strategy"); the control plane does not re-place a raw credential `Secret
 - WHEN instead the Vault is unreachable or returns an error
 - THEN the control plane SHALL set `Degraded` and surface the failing `SecretSource` name
 
-### Requirement: Discoverable Upload Target
+### Requirement: AGT-SEC-07 -- Discoverable Upload Target
 
 The platform SHALL make each pending credential actionable. On the
 `AgentRuntime`/`SecretSource` status the platform SHALL surface the resolved
@@ -314,7 +314,7 @@ uploaded. The `SecretPending` condition message SHALL read as an actionable next
 (for example, `write <secret-source-name> to <mount>/<path> on cluster <cluster-name>`)
 rather than a bare error.
 
-#### Scenario: SecretPending names the cluster and the exact upload path
+#### Scenario: AGT-SEC-07.01 -- SecretPending names the cluster and the exact upload path
 
 - GIVEN an `AgentRuntime` reporting `SecretPending` for a `SecretSource`
 - WHEN a user reads the `AgentRuntime` status
@@ -322,7 +322,7 @@ rather than a bare error.
 - AND it SHALL state the exact Vault mount and path to upload the material to
 - AND the condition message SHALL be phrased as an instruction, not a bare error
 
-### Requirement: Scoped Per-Cluster Writer Access
+### Requirement: AGT-SEC-08 -- Scoped Per-Cluster Writer Access
 
 Uploading material into a cluster's agent-secret Vault SHALL use a per-cluster,
 least-privilege WRITER path and identity, separate from any reader identity. The
@@ -334,14 +334,14 @@ human or automation can drop the material in. The gateway-provider Vault policy 
 namespace-templated for the gateway ServiceAccount to READ its own secrets; the
 agent-secret writer path is a distinct, separately-scoped grant.
 
-#### Scenario: Writer identity is confined to the agent-secret path
+#### Scenario: AGT-SEC-08.01 -- Writer identity is confined to the agent-secret path
 
 - GIVEN the per-cluster writer identity for the agent-secret Vault plane
 - WHEN it authenticates to that cluster's Vault
 - THEN it SHALL be permitted to write under `secret/data/hypershell/secret-sources/*`
 - AND it SHALL NOT be permitted to read provider material or to write to the gateway-provider Vault plane
 
-### Requirement: GitHub App Credentials via app-installation-token
+### Requirement: AGT-SEC-09 -- GitHub App Credentials via app-installation-token
 
 GitHub credentials - BOTH the agent GitHub providers AND the `Repository` import
 credential the `RepositoryReconciler` uses to read a private `.hypershell` subtree -
@@ -363,7 +363,7 @@ minting and rotation.
   SUPERSEDES the static-token credential-resolver path previously used by the
   `RepositoryReconciler`.
 
-#### Scenario: Agent GitHub provider is realized from the stored PEM
+#### Scenario: AGT-SEC-09.01 -- Agent GitHub provider is realized from the stored PEM
 
 - GIVEN an `AgentRuntime` with a GitHub `ProviderBinding` whose `refresh_strategy.type = app-installation-token` and whose referenced `SecretSource` holds the GitHub App PEM
 - WHEN the control plane reconciles it with the PEM present in the assigned cluster's Vault
@@ -371,14 +371,14 @@ minting and rotation.
 - AND no static installation token SHALL be stored and no raw credential `Secret` SHALL be rendered
 - AND the control-plane GitHub rotator SHALL re-mint and update the credential before expiry
 
-#### Scenario: Repository import mints its token from the PEM
+#### Scenario: AGT-SEC-09.02 -- Repository import mints its token from the PEM
 
 - GIVEN a `Repository` whose import credential `SecretSource` holds a GitHub App PEM plus `app_id` / `installation_id`
 - WHEN the `RepositoryReconciler` reads the `.hypershell` subtree
 - THEN it SHALL mint a short-lived installation token from the PEM and use it to authenticate to GitHub
 - AND it SHALL NOT read a pre-stored static installation token
 
-### Requirement: Rotation Ownership Split Between OpenShell and the Control Plane
+### Requirement: AGT-SEC-10 -- Rotation Ownership Split Between OpenShell and the Control Plane
 
 For the strategies OpenShell supports natively, keeping the realized credential current
 SHALL be OpenShell's responsibility through the provider `refresh_strategy`, not a
@@ -394,21 +394,21 @@ stored PEM before expiry and sets it on the OpenShell provider through
 `provider update --credential`. In all cases the control plane SHALL NOT re-place a raw
 Kubernetes `Secret`.
 
-#### Scenario: OpenShell-supported credential rotation happens inside OpenShell
+#### Scenario: AGT-SEC-10.01 -- OpenShell-supported credential rotation happens inside OpenShell
 
 - GIVEN an `AgentRuntime` whose Vertex provider was realized from stored material with a `google-service-account-jwt` strategy
 - WHEN the short-lived credential OpenShell mints expires
 - THEN OpenShell SHALL refresh it under the provider `refresh_strategy`
 - AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT re-place any `Secret`
 
-#### Scenario: GitHub credential rotation happens in the control-plane rotator
+#### Scenario: AGT-SEC-10.02 -- GitHub credential rotation happens in the control-plane rotator
 
 - GIVEN an `AgentRuntime` whose GitHub provider was realized from a stored PEM
 - WHEN the installation token approaches expiry
 - THEN the control-plane GitHub rotator SHALL re-mint the token from the PEM and set it through `provider update --credential`
 - AND it SHALL NOT re-place any raw `Secret`
 
-### Requirement: Import Reconciler Enablement
+### Requirement: AGT-SEC-11 -- Import Reconciler Enablement
 
 The declarative `.hypershell` import reconciler (`RepositoryReconciler`,
 [`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
@@ -418,7 +418,7 @@ plane SHALL log that the import reconciler is disabled and SHALL NOT run the imp
 loop; when it is `true` the control plane SHALL run the import reconcile loop. Enabling
 the import is configuration, not a code change (separate configuration from code).
 
-#### Scenario: Import runs only when enabled
+#### Scenario: AGT-SEC-11.01 -- Import runs only when enabled
 
 - GIVEN a control plane with `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false`
 - WHEN the control plane starts
@@ -426,7 +426,7 @@ the import is configuration, not a code change (separate configuration from code
 - WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true`
 - THEN it SHALL run the import reconcile loop
 
-### Requirement: Secret Store Wiring on Both Components
+### Requirement: AGT-SEC-12 -- Secret Store Wiring on Both Components
 
 The secret store SHALL be wired through the `HYPERSHELL_SECRET_STORE_*` configuration,
 keeping the single-directional split from
@@ -453,7 +453,7 @@ control plane SHALL fail provider realization loudly rather than configure a pro
 with empty material (no silent degradation). A `Repository` that declares an import
 credential SHALL be resolvable only when the hub-side store (path 1) is wired.
 
-#### Scenario: Unwired store fails loudly on both directions
+#### Scenario: AGT-SEC-12.01 -- Unwired store fails loudly on both directions
 
 - GIVEN `HYPERSHELL_SECRET_STORE_BACKEND` is unset
 - WHEN a user submits credential material to the api-server
@@ -461,14 +461,14 @@ credential SHALL be resolvable only when the hub-side store (path 1) is wired.
 - AND when a control plane attempts to read `SecretSource` material to realize a provider
 - THEN it SHALL fail loudly and SHALL NOT configure a provider with empty material
 
-#### Scenario: Fleet control plane reads its own cluster-local store
+#### Scenario: AGT-SEC-12.02 -- Fleet control plane reads its own cluster-local store
 
 - GIVEN a multi-cluster fleet where the hub api-server and a spoke control plane are NOT co-located
 - WHEN the spoke control plane is wired through `HYPERSHELL_SECRET_STORE_*`
 - THEN its read client SHALL point at its own cluster-local Vault
 - AND the `AgentRuntime` provider material SHALL NOT be resolved through a store the hub api-server writes
 
-### Requirement: Agent-Secret Vault Client Capabilities
+### Requirement: AGT-SEC-13 -- Agent-Secret Vault Client Capabilities
 
 The secret-store Vault client SHALL be able to reach a per-cluster Vault as that
 cluster actually serves it. Observable behavior:
@@ -495,7 +495,7 @@ These capabilities SHALL be driven by `HYPERSHELL_SECRET_STORE_*` configuration,
 code changes. (The current implementation surface is the `pkg/secretstore` write and
 read clients.)
 
-#### Scenario: Client connects to a privately-signed cluster Vault
+#### Scenario: AGT-SEC-13.01 -- Client connects to a privately-signed cluster Vault
 
 - GIVEN a cluster Vault served with a private CA and configured for Kubernetes auth
 - WHEN the control plane reads `SecretSource` material from it

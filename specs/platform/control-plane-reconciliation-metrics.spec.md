@@ -15,7 +15,7 @@ without introducing a dashboard database.
 
 ## Requirements
 
-### Requirement: CRM-001 -- Prometheus Metric Types
+### Requirement: OBS-CRM-01 -- Prometheus Metric Types
 
 The control plane SHALL expose the following fleet-wide Prometheus metrics:
 
@@ -29,7 +29,7 @@ The control plane SHALL expose the following fleet-wide Prometheus metrics:
 The control plane SHALL expose the metrics through its Prometheus scrape
 endpoint. The dashboard SHALL NOT read reconciliation data from a database.
 
-### Requirement: CRM-002 -- Prometheus Labels
+### Requirement: OBS-CRM-02 -- Prometheus Labels
 
 The counters and histogram SHALL use only bounded labels approved by the
 control-plane observability conventions. The metrics SHALL NOT include resource
@@ -39,7 +39,7 @@ The failure and retry counters MAY include a bounded reconciliation-kind label.
 The lag histogram MAY include a bounded reconciliation-kind label. The stale
 resource gauge MAY include a bounded resource-kind label.
 
-### Requirement: CRM-003 -- Historical Query Contract
+### Requirement: OBS-CRM-03 -- Historical Query Contract
 
 The BFF SHALL query the metrics through Prometheus `query_range` over the most
 recent **24 hours** with a **3600-second** step.
@@ -56,7 +56,7 @@ The BFF SHALL use the same aggregation dimensions for instant and range
 queries. The BFF SHALL omit a historical series when Prometheus returns an
 invalid or unavailable sample instead of converting the sample to zero.
 
-### Requirement: CRM-004 -- BFF Response
+### Requirement: OBS-CRM-04 -- BFF Response
 
 The BFF SHALL expose `GET /api/metrics/control-plane-reconciliation` and SHALL
 return current values plus optional historical arrays with UTC hourly labels.
@@ -67,13 +67,13 @@ the other current values. Failure of one historical query SHALL omit only that
 historical array while preserving successful current values and sibling
 historical arrays.
 
-### Requirement: CRM-005 -- Verification
+### Requirement: OBS-CRM-05 -- Verification
 
 Tests SHALL verify metric registration, histogram bucket export, bounded label
 sets, PromQL aggregation, 24-hour range parameters, response mapping, and
 failure behavior.
 
-### Requirement: CRM-006 -- Reconciliation Outcome Taxonomy
+### Requirement: OBS-CRM-06 -- Reconciliation Outcome Taxonomy
 
 Every reconciliation attempt SHALL be classified into exactly one of the
 following outcome values. The taxonomy is the single source of truth shared by
@@ -89,7 +89,7 @@ by outcome.
 
 A reconciliation that is skipped before the reconciler's `Handle` method
 executes (e.g. a phase-gated event that the watch loop or queue filters out
-before calling `Handle`, producing no span per CP-OBS-02) SHALL NOT record any
+before calling `Handle`, producing no span per OBS-CPL-02) SHALL NOT record any
 outcome observation. The `noop` outcome is distinct from this silent skip:
 `noop` means `Handle` ran, evaluated the resource, and decided no mutation was
 needed. Only code paths inside `Handle` record outcomes.
@@ -98,7 +98,7 @@ These outcome values SHALL be string constants defined once in the control-plane
 `otel` package and imported by every call site. Adding a new outcome value
 requires updating this spec.
 
-### Requirement: CRM-007 -- Bounded Reason Codes
+### Requirement: OBS-CRM-07 -- Bounded Reason Codes
 
 Each `retryable` or `failed` outcome SHALL carry a bounded `reason` label
 that aids diagnosis without leaking sensitive data. The reason code set is a
@@ -128,10 +128,10 @@ fleet size. Raw error strings SHALL NOT appear as label values. A reconcile
 failure that does not match a recognized code SHALL use `unknown` as the reason
 and log the detail at ERROR level.
 
-### Requirement: CRM-008 -- Outcome-Labeled Reconciliation Duration
+### Requirement: OBS-CRM-08 -- Outcome-Labeled Reconciliation Duration
 
-The existing `reconcile.duration` histogram (CP-OBS-07) SHALL add an `outcome`
-attribute from the taxonomy defined in CRM-006. The histogram SHALL continue
+The existing `reconcile.duration` histogram (OBS-CPL-07) SHALL add an `outcome`
+attribute from the taxonomy defined in OBS-CRM-06. The histogram SHALL continue
 to carry `resource.kind` and `event.type` attributes. The full attribute set
 for each observation SHALL be:
 
@@ -139,16 +139,16 @@ for each observation SHALL be:
 | --- | --- | --- |
 | `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` | Reconciler kind |
 | `event.type` | `reconcile`, `delete` | Watch event type |
-| `outcome` | `noop`, `success`, `retryable`, `failed` | CRM-006 |
+| `outcome` | `noop`, `success`, `retryable`, `failed` | OBS-CRM-06 |
 
-The `reason` attribute (CRM-007) SHALL NOT appear on the duration histogram
+The `reason` attribute (OBS-CRM-07) SHALL NOT appear on the duration histogram
 to keep cardinality bounded. Duration with reason can be correlated through
-traces (CP-OBS-02).
+traces (OBS-CPL-02).
 
 A `noop` observation SHALL still record the time spent evaluating the no-op
 decision so operators can detect slow no-op paths.
 
-### Requirement: CRM-009 -- Reconciliation Outcome Counter
+### Requirement: OBS-CRM-09 -- Reconciliation Outcome Counter
 
 The control plane SHALL expose a counter metric:
 
@@ -163,24 +163,24 @@ The counter SHALL carry the following bounded attributes:
 | `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
 | `outcome` | `noop`, `success`, `retryable`, `failed` |
 
-This counter complements `reconcile.errors` (CP-OBS-07) by tracking all
+This counter complements `reconcile.errors` (OBS-CPL-07) by tracking all
 outcomes, not only failures. `reconcile.errors` remains for backward
 compatibility; its increment SHALL coincide with either `retryable` or
 `failed` increments on `reconcile.outcomes`.
 
-### Requirement: CRM-010 -- Retry Counter with Reason
+### Requirement: OBS-CRM-10 -- Retry Counter with Reason
 
-The existing `hypershell.reconciliation.retries` counter (CRM-001) and the
+The existing `hypershell.reconciliation.retries` counter (OBS-CRM-01) and the
 OTLP retry recording path SHALL add a bounded `reason` attribute from the
-retryable reason codes in CRM-007. The counter SHALL continue to carry the
+retryable reason codes in OBS-CRM-07. The counter SHALL continue to carry the
 `resource.kind` attribute. The full attribute set SHALL be:
 
 | Attribute | Values |
 | --- | --- |
 | `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
-| `reason` | Retryable codes from CRM-007, or `unknown` |
+| `reason` | Retryable codes from OBS-CRM-07, or `unknown` |
 
-### Requirement: CRM-011 -- Failed Outcome Counter
+### Requirement: OBS-CRM-11 -- Failed Outcome Counter
 
 The control plane SHALL expose a counter metric for reconciliation failures
 that cannot self-recover:
@@ -194,16 +194,16 @@ The counter SHALL carry the following bounded attributes:
 | Attribute | Values |
 | --- | --- |
 | `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
-| `reason` | Failed codes from CRM-007, or `unknown` |
+| `reason` | Failed codes from OBS-CRM-07, or `unknown` |
 
 When exported to Prometheus, the counter SHALL appear as
 `reconcile_failed_total`. A `failed` outcome observation SHALL also increment
 `reconcile.outcomes` with `outcome=failed`,
-`hypershell.reconciliation.failures` (CRM-001), and `reconcile.errors`
-(CP-OBS-07). The four increments SHALL happen atomically from the caller's
+`hypershell.reconciliation.failures` (OBS-CRM-01), and `reconcile.errors`
+(OBS-CPL-07). The four increments SHALL happen atomically from the caller's
 perspective.
 
-### Requirement: CRM-012 -- Cardinality Policy
+### Requirement: OBS-CRM-12 -- Cardinality Policy
 
 The total label-value cardinality for any single metric SHALL NOT exceed the
 product of its bounded attribute domains. Specifically:
@@ -220,7 +220,7 @@ domain. The recording functions SHALL validate the outcome and reason values at
 the call site; an unrecognized value SHALL be replaced with `unknown` and
 logged at WARN level.
 
-### Requirement: CRM-013 -- Verification of Outcome Metrics
+### Requirement: OBS-CRM-13 -- Verification of Outcome Metrics
 
 Tests SHALL verify:
 
@@ -238,9 +238,9 @@ Tests SHALL verify:
 - No metric observation contains a resource identifier, namespace name, or raw
   error string as a label value.
 - The total series count for each metric does not exceed the cardinality bound
-  in CRM-012.
+  in OBS-CRM-12.
 
-#### Scenario: Successful gateway reconciliation
+#### Scenario: OBS-CRM-13.01 -- Successful gateway reconciliation
 
 - GIVEN a Gateway in phase `Pending`
 - WHEN the reconciler provisions it and transitions it to `Running`
@@ -248,7 +248,7 @@ Tests SHALL verify:
 - AND `reconcile.duration` SHALL record the duration with `outcome=success`
 - AND `reconcile.errors` SHALL NOT be incremented
 
-#### Scenario: No-op reconciliation
+#### Scenario: OBS-CRM-13.02 -- No-op reconciliation
 
 - GIVEN a Gateway whose desired state matches its observed state
 - WHEN the reconciler's `Handle` method evaluates the resource and determines no mutation is needed
@@ -256,7 +256,7 @@ Tests SHALL verify:
 - AND `reconcile.duration` SHALL record the evaluation time with `outcome=noop`
 - AND `reconcile.errors` SHALL NOT be incremented
 
-#### Scenario: Retryable failure with reason
+#### Scenario: OBS-CRM-13.03 -- Retryable failure with reason
 
 - GIVEN a Gateway reconciliation in progress
 - WHEN the HyperShell API server gRPC call returns Unavailable
@@ -265,7 +265,7 @@ Tests SHALL verify:
 - AND `hypershell.reconciliation.retries` SHALL increment with `resource.kind=Gateway`, `reason=grpc_unavailable`
 - AND `reconcile.errors` SHALL be incremented
 
-#### Scenario: Failed outcome with reason
+#### Scenario: OBS-CRM-13.04 -- Failed outcome with reason
 
 - GIVEN a Gateway with an invalid image reference
 - WHEN the reconciler validates the configuration and cannot proceed
@@ -276,7 +276,7 @@ Tests SHALL verify:
 - AND `reconcile.errors` SHALL be incremented
 - AND the Gateway phase SHALL transition to `Failed`
 
-#### Scenario: Unknown reason code fallback
+#### Scenario: OBS-CRM-13.05 -- Unknown reason code fallback
 
 - GIVEN a reconciliation failure that does not match any recognized reason code
 - WHEN the outcome is recorded
@@ -291,8 +291,8 @@ Tests SHALL verify:
   specification intentionally reuses and standardizes their shared dashboard
   presentation as `requests/sec` with three fractional digits; these are
   compatibility changes to the existing reliability-dashboard contract.
-- The outcome taxonomy (CRM-006) is authoritative for all reconciliation
-  metrics. `control-plane-observability.spec.md` CP-OBS-07 defines the OTLP
+- The outcome taxonomy (OBS-CRM-06) is authoritative for all reconciliation
+  metrics. `control-plane-observability.spec.md` OBS-CPL-07 defines the OTLP
   instruments; this spec defines their semantic contract.
 - Failed reason codes align with the control-plane conventions
   (`standards/control-plane/conventions.spec.md`): non-recoverable errors update
@@ -304,7 +304,7 @@ Tests SHALL verify:
 | --- | --- |
 | Four-value outcome taxonomy | Covers the full reconcile lifecycle without unbounded enumeration; maps cleanly to operator actions (noop = healthy, success = converged, retryable = wait, failed = investigate). |
 | Closed reason-code enumeration | Prevents label cardinality from growing with fleet size or error diversity; new failure modes require a spec change and review. |
-| Reason on retry/failed counters but not duration histogram | Duration x outcome is already 48 series (6 kinds x 2 event types x 4 outcomes); adding `reason` (9 codes: 5 retryable + 3 failed + `unknown`) would expand to 6 x 2 x 9 = 108 series total. Reason-correlated duration is available via trace spans (CP-OBS-02). |
+| Reason on retry/failed counters but not duration histogram | Duration x outcome is already 48 series (6 kinds x 2 event types x 4 outcomes); adding `reason` (9 codes: 5 retryable + 3 failed + `unknown`) would expand to 6 x 2 x 9 = 108 series total. Reason-correlated duration is available via trace spans (OBS-CPL-02). |
 | `noop` records duration | Slow no-op paths (e.g. expensive phase-gate evaluation) are a real operational concern; silent omission hides them. |
 | `unknown` fallback reason | New failure modes surface in dashboards immediately (via `unknown` spikes) rather than silently dropping observations until the spec is updated. |
 | Backward compatibility with existing counters | `reconcile.errors` and `hypershell.reconciliation.failures` remain so existing dashboards and alerts continue to work; `reconcile.outcomes` is the forward-looking canonical metric. |

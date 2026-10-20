@@ -22,7 +22,7 @@ reference. Those schema changes apply to every environment.
 
 ## Requirements
 
-### Requirement: Branch Build Entry Point
+### Requirement: CICD-BLD-01 -- Branch Build Entry Point
 
 The platform SHALL provide a `make kind-openshell-up` target that brings up a
 local Kind environment and provisions an additional gateway, `openshell-dev-gateway`,
@@ -50,46 +50,46 @@ and `OPENSHELL_PR` are set, `OPENSHELL_BRANCH` SHALL take precedence and
 `OPENSHELL_PR` SHALL be ignored. When neither is set, the target SHALL fail
 with an actionable message explaining how to supply a branch or PR.
 
-#### Scenario: Bring up a Kind environment from an OpenShell branch
+#### Scenario: CICD-BLD-01.01 -- Bring up a Kind environment from an OpenShell branch
 
 - GIVEN a developer with a valid `OPENSHELL_BRANCH` value
 - WHEN they run `OPENSHELL_BRANCH=my-feature make kind-openshell-up`
 - THEN the platform SHALL build OpenShell from `my-feature`
 - AND SHALL bring up (or reuse) a Kind cluster running the branch-built gateway
 
-#### Scenario: Target an OpenShell pull request
+#### Scenario: CICD-BLD-01.02 -- Target an OpenShell pull request
 
 - GIVEN a developer who wants to validate OpenShell PR #123
 - WHEN they run `OPENSHELL_PR=123 make kind-openshell-up`
 - THEN the platform SHALL resolve the PR head ref and build OpenShell from it
 
-#### Scenario: Missing source ref is rejected
+#### Scenario: CICD-BLD-01.03 -- Missing source ref is rejected
 
 - GIVEN neither `OPENSHELL_BRANCH` nor `OPENSHELL_PR` is set
 - WHEN the developer runs `make kind-openshell-up`
 - THEN the target SHALL fail before building or mutating the cluster
 - AND SHALL print how to supply a branch or PR
 
-#### Scenario: Both source refs are set
+#### Scenario: CICD-BLD-01.04 -- Both source refs are set
 
 - GIVEN both `OPENSHELL_BRANCH` and `OPENSHELL_PR` are set
 - WHEN the developer runs `make kind-openshell-up`
 - THEN the platform SHALL use `OPENSHELL_BRANCH` and ignore `OPENSHELL_PR`
 
-#### Scenario: PR ref against a fork is rejected
+#### Scenario: CICD-BLD-01.05 -- PR ref against a fork is rejected
 
 - GIVEN `OPENSHELL_REPO` pointing to a fork and `OPENSHELL_PR` set
 - WHEN the developer runs `make kind-openshell-up`
 - THEN the target SHALL fail before fetching
 - AND SHALL explain that PR refs only exist in the repository hosting the pull request
 
-#### Scenario: Override the OpenShell repository
+#### Scenario: CICD-BLD-01.06 -- Override the OpenShell repository
 
 - GIVEN a developer building from a fork
 - WHEN they run `OPENSHELL_REPO=https://github.com/acme/openshell.git OPENSHELL_BRANCH=wip make kind-openshell-up`
 - THEN the platform SHALL fetch the source from the specified repository
 
-### Requirement: Deterministic Source Checkout
+### Requirement: CICD-BLD-02 -- Deterministic Source Checkout
 
 The platform SHALL fetch the OpenShell source into an isolated, disposable
 location and check out the requested ref without mutating the developer's working
@@ -101,7 +101,7 @@ record the resolved SHA, and SHALL rebuild whenever the requested ref resolves t
 a commit different from the one currently deployed, so that re-running the target
 against a moved branch tip picks up new commits.
 
-#### Scenario: Branch tip advances between runs
+#### Scenario: CICD-BLD-02.01 -- Branch tip advances between runs
 
 - GIVEN a prior `kind-openshell-up` built commit
   `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2` from branch `my-feature`
@@ -110,14 +110,14 @@ against a moved branch tip picks up new commits.
 - THEN the platform SHALL fetch the current tip, resolve its SHA, and rebuild
 - AND SHALL redeploy the gateway with the newly built images
 
-#### Scenario: Resolved commit is recorded
+#### Scenario: CICD-BLD-02.02 -- Resolved commit is recorded
 
 - GIVEN a successful branch build
 - WHEN the build completes
 - THEN the platform SHALL record the concrete commit SHA it built from
 - AND SHALL surface that SHA to the developer
 
-### Requirement: OpenShell Image Set Built From Source
+### Requirement: CICD-BLD-03 -- OpenShell Image Set Built From Source
 
 The platform SHALL build the gateway and supervisor images from the checked-out
 OpenShell source using the repository's `docker-build-image.sh` script, which
@@ -144,7 +144,7 @@ The image references written into the seeded Gateway resource SHALL be:
 - `image`: `gateway:dev-<commit-sha>`
 - `supervisor_image`: `supervisor:dev-<commit-sha>`
 
-#### Scenario: Gateway and supervisor images are built and loaded
+#### Scenario: CICD-BLD-03.01 -- Gateway and supervisor images are built and loaded
 
 - GIVEN a resolved OpenShell source checkout
 - WHEN the platform builds OpenShell via `docker-build-image.sh`
@@ -152,14 +152,14 @@ The image references written into the seeded Gateway resource SHALL be:
 - AND SHALL tag each as `gateway:dev-<sha>` and `supervisor:dev-<sha>`
 - AND SHALL load both into the Kind cluster so no registry pull is required
 
-#### Scenario: Sandbox workload uses the shared development image
+#### Scenario: CICD-BLD-03.02 -- Sandbox workload uses the shared development image
 
 - GIVEN a branch-built gateway
 - WHEN a development test creates a sandbox through that gateway
 - THEN it SHALL pass `--from` with `OPENSHELL_SANDBOX_IMAGE` from `OPENSHELL_VERSION`
 - AND the sandbox workload SHALL use that image
 
-### Requirement: Branch-Built Images Wired Into Provisioning
+### Requirement: CICD-BLD-04 -- Branch-Built Images Wired Into Provisioning
 
 The seeded dev gateway SHALL be provisioned with the branch-built images rather
 than the pinned defaults. The branch-built gateway and supervisor images SHALL
@@ -176,7 +176,7 @@ gateway container and supervisor sidecar use the branch-built images. Image chan
 be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)),
 not by patching a static ConfigMap or SSA placeholder.
 
-#### Scenario: Dev gateway runs branch-built images
+#### Scenario: CICD-BLD-04.01 -- Dev gateway runs branch-built images
 
 - GIVEN a completed OpenShell branch build with gateway and supervisor images
   loaded into Kind
@@ -191,7 +191,7 @@ not by patching a static ConfigMap or SSA placeholder.
 - AND the supervisor sidecar SHALL run `supervisor:dev-<sha>`
 - AND development tests SHALL select the shared workload image explicitly
 
-### Requirement: Sandbox Image Configuration
+### Requirement: CICD-BLD-05 -- Sandbox Image Configuration
 
 Development tests SHALL select the workload image through OpenShell's
 `sandbox create --from` interface using `OPENSHELL_SANDBOX_IMAGE` from
@@ -199,7 +199,7 @@ Development tests SHALL select the workload image through OpenShell's
 image is separate from the trusted runtime binaries built from the OpenShell
 checkout and is not a Gateway schema field.
 
-### Requirement: Dev Gateway Identity
+### Requirement: CICD-BLD-06 -- Dev Gateway Identity
 
 The gateway seeded by `kind-openshell-up` SHALL be identifiable as a dev/branch
 build, distinguishing it from gateways created by the standard `kind-up` flow.
@@ -228,28 +228,28 @@ next upgrade would overwrite):
 When `dev_build` is unset or `false`, those Helm values SHALL be omitted.
 Gateways created by the standard `kind-up` flow SHALL NOT have `dev_build` set.
 
-#### Scenario: Dev gateway has a stable name
+#### Scenario: CICD-BLD-06.01 -- Dev gateway has a stable name
 
 - GIVEN any branch build
 - WHEN the dev gateway is seeded
 - THEN its Gateway name SHALL be `openshell-dev-gateway`
 - AND subsequent runs SHALL update the existing Gateway rather than creating duplicates
 
-#### Scenario: Dev-build label is propagated to K8s resources
+#### Scenario: CICD-BLD-06.02 -- Dev-build label is propagated to K8s resources
 
 - GIVEN a Gateway with `dev_build: true`
 - WHEN the control plane reconciles it
 - THEN the Deployment, Service, and other K8s resources SHALL carry the label
   `hypershell.redhat.io/openshell-dev-build: "true"`
 
-#### Scenario: Dev-build label is selectable
+#### Scenario: CICD-BLD-06.03 -- Dev-build label is selectable
 
 - GIVEN a running branch-built gateway
 - WHEN an operator queries workloads with the selector
   `hypershell.redhat.io/openshell-dev-build=true`
 - THEN the gateway's Kubernetes resources SHALL be returned
 
-#### Scenario: Provenance is recorded on the workload
+#### Scenario: CICD-BLD-06.04 -- Provenance is recorded on the workload
 
 - GIVEN a branch-built gateway built from branch `my-feature` at commit
   `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2`
@@ -260,13 +260,13 @@ Gateways created by the standard `kind-up` flow SHALL NOT have `dev_build` set.
   - `hypershell.redhat.io/openshell-dev-build-sha: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"`
   - `hypershell.redhat.io/openshell-dev-build-repo: "https://github.com/NVIDIA/OpenShell.git"`
 
-#### Scenario: Standard gateways are not labeled as dev builds
+#### Scenario: CICD-BLD-06.05 -- Standard gateways are not labeled as dev builds
 
 - GIVEN a gateway created by the standard `make kind-up` flow (which does not set `dev_build`)
 - WHEN an operator queries with `hypershell.redhat.io/openshell-dev-build=true`
 - THEN that gateway's resources SHALL NOT be returned
 
-### Requirement: Coexistence With Standard Local Development
+### Requirement: CICD-BLD-07 -- Coexistence With Standard Local Development
 
 `kind-openshell-up` SHALL integrate with the existing Kind environment: it SHALL
 reuse a running cluster when present (including the full stack: API server, control
@@ -279,7 +279,7 @@ SHALL remove both gateways.
 The standard `make kind-up` target SHALL remain unchanged and SHALL NOT invoke
 branch build logic.
 
-#### Scenario: Reuse an existing cluster with full stack
+#### Scenario: CICD-BLD-07.01 -- Reuse an existing cluster with full stack
 
 - GIVEN a Kind cluster already created by `make kind-up` with API server, control
   plane, Keycloak, and `dev-gateway` running
@@ -287,7 +287,7 @@ branch build logic.
 - THEN the platform SHALL reuse the existing cluster and stack
 - AND SHALL provision or update the `openshell-dev-gateway` alongside `dev-gateway`
 
-#### Scenario: Create full stack when cluster does not exist
+#### Scenario: CICD-BLD-07.02 -- Create full stack when cluster does not exist
 
 - GIVEN no Kind cluster exists
 - WHEN the developer runs `OPENSHELL_BRANCH=my-feature make kind-openshell-up`
@@ -295,7 +295,7 @@ branch build logic.
   control plane, Keycloak, `dev-gateway`)
 - AND SHALL additionally provision the `openshell-dev-gateway` with branch-built images
 
-#### Scenario: Standard flow is unaffected
+#### Scenario: CICD-BLD-07.03 -- Standard flow is unaffected
 
 - GIVEN a developer who runs `make kind-up`
 - WHEN the environment comes up
@@ -303,7 +303,7 @@ branch build logic.
 - AND `openshell-dev-gateway` SHALL NOT be created
 - AND no `dev_build` field SHALL be set on any Gateway
 
-### Requirement: Enablement for PR and Version Validation
+### Requirement: CICD-BLD-08 -- Enablement for PR and Version Validation
 
 The branch build workflow SHALL enable HyperShell's dev and E2E test workflows to
 exercise an unreleased OpenShell version. Tests SHALL be able to target the
@@ -312,14 +312,14 @@ for Gateways with `dev_build: true`. The workflow SHALL surface a non-zero exit
 status when the OpenShell source cannot be fetched or built so that failures are
 not silently masked.
 
-#### Scenario: E2E run against a branch-built gateway
+#### Scenario: CICD-BLD-08.01 -- E2E run against a branch-built gateway
 
 - GIVEN a branch-built gateway named `openshell-dev-gateway` is running in the Kind cluster
 - WHEN an E2E or dev workflow targets the gateway by name or queries for gateways
   with `dev_build: true`
 - THEN it SHALL exercise the branch-built OpenShell version
 
-#### Scenario: Build failure is surfaced
+#### Scenario: CICD-BLD-08.02 -- Build failure is surfaced
 
 - GIVEN an OpenShell ref that fails to fetch or build
 - WHEN `make kind-openshell-up` runs

@@ -69,19 +69,19 @@ The feature SHALL be disabled when no Loki endpoint is configured (see
 E2E-LOG-02): with it disabled, the endpoints SHALL report the feature off rather
 than error, and the rest of the dashboard SHALL be unaffected.
 
-#### Scenario: Recent runs served from history
+#### Scenario: E2E-LOG-01.01 -- Recent runs served from history
 
 - GIVEN the Loki endpoint is configured and the source has refreshed at least once
 - WHEN a client requests `GET /api/e2e/runs`
 - THEN the BFF SHALL respond with HTTP `200` and the recent-runs snapshot envelope
 
-#### Scenario: Run detail addressed without cross-cluster collision
+#### Scenario: E2E-LOG-01.02 -- Run detail addressed without cross-cluster collision
 
 - GIVEN two runs on different clusters that share the suite-emitted `runId`
 - WHEN a client requests each run's detail
 - THEN each request SHALL resolve to the correct run because the run address includes its tenant/namespace
 
-#### Scenario: Feature disabled when Loki is unconfigured
+#### Scenario: E2E-LOG-01.03 -- Feature disabled when Loki is unconfigured
 
 - GIVEN no Loki endpoint is configured
 - WHEN a client requests any `/api/e2e/*` endpoint
@@ -101,13 +101,13 @@ minimum: `FD_E2E_LOKI_URL` (the internal Loki base URL, for example
 the binary SHALL carry none. Changing an endpoint, tenant allowlist, window, or
 limit SHALL NOT require a code change.
 
-#### Scenario: Empty Loki URL disables the feature
+#### Scenario: E2E-LOG-02.01 -- Empty Loki URL disables the feature
 
 - GIVEN `FD_E2E_LOKI_URL` is empty
 - WHEN the BFF starts
 - THEN the e2e-run source SHALL NOT run and the endpoints SHALL report the feature disabled
 
-#### Scenario: Config comes from env
+#### Scenario: E2E-LOG-02.02 -- Config comes from env
 
 - GIVEN the BFF starts with `FD_E2E_LOKI_URL`, `FD_E2E_LOKI_TENANTS`, `FD_E2E_HISTORY_WINDOW`, and `FD_E2E_RECENT_RUN_LIMIT` set
 - WHEN the source resolves its endpoint, tenants, window, and limit
@@ -124,14 +124,14 @@ SHALL build LogQL only from validated inputs and SHALL NOT expose an arbitrary
 query, URL, or tenant proxy to the browser; the Loki service and its credentials
 SHALL NOT be reachable from the browser.
 
-#### Scenario: Plane depends only on the port
+#### Scenario: E2E-LOG-03.01 -- Plane depends only on the port
 
 - GIVEN the BFF is configured with the Loki adapter
 - WHEN the e2e-run plane refreshes or streams
 - THEN it SHALL obtain recent runs, run events, and live subscriptions through the port only
 - AND it SHALL NOT call Loki directly from the plane or the domain
 
-#### Scenario: No arbitrary query proxy
+#### Scenario: E2E-LOG-03.02 -- No arbitrary query proxy
 
 - GIVEN a browser request carrying filter parameters
 - WHEN the BFF builds the Loki query
@@ -149,20 +149,20 @@ begin only after the log pipeline is configured; runs that predate structured
 reporting (for example older Bash-suite runs) MAY have logs but no structured steps,
 and the view SHALL say so rather than render them as stepless passes.
 
-#### Scenario: History respects the lookback and limit
+#### Scenario: E2E-LOG-04.01 -- History respects the lookback and limit
 
 - GIVEN `FD_E2E_HISTORY_WINDOW=168h` and `FD_E2E_RECENT_RUN_LIMIT=20`
 - WHEN the source reads recent runs
 - THEN it SHALL query at most the 168h window and return at most 20 runs
 - AND paging SHALL not drop runs within the window
 
-#### Scenario: Truncated history is reported
+#### Scenario: E2E-LOG-04.02 -- Truncated history is reported
 
 - GIVEN more runs exist in the window than the configured limits allow to be returned
 - WHEN the source serves recent runs
 - THEN it SHALL flag the result as truncated/incomplete, not present it as the complete set
 
-#### Scenario: Pre-reporting run is marked stepless
+#### Scenario: E2E-LOG-04.03 -- Pre-reporting run is marked stepless
 
 - GIVEN a run whose logs exist but contain no `hypershell.e2e.v1` structured events
 - WHEN it appears in the run list or detail
@@ -180,21 +180,21 @@ and shared/aggregated across subscribed browsers rather than opening one upstrea
 feed per browser. The stream SHALL provide heartbeats, honor cancellation, apply
 backpressure with bounded buffers, and bound replay.
 
-#### Scenario: Live steps stream, not poll
+#### Scenario: E2E-LOG-05.01 -- Live steps stream, not poll
 
 - GIVEN a run is executing and emitting events
 - WHEN a browser subscribes to `GET /api/e2e/stream` for that run
 - THEN the BFF SHALL deliver new step and log events from a Loki tail
 - AND it SHALL NOT fall back to repeated `query_range` polling for the live path
 
-#### Scenario: Per-tenant tail
+#### Scenario: E2E-LOG-05.02 -- Per-tenant tail
 
 - GIVEN two configured tenants
 - WHEN the BFF tails live logs
 - THEN it SHALL open an authorized tail per tenant
 - AND it SHALL NOT send a pipe-separated multi-tenant header to the tail endpoint
 
-#### Scenario: Shared upstream within a replica
+#### Scenario: E2E-LOG-05.03 -- Shared upstream within a replica
 
 - GIVEN several browsers subscribed to runs on the same tenant on one replica
 - WHEN the replica tails Loki
@@ -211,21 +211,21 @@ represent a disconnected feed as healthy or live. Because two BFF replicas exist
 there is no sticky routing, the bridge SHALL NOT depend on session stickiness or on
 process-local history being durable.
 
-#### Scenario: Reconnect backfills and deduplicates
+#### Scenario: E2E-LOG-06.01 -- Reconnect backfills and deduplicates
 
 - GIVEN a live stream drops and reconnects
 - WHEN the BFF resumes
 - THEN it SHALL backfill an overlapping window, deduplicate by `runId`/`sequence`, and continue live
 - AND no event in the overlap SHALL be delivered twice or lost
 
-#### Scenario: Dropped entries are surfaced
+#### Scenario: E2E-LOG-06.02 -- Dropped entries are surfaced
 
 - GIVEN Loki reports dropped entries or an ingestion gap
 - WHEN the BFF streams to the browser
 - THEN it SHALL surface the drop/gap
 - AND it SHALL NOT represent the feed as healthy or live during the gap
 
-#### Scenario: No dependence on stickiness
+#### Scenario: E2E-LOG-06.03 -- No dependence on stickiness
 
 - GIVEN a browser's requests are served by either of the two replicas
 - WHEN it loads history and subscribes to the stream
@@ -240,14 +240,14 @@ event JSON. Run ids, commit revisions, and step ids SHALL be read from the parse
 JSON body, not from Loki index labels. A malformed envelope or message SHALL be
 handled without dropping the rest of the stream.
 
-#### Scenario: Envelope then message
+#### Scenario: E2E-LOG-07.01 -- Envelope then message
 
 - GIVEN a ViaQ record whose `message` field holds the suite's `hypershell.e2e.v1` line
 - WHEN the adapter decodes it
 - THEN it SHALL parse the ViaQ envelope, then parse the `message` body
 - AND it SHALL read `runId`, `revision`, and `stepId` from the body, not from index labels
 
-#### Scenario: Malformed record is isolated
+#### Scenario: E2E-LOG-07.02 -- Malformed record is isolated
 
 - GIVEN one record whose envelope or message is malformed
 - WHEN the adapter processes the stream
@@ -264,14 +264,14 @@ e2e-run endpoints SHALL remain behind the existing OAuth plus backend TokenRevie
 SAR. A long-lived stream SHALL terminate or revalidate when its authorization
 expires, and the UI SHALL follow the existing session-expiry convention.
 
-#### Scenario: Cluster identity is the tenant, not the body
+#### Scenario: E2E-LOG-08.01 -- Cluster identity is the tenant, not the body
 
 - GIVEN a record whose body `cluster` differs from the tenant it was read from
 - WHEN the BFF establishes the run's trusted cluster
 - THEN it SHALL use the configured tenant
 - AND the body `cluster` SHALL be display metadata only
 
-#### Scenario: Expired authorization ends the stream
+#### Scenario: E2E-LOG-08.02 -- Expired authorization ends the stream
 
 - GIVEN an authorized browser holding an open e2e stream
 - WHEN its authorization expires
@@ -288,20 +288,20 @@ AnalysisRun health override in hypershell-gitops intentionally decouples Argo
 Application health from the test verdict, a run's failed or unknown state SHALL be
 preserved and shown even when the Argo Application reports Healthy.
 
-#### Scenario: Join by environment and exact revision
+#### Scenario: E2E-LOG-09.01 -- Join by environment and exact revision
 
 - GIVEN a promotion at a known environment/namespace and hydrated revision
 - WHEN the view correlates runs to it
 - THEN it SHALL match on environment/namespace and exact hydrated revision, then attempt id
 - AND it SHALL display the application source revision separately
 
-#### Scenario: Failed run shown under Healthy Argo
+#### Scenario: E2E-LOG-09.02 -- Failed run shown under Healthy Argo
 
 - GIVEN a run that failed or is unknown while the Argo Application reports Healthy
 - WHEN the view renders the run against its promotion
 - THEN the failed/unknown state SHALL be preserved and shown, not masked by Argo health
 
-#### Scenario: Newer run does not overwrite older evidence
+#### Scenario: E2E-LOG-09.03 -- Newer run does not overwrite older evidence
 
 - GIVEN an older released revision with its own run evidence
 - WHEN a newer run for a different revision is ingested
@@ -316,20 +316,20 @@ separate states: test failed, reporting incomplete, backend unavailable, and liv
 disconnected. Log history SHALL survive Job/Pod TTL because it lives in Loki, not in
 the Pod.
 
-#### Scenario: Loki outage degrades only the pane
+#### Scenario: E2E-LOG-10.01 -- Loki outage degrades only the pane
 
 - GIVEN Loki is unavailable
 - WHEN the dashboard renders
 - THEN only the e2e test-details pane SHALL degrade
 - AND the promotion dashboard and its gates SHALL render unchanged
 
-#### Scenario: Four states are distinct
+#### Scenario: E2E-LOG-10.02 -- Four states are distinct
 
 - GIVEN a run that failed, a run with missing terminal records, a backend outage, and a dropped live feed
 - WHEN each is rendered
 - THEN the view SHALL show test-failed, reporting-incomplete, backend-unavailable, and live-disconnected as four distinct states
 
-#### Scenario: History survives Pod deletion
+#### Scenario: E2E-LOG-10.03 -- History survives Pod deletion
 
 - GIVEN a completed run whose Pod has been reaped
 - WHEN an operator opens that run
@@ -350,14 +350,14 @@ port; the domain and presentation SHALL depend only on the port and domain types
 Event reduction (ordering, deduplication, step-state derivation) SHALL live in the
 framework-free domain, not in a component or adapter.
 
-#### Scenario: E2E data flows through the port and mapper
+#### Scenario: E2E-LOG-11.01 -- E2E data flows through the port and mapper
 
 - GIVEN the UI renders the e2e-run view
 - WHEN it loads runs or subscribes to a stream
 - THEN it SHALL call the port methods, and the BFF JSON/stream SHALL be translated to domain types only in the wire mapper
 - AND the `AbortSignal` SHALL propagate to the port and cancel the subscription
 
-#### Scenario: Reduction is framework-free
+#### Scenario: E2E-LOG-11.02 -- Reduction is framework-free
 
 - GIVEN a sequence of run/step/log events including duplicates and reconnect overlap
 - WHEN the view derives per-step state and ordering
@@ -407,27 +407,27 @@ chatty output cannot evict the run verdict or steps. The stream SHALL subscribe
 before fetching backfill to avoid a snapshot-to-tail race, deduplicate sequence
 overlap, and surface truncated history or dropped events.
 
-#### Scenario: Recent runs newest-first
+#### Scenario: E2E-LOG-12.01 -- Recent runs newest-first
 
 - GIVEN several runs in the history window
 - WHEN the view opens
 - THEN it SHALL list them newest-first with revision, attempt, start/end/duration, and verdict
 
-#### Scenario: Ordered steps with state and logs
+#### Scenario: E2E-LOG-12.02 -- Ordered steps with state and logs
 
 - GIVEN a selected run
 - WHEN its detail renders
 - THEN it SHALL show ordered steps with passed/failed/skipped/not-run/running state and durations
 - AND a selectable inline log pane for a chosen step or the whole run
 
-#### Scenario: Live arrival with follow and pause
+#### Scenario: E2E-LOG-12.03 -- Live arrival with follow and pause
 
 - GIVEN a run is executing
 - WHEN the operator is viewing it
 - THEN new steps and log lines SHALL arrive live
 - AND the operator SHALL be able to follow or pause, with long logs bounded in rendering
 
-#### Scenario: Not-run distinguished from skipped
+#### Scenario: E2E-LOG-12.04 -- Not-run distinguished from skipped
 
 - GIVEN a fail-fast run where later steps were never reached and a mode-skipped step
 - WHEN the detail renders
@@ -443,7 +443,7 @@ Loading recent runs and run detail SHALL publish a workflow probe with outcomes
 publish connect, disconnect, reconnect, and dropped-entry facts. Production browser
 and BFF code SHALL NOT make raw console or direct telemetry calls.
 
-#### Scenario: Stream lifecycle publishes facts
+#### Scenario: E2E-LOG-13.01 -- Stream lifecycle publishes facts
 
 - GIVEN the e2e-run view subscribes to a live stream
 - WHEN the stream connects, drops, reconnects, or reports dropped entries
@@ -462,13 +462,13 @@ Interactive elements (run selection, step selection, follow/pause) SHALL be keyb
 operable and expose accessible names. Log output SHALL be escaped so record content
 cannot inject markup.
 
-#### Scenario: Non-color cue for step state
+#### Scenario: E2E-LOG-14.01 -- Non-color cue for step state
 
 - GIVEN a failed step and a skipped step
 - WHEN they render
 - THEN each state SHALL carry a non-color cue in addition to any color
 
-#### Scenario: Log content is escaped
+#### Scenario: E2E-LOG-14.02 -- Log content is escaped
 
 - GIVEN a log line containing markup-like characters
 - WHEN it renders in the log pane
@@ -481,7 +481,7 @@ existing authentication middleware and SAR authorization firewall; they SHALL NO
 introduce a separate access-control path. When auth is disabled (dev mode), the
 endpoints and view SHALL remain open, matching the other planes.
 
-#### Scenario: E2E endpoints honor the existing SAR gate
+#### Scenario: E2E-LOG-15.01 -- E2E endpoints honor the existing SAR gate
 
 - GIVEN auth is enabled and the caller is not authorized by the SAR firewall
 - WHEN the caller requests any `/api/e2e/*` endpoint
@@ -497,7 +497,7 @@ non-parity checks (PatternFly 6 usage, hexagonal boundary, accessibility,
 localization, tests) still run. If an approved mockup is later supplied, the parity
 path applies.
 
-#### Scenario: Built without a fabricated mockup
+#### Scenario: E2E-LOG-16.01 -- Built without a fabricated mockup
 
 - GIVEN no approved mockup for the e2e-run view
 - WHEN the view is built and verified
@@ -516,13 +516,13 @@ skipped-versus-not-run distinction, missing terminal records, malformed messages
 output escaping, auth/session expiry, recent attempts, exact-SHA correlation, live
 steps and logs, reconnect state, failure, and retained history.
 
-#### Scenario: BFF gap and reconnect are tested
+#### Scenario: E2E-LOG-17.01 -- BFF gap and reconnect are tested
 
 - GIVEN a test harness with mocked `query_range` and `tail`
 - WHEN a snapshot/tail gap and a reconnect are simulated
 - THEN the tests SHALL assert backfill, deduplication, surfaced drops, and no lost or duplicated events
 
-#### Scenario: UI reduction cases are tested
+#### Scenario: E2E-LOG-17.02 -- UI reduction cases are tested
 
 - GIVEN fixtures for duplicates, reconnect overlap, parallel steps, skipped versus not-run, missing terminal records, and malformed messages
 - WHEN the domain reduces them
@@ -538,7 +538,7 @@ hypershell-gitops logging/configuration integration. The feature SHALL NOT be
 claimed deployed or live until the application release and the dashboard image are
 built and hypershell-gitops pins them.
 
-#### Scenario: Deployment not claimed prematurely
+#### Scenario: E2E-LOG-18.01 -- Deployment not claimed prematurely
 
 - GIVEN the application and dashboard changes are merged but not yet built and pinned by hypershell-gitops
 - WHEN the work is reported

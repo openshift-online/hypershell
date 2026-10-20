@@ -58,7 +58,7 @@ one grouping SHALL be chosen as primary and this spec amended accordingly.
 
 ## Requirements
 
-### Requirement: HUB clusters sit on one centered horizontal spine
+### Requirement: FLT-MAP-01 -- HUB clusters sit on one centered horizontal spine
 
 The layout SHALL place the governing HUB of every column on one shared horizontal
 line - the hub spine - and that line SHALL sit at the vertical center of the map.
@@ -68,7 +68,7 @@ center. The vertical center SHALL be computed so that the lanes above the spine
 and the lanes below it are balanced: the spine SHALL NOT be pushed to the top or
 bottom of the diagram by the presence, count, or cloud provider of any cluster.
 
-#### Scenario: Every column's hub shares one spine Y
+#### Scenario: FLT-MAP-01.01 -- Every column's hub shares one spine Y
 
 - GIVEN a promotion map with several stages, each with one HUB cluster on the
   single hub-hosting provider
@@ -76,7 +76,7 @@ bottom of the diagram by the presence, count, or cloud provider of any cluster.
 - THEN every HUB node's vertical center SHALL equal the single hub-spine Y
 - AND the hub-spine Y SHALL equal the vertical center of the laid-out map
 
-#### Scenario: Spine stays centered while spokes group by provider
+#### Scenario: FLT-MAP-01.02 -- Spine stays centered while spokes group by provider
 
 - GIVEN a map whose HUBs run on one provider and whose SPOKE clusters run on
   other providers
@@ -85,7 +85,7 @@ bottom of the diagram by the presence, count, or cloud provider of any cluster.
 - AND grouping the SPOKE clusters into their provider lanes SHALL NOT move the hub
   spine off the vertical center
 
-### Requirement: Clusters group into visible provider lanes
+### Requirement: FLT-MAP-07 -- Clusters group into visible provider lanes
 
 The map SHALL render one provider lane per cloud provider (the provider string, or
 an "unassigned" lane when the server omits it) as a visible grouping, so each
@@ -93,7 +93,7 @@ cluster is shown within its provider's lane. The lane set SHALL be derived from
 the per-node provider signal, with no baked-in provider list, and SHALL be
 deterministic for a given model.
 
-#### Scenario: Two providers render as two lanes
+#### Scenario: FLT-MAP-07.01 -- Two providers render as two lanes
 
 - GIVEN a map with clusters on the AWS provider and clusters on the IBM provider
 - WHEN the map is rendered
@@ -101,14 +101,14 @@ deterministic for a given model.
   groupings
 - AND each cluster SHALL appear within the lane of the provider it runs on
 
-#### Scenario: Unassigned provider
+#### Scenario: FLT-MAP-07.02 -- Unassigned provider
 
 - GIVEN a cluster whose server record carries no provider
 - WHEN the map is rendered
 - THEN that cluster SHALL be grouped into a single "unassigned" lane
 - AND no provider name SHALL be invented for it
 
-### Requirement: The promotion spine rides the hub line
+### Requirement: FLT-MAP-02 -- The promotion spine rides the hub line
 
 The `change` diamond, every per-stage promotion gate (the `hypershell-analysis`
 gates), and the terminal gate SHALL be placed on the hub-spine Y, so the entire
@@ -116,7 +116,7 @@ promotion spine runs straight through the HUB cards from left to right. The map
 SHALL expose this shared line (`hubSpineY`) as the vertical center, not as the top
 of any single lane.
 
-#### Scenario: Gates and change diamond align with the hubs
+#### Scenario: FLT-MAP-02.01 -- Gates and change diamond align with the hubs
 
 - GIVEN a promotion map with HUB clusters on the centered spine
 - WHEN the layout is computed
@@ -124,7 +124,7 @@ of any single lane.
   placed at the hub-spine Y
 - AND the published `hubSpineY` SHALL equal that same Y
 
-#### Scenario: No hub present
+#### Scenario: FLT-MAP-02.02 -- No hub present
 
 - GIVEN a map model in which no node carries the HUB role
 - WHEN the layout is computed
@@ -132,21 +132,21 @@ of any single lane.
   content
 - AND the gates and `change` diamond SHALL ride that fallback line
 
-### Requirement: HUB-first ordering within a column
+### Requirement: FLT-MAP-03 -- HUB-first ordering within a column
 
 Within each column the governing HUB SHALL be placed on the spine regardless of
 the order its clusters appear in the model, server response, or source data. A
 SPOKE that appears before its HUB in the input SHALL NOT take the spine position
 or push its HUB off center.
 
-#### Scenario: Spoke precedes hub in input order
+#### Scenario: FLT-MAP-03.01 -- Spoke precedes hub in input order
 
 - GIVEN a column whose SPOKE cluster appears before its HUB in the node input
 - WHEN the layout is computed
 - THEN the HUB SHALL occupy the spine position
 - AND the SPOKE SHALL be placed off the spine (above or below it)
 
-### Requirement: Provider lanes stack around the centered hub spine
+### Requirement: FLT-MAP-04 -- Provider lanes stack around the centered hub spine
 
 The hub-hosting provider lane SHALL sit on the centered spine, and the remaining
 provider lanes SHALL stack above and below it in a balanced way rather than all on
@@ -155,28 +155,28 @@ diagram. Lane ordering and the stacking of clusters within a lane SHALL be
 deterministic: the same model SHALL always yield the same lane order and the same
 assignment of clusters to rows.
 
-#### Scenario: Hub-hosting lane is centered, others stack around it
+#### Scenario: FLT-MAP-04.01 -- Hub-hosting lane is centered, others stack around it
 
 - GIVEN a map with a hub-hosting IBM lane and a spoke-only AWS lane
 - WHEN the layout is computed
 - THEN the IBM (hub-hosting) lane SHALL carry the centered hub spine
 - AND the AWS lane SHALL be placed above or below the spine, not on it
 
-#### Scenario: Hub-hosting provider is not sunk to the bottom
+#### Scenario: FLT-MAP-04.02 -- Hub-hosting provider is not sunk to the bottom
 
 - GIVEN a provider whose clusters include the stage HUBs
 - WHEN the layout is computed
 - THEN that provider's lane SHALL remain centered on the hub spine
 - AND it SHALL NOT be pushed below the other providers' lanes
 
-#### Scenario: Deterministic placement
+#### Scenario: FLT-MAP-04.03 -- Deterministic placement
 
 - GIVEN the same map model computed twice
 - WHEN the layout is computed each time
 - THEN every node, lane, gate, and the hub spine SHALL receive identical
   coordinates
 
-### Requirement: Role and provider together govern vertical placement
+### Requirement: FLT-MAP-05 -- Role and provider together govern vertical placement
 
 Vertical placement SHALL be governed by the provider lane (which band a cluster
 groups into) together with the HUB/SPOKE role (which cluster holds the spine
@@ -185,7 +185,7 @@ conflict: the hub-hosting lane is centered by role, and every cluster is grouped
 by provider. Provider grouping SHALL NOT override the centered hub spine, and
 role SHALL NOT dissolve the visible provider lanes.
 
-#### Scenario: Provider grouping and centered spine coexist
+#### Scenario: FLT-MAP-05.01 -- Provider grouping and centered spine coexist
 
 - GIVEN a map whose HUBs run on IBM and whose SPOKEs run on IBM and AWS
 - WHEN the layout is computed
@@ -193,7 +193,7 @@ role SHALL NOT dissolve the visible provider lanes.
 - AND the AWS SPOKEs SHALL group into a visible AWS lane off the spine
 - AND the IBM SPOKEs SHALL group into the IBM lane near the spine
 
-### Requirement: Derived, deterministic, baked-in-free geometry
+### Requirement: FLT-MAP-06 -- Derived, deterministic, baked-in-free geometry
 
 The layout SHALL remain pure geometry: deterministic from the model alone, with no
 DOM access and no measurement, and SHALL derive the spine, the provider lanes, and
@@ -201,7 +201,7 @@ the stacking entirely from the HUB/SPOKE role and provider signals already prese
 on each node and lane. It SHALL NOT embed a static ENV-to-HUB map, a provider
 allowlist, a hub-hosting provider name (including IBM), or a hub cluster name list.
 
-#### Scenario: No baked-in hub or provider list
+#### Scenario: FLT-MAP-06.01 -- No baked-in hub or provider list
 
 - GIVEN a map model whose HUB clusters and providers are not known ahead of time
 - WHEN the layout is computed

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Status:** Active
-**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`), `gateway-access-management.spec.md` (GAM-02 Keycloak Role Bridge union reconciliation)
+**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`), `gateway-access-management.spec.md` (GTW-ACC-02 Keycloak Role Bridge union reconciliation)
 
 ## Overview
 
@@ -61,7 +61,7 @@ Holds connection configuration for the API server (REST URL for registration, gR
 
 ## Requirements
 
-### Requirement: Mandatory Cluster Identity
+### Requirement: CTRL-CORE-01 -- Mandatory Cluster Identity
 
 Every control plane SHALL have a cluster identity, resolved at startup by calling
 `POST /api/hypershell/v1/managed_clusters/registration` with its OIDC
@@ -99,7 +99,7 @@ After startup, the control plane SHALL call `/registration` on a regular interva
 no-ops for registration data and return the same `cluster_id`. See
 `managed-cluster-registration.spec.md` for full registration semantics.
 
-#### Scenario: Successful startup registration
+#### Scenario: CTRL-CORE-01.01 -- Successful startup registration
 
 - GIVEN the control plane's OIDC client has `managed-cluster-registrar` in Keycloak
 - AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is set
@@ -107,14 +107,14 @@ no-ops for registration data and return the same `cluster_id`. See
 - THEN it calls `POST /managed_clusters/registration` before opening `WatchGateways`
 - AND uses the returned `cluster_id` to filter the watch stream, the seed list, and every reconciler to this cluster's gateways
 
-#### Scenario: Missing cluster name refuses to start
+#### Scenario: CTRL-CORE-01.02 -- Missing cluster name refuses to start
 
 - GIVEN `HYPERSHELL_MANAGED_CLUSTER_NAME` is unset
 - WHEN the control plane starts
 - THEN it SHALL log a fatal error naming `HYPERSHELL_MANAGED_CLUSTER_NAME` and exit non-zero
 - AND it SHALL NOT open any watch stream
 
-#### Scenario: Missing OIDC credentials refuse to start
+#### Scenario: CTRL-CORE-01.03 -- Missing OIDC credentials refuse to start
 
 - GIVEN `HYPERSHELL_MANAGED_CLUSTER_NAME` is set
 - AND `OIDC_ISSUER` or `OIDC_CLIENT_SECRET` is unset
@@ -122,28 +122,28 @@ no-ops for registration data and return the same `cluster_id`. See
 - THEN it SHALL log a fatal error naming the missing variable and exit non-zero
 - AND it SHALL NOT open any watch stream
 
-#### Scenario: Transient failure retried with backoff
+#### Scenario: CTRL-CORE-01.04 -- Transient failure retried with backoff
 
 - GIVEN the API server is temporarily unreachable at startup
 - WHEN the control plane attempts to register
 - THEN it SHALL retry with exponential backoff
 - AND it SHALL NOT open `WatchGateways` until registration succeeds
 
-#### Scenario: 403 exits immediately
+#### Scenario: CTRL-CORE-01.05 -- 403 exits immediately
 
 - GIVEN the API server returns 403 (managed-cluster-registrar not assigned in Keycloak)
 - WHEN the control plane attempts to start
 - THEN it SHALL NOT retry and SHALL NOT open `WatchGateways`
 - AND it SHALL log a clear error identifying the missing role and exit
 
-#### Scenario: 409 exits immediately
+#### Scenario: CTRL-CORE-01.06 -- 409 exits immediately
 
 - GIVEN the API server returns 409 (the name is taken by a record this OIDC subject does not own, or this subject is registered under another name)
 - WHEN the control plane attempts to start
 - THEN it SHALL NOT retry and SHALL NOT open `WatchGateways`
 - AND it SHALL log a clear error quoting the API's conflict message and exit
 
-#### Scenario: RoleBinding for another cluster's gateway is ignored
+#### Scenario: CTRL-CORE-01.07 -- RoleBinding for another cluster's gateway is ignored
 
 - GIVEN control planes registered as `cluster_id: X` and `cluster_id: Y`
 - AND a gateway assigned to `Y`
@@ -152,30 +152,30 @@ no-ops for registration data and return the same `cluster_id`. See
 - AND the api-server SHALL NOT deliver the event on the `WatchRoleBindings` stream of the control plane registered as `X`
 - AND should such an event reach `X` anyway, `X` SHALL skip it without error
 
-#### Scenario: Re-registration after restart returns same cluster_id
+#### Scenario: CTRL-CORE-01.08 -- Re-registration after restart returns same cluster_id
 
 - GIVEN a control plane that previously registered and received `cluster_id: X`
 - WHEN it restarts and calls `/registration` again
 - THEN the response is 200 with the same `cluster_id: X`
 - AND `last_seen_at` is updated on the `ManagedCluster` record
 
-### Requirement: gRPC Watch Streams
+### Requirement: CTRL-CORE-02 -- gRPC Watch Streams
 
 The control plane SHALL connect to the API server via gRPC watch streams for each resource Kind. Every RPC, including the long-lived watch streams, SHALL carry the control plane's OIDC bearer token as per-RPC credentials; the API server does not exempt watch streams from authentication (`hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure"). On connection failure, it SHALL reconnect with exponential backoff.
 
-#### Scenario: Watch Reconnection
+#### Scenario: CTRL-CORE-02.01 -- Watch Reconnection
 - GIVEN the API server becomes unreachable
 - WHEN the gRPC stream disconnects
 - THEN the watcher SHALL retry with exponential backoff
 - AND resume processing from the last known state
 
-#### Scenario: Watch is opened with the control plane's own cluster filter
+#### Scenario: CTRL-CORE-02.02 -- Watch is opened with the control plane's own cluster filter
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it opens `WatchGateways`
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
 
-#### Scenario: Startup seeds gateways created while the control plane was down
+#### Scenario: CTRL-CORE-02.03 -- Startup seeds gateways created while the control plane was down
 - GIVEN a control plane registered as `cluster_id: X` that was not running
 - AND gateways assigned to `cluster_id: X` were created while it was down
 - WHEN the control plane starts and opens `WatchGateways`
@@ -184,7 +184,7 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - AND the list SHALL NOT return gateways assigned to other clusters
 - Verification: `components/api-server/plugins/gateways/grpc_integration_test.go` covers the API contract: on each fresh connection, a control-plane caller that opens a filtered `WatchGateways` and then calls `ListGateways` receives every pre-existing gateway of its cluster and none of another cluster. A unit test in `components/control-plane/internal/watcher/` covers the startup wiring: it runs the real `WatchGateways` entry point against an in-memory fake server that never sends a watch event, and asserts that the pre-existing gateway reaches the reconcile queue handler.
 
-### Requirement: AgentRuntime Watch Stream
+### Requirement: CTRL-CORE-03 -- AgentRuntime Watch Stream
 
 The control plane SHALL watch `AgentRuntime` resources over a `WatchAgentRuntimes`
 gRPC stream, scoped to its own registered `cluster_id`, and SHALL seed that stream
@@ -206,28 +206,28 @@ defense in depth, the control plane SHALL re-resolve each delivered
 `AgentRuntime`'s effective cluster and SHALL skip, without error, any record that
 does not resolve to its own `cluster_id`.
 
-#### Scenario: AgentRuntime watch is opened with the control plane's own cluster filter
+#### Scenario: CTRL-CORE-03.01 -- AgentRuntime watch is opened with the control plane's own cluster filter
 
 - GIVEN a control plane registered as `cluster_id: X`
 - WHEN it opens `WatchAgentRuntimes`
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND `AgentRuntime` records whose effective cluster is not `X` SHALL NOT be delivered
 
-#### Scenario: Derived placement routes an AgentRuntime to the Gateway's cluster
+#### Scenario: CTRL-CORE-03.02 -- Derived placement routes an AgentRuntime to the Gateway's cluster
 
 - GIVEN an `AgentRuntime` with no `cluster_id` whose referenced `Gateway` is placed on `cluster_id: Y`
 - WHEN control planes registered as `X` and `Y` each open `WatchAgentRuntimes`
 - THEN only the control plane registered as `Y` SHALL receive the `AgentRuntime` event
 - AND should the event reach `X` anyway, `X` SHALL skip it without error
 
-#### Scenario: Seed on reconnect recovers missed AgentRuntime state
+#### Scenario: CTRL-CORE-03.03 -- Seed on reconnect recovers missed AgentRuntime state
 
 - GIVEN a `WatchAgentRuntimes` stream that went silent and was torn down by the idle watchdog
 - WHEN the control plane reconnects the stream
 - THEN it SHALL re-run `ListAgentRuntimes` scoped to its `cluster_id` before resuming the stream
 - AND any `AgentRuntime` create or update missed during the silence SHALL be reconciled
 
-### Requirement: AgentRuntime Reconciliation
+### Requirement: CTRL-CORE-04 -- AgentRuntime Reconciliation
 
 The control plane SHALL reconcile each `AgentRuntime` delivered on its watch stream
 into the cluster scheduling resources and gateway-side workspace objects defined by
@@ -353,7 +353,7 @@ credential), and the prune SHALL NOT remove it
 ([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md),
 "Credentials Realized as OpenShell Providers, Not Rendered Secrets").
 
-#### Scenario: Realizer drives the gateway sequence in order
+#### Scenario: CTRL-CORE-04.01 -- Realizer drives the gateway sequence in order
 
 - GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present cluster-local
 - WHEN the control plane reconciles it
@@ -361,28 +361,28 @@ credential), and the prune SHALL NOT remove it
 - AND it SHALL render no raw credential `Secret` for the provider material
 - AND re-running the reconcile against unchanged state SHALL make no change
 
-#### Scenario: Cutover prunes previously-placed provider-material Secrets, keeps gateway-identity
+#### Scenario: CTRL-CORE-04.02 -- Cutover prunes previously-placed provider-material Secrets, keeps gateway-identity
 
 - GIVEN an `AgentRuntime` previously reconciled by the transitional behavior that left a raw provider-material `Secret` on the cluster
 - WHEN the control plane reconciles it with the realizer live
 - THEN it SHALL realize the provider through OpenShell's existing API and SHALL remove the straggler raw provider-material `Secret`
 - AND it SHALL leave the coordinator `gateway-identity` wiring in place
 
-#### Scenario: SecretPending holds the prune so the working credential is kept
+#### Scenario: CTRL-CORE-04.03 -- SecretPending holds the prune so the working credential is kept
 
 - GIVEN an `AgentRuntime` previously reconciled by the transitional behavior whose raw provider-material `Secret` is still in place, and whose provider material is not yet present in the assigned cluster's reachable store
 - WHEN the control plane reconciles it with the realizer live
 - THEN it SHALL hold under `SecretPending` without realizing the provider
 - AND it SHALL NOT prune the previously-placed raw provider-material `Secret`, so the agent keeps a working credential until the provider is realized
 
-#### Scenario: AgentRuntime deletion cascades the gateway workspace
+#### Scenario: CTRL-CORE-04.04 -- AgentRuntime deletion cascades the gateway workspace
 
 - GIVEN an `AgentRuntime` with a provisioned workspace, memberships, a realized provider, and an inference route
 - WHEN a delete event arrives on the watch stream
 - THEN the control plane SHALL delete the OpenShell workspace through OpenShell's existing API, cascading the memberships, provider, and inference route on the gateway
 - AND it SHALL NOT delete any shared `ProviderSpec`
 
-#### Scenario: New AgentRuntime is provisioned end to end
+#### Scenario: CTRL-CORE-04.05 -- New AgentRuntime is provisioned end to end
 
 - GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
 - WHEN the control plane reconciles it
@@ -390,14 +390,14 @@ credential), and the prune SHALL NOT remove it
 - AND it SHALL transition the `AgentRuntime` status to `Provisioning`
 - AND after it has provisioned the gateway-side `AgentWorkspace` and realized its OpenShell providers from the material, it SHALL transition the status to `Running`
 
-#### Scenario: AgentRuntime change re-applies affected resources
+#### Scenario: CTRL-CORE-04.06 -- AgentRuntime change re-applies affected resources
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN its `cron` field changes
 - THEN the control plane SHALL update the coordinator `CronJob` on the target cluster
 - AND reconciliation SHALL remain idempotent for the unchanged resources
 
-#### Scenario: Pending SecretSource material holds, converges when uploaded
+#### Scenario: CTRL-CORE-04.07 -- Pending SecretSource material holds, converges when uploaded
 
 - GIVEN an `AgentRuntime` whose reference-only `SecretSource` material has not yet been uploaded to the assigned cluster's reachable local store
 - WHEN the control plane reconciles the `AgentRuntime`
@@ -405,21 +405,21 @@ credential), and the prune SHALL NOT remove it
 - AND it SHALL NOT create the dependent OpenShell provider, SHALL NOT mark the workspace `Ready`, and SHALL NOT set `Degraded`
 - AND after the material is uploaded, the next reconcile SHALL realize the provider, clear `SecretPending`, and converge the `AgentRuntime` to `Running` with no manual trigger
 
-#### Scenario: SecretSource read failure degrades the AgentRuntime
+#### Scenario: CTRL-CORE-04.08 -- SecretSource read failure degrades the AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN one of its `SecretSource` materials cannot be read from the store, or provider realization fails on the gateway
 - THEN the control plane SHALL set the `AgentRuntime` status to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 
-#### Scenario: AgentRuntime deletion removes cluster and gateway-side resources
+#### Scenario: CTRL-CORE-04.09 -- AgentRuntime deletion removes cluster and gateway-side resources
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a delete event arrives on the watch stream
 - THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` from the cluster
 - AND it SHALL delete the gateway-side `AgentWorkspace`, its OpenShell providers, and its sub-resources through OpenShell's existing provisioning API
 
-### Requirement: Secret Store and Import Reconciler Enablement
+### Requirement: CTRL-CORE-05 -- Secret Store and Import Reconciler Enablement
 
 The declarative import and `SecretSource` material resolution SHALL be enabled through
 configuration, not code (separate configuration from code). The control plane SHALL
@@ -454,7 +454,7 @@ Vault uses it), under a policy scoped to the agent-secret path, as defined in
 plane SHALL fail provider realization loudly rather than configure a provider with empty
 material.
 
-#### Scenario: Import loop runs only when enabled
+#### Scenario: CTRL-CORE-05.01 -- Import loop runs only when enabled
 
 - GIVEN a control plane with `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false`
 - WHEN the control plane starts
@@ -462,21 +462,21 @@ material.
 - WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true` and the secret store is wired
 - THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` import credential material through its read-only `pkg/secretstore` client, minting the installation token from the App PEM
 
-#### Scenario: AgentRuntime material is read from the control plane's own cluster-local store
+#### Scenario: CTRL-CORE-05.02 -- AgentRuntime material is read from the control plane's own cluster-local store
 
 - GIVEN a spoke control plane not co-located with the hub api-server
 - WHEN it realizes providers for an `AgentRuntime` from its `SecretSource` material
 - THEN its read client SHALL read the material from its own cluster-local Vault
 - AND the material SHALL NOT be resolved through a store the hub api-server writes
 
-#### Scenario: Client reaches a privately-signed cluster Vault with Kubernetes auth
+#### Scenario: CTRL-CORE-05.03 -- Client reaches a privately-signed cluster Vault with Kubernetes auth
 
 - GIVEN a per-cluster Vault served with a private CA and configured for Kubernetes auth
 - WHEN the control plane reads `SecretSource` material from it
 - THEN the `pkg/secretstore` client SHALL trust the configured private-CA bundle and authenticate through the Vault Kubernetes auth mount
 - AND it SHALL read only under the `secret/data/hypershell/secret-sources/*`-scoped policy
 
-### Requirement: Declarative `.hypershell` Import Reconciliation
+### Requirement: CTRL-CORE-06 -- Declarative `.hypershell` Import Reconciliation
 
 The control plane SHALL host a reconciler named the `RepositoryReconciler` that
 reconciles the `Repository` Kind by performing the declarative `.hypershell` import
@@ -645,7 +645,7 @@ The authorization contract is specified in
   authorization: the import write path derives its authority from the reconciled
   `Repository` ownership, not from the bootstrap allowlist.
 
-#### Scenario: Import reconciles declared resources through the API
+#### Scenario: CTRL-CORE-06.01 -- Import reconciles declared resources through the API
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
 - WHEN the control-plane import reconciler runs
@@ -653,34 +653,34 @@ The authorization contract is specified in
 - AND it SHALL render that subtree in memory through the shared `pkg/kustomize` `Build` and upsert both resources into the API over the gRPC write path
 - AND the resources SHALL be owned by the `Repository`
 
-#### Scenario: Removed declaration is pruned within the owning Repository
+#### Scenario: CTRL-CORE-06.02 -- Removed declaration is pruned within the owning Repository
 
 - GIVEN a `Repository` that previously imported an `AgentRuntime`, and another `AgentRuntime` created directly through the REST API
 - WHEN that imported `AgentRuntime` is removed from `.hypershell` and the import re-runs
 - THEN the control-plane import reconciler SHALL delete the imported `AgentRuntime` through the API
 - AND it SHALL NOT delete the directly-created `AgentRuntime`
 
-#### Scenario: Import is idempotent against unchanged repository state
+#### Scenario: CTRL-CORE-06.03 -- Import is idempotent against unchanged repository state
 
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
 - THEN it SHALL make no create, update, or prune write to the API
 
-#### Scenario: Import reads the credential from the store, not via ExternalSecret
+#### Scenario: CTRL-CORE-06.04 -- Import reads the credential from the store, not via ExternalSecret
 
 - GIVEN a private `Repository` whose `secret_source_id` references a stored git credential
 - WHEN the control-plane import reconciler needs to read the `import_path` subtree
 - THEN it SHALL read the credential value through its read-only `pkg/secretstore` client
 - AND it SHALL NOT create an `ExternalSecret` or rely on External Secrets Operator
 
-#### Scenario: Public Repository is read anonymously with no SecretSource
+#### Scenario: CTRL-CORE-06.05 -- Public Repository is read anonymously with no SecretSource
 
 - GIVEN a public `Repository` with NO `secret_source_id` and no configured platform credential
 - WHEN the control-plane import reconciler needs to read the `import_path` subtree
 - THEN the credential resolver SHALL yield an empty token
 - AND the GitHub fetcher SHALL omit the `Authorization` header and read the subtree anonymously
 
-#### Scenario: Import renders in memory through the shared kustomize library
+#### Scenario: CTRL-CORE-06.06 -- Import renders in memory through the shared kustomize library
 
 - GIVEN a `Repository` whose `import_path` subtree is a Kustomize root
 - WHEN the control-plane import reconciler renders the declared resources
@@ -688,28 +688,28 @@ The authorization contract is specified in
 - AND it SHALL NOT clone the repository, write to disk, invoke an external `kustomize` or `hsctl` binary, or dispatch a `Job`
 - AND it SHALL NOT embed a second, divergent Kustomize implementation in the control plane
 
-#### Scenario: Import loop is in-process with no disk or external process
+#### Scenario: CTRL-CORE-06.07 -- Import loop is in-process with no disk or external process
 
 - GIVEN the control-plane distroless runtime image, which ships no `git`, `kustomize`, or `hsctl` binary and mounts no persistent disk
 - WHEN the import reconcile loop runs
 - THEN it SHALL fetch the subtree over the GitHub API and render it entirely in process through an in-memory filesystem
 - AND it SHALL require no working directory, no PVC, and no child process
 
-#### Scenario: Server sets ownership on import create and ignores a client-supplied value
+#### Scenario: CTRL-CORE-06.08 -- Server sets ownership on import create and ignores a client-supplied value
 
 - GIVEN the import reconciler creates an imported ext resource whose request carries a client-supplied `repository_id`
 - WHEN the gRPC create is authorized for the control-plane identity
 - THEN the server SHALL set `repository_id` from the reconciled `Repository`
 - AND it SHALL ignore the client-supplied `repository_id`
 
-#### Scenario: Newly registered Repository is imported from the watch stream
+#### Scenario: CTRL-CORE-06.09 -- Newly registered Repository is imported from the watch stream
 
 - GIVEN the control plane has an open `WatchRepositories` stream
 - WHEN a `Repository` is created (or its fields change) and the create/update event arrives on that stream
 - THEN the `RepositoryReconciler` SHALL reconcile that `Repository` without waiting for the next periodic drift pass
 - AND the import SHALL perform the conditional upstream fetch, read, render, and reconcile for that `Repository`
 
-#### Scenario: Unchanged upstream subtree performs no heavy GitHub reads
+#### Scenario: CTRL-CORE-06.10 -- Unchanged upstream subtree performs no heavy GitHub reads
 
 - GIVEN a `Repository` whose upstream `import_path` subtree is unchanged since the last successful import
 - WHEN the periodic drift re-check (or a redundant watch event) reconciles that `Repository` again
@@ -717,14 +717,14 @@ The authorization contract is specified in
 - AND it SHALL skip the git-tree and per-file reads and the re-render
 - AND it SHALL make no create, update, or prune write to the API
 
-#### Scenario: Periodic drift re-check catches an upstream change with no Repository event
+#### Scenario: CTRL-CORE-06.11 -- Periodic drift re-check catches an upstream change with no Repository event
 
 - GIVEN a `Repository` whose watched branch receives a new commit that changes `.hypershell`, and no `Repository` record field changed
 - WHEN the hourly drift re-check runs
 - THEN the conditional fetch SHALL report a change (new ETag or new branch head commit SHA)
 - AND the reconciler SHALL read, render, and reconcile the changed subtree into the API
 
-### Requirement: Import Writer Maps Gateway Placement
+### Requirement: CTRL-CORE-14 -- Import Writer Maps Gateway Placement
 
 When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL map the
 rendered Gateway spec's `placement` into the gRPC create request, so a declarative
@@ -732,7 +732,7 @@ late-bound Gateway (one that declares a placement selector and no `cluster_id`)
 imports successfully under the exactly-one-of create contract defined in
 [`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Placement and
 Late Binding") and [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
-(GP-01, GP-07). Mapping the `cluster_id` alone is NOT sufficient: a late-bound
+(WEB-PLC-01, WEB-PLC-07). Mapping the `cluster_id` alone is NOT sufficient: a late-bound
 manifest sets no `cluster_id`, so an import that omits `placement` renders a create
 with neither field, which the API server rejects.
 
@@ -771,39 +771,39 @@ The import writer SHALL:
   error SHALL be collected like any other per-resource import error and SHALL NOT
   abort the rest of the import.
 
-#### Scenario: Import of a malformed placement fails with a clear cause
+#### Scenario: CTRL-CORE-14.01 -- Import of a malformed placement fails with a clear cause
 
 - GIVEN a `.hypershell` Gateway manifest whose `placement` declares neither a non-empty `selector` nor `mode: local-kind`
 - WHEN the import writer reconciles that Gateway
 - THEN it SHALL report an error that names the malformed placement and SHALL NOT send a create or update for that Gateway
 - AND the error SHALL be collected so the rest of the import still runs
 
-#### Scenario: Import of a late-bound Gateway maps the capability selector
+#### Scenario: CTRL-CORE-14.02 -- Import of a late-bound Gateway maps the capability selector
 
 - GIVEN a `.hypershell` Gateway manifest with `placement.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
 - WHEN the import writer creates the Gateway over the gRPC write path
 - THEN the `CreateGatewayRequest` SHALL carry a `placement` with `capability_selector.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
 - AND the API server SHALL late-bind the Gateway to a matching `ManagedCluster`, or create it `Pending` with an awaiting-placement status when none matches
 
-#### Scenario: Import of a local-kind Gateway maps the local-kind mode
+#### Scenario: CTRL-CORE-14.03 -- Import of a local-kind Gateway maps the local-kind mode
 
 - GIVEN a `.hypershell` Gateway manifest with `placement: { mode: local-kind }` and no `cluster_id`
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry a `placement` with `local_kind` set
 
-#### Scenario: Import of a pinned Gateway is unchanged
+#### Scenario: CTRL-CORE-14.04 -- Import of a pinned Gateway is unchanged
 
 - GIVEN a `.hypershell` Gateway manifest with an explicit `cluster_id`
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry that `cluster_id` and SHALL NOT carry a `placement`
 
-#### Scenario: Re-import of a bound late-bound Gateway is a no-op
+#### Scenario: CTRL-CORE-14.05 -- Re-import of a bound late-bound Gateway is a no-op
 
 - GIVEN a late-bound Gateway the API server has resolved and assigned a `cluster_id`, whose `.hypershell` manifest still declares only a `placement` and no `cluster_id`
 - WHEN the import reconciles that Gateway again with no other field changed
 - THEN the writer SHALL NOT treat the server-assigned `cluster_id` as drift and SHALL make no create or update write
 
-### Requirement: Watch Stream Liveness
+### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
 A watch stream SHALL NOT be trusted to stay healthy merely because it has not
 returned an error. A long-lived stream can go silent -- deliver neither events
@@ -843,28 +843,28 @@ treated like any other watch-stream disconnect: logged and retried with
 exponential backoff, and SHALL re-run the stream's seed or resync on reconnect
 so any state missed while the stream was silent is recovered.
 
-#### Scenario: Idle connection is kept alive
+#### Scenario: CTRL-CORE-07.01 -- Idle connection is kept alive
 
 - GIVEN the control plane has dialed the API server and holds only idle watch streams
 - WHEN no events flow for longer than the keepalive interval
 - THEN the client SHALL send an HTTP/2 keepalive ping
 - AND a connection that no longer carries traffic end-to-end SHALL surface as a transport error that the watchers retry with backoff
 
-#### Scenario: Silent stream is detected and reconnected
+#### Scenario: CTRL-CORE-07.02 -- Silent stream is detected and reconnected
 
 - GIVEN a watch stream that has stopped delivering events but has returned no error
 - WHEN no event arrives for the configured maximum idle interval
 - THEN the control plane SHALL cancel the stream attempt and reconnect with backoff
 - AND it SHALL re-run the stream's seed or resync so state missed during the silence is recovered
 
-#### Scenario: Active stream is not torn down
+#### Scenario: CTRL-CORE-07.03 -- Active stream is not torn down
 
 - GIVEN a watch stream that is delivering events within the configured idle interval
 - WHEN each event resets the idle watchdog
 - THEN the control plane SHALL NOT cancel the stream
 - AND it SHALL continue to process events on the same stream
 
-### Requirement: Role Binding Resync
+### Requirement: CTRL-CORE-08 -- Role Binding Resync
 
 The assignment of a gateway's owner Keycloak client roles SHALL NOT depend solely
 on a single long-lived `WatchRoleBindings` stream. The RoleBinding stream is
@@ -880,7 +880,7 @@ call, scoped to its own `cluster_id` (`managed-cluster-registration.spec.md`,
 "Watch Stream Caller Binding"), on every `WatchRoleBindings` (re)connect, and
 SHALL additionally re-list on a regular configurable interval while the stream is
 connected. Each listed binding SHALL be reconciled through the same union
-reconciliation as a live event (`gateway-access-management.spec.md`, GAM-02), so
+reconciliation as a live event (`gateway-access-management.spec.md`, GTW-ACC-02), so
 the bound user's Keycloak client roles converge to the correct set. The resync
 SHALL be idempotent: a binding whose roles are already assigned SHALL produce no
 change.
@@ -892,7 +892,7 @@ during the list is not lost), and it SHALL rely on the stream, not the list, to
 deliver deletions. The resync restores missing assignments; it SHALL NOT be the
 sole mechanism for revoking roles a deleted binding no longer backs.
 
-#### Scenario: Owner grant recovered after a missed create event
+#### Scenario: CTRL-CORE-08.01 -- Owner grant recovered after a missed create event
 
 - GIVEN a gateway was created on this control plane's cluster and its `gateway:owner` RoleBinding exists
 - AND the `WatchRoleBindings` stream never delivered the create event (it was silent)
@@ -901,19 +901,19 @@ sole mechanism for revoking roles a deleted binding no longer backs.
 - AND SHALL assign `openshell-admin` and `openshell-user` to the owner on the gateway's Keycloak client
 - AND the gateway console SHALL no longer refuse the owner with `role 'openshell-user' required`
 
-#### Scenario: Resync is idempotent
+#### Scenario: CTRL-CORE-08.02 -- Resync is idempotent
 
 - GIVEN every RoleBinding for this cluster is already reflected in Keycloak
 - WHEN the periodic resync lists and reconciles them again
 - THEN the control plane SHALL make no change to any user's Keycloak client roles
 
-#### Scenario: Resync does not run without the cluster filter
+#### Scenario: CTRL-CORE-08.03 -- Resync does not run without the cluster filter
 
 - GIVEN the control plane's registered `cluster_id` is empty
 - WHEN the RoleBinding seed or resync attempts to list
 - THEN it SHALL be refused rather than issue an unfiltered list (`managed-cluster-registration.spec.md`)
 
-### Requirement: gRPC Transport Security
+### Requirement: CTRL-CORE-09 -- gRPC Transport Security
 
 The control plane SHALL select gRPC transport credentials from `HYPERSHELL_GRPC_SERVER_ADDR`
 at dial time, without a separate TLS-enable flag:
@@ -942,31 +942,31 @@ not fatal. It is not fail-closed the way missing `managed-cluster-registrar` is 
 `managed-cluster-registration.spec.md`), since a certificate renewal on the hub should not
 require an operator to restart the control plane.
 
-#### Scenario: In-cluster address dials plaintext
+#### Scenario: CTRL-CORE-09.01 -- In-cluster address dials plaintext
 
 - GIVEN `HYPERSHELL_GRPC_SERVER_ADDR=hypershell-api-server.hypershell-system.svc.cluster.local:9000`
 - WHEN the control plane dials the gRPC connection
 - THEN it SHALL use `insecure.NewCredentials()`
 
-#### Scenario: Namespace-qualified Service address dials plaintext
+#### Scenario: CTRL-CORE-09.02 -- Namespace-qualified Service address dials plaintext
 
 - GIVEN `HYPERSHELL_GRPC_SERVER_ADDR=hypershell-api-server.hypershell-system.svc:9000`
 - WHEN the control plane dials the gRPC connection
 - THEN it SHALL use `insecure.NewCredentials()`
 
-#### Scenario: Bare Service short name dials plaintext
+#### Scenario: CTRL-CORE-09.03 -- Bare Service short name dials plaintext
 
 - GIVEN `HYPERSHELL_GRPC_SERVER_ADDR=hypershell-api-server:9000`
 - WHEN the control plane dials the gRPC connection
 - THEN it SHALL use `insecure.NewCredentials()`
 
-#### Scenario: External address dials TLS
+#### Scenario: CTRL-CORE-09.04 -- External address dials TLS
 
 - GIVEN `HYPERSHELL_GRPC_SERVER_ADDR=grpc.hyp0.infra.hypershell.app:443`
 - WHEN the control plane dials the gRPC connection
 - THEN it SHALL use `credentials.NewTLS()` with standard certificate and hostname verification
 
-#### Scenario: Control plane completes handshake against an external TLS endpoint
+#### Scenario: CTRL-CORE-09.05 -- Control plane completes handshake against an external TLS endpoint
 
 - GIVEN a control plane configured with an external `HYPERSHELL_GRPC_SERVER_ADDR`
 - AND the hub api-server presents a valid certificate for that hostname
@@ -974,7 +974,7 @@ require an operator to restart the control plane.
 - THEN the TLS handshake SHALL complete
 - AND the watch stream SHALL deliver events identically to an in-cluster plaintext connection
 
-#### Scenario: TLS handshake failure retries, does not exit
+#### Scenario: CTRL-CORE-09.06 -- TLS handshake failure retries, does not exit
 
 - GIVEN a control plane configured with an external `HYPERSHELL_GRPC_SERVER_ADDR`
 - AND the hub's certificate is expired or does not match the configured hostname
@@ -983,19 +983,19 @@ require an operator to restart the control plane.
 - AND the control plane SHALL log the error and retry with exponential backoff
 - AND it SHALL NOT exit the process
 
-### Requirement: Gateway Reconciliation
+### Requirement: CTRL-CORE-10 -- Gateway Reconciliation
 
 The control plane SHALL reconcile Gateway resources assigned to its own `cluster_id` into Kubernetes Deployments, Services, ConfigMaps, and supporting resources on the cluster it runs in, using its in-cluster credentials. It SHALL NOT hold or use credentials for any other cluster. Full provisioning details are defined in the [gateway sub-specs](./openshell-gateway.spec.md).
 
 A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") is not assigned to any cluster and SHALL NOT be reconciled by any control plane: it is not delivered on any `cluster_id`-filtered watch stream until the API server assigns it a `cluster_id`. Once the API server resolves placement and assigns a `cluster_id`, the gateway appears on the owning cluster's watch stream and is reconciled exactly like a pinned gateway.
 
-#### Scenario: Late-bound Gateway reconciled after placement is assigned
+#### Scenario: CTRL-CORE-10.01 -- Late-bound Gateway reconciled after placement is assigned
 - GIVEN a `Pending` Gateway with an empty `cluster_id` whose placement selector matched no cluster
 - WHEN the API server later assigns this control plane's `cluster_id` to it after a matching cluster registers
 - THEN the gateway SHALL appear on this control plane's watch stream
 - AND the reconciler SHALL provision it like any newly created gateway
 
-#### Scenario: New Gateway Created
+#### Scenario: CTRL-CORE-10.02 -- New Gateway Created
 - GIVEN a new Gateway resource with this control plane's `cluster_id` appears via the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL create the corresponding K8s resources on this cluster:
@@ -1007,45 +1007,45 @@ A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-mode
   - OIDC configuration in gateway.toml (when `oidc.issuer` is set) - see [OIDC spec](./openshell-gateway-oidc.spec.md)
 - AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)
 
-### Requirement: Gateway Database Admin Credentials
+### Requirement: CTRL-CORE-11 -- Gateway Database Admin Credentials
 
 The control plane SHALL read the gateway database server's administrative connection from the Secret mounted at `GATEWAY_DATABASE_ADMIN_DIR` (default `/etc/hypershell/gateway-database`), SHALL validate the mounted files at startup and refuse to start when they are invalid, and SHALL NOT model the database server as an API resource. There is no database reconciler: per-gateway databases are provisioned and cleaned up by the GatewayReconciler.
 
-#### Scenario: Controller starts with valid admin credential files
+#### Scenario: CTRL-CORE-11.01 -- Controller starts with valid admin credential files
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
 - AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings, AgentRuntimes and Repositories
 
-#### Scenario: Controller refuses to start on invalid admin credential files
+#### Scenario: CTRL-CORE-11.02 -- Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
 - WHEN the control plane starts
 - THEN it SHALL log a fatal error naming the file and exit non-zero
 
 See [database spec](./openshell-gateway-database.spec.md) for full provisioning details.
 
-### Requirement: Resource Cleanup
+### Requirement: CTRL-CORE-12 -- Resource Cleanup
 
 When a Gateway is deleted, the control plane SHALL clean up all associated Kubernetes resources on its cluster.
 
-#### Scenario: Gateway Deletion
+#### Scenario: CTRL-CORE-12.01 -- Gateway Deletion
 - GIVEN a Gateway deletion event from the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL delete all K8s resources associated with that Gateway
 - AND confirm cleanup completion
 
-### Requirement: Status Synchronization
+### Requirement: CTRL-CORE-13 -- Status Synchronization
 
 The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. The provisioning gate that prevents redundant re-provisioning SHALL NOT suppress these health updates, and SHALL gate re-application on convergence (`observed_generation == generation`) rather than on `phase`, so that a desired-spec change falls through the gate and triggers re-application regardless of phase. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
 
-#### Scenario: Gateway Health Check
+#### Scenario: CTRL-CORE-13.01 -- Gateway Health Check
 - GIVEN a Gateway with `phase` `Running` on this cluster
 - WHEN the control plane observes its `openshell-gateway` Deployment health
 - THEN it SHALL update the Gateway's `status` in the API server
 - AND set `phase` to `Degraded` when ready replicas fall below desired
 - AND set `phase` back to `Running` when the workload recovers
 
-#### Scenario: Spec Change to a Running Gateway
+#### Scenario: CTRL-CORE-13.02 -- Spec Change to a Running Gateway
 - GIVEN a converged Gateway with `phase` `Running` (`observed_generation == generation`)
 - WHEN its desired spec changes and the API server advances `generation`
 - THEN the control plane SHALL re-apply the gateway manifests despite the `Running` phase

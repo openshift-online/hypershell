@@ -152,7 +152,7 @@ PR app namespace.
 
 ## Requirements
 
-### Requirement: Shared Realm Ships No Static Human Passwords
+### Requirement: CICD-CRED-01 -- Shared Realm Ships No Static Human Passwords
 
 The shared Keycloak realm base SHALL NOT ship any human realm user whose credential
 is baked into the realm import. The `admin`, `developer`, and `platform-admin` realm
@@ -171,7 +171,7 @@ Removing these users SHALL NOT remove the realm's service-account users (for exa
 `service-account-hypershell-provisioner` and `service-account-hypershell-e2e`), which
 are Keycloak client service accounts with no password and are not human logins.
 
-#### Scenario: Persistent shared Keycloak exposes no static human login
+#### Scenario: CICD-CRED-01.01 -- Persistent shared Keycloak exposes no static human login
 
 - GIVEN the persistent Keycloak shared by int, stage, and prod is deployed from the
   shared realm base
@@ -182,7 +182,7 @@ are Keycloak client service accounts with no password and are not human logins.
 - AND this spec SHALL NOT have added a replacement human password login on that
   Keycloak
 
-#### Scenario: Internet-facing PR environment is not born with admin/admin
+#### Scenario: CICD-CRED-01.02 -- Internet-facing PR environment is not born with admin/admin
 
 - GIVEN a per-PR environment is deployed on the PR-environment cluster from the
   shared realm base
@@ -193,7 +193,7 @@ are Keycloak client service accounts with no password and are not human logins.
   alongside GitHub
 - AND that form SHALL NOT accept a password equal to its username
 
-#### Scenario: Service accounts are retained
+#### Scenario: CICD-CRED-01.03 -- Service accounts are retained
 
 - GIVEN the static human users are removed from the realm base
 - WHEN the realm import is applied
@@ -201,7 +201,7 @@ are Keycloak client service accounts with no password and are not human logins.
 - AND the `hypershell-e2e` and `hypershell-provisioner` service accounts SHALL be
   unaffected
 
-### Requirement: Master Bootstrap Admin Unchanged
+### Requirement: CICD-CRED-02 -- Master Bootstrap Admin Unchanged
 
 The Keycloak master-realm bootstrap admin SHALL be out of scope for this spec and
 SHALL remain as it is today. This spec SHALL NOT rotate, remove, or regenerate the
@@ -209,7 +209,7 @@ bootstrap admin credential, and the Keycloak-console access it provides SHALL be
 unchanged. Where a bring-up banner reports the Keycloak console login, that line
 SHALL continue to describe the master bootstrap admin, not a seeded realm test user.
 
-#### Scenario: Bootstrap admin is not altered
+#### Scenario: CICD-CRED-02.01 -- Bootstrap admin is not altered
 
 - GIVEN a deployment whose Keycloak uses the master bootstrap admin for its own
   console
@@ -217,7 +217,7 @@ SHALL continue to describe the master bootstrap admin, not a seeded realm test u
 - THEN the bootstrap admin credential SHALL be unchanged
 - AND the Keycloak-console login SHALL still work as before
 
-### Requirement: Cloud Secret Store Is the Durable Source of Truth
+### Requirement: CICD-CRED-03 -- Cloud Secret Store Is the Durable Source of Truth
 
 The cluster's cloud secret store SHALL be the single durable source of truth for each
 test-tier principal's current password. On `hysh-aws-01` that store is AWS Secrets
@@ -248,7 +248,7 @@ payload SHALL use these properties:
 The secret SHALL use the AWS-managed `aws/secretsmanager` KMS key unless a later
 cross-account design requires a customer-managed key.
 
-#### Scenario: AWS Secrets Manager holds the three passwords
+#### Scenario: CICD-CRED-03.01 -- AWS Secrets Manager holds the three passwords
 
 - GIVEN the PR-environment cluster is `hysh-aws-01`
 - WHEN a reader inspects the cloud secret store
@@ -257,14 +257,14 @@ cross-account design requires a customer-managed key.
   `platform-admin`
 - AND none of those values SHALL equal the property name
 
-#### Scenario: Vault is not the source
+#### Scenario: CICD-CRED-03.02 -- Vault is not the source
 
 - GIVEN the PR-environment cluster GitOps
 - WHEN a reader looks for where e2e test-tier passwords are stored
 - THEN AWS Secrets Manager SHALL be that store
 - AND no Vault KV path SHALL be authoritative for these passwords
 
-### Requirement: ESO Aligns the Cloud Store into a Generic In-Cluster Secret
+### Requirement: CICD-CRED-04 -- ESO Aligns the Cloud Store into a Generic In-Cluster Secret
 
 ESO SHALL be the only component that speaks the cloud secret store's API for these
 passwords. Seed, e2e, and CI password-grant steps SHALL read the Kubernetes Secret
@@ -300,21 +300,21 @@ in-cluster without a redeploy. The IAM role SHALL be allowed only
 `hysh-aws-01/e2e/test-users`. It SHALL NOT create, update, list, or delete AWS
 secrets, and SHALL NOT read other HyperShell AWS secrets.
 
-#### Scenario: ESO is the only cloud-store client in the e2e path
+#### Scenario: CICD-CRED-04.01 -- ESO is the only cloud-store client in the e2e path
 
 - GIVEN seed or password-grant e2e needs a test-tier password
 - WHEN it obtains that password
 - THEN it SHALL read Secret `hypershell-e2e-test-users`
 - AND it SHALL NOT call AWS Secrets Manager or Vault
 
-#### Scenario: A new PR Keycloak namespace gets the Secret without a new Git commit
+#### Scenario: CICD-CRED-04.02 -- A new PR Keycloak namespace gets the Secret without a new Git commit
 
 - GIVEN `make openshift-up` creates `hypershell-ci-pr-232-keycloak`
 - WHEN ESO has reconciled
 - THEN Secret `hypershell-e2e-test-users` SHALL exist in that Keycloak namespace
 - AND it SHALL contain keys `admin`, `developer`, and `platform-admin`
 
-#### Scenario: PR app namespace does not contain test-tier passwords
+#### Scenario: CICD-CRED-04.03 -- PR app namespace does not contain test-tier passwords
 
 - GIVEN ESO is reconciling `hypershell-ci-pr-232`
 - WHEN a reader lists Secrets in that app namespace
@@ -322,7 +322,7 @@ secrets, and SHALL NOT read other HyperShell AWS secrets.
 - AND no Secret SHALL contain the `admin`, `developer`, or `platform-admin`
   password values
 
-#### Scenario: Another cloud keeps the same Secret contract
+#### Scenario: CICD-CRED-04.04 -- Another cloud keeps the same Secret contract
 
 - GIVEN a later cluster uses a different cloud secret store
 - WHEN GitOps swaps the ESO `SecretStore` provider
@@ -330,14 +330,14 @@ secrets, and SHALL NOT read other HyperShell AWS secrets.
   keys
 - AND neither SHALL gain a provider-specific client
 
-#### Scenario: ESO IAM cannot write or over-read
+#### Scenario: CICD-CRED-04.05 -- ESO IAM cannot write or over-read
 
 - GIVEN the ESO IAM role for these passwords
 - WHEN it attempts `PutSecretValue` on `hysh-aws-01/e2e/test-users`, or
   `GetSecretValue` on a different HyperShell secret
 - THEN AWS SHALL deny the call
 
-### Requirement: In-Cluster Secret Contract
+### Requirement: CICD-CRED-05 -- In-Cluster Secret Contract
 
 The Kubernetes Secret ESO owns SHALL be named `hypershell-e2e-test-users`. Its keys
 SHALL be `admin`, `developer`, and `platform-admin`, each holding the current
@@ -353,14 +353,14 @@ lifecycle output, CI logs, or any artifact. An operator who needs the current
 rotated password SHALL read it from AWS Secrets Manager (or the cluster's cloud
 store), using their own cloud identity, rather than expect it in command output.
 
-#### Scenario: Secret keys match the three principals
+#### Scenario: CICD-CRED-05.01 -- Secret keys match the three principals
 
 - GIVEN Secret `hypershell-e2e-test-users` is Ready in a CI-owned Keycloak namespace
 - WHEN seed or password-grant e2e reads it
 - THEN keys `admin`, `developer`, and `platform-admin` SHALL each be present
 - AND each value SHALL be the current password for that principal
 
-#### Scenario: Bring-up banner does not print the rotated password
+#### Scenario: CICD-CRED-05.02 -- Bring-up banner does not print the rotated password
 
 - GIVEN CI runs `make openshift-up` for a CI-owned PR environment
 - WHEN bring-up finishes
@@ -368,7 +368,7 @@ store), using their own cloud identity, rather than expect it in command output.
 - AND the Keycloak-console line SHALL still describe the master bootstrap admin, not
   a seeded test-tier principal
 
-### Requirement: Test-User Seeding Reconciles to the ESO Secret on CI-Owned PR Environments
+### Requirement: CICD-CRED-06 -- Test-User Seeding Reconciles to the ESO Secret on CI-Owned PR Environments
 
 On every CI-owned PR environment bring-up (`make openshift-up` with environment
 identifier `pr-<n>`) and every standalone seed of such an environment
@@ -410,7 +410,7 @@ send an empty or default password, and SHALL NOT fall back to
 username-equals-password. Developer-owned bring-up does not wait on this Secret
 (see Developer-Owned Environments Retain Static Credentials).
 
-#### Scenario: Seeding reconciles Keycloak to the Secret
+#### Scenario: CICD-CRED-06.01 -- Seeding reconciles Keycloak to the Secret
 
 - GIVEN a CI-owned PR environment is brought up or seeded
 - AND Secret `hypershell-e2e-test-users` is present
@@ -419,7 +419,7 @@ username-equals-password. Developer-owned bring-up does not wait on this Secret
 - THEN it SHALL set each Keycloak user's password to the matching Secret key
 - AND no seeded password SHALL equal its username
 
-#### Scenario: Seeding reconciles an existing user
+#### Scenario: CICD-CRED-06.02 -- Seeding reconciles an existing user
 
 - GIVEN the `admin` test-tier principal already exists from an earlier seed
 - WHEN the lifecycle seeds again
@@ -427,7 +427,7 @@ username-equals-password. Developer-owned bring-up does not wait on this Secret
   rather than skip because the user exists
 - AND it SHALL ensure the user still holds its required realm roles
 
-#### Scenario: Concurrent seeds before rotation converge
+#### Scenario: CICD-CRED-06.03 -- Concurrent seeds before rotation converge
 
 - GIVEN the cloud store has not rotated the `developer` password since the last seed
 - WHEN two separate OpenShift environments seed around the same time
@@ -435,7 +435,7 @@ username-equals-password. Developer-owned bring-up does not wait on this Secret
   password
 - AND this SHALL NOT be treated as a seeding error
 
-#### Scenario: Seeding assigns tier roles
+#### Scenario: CICD-CRED-06.04 -- Seeding assigns tier roles
 
 - GIVEN a fresh OpenShift environment
 - WHEN the lifecycle seeds the test-tier principals
@@ -445,7 +445,7 @@ username-equals-password. Developer-owned bring-up does not wait on this Secret
 - AND `platform-admin` SHALL hold `hypershell-users` and `platform:admin`
 - AND none of the three SHALL hold a `gateway:viewer` realm role
 
-#### Scenario: Seeding failure is fail-closed on a CI-owned PR environment
+#### Scenario: CICD-CRED-06.05 -- Seeding failure is fail-closed on a CI-owned PR environment
 
 - GIVEN test-user seeding fails during CI-owned PR bring-up because the ESO Secret is
   missing
@@ -455,7 +455,7 @@ username-equals-password. Developer-owned bring-up does not wait on this Secret
   environment
 - AND it SHALL NOT leave seeded users with an empty or default password
 
-### Requirement: Password-Grant E2E Reads the Same Secret on CI-Owned PR Environments
+### Requirement: CICD-CRED-07 -- Password-Grant E2E Reads the Same Secret on CI-Owned PR Environments
 
 The password-grant path against a CI-owned PR environment SHALL fetch each test-tier
 principal's current password from Secret `hypershell-e2e-test-users` in the
@@ -475,14 +475,14 @@ Secret `hypershell-e2e-test-users`.
 A GitHub-brokered e2e job SHALL NOT read this Secret (see Brokered Environments Seed
 Users for Identity Resolution).
 
-#### Scenario: E2E suite fetches its own password from the Secret
+#### Scenario: CICD-CRED-07.01 -- E2E suite fetches its own password from the Secret
 
 - GIVEN a CI-owned PR environment e2e run using the password-grant path
 - WHEN the suite needs to authenticate as a test-tier principal
 - THEN it SHALL read that principal's key from Secret `hypershell-e2e-test-users`
 - AND it SHALL NOT call AWS Secrets Manager or Vault
 
-#### Scenario: Missing Secret fails fast on a CI-owned PR environment
+#### Scenario: CICD-CRED-07.02 -- Missing Secret fails fast on a CI-owned PR environment
 
 - GIVEN a CI-owned PR environment e2e run using the password-grant path
 - AND Secret `hypershell-e2e-test-users` is absent
@@ -490,7 +490,7 @@ Users for Identity Resolution).
 - THEN it SHALL exit non-zero with an error that names the missing Secret
 - AND it SHALL NOT fall back to username-equals-password
 
-#### Scenario: Local OpenShift e2e uses static seeds
+#### Scenario: CICD-CRED-07.03 -- Local OpenShift e2e uses static seeds
 
 - GIVEN a developer runs the OpenShift e2e suite against a developer-owned
   environment
@@ -498,7 +498,7 @@ Users for Identity Resolution).
 - THEN it SHALL use `admin`/`admin` and `developer`/`developer`
 - AND it SHALL NOT require Secret `hypershell-e2e-test-users`
 
-### Requirement: Test-Tier Principals Persist for Environment Lifetime
+### Requirement: CICD-CRED-08 -- Test-Tier Principals Persist for Environment Lifetime
 
 Bring-up seed creates the three Keycloak accounts for the life of that
 environment. E2e SHALL NOT delete them. `/pr-extend`, impersonation, password-grant,
@@ -515,7 +515,7 @@ trap as `e2e-testing.spec.md` defines. Every driver SHALL no-op that step so a
 test run cannot delete live environment users (Kind static seeds, local OpenShift
 static seeds, and CI-owned rotated seeds alike).
 
-#### Scenario: Accounts remain after a passing CI run
+#### Scenario: CICD-CRED-08.01 -- Accounts remain after a passing CI run
 
 - GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits successfully
@@ -523,14 +523,14 @@ static seeds, and CI-owned rotated seeds alike).
 - AND their passwords SHALL still match Secret `hypershell-e2e-test-users`
 - AND the cloud-store and ESO Secret values SHALL be unaffected
 
-#### Scenario: Accounts remain after a failing or aborted CI run
+#### Scenario: CICD-CRED-08.02 -- Accounts remain after a failing or aborted CI run
 
 - GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits on a test failure or is aborted early
 - THEN the three Keycloak accounts SHALL still exist
 - AND a later `/pr-extend` or other automation SHALL be able to use them
 
-#### Scenario: Skipped e2e leaves accounts for the environment lifetime
+#### Scenario: CICD-CRED-08.03 -- Skipped e2e leaves accounts for the environment lifetime
 
 - GIVEN a CI-owned PR environment bring-up has seeded the three test-tier principals
 - AND that deploying run skips the e2e suite
@@ -539,7 +539,7 @@ static seeds, and CI-owned rotated seeds alike).
   passwords
 - AND they SHALL remain until the namespace group is destroyed
 
-#### Scenario: Retained environment keeps accounts after e2e
+#### Scenario: CICD-CRED-08.04 -- Retained environment keeps accounts after e2e
 
 - GIVEN a CI-owned PR environment is retained with `/pr-extend`
 - AND e2e has already finished
@@ -547,7 +547,7 @@ static seeds, and CI-owned rotated seeds alike).
 - THEN that principal SHALL still exist
 - AND the grant or impersonation SHALL NOT require another e2e run to re-seed
 
-#### Scenario: Local e2e de-seeding is a no-op
+#### Scenario: CICD-CRED-08.05 -- Local e2e de-seeding is a no-op
 
 - GIVEN an e2e run against Kind or a developer-owned OpenShift environment
 - WHEN the suite reaches its de-seed step
@@ -555,7 +555,7 @@ static seeds, and CI-owned rotated seeds alike).
 - AND the static test users SHALL remain intact so a later local run can
   keep using them
 
-### Requirement: Developer-Owned Environments Retain Static Credentials
+### Requirement: CICD-CRED-09 -- Developer-Owned Environments Retain Static Credentials
 
 Every locally run test SHALL keep the static test credentials - `admin`/`admin`,
 `developer`/`developer`, and `platform-admin`/`platform-admin`. That includes Kind
@@ -580,7 +580,7 @@ those names are CI-owned only. The guessable-login acceptance therefore cannot
 apply to a CI-owned PR environment. CI-owned PR environments SHALL NOT use these
 passwords.
 
-#### Scenario: Kind reconciles its static users on bring-up
+#### Scenario: CICD-CRED-09.01 -- Kind reconciles its static users on bring-up
 
 - GIVEN the shared realm base no longer ships human users
 - WHEN a developer runs `make kind-up`
@@ -588,7 +588,7 @@ passwords.
   each with its password equal to its username
 - AND the reconcile SHALL be idempotent across repeated `make kind-up` runs
 
-#### Scenario: Local OpenShift reconciles the same static users on bring-up
+#### Scenario: CICD-CRED-09.02 -- Local OpenShift reconciles the same static users on bring-up
 
 - GIVEN the shared realm base no longer ships human users
 - WHEN a developer runs `make openshift-up` into a developer-owned environment
@@ -598,7 +598,7 @@ passwords.
   runs
 - AND bring-up SHALL NOT wait on Secret `hypershell-e2e-test-users`
 
-#### Scenario: Local developer experience is unchanged
+#### Scenario: CICD-CRED-09.03 -- Local developer experience is unchanged
 
 - GIVEN a developer runs `make kind-up` or local `make openshift-up`
 - WHEN bring-up finishes
@@ -606,7 +606,7 @@ passwords.
   and `platform-admin/platform-admin` credentials
 - AND local flows that authenticate as `admin`/`admin` SHALL continue to succeed
 
-#### Scenario: Local OpenShift e2e still password-grants
+#### Scenario: CICD-CRED-09.04 -- Local OpenShift e2e still password-grants
 
 - GIVEN a developer runs the e2e suite against a developer-owned OpenShift
   environment
@@ -614,7 +614,7 @@ passwords.
 - THEN it SHALL use the password grant against the static seeds
 - AND it SHALL NOT require GitHub-brokered client-credentials
 
-### Requirement: Password-Grant Jobs Read the Secret Through the Cluster, and Mask What They Fetch
+### Requirement: CICD-CRED-10 -- Password-Grant Jobs Read the Secret Through the Cluster, and Mask What They Fetch
 
 The canonical origin pull-request workflow SHALL NOT read Secret
 `hypershell-e2e-test-users`; it authenticates through client-credentials and token
@@ -635,7 +635,7 @@ example the GitHub-brokered client-credentials and token-exchange path) SHALL NO
 fetch these passwords at all; it only requires the test-tier principals to exist (see
 Brokered Environments Seed Users for Identity Resolution).
 
-#### Scenario: Password-grant job fetches from the Secret and masks before exposing to e2e
+#### Scenario: CICD-CRED-10.01 -- Password-grant job fetches from the Secret and masks before exposing to e2e
 
 - GIVEN a job password-grants against a CI-owned PR environment
 - WHEN it runs between the seed step and the test step
@@ -644,20 +644,20 @@ Brokered Environments Seed Users for Identity Resolution).
 - AND it SHALL mask each value in the runner before exposing it to the e2e step
 - AND it SHALL expose them to the e2e step as its password environment variables
 
-#### Scenario: Cloud-sourced passwords never leak in CI
+#### Scenario: CICD-CRED-10.02 -- Cloud-sourced passwords never leak in CI
 
 - GIVEN a completed OpenShift e2e CI run
 - WHEN a reader inspects the workflow logs and public artifacts
 - THEN no test-tier principal's password SHALL appear unmasked in any of them
 
-#### Scenario: No static cloud credential in CI configuration
+#### Scenario: CICD-CRED-10.03 -- No static cloud credential in CI configuration
 
 - GIVEN a reader inspects a password-grant job's credential step
 - WHEN they look for how it obtains the test-tier passwords
 - THEN it SHALL use the cluster login plus the ESO Secret
 - AND it SHALL NOT contain a static AWS access key for this purpose
 
-### Requirement: Brokered Environments Seed Users for Identity Resolution
+### Requirement: CICD-CRED-11 -- Brokered Environments Seed Users for Identity Resolution
 
 In GitHub-brokered per-PR environments the e2e suite authenticates through
 client-credentials for the admin path and Keycloak token exchange for the developer
@@ -668,7 +668,7 @@ login - resolves. Canonical PR CI SHALL NOT send a test-user password
 (`E2E_OIDC_GRANT=client_credentials`). Because bring-up seeds these users, a
 brokered e2e job SHALL NOT need any password wiring to run.
 
-#### Scenario: Brokered run needs the users but not their passwords
+#### Scenario: CICD-CRED-11.01 -- Brokered run needs the users but not their passwords
 
 - GIVEN a GitHub-brokered per-PR environment whose e2e run uses client-credentials
   and token exchange
@@ -678,7 +678,7 @@ brokered e2e job SHALL NOT need any password wiring to run.
 - AND the suite SHALL NOT send a test-user password
 - AND the job SHALL require no password wiring beyond the users existing
 
-### Requirement: Self-Service Role Assumption via Shared Test-Tier Principals
+### Requirement: CICD-CRED-12 -- Self-Service Role Assumption via Shared Test-Tier Principals
 
 The three test-tier principals this spec seeds - `admin`, `developer`, and
 `platform-admin` - SHALL double as the shared impersonation targets that
@@ -700,7 +700,7 @@ Because impersonation via Keycloak token exchange never sends a password, this
 generalization SHALL NOT require any GitHub-authenticated user to know or fetch a
 test-tier principal's password from the cloud store or the ESO Secret.
 
-#### Scenario: Any authenticated GitHub user can self-service impersonate a tier
+#### Scenario: CICD-CRED-12.01 -- Any authenticated GitHub user can self-service impersonate a tier
 
 - GIVEN a GitHub user is authenticated to a per-PR or dev environment
 - AND that environment has seeded the `developer` and `platform-admin` test-tier
@@ -710,7 +710,7 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN Keycloak SHALL issue a token scoped to that tier's roles
 - AND the user SHALL NOT need that tier's password to do so
 
-#### Scenario: GitHub users cannot token-exchange as each other
+#### Scenario: CICD-CRED-12.02 -- GitHub users cannot token-exchange as each other
 
 - GIVEN GitHub user A and GitHub user B are both authenticated to a per-PR
   environment
@@ -719,7 +719,7 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN Keycloak SHALL deny the request
 - AND user A SHALL still be able to impersonate `developer` and `platform-admin`
 
-#### Scenario: Impersonation does not require cloud-store or ESO access
+#### Scenario: CICD-CRED-12.03 -- Impersonation does not require cloud-store or ESO access
 
 - GIVEN a GitHub-authenticated user self-service impersonates the `platform-admin`
   tier
@@ -727,7 +727,7 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN no AWS, Vault, or ESO credential SHALL be involved
 - AND their own GitHub-brokered session remains the only credential they hold
 
-#### Scenario: Impersonation still works after e2e on a live environment
+#### Scenario: CICD-CRED-12.04 -- Impersonation still works after e2e on a live environment
 
 - GIVEN a CI e2e run has finished against a still-live PR environment
 - WHEN a GitHub-authenticated user requests an impersonated token for `developer`

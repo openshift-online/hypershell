@@ -6,15 +6,15 @@
 
 ## Purpose
 
-When an operator investigates a reconcile failure, they need to trace the causal chain: which user action triggered the change that the control plane is now reconciling? Today the control plane produces reconcile spans (CP-OBS-02) and the API server produces request spans (API-OBS-02/03), but the two traces are disconnected because reconciliation is temporally decoupled from the user request. The API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream, possibly after resync, batching, or retries.
+When an operator investigates a reconcile failure, they need to trace the causal chain: which user action triggered the change that the control plane is now reconciling? Today the control plane produces reconcile spans (OBS-CPL-02) and the API server produces request spans (API-OBS-02/03), but the two traces are disconnected because reconciliation is temporally decoupled from the user request. The API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream, possibly after resync, batching, or retries.
 
-A synchronous parent-child span relationship is therefore incorrect: it would produce a child span that starts long after its parent ended, or one request span with many reconcile children from resyncs. The correct OpenTelemetry model is a **span link** ("caused by"): the reconcile span keeps its own root trace (independently sampled per CP-OBS-02) and carries a link to the originating request trace, so a support engineer can navigate from the reconcile trace to the request trace in Jaeger.
+A synchronous parent-child span relationship is therefore incorrect: it would produce a child span that starts long after its parent ended, or one request span with many reconcile children from resyncs. The correct OpenTelemetry model is a **span link** ("caused by"): the reconcile span keeps its own root trace (independently sampled per OBS-CPL-02) and carries a link to the originating request trace, so a support engineer can navigate from the reconcile trace to the request trace in Jaeger.
 
 This specification defines how the originating trace context flows from the API server request, through the database, over the gRPC watch stream, into the control plane reconcile span as a link. It extends `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `platform/control-plane-observability.spec.md` (HYPERSHELL-79).
 
 ## Requirements
 
-### Requirement: RTC-01 -- Originating Trace Context Persistence
+### Requirement: CTRL-TRC-01 -- Originating Trace Context Persistence
 
 The API server SHALL capture the W3C Trace Context (`traceparent` header value, and `tracestate` when present) from the inbound request context on every create and update write, and SHALL persist both values on the resource row in PostgreSQL. The trace context SHALL be stored as plain text columns (`traceparent` and `tracestate`) via a shared embeddable struct, so every resource type inherits the same fields with a uniform column layout rather than a bespoke per-plugin field definition.
 
@@ -26,7 +26,7 @@ The trace context SHALL be captured from the active span context at the point of
 
 **Verification:** Create a resource via the API with a valid inbound `traceparent`; confirm the database row stores the `traceparent` and `tracestate` values. Update the resource with a different request trace; confirm the stored values are overwritten.
 
-#### Scenario: Create persists originating trace context
+#### Scenario: CTRL-TRC-01.01 -- Create persists originating trace context
 
 - GIVEN the OTel SDK is initialized on the API server
 - AND a client sends a POST request carrying a valid `traceparent` header
@@ -34,21 +34,21 @@ The trace context SHALL be captured from the active span context at the point of
 - THEN the resource row in PostgreSQL SHALL contain the `traceparent` value from the request's active span context
 - AND `tracestate` SHALL be stored when present in the inbound context
 
-#### Scenario: Update overwrites trace context
+#### Scenario: CTRL-TRC-01.02 -- Update overwrites trace context
 
 - GIVEN a resource with a stored `traceparent` from its creation
 - WHEN a client sends a PATCH request with a different trace context
 - THEN the stored `traceparent` SHALL be overwritten with the new request's active span context
 - AND the previous trace context SHALL not be retained
 
-#### Scenario: No trace context when telemetry is disabled
+#### Scenario: CTRL-TRC-01.03 -- No trace context when telemetry is disabled
 
 - GIVEN the OTel SDK is not initialized (no `OTEL_EXPORTER_OTLP_ENDPOINT`)
 - WHEN a client creates a resource
 - THEN the `traceparent` and `tracestate` columns SHALL be NULL
 - AND the resource SHALL be created normally
 
-#### Scenario: Update with telemetry disabled clears stale trace context
+#### Scenario: CTRL-TRC-01.04 -- Update with telemetry disabled clears stale trace context
 
 - GIVEN a resource with a stored `traceparent` from an earlier traced mutation
 - AND the OTel SDK is not initialized on the request that performs the update
@@ -56,7 +56,7 @@ The trace context SHALL be captured from the active span context at the point of
 - THEN the stored `traceparent` and `tracestate` SHALL be overwritten with NULL
 - AND the previous trace context SHALL not be retained, because it no longer describes the most recent mutation
 
-### Requirement: RTC-02 -- Trace Context on gRPC Watch Messages
+### Requirement: CTRL-TRC-02 -- Trace Context on gRPC Watch Messages
 
 The resource protobuf messages carried in gRPC watch responses SHALL include the originating trace context so the control plane can read it without a separate lookup. The `traceparent` and `tracestate` fields SHALL be added to the shared `ObjectReference` message so every resource type's watch response carries them uniformly.
 
@@ -64,31 +64,31 @@ The fields SHALL be optional strings. When the stored trace context is NULL (res
 
 **Verification:** Create a resource with an active trace; receive its watch event and confirm the `traceparent` field on the resource's metadata matches the stored value. Create a resource with no trace context and confirm the fields are empty.
 
-#### Scenario: Watch event carries trace context
+#### Scenario: CTRL-TRC-02.01 -- Watch event carries trace context
 
 - GIVEN a resource created with a stored `traceparent`
 - WHEN the control plane receives a watch event for that resource
 - THEN the resource's `ObjectReference` metadata SHALL contain the `traceparent` value
 - AND `tracestate` SHALL be present when the resource has a stored value
 
-#### Scenario: Watch event with no trace context
+#### Scenario: CTRL-TRC-02.02 -- Watch event with no trace context
 
 - GIVEN a resource created before trace context persistence was added
 - WHEN the control plane receives a watch event for that resource
 - THEN the `traceparent` and `tracestate` fields on `ObjectReference` SHALL be empty strings
 - AND the watch event SHALL be processed normally
 
-### Requirement: RTC-03 -- Reconcile Span Link to Originating Trace
+### Requirement: CTRL-TRC-03 -- Reconcile Span Link to Originating Trace
 
 The control plane SHALL parse the `traceparent` (and `tracestate` when present) from the watched resource's metadata, extract the trace ID and span ID, and attach them as a span link on the reconcile root span. The span link SHALL use the OpenTelemetry `trace.Link` with the remote span context so Jaeger renders the link as a "caused by" relationship.
 
-The reconcile span SHALL remain a new trace root (per CP-OBS-02) and SHALL NOT become a child of the originating request span. The span link is a causal reference, not a parent-child relationship. The reconcile span's sampling decision SHALL remain independent of the originating trace's sampling decision.
+The reconcile span SHALL remain a new trace root (per OBS-CPL-02) and SHALL NOT become a child of the originating request span. The span link is a causal reference, not a parent-child relationship. The reconcile span's sampling decision SHALL remain independent of the originating trace's sampling decision.
 
 When the resource has no stored trace context (NULL `traceparent`), the reconcile span SHALL be a normal root with no link and no error. A missing or malformed `traceparent` SHALL NOT cause a reconcile failure or produce a warning; it SHALL be silently ignored.
 
 **Verification:** Create a resource with an active trace; trigger reconciliation and confirm the reconcile span in Jaeger carries a link to the originating request trace. Reconcile a resource with no trace context and confirm a normal root span with no link.
 
-#### Scenario: Reconcile span links to originating request
+#### Scenario: CTRL-TRC-03.01 -- Reconcile span links to originating request
 
 - GIVEN a resource with a stored `traceparent` of `00-{traceID}-{spanID}-01`
 - WHEN the control plane reconciles the resource
@@ -96,29 +96,29 @@ When the resource has no stored trace context (NULL `traceparent`), the reconcil
 - AND the reconcile span SHALL remain a new trace root with its own trace ID
 - AND Jaeger SHALL render the link as a navigable reference from the reconcile trace to the request trace
 
-#### Scenario: Reconcile without trace context produces no link
+#### Scenario: CTRL-TRC-03.02 -- Reconcile without trace context produces no link
 
 - GIVEN a resource with no stored `traceparent` (NULL or empty)
 - WHEN the control plane reconciles the resource
 - THEN the reconcile span SHALL be a normal root with no span link
 - AND no error or warning SHALL be logged
 
-#### Scenario: Malformed traceparent is silently ignored
+#### Scenario: CTRL-TRC-03.03 -- Malformed traceparent is silently ignored
 
 - GIVEN a resource with a stored `traceparent` value that does not conform to W3C Trace Context
 - WHEN the control plane reconciles the resource
 - THEN the reconcile span SHALL be a normal root with no span link
 - AND no reconcile error SHALL be raised
 
-### Requirement: RTC-04 -- End-to-End Trace Navigation in Jaeger
+### Requirement: CTRL-TRC-04 -- End-to-End Trace Navigation in Jaeger
 
-In the development Jaeger (when `KIND_JAEGER=true`, per CP-OBS-08 and API-OBS-07), a support engineer SHALL be able to navigate from a reconcile trace to the originating user request trace. The Jaeger UI SHALL show the span link on the reconcile span and allow clicking through to the originating trace. The originating trace SHALL include the browser workflow span, the BFF server span, the API server span, and the database span (when all components have OTel enabled).
+In the development Jaeger (when `KIND_JAEGER=true`, per OBS-CPL-08 and API-OBS-07), a support engineer SHALL be able to navigate from a reconcile trace to the originating user request trace. The Jaeger UI SHALL show the span link on the reconcile span and allow clicking through to the originating trace. The originating trace SHALL include the browser workflow span, the BFF server span, the API server span, and the database span (when all components have OTel enabled).
 
-This requirement is a verification-only requirement: it does not impose new code beyond RTC-01 through RTC-03, but it validates the end-to-end experience.
+This requirement is a verification-only requirement: it does not impose new code beyond CTRL-TRC-01 through CTRL-TRC-03, but it validates the end-to-end experience.
 
 **Verification:** With `KIND_JAEGER=true`, create a gateway through the console; wait for reconciliation; find the reconcile span in Jaeger and confirm it has a link to the browser-to-API trace for the same gateway operation.
 
-#### Scenario: End-to-end trace navigation
+#### Scenario: CTRL-TRC-04.01 -- End-to-end trace navigation
 
 - GIVEN the local cluster is running with `KIND_JAEGER=true`
 - AND the API server, control plane, and web console all have OTel enabled
@@ -127,19 +127,19 @@ This requirement is a verification-only requirement: it does not impose new code
 - THEN the reconcile trace in Jaeger SHALL show a span link to the originating request trace
 - AND clicking the link SHALL navigate to the trace containing the browser, BFF, API server, and database spans
 
-### Requirement: RTC-05 -- Privacy and Cardinality
+### Requirement: CTRL-TRC-05 -- Privacy and Cardinality
 
 The trace context stored on a resource and carried in watch messages is opaque W3C Trace Context: a `traceparent` string containing version, trace ID, span ID, and trace flags, and an optional `tracestate` string containing vendor-specific key-value pairs. These values SHALL NOT contain sensitive data by construction (they are hex-encoded identifiers and vendor flags). The trace context SHALL NOT be exposed in the REST API responses; it is internal to the observability pipeline.
 
-The span link on the reconcile span records the linked trace ID and span ID as span attributes. These are bounded hex identifiers and do not affect span-name cardinality or metric label cardinality, consistent with CP-OBS-06.
+The span link on the reconcile span records the linked trace ID and span ID as span attributes. These are bounded hex identifiers and do not affect span-name cardinality or metric label cardinality, consistent with OBS-CPL-06.
 
-#### Scenario: Trace context not exposed in REST responses
+#### Scenario: CTRL-TRC-05.01 -- Trace context not exposed in REST responses
 
 - GIVEN a resource with a stored `traceparent`
 - WHEN a client retrieves the resource via the REST API
 - THEN the `traceparent` and `tracestate` fields SHALL NOT appear in the JSON response
 
-#### Scenario: Trace context values do not contain sensitive data
+#### Scenario: CTRL-TRC-05.02 -- Trace context values do not contain sensitive data
 
 - GIVEN a resource created with an inbound `traceparent`
 - WHEN the stored value is inspected
@@ -161,7 +161,7 @@ The span link on the reconcile span records the linked trace ID and span ID as s
 
 ## Primary Basis
 
-- `platform/control-plane-observability.spec.md` (HYPERSHELL-79) -- reconcile spans, `WithNewRoot()`, CP-OBS-02, CP-OBS-06
+- `platform/control-plane-observability.spec.md` (HYPERSHELL-79) -- reconcile spans, `WithNewRoot()`, OBS-CPL-02, OBS-CPL-06
 - `platform/api-server-observability.spec.md` (HYPERSHELL-26) -- API server spans, trace context extraction, API-OBS-04
 - `platform/data-model.spec.md` -- `api.Meta` base type, resource schema
 - `web-console/tracing.spec.md` (HYPERSHELL-27) -- browser and BFF spans
