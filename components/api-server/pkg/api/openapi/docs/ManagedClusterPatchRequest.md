@@ -4,12 +4,12 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**Provider** | Pointer to **string** |  | [optional] 
-**Region** | Pointer to **string** |  | [optional] 
-**KubeconfigSecret** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**ApiServerUrl** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**Provider** | Pointer to **string** |  | [optional]
+**Region** | Pointer to **string** |  | [optional]
+**KubeconfigSecret** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**ApiServerUrl** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -182,5 +182,3 @@ HasApiServerUrl returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

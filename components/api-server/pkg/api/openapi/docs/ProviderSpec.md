@@ -4,17 +4,17 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**Category** | **string** |  | 
-**Capability** | Pointer to **string** | JSON-encoded capability definition (gateway-agnostic, category-discriminated) | [optional] 
-**Profile** | Pointer to **string** | JSON-encoded opaque profile passed through to the gateway provider registration step | [optional] 
-**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
-**Status** | Pointer to **string** |  | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**Category** | **string** |  |
+**Capability** | Pointer to **string** | JSON-encoded capability definition (gateway-agnostic, category-discriminated) | [optional]
+**Profile** | Pointer to **string** | JSON-encoded opaque profile passed through to the gateway provider registration step | [optional]
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
+**Status** | Pointer to **string** |  | [optional] [readonly]
 
 ## Methods
 
@@ -302,5 +302,3 @@ HasStatus returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

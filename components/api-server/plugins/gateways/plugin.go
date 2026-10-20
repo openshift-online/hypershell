@@ -17,6 +17,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -296,7 +297,20 @@ func init() {
 		}
 		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		placement := newRegisteredPlacementService(envServices)
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayService := Service(envServices)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+
+		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
+			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)
+			if serviceErr != nil || gateway == nil || gateway.Namespace == "" {
+				return "", false
+			}
+			return gateway.Namespace, true
+		})
+		sandboxEventsRouter := apiV1Router.PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
+		sandboxEventsRouter.HandleFunc("", sandboxEventsHandler.List).Methods(http.MethodGet)
+		sandboxEventsRouter.Use(authMiddleware.AuthenticateAccountJWT)
+		sandboxEventsRouter.Use(authzMiddleware.AuthorizeApi)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
@@ -362,7 +376,9 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve))
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve)
+		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
+		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})
 
 	presenters.RegisterPath(Gateway{}, "gateways")

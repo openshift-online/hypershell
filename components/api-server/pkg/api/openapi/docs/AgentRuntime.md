@@ -4,24 +4,24 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**ClusterId** | Pointer to **string** | Optional. When omitted, the scheduling cluster is derived from the referenced Gateway&#39;s placement. | [optional] 
-**GatewayId** | **string** |  | 
-**SandboxTemplateId** | Pointer to **string** |  | [optional] 
-**RepositoryId** | Pointer to **string** | Optional reference to a Repository the runtime scans | [optional] 
-**Selector** | Pointer to **[]string** | Labels selecting repository work items to scan (match-any); requires repository_id | [optional] 
-**Description** | Pointer to **string** |  | [optional] 
-**Cron** | Pointer to **string** | Cron expression for scheduling the agent coordinator | [optional] 
-**CoordinatorImage** | Pointer to **string** | Container image for the agent coordinator CronJob | [optional] 
-**ConcurrencyPolicy** | Pointer to **string** | Kubernetes CronJob concurrency policy (Allow, Forbid, Replace) | [optional] 
-**LoginRefreshSeconds** | Pointer to **int32** | Interval in seconds for refreshing gateway login credentials | [optional] 
-**Parameters** | Pointer to **string** | JSON-encoded key-value parameters passed to the agent coordinator | [optional] 
-**Status** | Pointer to **string** |  | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**ClusterId** | Pointer to **string** | Optional. When omitted, the scheduling cluster is derived from the referenced Gateway&#39;s placement. | [optional]
+**GatewayId** | **string** |  |
+**SandboxTemplateId** | Pointer to **string** |  | [optional]
+**RepositoryId** | Pointer to **string** | Optional reference to a Repository the runtime scans | [optional]
+**Selector** | Pointer to **[]string** | Labels selecting repository work items to scan (match-any); requires repository_id | [optional]
+**Description** | Pointer to **string** |  | [optional]
+**Cron** | Pointer to **string** | Cron expression for scheduling the agent coordinator | [optional]
+**CoordinatorImage** | Pointer to **string** | Container image for the agent coordinator CronJob | [optional]
+**ConcurrencyPolicy** | Pointer to **string** | Kubernetes CronJob concurrency policy (Allow, Forbid, Replace) | [optional]
+**LoginRefreshSeconds** | Pointer to **int32** | Interval in seconds for refreshing gateway login credentials | [optional]
+**Parameters** | Pointer to **string** | JSON-encoded key-value parameters passed to the agent coordinator | [optional]
+**Status** | Pointer to **string** |  | [optional] [readonly]
 
 ## Methods
 
@@ -484,5 +484,3 @@ HasStatus returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

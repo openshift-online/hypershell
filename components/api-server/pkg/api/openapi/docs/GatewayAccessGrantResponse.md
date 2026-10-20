@@ -4,13 +4,13 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**RoleBindingId** | **string** |  | 
-**UserId** | **string** |  | 
-**Username** | **string** |  | 
-**Name** | Pointer to **NullableString** |  | [optional] 
-**Email** | Pointer to **NullableString** |  | [optional] 
-**Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  | 
-**GrantedAt** | **time.Time** |  | 
+**RoleBindingId** | **string** |  |
+**UserId** | **string** |  |
+**Username** | **string** |  |
+**Name** | Pointer to **NullableString** |  | [optional]
+**Email** | Pointer to **NullableString** |  | [optional]
+**Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  |
+**GrantedAt** | **time.Time** |  |
 
 ## Methods
 
@@ -203,5 +203,3 @@ SetGrantedAt sets GrantedAt field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

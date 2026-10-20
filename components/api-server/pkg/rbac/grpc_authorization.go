@@ -132,6 +132,12 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 				return unexpectedRequest()
 			}
 			return requireNamespaceOnCluster(ctx, gateways, r.GetNamespace(), clusterID)
+		case "ReportSandboxEvents":
+			r, ok := req.(*pb.ReportSandboxEventsRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			return requireNamespaceOnCluster(ctx, gateways, r.GetNamespace(), clusterID)
 		}
 		return denied()
 	case "ManagedClusterService":

@@ -953,6 +953,39 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/sandbox_events:#/schemas/GatewaySandboxEventGroup",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewaySandboxEventGroup",
+      "label": "GatewaySandboxEventGroup",
+      "defaultSort": "observed_at",
+      "columns": [
+        {
+          "property": "observed_at",
+          "label": "OBSERVED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "sandbox_name",
+          "label": "SANDBOX NAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "listGatewaySandboxEvents"
+      ],
+      "capabilities": [
+        "list"
+      ],
+      "listOperationId": "listGatewaySandboxEvents",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "collection",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -6754,6 +6787,61 @@
       "presentation": {}
     },
     {
+      "id": "listGatewaySandboxEvents",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/sandbox_events"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "List recent sandbox Kubernetes events for a gateway",
+      "presentation": {}
+    },
+    {
       "id": "listGatewayServiceAccounts",
       "method": "GET",
       "pathParts": [
@@ -9329,6 +9417,23 @@
       "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem",
       "sourceOperationId": "getGateway",
       "targetOperationId": "listGatewayAccess",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "gateway_id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway-\u003ecollection:/api/hypershell/v1/gateways/{gateway_id}/sandbox_events:#/schemas/GatewaySandboxEventGroup:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway",
+      "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/sandbox_events:#/schemas/GatewaySandboxEventGroup",
+      "sourceOperationId": "getGateway",
+      "targetOperationId": "listGatewaySandboxEvents",
       "provenance": "inferred-path",
       "bindings": [
         {

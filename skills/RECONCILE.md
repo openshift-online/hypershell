@@ -1619,6 +1619,12 @@ label-selected pod informer.
 
 ## Reconciliation History
 
+### Scoped GSE implementation: Gateway Sandbox Events (HYPERSHELL-422 / PR #644)
+
+**Scope:** `specs/platform/gateway-sandbox-events.spec.md` only. No full-corpus gap analysis was run.
+
+**Completed:** GSE-01 through GSE-06 are implemented: a two-minute control-plane Event snapshot reconciler; `ReportSandboxEvents` gRPC contract and cluster-scoped authorization; a TTL- and capacity-bounded in-memory store; gateway-scoped REST read route and binding-only RBAC; regenerated OpenAPI, SDK, protobuf, and TUI descriptor artifacts; focused store, handler, RBAC, and reconciler tests. No web UI or hsctl command was added because the specification defines a REST-only diagnostic endpoint.
+
 ### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
 
 **Scope:** Shift from static YAML manifests to Helm-based gateway deployment (openshell-gateway-helm-adoption.spec.md)

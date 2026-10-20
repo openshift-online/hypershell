@@ -786,3 +786,20 @@ func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 		t.Fatalf("status = %d, want 404", recorder.Code)
 	}
 }
+
+func TestSandboxEventsAuthorizationRequiresGatewayBinding(t *testing.T) {
+	gatewayID := "gw-events"
+	for _, role := range []string{"gateway:viewer", "gateway:admin", "gateway:owner"} {
+		if !isAuthorized(http.MethodGet, "sandbox_events", "", gatewayID, []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: &gatewayID}}, nil) {
+			t.Fatalf("%s must read sandbox events", role)
+		}
+	}
+	if isAuthorized(http.MethodGet, "sandbox_events", "", gatewayID, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, nil) {
+		t.Fatal("platform admin without a gateway binding must not read sandbox events")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways/gw-events/sandbox_events", nil)
+	resource, resourceID := extractResourceInfo(request)
+	if resource != "sandbox_events" || resourceID != "" || extractGatewayID(request, resource) != "gw-events" {
+		t.Fatalf("route extraction = %q, %q, %q", resource, resourceID, extractGatewayID(request, resource))
+	}
+}

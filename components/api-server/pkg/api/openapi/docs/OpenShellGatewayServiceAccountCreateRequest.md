@@ -4,11 +4,11 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | **string** |  | 
-**Description** | Pointer to **NullableString** |  | [optional] 
+**Name** | **string** |  |
+**Description** | Pointer to **NullableString** |  | [optional]
 **CredentialType** | Pointer to **string** |  | [optional] [default to "client_secret"]
-**Role** | Pointer to [**OpenShellGatewayServiceAccountRole**](OpenShellGatewayServiceAccountRole.md) |  | [optional] 
-**ExpiresAt** | Pointer to **time.Time** |  | [optional] 
+**Role** | Pointer to [**OpenShellGatewayServiceAccountRole**](OpenShellGatewayServiceAccountRole.md) |  | [optional]
+**ExpiresAt** | Pointer to **time.Time** |  | [optional]
 
 ## Methods
 
@@ -161,5 +161,3 @@ HasExpiresAt returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

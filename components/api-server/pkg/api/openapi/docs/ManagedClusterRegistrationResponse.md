@@ -4,7 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**ClusterId** | **string** | Stable KSUID assigned to this managed cluster. Use as the cluster filter for WatchGateways. | 
+**ClusterId** | **string** | Stable KSUID assigned to this managed cluster. Use as the cluster filter for WatchGateways. |
 
 ## Methods
 
@@ -47,5 +47,3 @@ SetClusterId sets ClusterId field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

@@ -66,12 +66,10 @@ generate:
 	id=$$($(CONTAINER_ENGINE) create $(BINARY_NAME)-openapi) && \
 	$(CONTAINER_ENGINE) cp $$id:/local/pkg/api/openapi ./pkg/api/openapi && \
 	$(CONTAINER_ENGINE) rm $$id
-	# The upstream template emits an empty Notes cell with trailing whitespace
-	# and two blank lines at EOF for this required array model. Normalize that
-	# deterministic artifact so generated output passes repository whitespace
-	# checks and the drift job reproduces the committed file byte-for-byte.
-	perl -0777 -i -pe 's/[ \t]+$$//mg; s/\n+\z/\n/' \
-		pkg/api/openapi/docs/ManagedClusterRegistrationRequest.md
+	# The upstream template emits trailing whitespace and extra EOF newlines in
+	# generated Markdown. Normalize every generated document so repository
+	# whitespace checks and the drift job reproduce committed files byte-for-byte.
+	find pkg/api/openapi/docs -type f -name '*.md' -exec perl -0777 -i -pe 's/[ \t]+$$//mg; s/\n+\z/\n/' {} +
 
 .PHONY: generate-sdk generate-sdk-ts generate-sdk-typescript generate-sdk-go generate-cli
 generate-sdk: generate-sdk-ts generate-sdk-go
