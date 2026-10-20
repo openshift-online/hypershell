@@ -727,10 +727,10 @@ The authorization contract is specified in
 ### Requirement: Import Writer Maps Gateway Placement
 
 When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL map the
-rendered Gateway spec's `placement` into the gRPC create and update requests, so a
-declarative late-bound Gateway (one that declares a placement selector and no
-`cluster_id`) imports successfully under the exactly-one-of create contract defined
-in [`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Placement and
+rendered Gateway spec's `placement` into the gRPC create request, so a declarative
+late-bound Gateway (one that declares a placement selector and no `cluster_id`)
+imports successfully under the exactly-one-of create contract defined in
+[`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Placement and
 Late Binding") and [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
 (GP-01, GP-07). Mapping the `cluster_id` alone is NOT sufficient: a late-bound
 manifest sets no `cluster_id`, so an import that omits `placement` renders a create
@@ -744,16 +744,25 @@ The import writer SHALL:
   carries that selector list. When `placement` declares `mode: local-kind`, the
   writer SHALL build a `GatewayPlacementIntent` whose `local_kind`
   (`LocalKindPlacement`) is set. The proto contract is `GatewayPlacementIntent`
-  (`placement` field `18`) in `components/api-server/proto/hypershell/v1/gateways.proto`.
-- Set `placement` on `CreateGatewayRequest` when the spec declares a placement and no
-  `cluster_id`, so the created Gateway supplies exactly one of `cluster_id` or
-  `placement`.
-- Set `placement` on `UpdateGatewayRequest` when the imported placement changes, and
-  include `placement` in the idempotency (no-op) comparison, so an imported Gateway
-  whose placement is unchanged produces no update churn.
-- Keep the existing PINNED path unchanged: when the rendered spec declares a
-  `cluster_id`, the writer SHALL continue to map `cluster_id` and SHALL NOT also send
-  a `placement`.
+  (`placement` field `18` on `CreateGatewayRequest`) in
+  `components/api-server/proto/hypershell/v1/gateways.proto`.
+- On CREATE, supply EXACTLY ONE of `cluster_id` (pinned) or `placement` (late-bound):
+  a rendered spec that declares a `cluster_id` sends that `cluster_id` and no
+  `placement`; a rendered spec that declares a `placement` and no `cluster_id` sends
+  that `placement` and an empty `cluster_id`.
+- Treat a late-bound Gateway's server-assigned `cluster_id` as NOT drift. The API
+  server resolves a late-bound Gateway's placement and assigns a `cluster_id`
+  server-side, and that assigned value is not carried by the rendered manifest. For a
+  LATE-BOUND rendered Gateway (a `placement` and no `cluster_id`), the writer SHALL
+  exclude `cluster_id` from the idempotency (no-op) comparison and SHALL NOT reassign
+  `cluster_id` on update, so re-importing an unchanged late-bound manifest makes no
+  write even after the Gateway binds to a cluster. The PINNED path SHALL keep
+  comparing and sending `cluster_id` unchanged.
+- Set `placement` only at CREATE. The gRPC `UpdateGatewayRequest` carries no
+  `placement` field and the Gateway gRPC read surface exposes no `placement`, so the
+  import SHALL NOT diff or mutate a Gateway's placement after create; server-side late
+  binding re-resolves the already-persisted placement whenever the eligible-cluster
+  set changes.
 
 #### Scenario: Import of a late-bound Gateway maps the capability selector
 
@@ -774,11 +783,11 @@ The import writer SHALL:
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry that `cluster_id` and SHALL NOT carry a `placement`
 
-#### Scenario: Re-import of an unchanged placement is a no-op
+#### Scenario: Re-import of a bound late-bound Gateway is a no-op
 
-- GIVEN an imported late-bound Gateway whose manifest placement is unchanged since the last import
-- WHEN the import reconciles that Gateway again
-- THEN the writer SHALL include `placement` in its drift comparison, find no change, and SHALL make no update write
+- GIVEN a late-bound Gateway the API server has resolved and assigned a `cluster_id`, whose `.hypershell` manifest still declares only a `placement` and no `cluster_id`
+- WHEN the import reconciles that Gateway again with no other field changed
+- THEN the writer SHALL NOT treat the server-assigned `cluster_id` as drift and SHALL make no create or update write
 
 ### Requirement: Watch Stream Liveness
 

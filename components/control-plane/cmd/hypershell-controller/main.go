@@ -503,7 +503,14 @@ func main() {
 			cfg.RepositoryImportInterval,
 		)
 		supervise("repository import reconciler", repositoryReconciler.Run)
-		log.Printf("INFO repository import reconciler launched (interval=%s)", cfg.RepositoryImportInterval)
+		// Event-driven import: the Repository watch stream reconciles a created or
+		// changed Repository in real time, so the reconciler above only has to run a
+		// slow periodic drift re-check for upstream changes that emit no Repository
+		// event. See specs/platform/control-plane.spec.md.
+		supervise("Repository watch", func(ctx context.Context) error {
+			return watcher.WatchRepositories(ctx, conn, repositoryReconciler, cfg.WatchIdleTimeout)
+		})
+		log.Printf("INFO repository import reconciler launched (drift re-check interval=%s, event-driven via Repository watch)", cfg.RepositoryImportInterval)
 	} else {
 		log.Printf("INFO repository import reconciler disabled (HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false)")
 	}

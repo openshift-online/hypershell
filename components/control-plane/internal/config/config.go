@@ -155,8 +155,14 @@ type Config struct {
 	// specs/platform/control-plane.spec.md ("Declarative `.hypershell` Import
 	// Reconciliation").
 	RepositoryImportEnabled bool
-	// RepositoryImportInterval is the reconcile cadence of the import loop. Sourced
-	// from HYPERSHELL_REPOSITORY_IMPORT_INTERVAL.
+	// RepositoryImportInterval is the cadence of the SLOW periodic drift re-check
+	// that catches upstream changes producing no Repository event. Real-time import
+	// is driven by the Repository watch stream, so this is deliberately slow
+	// (hourly by default) and, with the conditional head-revision fetch, costs one
+	// lightweight GitHub request per Repository per tick when nothing changed.
+	// Sourced from HYPERSHELL_REPOSITORY_IMPORT_INTERVAL. See
+	// specs/platform/control-plane.spec.md ("Declarative `.hypershell` Import
+	// Reconciliation").
 	RepositoryImportInterval time.Duration
 	// GitHubAPIBase overrides the GitHub REST API base URL (for GitHub Enterprise
 	// or a test server). Sourced from HYPERSHELL_GITHUB_API_BASE; empty uses the
@@ -209,7 +215,7 @@ func Load() (*Config, error) {
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
-		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", 5*time.Minute),
+		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
 		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
 		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}

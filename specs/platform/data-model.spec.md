@@ -741,12 +741,12 @@ the control plane SHALL:
    over the generated gRPC write path, marking each written resource with its
    owning `Repository` (`repository_id`). For an imported `Gateway`, the writer SHALL
    map the rendered spec's `placement` (a capability-label `selector` list, or
-   `mode: local-kind`) into the create and update request `placement` field so a
-   declarative late-bound Gateway (placement, no `cluster_id`) satisfies the
-   exactly-one-of create contract in "Requirement: Gateway Placement and Late
-   Binding"; the pinned (`cluster_id`) path is unchanged. The placement-mapping
-   contract is defined canonically in [`control-plane.spec.md`](./control-plane.spec.md)
-   ("Requirement: Import Writer Maps Gateway Placement").
+   `mode: local-kind`) into the CREATE request `placement` field so a declarative
+   late-bound Gateway (placement, no `cluster_id`) satisfies the exactly-one-of create
+   contract in "Requirement: Gateway Placement and Late Binding"; the pinned
+   (`cluster_id`) path is unchanged. The placement-mapping contract is defined
+   canonically in [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement:
+   Import Writer Maps Gateway Placement").
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"sync"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/cli/pkg/kustomize"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
@@ -68,6 +70,19 @@ type SubtreeFetcher interface {
 	Fetch(ctx context.Context, repo *pb.Repository, token string) (fsys filesys.FileSystem, root string, err error)
 }
 
+// ConditionalSubtreeFetcher is an OPTIONAL capability a SubtreeFetcher MAY
+// implement so the reconciler can skip the heavy subtree read when the upstream has
+// not changed. HeadRevision returns an opaque revision id (the import branch's head
+// commit SHA) for the Repository through a single lightweight request. The
+// reconciler compares it with the revision it last imported and, when unchanged,
+// skips Fetch, render, and every API write (control-plane.spec.md, "Conditional
+// upstream fetch"). A fetcher that does not implement this interface is always read
+// in full.
+type ConditionalSubtreeFetcher interface {
+	SubtreeFetcher
+	HeadRevision(ctx context.Context, repo *pb.Repository, token string) (revision string, err error)
+}
+
 // CredentialResolver resolves the bearer token used to read a Repository's
 // subtree. The platform GitHub App credential is the default transport; when the
 // Repository declares a secret_source_id, that per-Repository credential takes
@@ -103,9 +118,12 @@ type ImportWriter interface {
 // the cluster by its own per-Kind reconciler. See control-plane.spec.md
 // ("Declarative `.hypershell` Import Reconciliation").
 //
-// The reconciler runs as an idempotent loop: repeated runs over unchanged
-// repository state are side-effect free (upsert skips an unchanged resource and
-// prune finds nothing to remove).
+// The reconciler is driven two ways and is idempotent either way: the Repository
+// watch stream reconciles a created or changed Repository in real time (Handle),
+// while a slow periodic pass (Run) re-checks every Repository for upstream drift.
+// Both make the upstream read conditional on the branch head revision, so repeated
+// passes over unchanged repository state are side-effect free and cost no heavy
+// GitHub reads.
 type RepositoryReconciler struct {
 	repos    pb.RepositoryServiceClient
 	creds    CredentialResolver
@@ -114,13 +132,31 @@ type RepositoryReconciler struct {
 	interval time.Duration
 	// listPageSize bounds the Repository enumeration page.
 	listPageSize int32
+
+	// mu guards lastRevision and repoLocks.
+	mu sync.Mutex
+	// lastRevision records the branch head revision last imported per Repository id,
+	// so the conditional fetch can skip an unchanged subtree. It is in-memory only:
+	// after a restart it is empty, so the first pass reads in full (control-plane.spec.md,
+	// "Conditional upstream fetch").
+	lastRevision map[string]string
+	// repoLocks serializes reconciles of the SAME Repository so the periodic pass and
+	// a concurrent watch event never race on list-then-write; distinct Repositories
+	// still reconcile concurrently.
+	repoLocks map[string]*sync.Mutex
 }
 
-// NewRepositoryReconciler builds the import reconciler. interval is the reconcile
-// cadence; a non-positive interval defaults to 5 minutes.
+// defaultDriftInterval is the periodic drift re-check cadence when the caller passes
+// a non-positive interval. It is deliberately slow (hourly): real-time import is
+// driven by the watch stream, and the conditional fetch keeps each periodic tick
+// cheap.
+const defaultDriftInterval = time.Hour
+
+// NewRepositoryReconciler builds the import reconciler. interval is the periodic
+// drift re-check cadence; a non-positive interval defaults to one hour.
 func NewRepositoryReconciler(repos pb.RepositoryServiceClient, creds CredentialResolver, fetcher SubtreeFetcher, writer ImportWriter, interval time.Duration) *RepositoryReconciler {
 	if interval <= 0 {
-		interval = 5 * time.Minute
+		interval = defaultDriftInterval
 	}
 	return &RepositoryReconciler{
 		repos:        repos,
@@ -129,13 +165,18 @@ func NewRepositoryReconciler(repos pb.RepositoryServiceClient, creds CredentialR
 		writer:       writer,
 		interval:     interval,
 		listPageSize: 100,
+		lastRevision: map[string]string{},
+		repoLocks:    map[string]*sync.Mutex{},
 	}
 }
 
-// Run drives the reconcile loop until ctx is cancelled. It reconciles once
-// immediately, then on each tick.
+// Run drives the SLOW periodic drift re-check until ctx is cancelled. It reconciles
+// every registered Repository once immediately (which also seeds the Repositories
+// already registered at startup, since the watch stream does not replay them), then
+// again on each tick. Real-time response to a created or changed Repository is
+// handled by the watch stream through Handle, not this loop.
 func (r *RepositoryReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO repository import reconciler started (interval=%s)", r.interval)
+	log.Printf("INFO repository import reconciler started (drift re-check interval=%s, event-driven via Repository watch)", r.interval)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -149,6 +190,29 @@ func (r *RepositoryReconciler) Run(ctx context.Context) error {
 	}
 }
 
+// Handle imports a single Repository in response to a watch event, driving the
+// event-driven import. A create or update forces a full re-import (bypassing the
+// conditional revision check) because a changed Repository field - its branch or
+// import_path - can select a different subtree even when the branch head revision is
+// unchanged. A delete drops the cached revision; pruning a deleted Repository's
+// resources is out of scope (the api-server blocks deleting a referenced Repository).
+func (r *RepositoryReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Repository]) error {
+	repo := event.Resource
+	if repo == nil {
+		return nil
+	}
+	repoID := repo.GetMetadata().GetId()
+	if event.Type == watcher.EventDeleted {
+		r.forgetRevision(repoID)
+		return nil
+	}
+	if err := r.reconcileRepository(ctx, repo, true); err != nil {
+		log.Printf("WARN repository import: event-driven reconcile of repository %s (%s) failed: %v", repo.GetName(), repoID, err)
+		return err
+	}
+	return nil
+}
+
 // reconcileOnce enumerates every registered Repository and reconciles each one. A
 // failure reconciling one Repository is logged and does not abort the others: the
 // loop is best-effort per Repository and retried on the next tick.
@@ -159,7 +223,9 @@ func (r *RepositoryReconciler) reconcileOnce(ctx context.Context) {
 		return
 	}
 	for _, repo := range repos {
-		if err := r.reconcileRepository(ctx, repo); err != nil {
+		// force=false: the periodic pass uses the conditional head-revision check and
+		// skips the heavy read when the subtree is unchanged.
+		if err := r.reconcileRepository(ctx, repo, false); err != nil {
 			log.Printf("WARN repository import: reconciling repository %s (%s) failed: %v", repo.GetName(), repo.GetMetadata().GetId(), err)
 		}
 	}
@@ -182,20 +248,44 @@ func (r *RepositoryReconciler) listRepositories(ctx context.Context) ([]*pb.Repo
 	return out, nil
 }
 
-// reconcileRepository performs the full import for one Repository: resolve the
-// credential, read the subtree, render it, filter to the importable Kinds, upsert
-// each, then prune Repository-owned resources no longer present. Errors from
-// individual resources are collected so one bad declaration does not hide the
-// rest, and prune is scoped to this Repository only.
-func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb.Repository) error {
+// reconcileRepository performs the import for one Repository: resolve the
+// credential, (conditionally) read the subtree, render it, filter to the importable
+// Kinds, upsert each, then prune Repository-owned resources no longer present.
+// Errors from individual resources are collected so one bad declaration does not
+// hide the rest, and prune is scoped to this Repository only. When force is false
+// and the fetcher supports a head-revision probe, an unchanged subtree is skipped
+// before any heavy read. Reconciles of the same Repository are serialized so the
+// periodic pass and a concurrent watch event never race.
+func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb.Repository, force bool) error {
 	repoID := repo.GetMetadata().GetId()
 	if repoID == "" {
 		return fmt.Errorf("repository %q has no id", repo.GetName())
 	}
 
+	unlock := r.lockRepository(repoID)
+	defer unlock()
+
 	token, err := r.creds.Resolve(ctx, repo)
 	if err != nil {
 		return fmt.Errorf("resolve credential: %w", err)
+	}
+
+	// Conditional upstream fetch: when the fetcher can report the branch head
+	// revision, skip the heavy tree+blob read if nothing changed since the last
+	// successful import. A forced reconcile (watch event) always reads in full
+	// because a Repository field change can select a different subtree at the same
+	// revision. A probe failure is non-fatal: fall back to the full read.
+	var revision string
+	if cond, ok := r.fetcher.(ConditionalSubtreeFetcher); ok {
+		rev, revErr := cond.HeadRevision(ctx, repo, token)
+		switch {
+		case revErr != nil:
+			log.Printf("WARN repository import: head revision probe for %s (%s) failed, reading in full: %v", repo.GetName(), repoID, revErr)
+		case !force && rev != "" && r.revisionUnchanged(repoID, rev):
+			return nil
+		default:
+			revision = rev
+		}
 	}
 
 	fSys, root, err := r.fetcher.Fetch(ctx, repo, token)
@@ -235,7 +325,49 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 		}
 	}
 
+	// Record the imported revision only after a fully successful pass, so any failure
+	// leaves the cache stale and the next pass reads again rather than skipping.
+	if revision != "" && len(errs) == 0 {
+		r.recordRevision(repoID, revision)
+	}
+
 	return errors.Join(errs...)
+}
+
+// lockRepository serializes reconciles of a single Repository. It returns the
+// unlock function the caller defers.
+func (r *RepositoryReconciler) lockRepository(repoID string) func() {
+	r.mu.Lock()
+	lk := r.repoLocks[repoID]
+	if lk == nil {
+		lk = &sync.Mutex{}
+		r.repoLocks[repoID] = lk
+	}
+	r.mu.Unlock()
+	lk.Lock()
+	return lk.Unlock
+}
+
+// revisionUnchanged reports whether rev matches the revision last imported for
+// repoID.
+func (r *RepositoryReconciler) revisionUnchanged(repoID, rev string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastRevision[repoID] == rev
+}
+
+// recordRevision stores the revision imported for repoID.
+func (r *RepositoryReconciler) recordRevision(repoID, rev string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRevision[repoID] = rev
+}
+
+// forgetRevision drops the cached revision for repoID (on Repository delete).
+func (r *RepositoryReconciler) forgetRevision(repoID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.lastRevision, repoID)
 }
 
 // renderImportables renders the kustomize root and returns only the resources
