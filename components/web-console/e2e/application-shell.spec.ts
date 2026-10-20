@@ -556,7 +556,7 @@ test("provisions a gateway on an existing managed cluster", async ({
   await page.keyboard.press("Space");
   await expect(noInternalServices).toBeChecked();
   const awsProvider = page.getByRole("radio", {
-    name: "Amazon Web Services",
+    name: "AWS",
   });
   await awsProvider.focus();
   await page.keyboard.press("Space");
