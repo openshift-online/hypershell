@@ -167,3 +167,70 @@ func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
 		Expect(ids[i]).To(Equal(ids[0]))
 	}
 }
+
+// TestUserUpsert_UnchangedProfileIssuesNoUpdate guards the conditional-write
+// behavior: a request whose claims already match the stored profile must not
+// write to (or take a row lock on) the User row. UpdatedAt is GORM's proof of
+// a write; it stays put when there is nothing to change.
+func TestUserUpsert_UnchangedProfileIssuesNoUpdate(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	username := fmt.Sprintf("unchanged-profile-%d", time.Now().UnixNano())
+	email := "unchanged@example.com"
+	name := "Unchanged Name"
+
+	before, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.ID).To(Equal(before.ID))
+	Expect(after.UpdatedAt).To(Equal(before.UpdatedAt))
+}
+
+// TestUserUpsert_MissingClaimPreservesStoredValue guards against a
+// claim-less token (service accounts, narrow-scope tokens) clobbering a
+// previously stored profile field with NULL.
+func TestUserUpsert_MissingClaimPreservesStoredValue(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	username := fmt.Sprintf("missing-claim-%d", time.Now().UnixNano())
+	email := "keep-me@example.com"
+	name := "Keep Me"
+
+	_, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	// A later request carries a token with no email/name claim at all.
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.Email).NotTo(BeNil())
+	Expect(*after.Email).To(Equal(email))
+	Expect(after.Name).NotTo(BeNil())
+	Expect(*after.Name).To(Equal(name))
+}
+
+// TestUserUpsert_ChangedClaimUpdatesStoredValue guards the other half of the
+// conditional-write rule: a present, differing claim must still be written.
+func TestUserUpsert_ChangedClaimUpdatesStoredValue(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	username := fmt.Sprintf("changed-claim-%d", time.Now().UnixNano())
+	oldEmail := "old@example.com"
+	newEmail := "new@example.com"
+	name := "Same Name"
+
+	_, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &oldEmail, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &newEmail, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.Email).NotTo(BeNil())
+	Expect(*after.Email).To(Equal(newEmail))
+}
