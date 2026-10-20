@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -95,6 +97,27 @@ func helmBinaryPath() string {
 	return "/usr/local/bin/helm"
 }
 
+// buildInfo returns a single-line summary of the binary's provenance for the
+// startup log: Go toolchain, target platform, and the VCS revision and build
+// time recorded by the Go linker. It helps correlate a running controller with
+// the exact commit and image it was built from. Values are best-effort; when
+// build metadata is absent (for example a plain `go run`) they report "unknown".
+func buildInfo() string {
+	revision, vcsTime := "unknown", "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.time":
+				vcsTime = setting.Value
+			}
+		}
+	}
+	return fmt.Sprintf("revision=%s vcs-time=%s go=%s platform=%s/%s",
+		revision, vcsTime, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -113,6 +136,7 @@ func main() {
 
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
 	log.Printf("INFO hypershell-controller starting")
+	log.Printf("INFO build %s", buildInfo())
 	log.Printf("INFO grpc=%s (transport=%s) api=%s namespace=%s managed-cluster-name=%s",
 		cfg.GRPCServerAddr, grpcTransport, cfg.APIServerURL, cfg.Namespace, cfg.ManagedClusterName)
 
