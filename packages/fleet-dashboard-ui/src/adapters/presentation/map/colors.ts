@@ -74,6 +74,10 @@ export const EDGE_STROKE = token(
   "--pf-t--global--border--color--default",
   "#444548",
 );
+export const LANE_STROKE = token(
+  "--pf-t--global--border--color--subtle",
+  "#333539",
+);
 export const TEXT_COLOR = token(
   "--pf-t--global--text--color--regular",
   "#e0e0e0",

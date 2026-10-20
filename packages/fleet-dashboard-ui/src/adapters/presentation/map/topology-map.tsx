@@ -1,11 +1,11 @@
 import type { GateExecutionProps } from "../e2e-run/gate-execution";
 // The interactive promotion-topology map: the spec's centrepiece visual. It
 // composes the pure model/layout (buildMapModel + computeLayout) with the viewport
-// controller (pan/zoom/momentum) and the SVG layers (promotion rails + gates on the
-// centered hub spine, instance node cards), plus a minimap, a release "freight" bar
-// and a detail
-// panel. It holds ZERO fleet knowledge: everything is derived from the promotion +
-// fleet payloads at runtime (firewall - data-architecture.spec §3.5).
+// controller (pan/zoom/momentum) and the SVG layers (provider lane bands, promotion
+// rails + gates on the centered hub spine, instance node cards), plus a minimap, a
+// release "freight" bar and a detail panel. It holds ZERO fleet knowledge: everything
+// is derived from the promotion + fleet payloads at runtime (firewall -
+// data-architecture.spec §3.5).
 
 import {
   Button,
@@ -32,6 +32,7 @@ import { isHealthUnavailable } from "../../../domain/status";
 import { messages } from "../../../messages";
 import {
   EDGE_STROKE,
+  LANE_STROKE,
   promotionRing,
   TEXT_COLOR,
   TEXT_SUBTLE,
@@ -350,6 +351,32 @@ export function TopologyMap({
                   onPointerUp={onPointerUp}
                   onPointerCancel={onPointerUp}
                 >
+                  {/* provider lane bands + labels (behind everything); one lane per
+              cloud provider, grouping its clusters. The hub-hosting lane straddles the
+              centered spine; the others stack above and below it. */}
+                  {layout.lanes.map((lane) => (
+                    <g key={lane.key}>
+                      <rect
+                        x={0}
+                        y={lane.y - 8}
+                        width={layout.width}
+                        height={lane.height + 16}
+                        fill="none"
+                        stroke={LANE_STROKE}
+                        strokeDasharray="2 6"
+                      />
+                      <text
+                        x={14}
+                        y={lane.centerY}
+                        fontSize={12}
+                        fontWeight={700}
+                        fill={TEXT_SUBTLE}
+                      >
+                        {(lane.provider ?? "unassigned").toUpperCase()}
+                      </text>
+                    </g>
+                  ))}
+
                   {/* env-type band headers: group the columns sharing an env-type (int /
               stage / prod) into one label spanning them (server data) */}
                   {layout.bands.map((band) => (

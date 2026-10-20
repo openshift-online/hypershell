@@ -7,9 +7,12 @@ import type { VerificationTarget } from "../promotion";
 // STAGES - the hubs in `promotion.order`, left -> right - and a spoke (a hub's
 // managed cluster) stacks into its hub's column rather than forming its own stage,
 // so a hub and its managed clusters share one column with no gate between them.
-// Lanes are provider-grouping metadata derived from `provider` (the layout places
-// nodes by the HUB/SPOKE `role`, not by lane), the env-type (`envLabel`) only groups
-// column headers, and each column gets a gate to its right reporting that env's own
+// Lanes are the provider grouping derived from `provider`: the layout groups clusters
+// into visible provider lanes AND centers the HUBs on one spine (role governs the spine
+// within the hub-hosting lane; provider governs which band a cluster joins - see
+// specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). The env-type
+// (`envLabel`) only groups column headers, and each column gets a gate to its right
+// reporting that env's own
 // analysis (the condition to promote out of it). A static ENV->HUB or provider
 // table here would bake the topology into public source; deriving it at runtime is
 // the whole point (data-architecture.spec §3.5 in the gitops repo).
@@ -73,9 +76,9 @@ export interface MapNode {
   readonly envLabel: string | null;
   /**
    * Lane key: one lane per cloud provider (the provider string, or "none" when
-   * the server omits it). Provider grouping is labeling metadata only; it does NOT
-   * drive vertical placement - the layout centers HUBs on one spine and stacks
-   * SPOKEs by role (geometry is layout's job).
+   * the server omits it). Provider grouping is a visible lane band AND drives which
+   * band a cluster joins vertically; the HUB/SPOKE role still decides which cluster
+   * holds the centered spine within the hub-hosting lane (geometry is layout's job).
    */
   readonly laneKey: string;
   /** True when the server labels this node's role "hub" (case-insensitive). */
@@ -170,9 +173,9 @@ export interface MapColumn {
 }
 
 /**
- * A provider grouping: one per cloud provider. Labeling metadata only - the layout
- * places nodes by HUB/SPOKE role, not by lane, so a lane is no longer a horizontal
- * band that owns a row.
+ * A provider grouping: one per cloud provider. Rendered as a visible horizontal lane
+ * band; the hub-hosting lane (`hostsHub`) is centered on the spine while the others
+ * stack above and below it (see fleet-dashboard-map-hub-spine-layout.spec.md).
  */
 export interface MapLane {
   readonly key: string;
@@ -568,12 +571,12 @@ function assignColumns(
 }
 
 /**
- * Collect one lane per cloud provider, stable-alphabetical by key. Lanes are now
- * provider-grouping METADATA only (the `hostsHub` flag stays for labeling); they no
- * longer drive vertical placement. The map layout centers HUBs on a single spine and
- * stacks SPOKEs by role, so hub-hosting providers SHALL NOT be sorted to the bottom
- * (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). Fully derived - no
- * provider list is baked in.
+ * Collect one lane per cloud provider, stable-alphabetical by key. Each lane is a
+ * visible grouping band; the `hostsHub` flag marks the hub-hosting lane the layout
+ * centers on the spine. The layout keeps every HUB on the centered spine and stacks the
+ * remaining provider lanes balanced around it, so a hub-hosting provider is NEVER sorted
+ * to the bottom (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). Fully
+ * derived - no provider list is baked in.
  */
 function orderLanes(nodes: readonly MapNode[]): MapLane[] {
   const hostsHub = new Map<string, boolean>();

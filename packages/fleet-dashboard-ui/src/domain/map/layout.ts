@@ -1,14 +1,19 @@
 // Map LAYOUT: pure geometry over the MapModel. Given columns (promotion order),
-// the per-node HUB/SPOKE role and the node set, it computes absolute SVG
-// coordinates. No DOM, no measurement - deterministic from the model alone so it
-// is unit-testable and the presentation layer just renders the boxes it returns.
+// the per-node HUB/SPOKE role, the per-node provider lane and the node set, it
+// computes absolute SVG coordinates. No DOM, no measurement - deterministic from the
+// model alone so it is unit-testable and the presentation layer just renders the
+// boxes it returns.
 //
 // GEOMETRY CONTRACT (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md):
-// every column's governing HUB sits on ONE shared horizontal line - the hub spine -
-// at the vertical center of the map, and the change diamond + every gate ride that
-// same line. SPOKEs stack symmetrically above and below the spine. The HUB/SPOKE
-// role, not the cloud provider, governs vertical placement; nothing here consults a
-// provider lane, a baked-in hub list or a provider allowlist.
+// two groupings hold at once under the single-cloud-hub assumption. First, every
+// column's governing HUB sits on ONE shared horizontal line - the hub spine - at the
+// vertical center of the map, and the change diamond + every gate ride that same line.
+// Second, clusters are grouped into visible PROVIDER LANES (one per cloud provider):
+// the hub-hosting lane is centered on the spine, its SPOKEs ring symmetrically around
+// it, and the remaining provider lanes stack as bands above and below it, balanced.
+// Every rule below is derived from the role and provider signals already on each node
+// and lane; nothing here consults a baked-in hub list, a provider allowlist or a
+// hard-coded provider name (including the hub-hosting provider, today IBM).
 
 import type { MapColumn, MapModel, MapNode } from "./model";
 
@@ -41,6 +46,21 @@ export interface ColumnLayout {
   readonly centerX: number;
 }
 
+/**
+ * A rendered provider lane: the contiguous horizontal band the lane's clusters occupy,
+ * so the presentation can draw the grouping rectangle + provider label. The
+ * hub-hosting lane's band straddles the centered spine; every other lane's band stacks
+ * above or below it.
+ */
+export interface LaneLayout {
+  readonly key: string;
+  readonly hostsHub: boolean;
+  readonly provider: string | null;
+  readonly y: number;
+  readonly height: number;
+  readonly centerY: number;
+}
+
 export interface GateLayout {
   readonly id: string;
   readonly x: number;
@@ -61,12 +81,14 @@ export interface MapLayout {
   readonly nodes: readonly NodeBox[];
   readonly columns: readonly ColumnLayout[];
   readonly bands: readonly BandLayout[];
+  /** Provider lanes as visible grouping bands, in deterministic model-lane order. */
+  readonly lanes: readonly LaneLayout[];
   readonly gates: readonly GateLayout[];
   /**
    * Y of the promotion spine - the single horizontal line every column's HUB sits
    * on, which the change diamond and every gate ride. Equals the vertical center of
-   * the laid-out map (never the top of a lane), with SPOKEs stacked symmetrically
-   * above and below it.
+   * the laid-out map (never the top of a lane): the hub-hosting provider lane is
+   * centered on it, with the other provider lanes balanced above and below.
    */
   readonly hubSpineY: number;
   readonly width: number;
@@ -79,12 +101,15 @@ export interface MapLayout {
 const ROW_PITCH = NODE_H + V_GAP;
 
 /**
- * Compute absolute positions for every node, column and gate. Columns are evenly
- * spaced left -> right in model order. Within a column the governing HUB takes the
- * spine (row 0) and its SPOKEs stack symmetrically around it; the spine itself sits
- * at the vertical center of the map so the change diamond and every gate run
- * straight through the HUB cards. Placement is driven by the HUB/SPOKE role alone -
- * no provider lane, hub table or provider list is consulted.
+ * Compute absolute positions for every node, column, provider lane and gate. Columns
+ * are evenly spaced left -> right in model order. Vertical placement groups clusters
+ * into provider lanes around a centered hub spine: the hub-hosting lane is centered so
+ * every column's governing HUB rides the spine (row 0), its SPOKEs ring symmetrically
+ * around it, and the remaining provider lanes stack as balanced bands above and below.
+ * The spine sits at the vertical center of the map so the change diamond and every
+ * gate run straight through the HUB cards. Placement is derived from the HUB/SPOKE
+ * role and the provider lane alone - no hub table, provider allowlist or provider name
+ * is consulted.
  */
 export function computeLayout(model: MapModel): MapLayout {
   const columns: ColumnLayout[] = model.columns.map((c: MapColumn) => {
@@ -129,68 +154,165 @@ export function computeLayout(model: MapModel): MapLayout {
 
   const byId = new Map(model.nodes.map((n) => [n.id, n]));
 
-  // Assign every node a SIGNED row offset around its column's spine: 0 is the spine
-  // (the governing HUB, or the first node when a column has no hub), negative is
-  // above, positive is below. SPOKEs fill rings 1, 2, ... alternating below then
-  // above so they stack symmetrically; the order is the column's node order, so the
-  // same model always yields the same assignment. `halfRows` is the deepest ring any
-  // column needs on either side - the spine reserves that many rows above AND below
-  // itself, which centers it exactly whichever side the spokes fall on.
-  interface Placement {
-    readonly id: string;
-    readonly columnKey: string;
-    readonly rowOffset: number;
-  }
-  const placements: Placement[] = [];
-  let halfRows = 0;
-  for (const column of model.columns) {
-    const colNodes = column.nodeIds
+  // Nodes of a column belonging to one provider lane, in the column's node order.
+  const laneNodesInColumn = (
+    column: MapColumn,
+    laneKey: string,
+    excludeHubs = false,
+  ): MapNode[] =>
+    column.nodeIds
       .map((id) => byId.get(id))
-      .filter((n): n is MapNode => n !== undefined);
-    if (colNodes.length === 0) {
-      continue;
-    }
-    // HUB-first: the governing hub takes the spine no matter where it sits in the
-    // input; without a hub the first node holds the spine (the no-hub fallback).
-    const hubIdx = colNodes.findIndex((n) => n.isHub);
-    const spineIdx = hubIdx === -1 ? 0 : hubIdx;
-    const spine = colNodes[spineIdx];
-    if (spine) {
-      placements.push({ id: spine.id, columnKey: column.key, rowOffset: 0 });
-    }
-    const spokes = colNodes.filter((_, i) => i !== spineIdx);
-    spokes.forEach((spoke, i) => {
-      const ring = Math.floor(i / 2) + 1;
-      const rowOffset = i % 2 === 0 ? ring : -ring;
-      placements.push({ id: spoke.id, columnKey: column.key, rowOffset });
-      if (ring > halfRows) {
-        halfRows = ring;
+      .filter((n): n is MapNode => n !== undefined)
+      .filter((n) => n.laneKey === laneKey && !(excludeHubs && n.isHub));
+
+  // The lane that hosts the HUBs is the spine lane; it is centered so its hubs ride the
+  // spine. Without any hub (degenerate fallback) the first lane in model order acts as
+  // the spine lane so the diagram still has a center line. Derived from the per-lane
+  // `hostsHub` signal, never a provider name.
+  const hubLaneKey =
+    model.lanes.find((l) => l.hostsHub)?.key ?? model.lanes[0]?.key ?? null;
+
+  // Signed row offset from the spine for every node: 0 is the spine, negative is above,
+  // positive below. Multiply by ROW_PITCH off the spine Y to get a card's center.
+  const rowOffset = new Map<string, number>();
+  // Rows occupied strictly above / below the spine, so later lanes stack outside the
+  // earlier ones and the final centering reserves a symmetric half each side.
+  let topRows = 0;
+  let botRows = 0;
+  // Inclusive offset range [lo, hi] each lane occupies, for its band rectangle.
+  const laneRange = new Map<string, { lo: number; hi: number }>();
+
+  // 1) Spine (hub-hosting) lane: the governing HUB of each column takes the spine
+  //    (HUB-first, regardless of input order); without a hub in a column its first
+  //    spine-lane node holds the spine. SPOKEs in this lane ring symmetrically around
+  //    the spine on alternating rings (below then above), deterministic in node order.
+  if (hubLaneKey !== null) {
+    let up = 0;
+    let down = 0;
+    for (const column of model.columns) {
+      const laneNodes = laneNodesInColumn(column, hubLaneKey);
+      if (laneNodes.length === 0) {
+        continue;
       }
-    });
+      const hubIdx = laneNodes.findIndex((n) => n.isHub);
+      const pivotIdx = hubIdx === -1 ? 0 : hubIdx;
+      const pivot = laneNodes[pivotIdx];
+      if (pivot) {
+        rowOffset.set(pivot.id, 0);
+      }
+      const spokes = laneNodes.filter((_, i) => i !== pivotIdx);
+      spokes.forEach((spoke, i) => {
+        const ring = Math.floor(i / 2) + 1;
+        const offset = i % 2 === 0 ? ring : -ring;
+        rowOffset.set(spoke.id, offset);
+        if (offset > down) {
+          down = offset;
+        }
+        if (-offset > up) {
+          up = -offset;
+        }
+      });
+    }
+    topRows = up;
+    botRows = down;
+    laneRange.set(hubLaneKey, { lo: -up, hi: down });
   }
 
-  // The hub spine is the vertical center of the laid-out CONTENT: the content region
-  // reserves `halfRows` rows above and below the spine, so the spine Y is exactly its
+  // Every HUB rides the spine, full stop (spec: "every HUB node's vertical center SHALL
+  // equal the single hub-spine Y"). Under the single-cloud-hub assumption all hubs are
+  // already in the spine lane; this also pins a hub on a different provider to the spine
+  // in the out-of-scope multi-cloud-hub case, where role still wins for the HUB row.
+  for (const n of model.nodes) {
+    if (n.isHub) {
+      rowOffset.set(n.id, 0);
+    }
+  }
+
+  // 2) Remaining provider lanes: contiguous bands stacked on the lighter side so they
+  //    balance above and below the spine lane. Within a lane a column's clusters stack
+  //    downward from the band's top row, in model node order. HUB nodes never ride a
+  //    band - role pins them to the spine above.
+  for (const lane of model.lanes) {
+    if (lane.key === hubLaneKey) {
+      continue;
+    }
+    let stack = 0;
+    for (const column of model.columns) {
+      const count = laneNodesInColumn(column, lane.key, true).length;
+      if (count > stack) {
+        stack = count;
+      }
+    }
+    if (stack === 0) {
+      // A lane whose only nodes are hubs (multi-cloud-hub case): its hubs already ride
+      // the spine, so there is no band to lay out here.
+      continue;
+    }
+    let lo: number;
+    let hi: number;
+    if (topRows <= botRows) {
+      hi = -(topRows + 1);
+      lo = -(topRows + stack);
+      topRows += stack;
+    } else {
+      lo = botRows + 1;
+      hi = botRows + stack;
+      botRows += stack;
+    }
+    laneRange.set(lane.key, { lo, hi });
+    for (const column of model.columns) {
+      laneNodesInColumn(column, lane.key, true).forEach((n, i) => {
+        rowOffset.set(n.id, lo + i);
+      });
+    }
+  }
+
+  // The spine is the vertical center of the laid-out CONTENT: reserve the deepest row
+  // count on EITHER side both above and below the spine, so the spine Y is exactly the
   // midpoint and no provider, count or ordering can push it off center. (This is the
   // content midpoint, not the full SVG box midpoint - MARGIN_TOP and MARGIN_BOTTOM
   // differ on purpose, so do not "recenter" against `height`.)
-  const hubSpineY = MARGIN_TOP + halfRows * ROW_PITCH + NODE_H / 2;
+  const half = Math.max(topRows, botRows);
+  const hubSpineY = MARGIN_TOP + half * ROW_PITCH + NODE_H / 2;
+
   const nodes: NodeBox[] = [];
-  for (const p of placements) {
-    const col = colByKey.get(p.columnKey);
-    if (!col) {
+  for (const n of model.nodes) {
+    const col = colByKey.get(n.columnKey);
+    const offset = rowOffset.get(n.id);
+    if (!col || offset === undefined) {
       continue;
     }
     const x = col.x;
-    const y = hubSpineY + p.rowOffset * ROW_PITCH - NODE_H / 2;
+    const y = hubSpineY + offset * ROW_PITCH - NODE_H / 2;
     nodes.push({
-      id: p.id,
+      id: n.id,
       x,
       y,
       w: NODE_W,
       h: NODE_H,
       cx: x + NODE_W / 2,
       cy: y + NODE_H / 2,
+    });
+  }
+
+  // Lane bands in deterministic model-lane order: each spans the offset range its
+  // clusters occupy, with a little padding handled by the presentation.
+  const lanes: LaneLayout[] = [];
+  for (const lane of model.lanes) {
+    const range = laneRange.get(lane.key);
+    if (!range) {
+      continue;
+    }
+    const rows = range.hi - range.lo + 1;
+    const y = hubSpineY + range.lo * ROW_PITCH - NODE_H / 2;
+    const height = rows * NODE_H + (rows - 1) * V_GAP;
+    lanes.push({
+      key: lane.key,
+      hostsHub: lane.hostsHub,
+      provider: lane.provider,
+      y,
+      height,
+      centerY: y + height / 2,
     });
   }
 
@@ -217,15 +339,16 @@ export function computeLayout(model: MapModel): MapLayout {
 
   const lastCol = columns[columns.length - 1];
   const width = lastCol ? lastCol.x + NODE_W + MARGIN_X : MARGIN_X * 2 + NODE_W;
-  // Content is symmetric about the spine (`halfRows` rows each side), so the bottom
+  // Content is symmetric about the spine (`half` rows each side), so the bottom
   // mirrors the top margin's reserved rows.
-  const contentBottom = hubSpineY + halfRows * ROW_PITCH + NODE_H / 2;
+  const contentBottom = hubSpineY + half * ROW_PITCH + NODE_H / 2;
   const height = contentBottom + MARGIN_BOTTOM;
 
   return {
     nodes,
     columns,
     bands,
+    lanes,
     gates,
     hubSpineY,
     width,
