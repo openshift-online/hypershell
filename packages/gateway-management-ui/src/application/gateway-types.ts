@@ -377,15 +377,6 @@ export interface GatewayControlPlane {
     clusterIds: readonly string[],
     context: GatewayInvocationContext,
   ): Promise<readonly GatewayPlacement[]>;
-  /**
-   * Distinct `gateway-version/<tag>` tag values advertised by registered
-   * clusters, used to seed the provisioning-version choice (WEB-PLC-11). Availability
-   * for a specific network/provider/version is confirmed separately through
-   * getGatewayPlacementAvailability.
-   */
-  getGatewayProvisioningVersions?(
-    context: GatewayInvocationContext,
-  ): Promise<readonly string[]>;
   getGateway(
     gatewayId: string,
     context: GatewayInvocationContext,
@@ -478,9 +469,6 @@ export interface GatewayOperations {
     clusterIds: readonly string[],
     signal?: AbortSignal,
   ): Promise<readonly GatewayPlacement[]>;
-  getGatewayProvisioningVersions?(
-    signal?: AbortSignal,
-  ): Promise<readonly string[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
   getOpenShellGatewayServiceAccount(
     gatewayId: string,

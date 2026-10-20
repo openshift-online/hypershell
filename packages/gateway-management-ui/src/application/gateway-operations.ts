@@ -362,15 +362,6 @@ export function createGatewayOperations({
       execute("get-placements", signal, (context) =>
         controlPlane.getGatewayPlacements(clusterIds, context),
       ),
-    getGatewayProvisioningVersions: (signal) =>
-      execute("get-provisioning-versions", signal, (context) => {
-        if (!controlPlane.getGatewayProvisioningVersions) {
-          throw new GatewayOperationError("unknown", {
-            cause: new Error("provisioning versions are unavailable"),
-          });
-        }
-        return controlPlane.getGatewayProvisioningVersions(context);
-      }),
     getGateway: (gatewayId, signal) =>
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),
