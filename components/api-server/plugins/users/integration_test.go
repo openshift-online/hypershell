@@ -15,9 +15,15 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/testutil"
 )
+
+func newTestUserDao() users.UserDao {
+	env := environments.Environment()
+	return users.NewUserDao(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+}
 
 func jwtContextWithRealmRoles(h *test.Helper, account *testutil.TestAccount, realmRoles []string) context.Context {
 	roleValues := make([]interface{}, len(realmRoles))
@@ -175,7 +181,7 @@ func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
 func TestUserUpsert_UnchangedProfileIssuesNoUpdate(t *testing.T) {
 	test.RegisterIntegration(t)
 
-	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	userDao := newTestUserDao()
 	username := fmt.Sprintf("unchanged-profile-%d", time.Now().UnixNano())
 	email := "unchanged@example.com"
 	name := "Unchanged Name"
@@ -196,7 +202,7 @@ func TestUserUpsert_UnchangedProfileIssuesNoUpdate(t *testing.T) {
 func TestUserUpsert_MissingClaimPreservesStoredValue(t *testing.T) {
 	test.RegisterIntegration(t)
 
-	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	userDao := newTestUserDao()
 	username := fmt.Sprintf("missing-claim-%d", time.Now().UnixNano())
 	email := "keep-me@example.com"
 	name := "Keep Me"
@@ -219,7 +225,7 @@ func TestUserUpsert_MissingClaimPreservesStoredValue(t *testing.T) {
 func TestUserUpsert_ChangedClaimUpdatesStoredValue(t *testing.T) {
 	test.RegisterIntegration(t)
 
-	userDao := users.NewUserDao(&environments.Environment().Database.SessionFactory)
+	userDao := newTestUserDao()
 	username := fmt.Sprintf("changed-claim-%d", time.Now().UnixNano())
 	oldEmail := "old@example.com"
 	newEmail := "new@example.com"

@@ -223,9 +223,15 @@ a stored non-empty profile field with an empty or absent claim.
 This conditional-write behavior keeps a caller's own row from being locked on every
 request the caller makes -- including the control plane's gRPC write-backs -- so a slow
 downstream call inside one request cannot stall that caller's other concurrent requests.
-It also prevents a lock-ordering deadlock when two callers concurrently provision each
+
+When a request DOES need to write a changed profile field, it SHALL serialize that write
+through one shared advisory lock rather than relying on the row lock's acquisition order.
+This prevents a lock-ordering deadlock when two callers concurrently provision each
 other's row, such as two users granting each other gateway access at the same time (see
-`platform/gateway-access-management.spec.md` GAM-04).
+`platform/gateway-access-management.spec.md` GTW-ACC-04): with a single shared lock in play,
+the two requests can only ever queue behind it, never each hold a different row lock
+while waiting on the other's -- so the guarantee holds even when both callers' directory
+profiles changed at the same moment.
 
 The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator` and
 `platform:admin`) from the JWT on every request, creating or removing bindings as

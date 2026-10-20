@@ -38,12 +38,25 @@ type UserDao interface {
 
 var _ UserDao = &sqlUserDao{}
 
+// userProfileWriteLockType scopes the single advisory lock resource
+// updateChangedFields takes around a conditional profile UPDATE. Every
+// caller that needs to write a changed email/name claim -- the caller's own
+// row from auto-provisioning, or a grant's target-user pre-provisioning --
+// contends for this one lock, so two concurrent transactions can never each
+// hold a different row lock while waiting on the other's: there is only ever
+// one lock resource in play, not two acquired in opposite order. The common
+// case (profile already matches) takes no lock at all, so this only ever
+// engages on the already-rare write path.
+const userProfileWriteLockType db.LockType = "user_profile_write"
+const userProfileWriteLockID = "user-profile-write"
+
 type sqlUserDao struct {
 	sessionFactory *db.SessionFactory
+	locks          db.LockFactory
 }
 
-func NewUserDao(sessionFactory *db.SessionFactory) UserDao {
-	return &sqlUserDao{sessionFactory: sessionFactory}
+func NewUserDao(sessionFactory *db.SessionFactory, locks db.LockFactory) UserDao {
+	return &sqlUserDao{sessionFactory: sessionFactory, locks: locks}
 }
 
 func (d *sqlUserDao) Get(ctx context.Context, id string) (*User, error) {
@@ -101,7 +114,10 @@ func (d *sqlUserDao) Delete(ctx context.Context, id string) error {
 // makes (e.g. granting another user gateway access pre-provisions that
 // user's row in the same transaction) -- an unconditional UPDATE here would
 // lock the caller's row on every request and risk a lock-ordering deadlock
-// when two callers concurrently provision each other's row.
+// when two callers concurrently provision each other's row. When a write IS
+// needed, updateChangedFields serializes through userProfileWriteLockType
+// instead of taking the row lock directly, so that risk cannot materialize
+// even when both callers' claims changed at once (see updateChangedFields).
 //
 // For a brand-new username, insert-or-ignore via INSERT ... ON CONFLICT DO
 // NOTHING avoids the check-then-act race of a separate SELECT + Create: two
@@ -129,7 +145,13 @@ func (d *sqlUserDao) Upsert(ctx context.Context, user *User) (*User, error) {
 
 // updateChangedFields writes only the profile fields incoming carries that
 // differ from existing, taking no UPDATE (and so no row lock) when nothing
-// changed.
+// changed. When a write is needed, it takes the single userProfileWriteLock
+// advisory lock first: that resource is also what a concurrent transaction
+// writing a *different* user's row would need, so two transactions can only
+// ever queue behind the one lock -- never hold a different row lock each
+// while waiting on the other's, which is the structural precondition for a
+// deadlock (see the Upsert doc comment for the mutual-grant scenario this
+// protects).
 func (d *sqlUserDao) updateChangedFields(ctx context.Context, existing, incoming *User) (*User, error) {
 	updates := map[string]interface{}{}
 	if incoming.Email != nil && (existing.Email == nil || *existing.Email != *incoming.Email) {
@@ -140,6 +162,14 @@ func (d *sqlUserDao) updateChangedFields(ctx context.Context, existing, incoming
 	}
 	if len(updates) == 0 {
 		return existing, nil
+	}
+
+	if d.locks != nil {
+		owner, err := d.locks.NewAdvisoryLock(ctx, userProfileWriteLockID, userProfileWriteLockType)
+		if err != nil {
+			return nil, fmt.Errorf("acquire user profile write lock: %w", err)
+		}
+		defer d.locks.Unlock(ctx, owner)
 	}
 
 	g2 := (*d.sessionFactory).New(ctx)
