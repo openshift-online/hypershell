@@ -4,7 +4,7 @@
 **Status:** Draft
 **Jira:** HYPERSHELL-368
 **Related:** `e2e-testing.spec.md` (the Go `testify/suite` framework, the named phase model P0.x-P3.x, `E2E_MODE` short/long, the `E2EInfraDriver` contract, the `harness` helpers, the parallel scheduler, and the TLS-trust rule);
-             `e2e-console-browser-testing.spec.md` (browser suite; CON-E2E-14 install-docs link);
+             `e2e-console-browser-testing.spec.md` (browser suite; install-docs link);
              `openshell-gateway-credentials.spec.md` (credential driver fields, TOML, RBAC, Vault SA token, KEK);
              `managed-cluster-registration.spec.md` (registration, orphan-on-delete, user-id discovery via `/users`);
              `openshell-gateway-oidc.spec.md` and `specs/security/rbac-enforcement.spec.md` (`gateway:owner`/`gateway:viewer` -> `openshell-admin`/`openshell-user`);

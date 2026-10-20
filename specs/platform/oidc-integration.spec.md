@@ -638,7 +638,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 
 ## References
 
-- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-04 through WEB-AUTH-03, WEB-BFF-01
+- `specs/web-console/architecture.spec.md`  -- WEB-AUTH-01 through WEB-AUTH-04, WEB-BFF-01
 - `specs/platform/local-development.spec.md`  -- Kind cluster environment, Keycloak configuration
 - `specs/platform/openshell-gateway-oidc.spec.md`  -- Gateway OIDC configuration and CLI auth flow
 - `specs/platform/openshell-gateway-credentials.spec.md`  -- Per-gateway Keycloak client provisioning
