@@ -1,7 +1,7 @@
 ---
 name: execute-sdlc
 description: >
-  Mechanically executes the SDLC workflow as defined in ../../../.hypershell/agents.
+  Mechanically executes the SDLC workflow as defined in ../agents.
 ---
 
 # Execute SDLC
@@ -11,7 +11,7 @@ Mechanically drive the agent-based SDLC.
 Example usage:
 
 ```
-> Execute `skills/build/execute-sdlc` `agent/scope/my-user`
+> Execute `.hypershell/execute-sdlc` `agent/scope/my-user`
 ```
 
 
@@ -65,7 +65,7 @@ before any phase runs.
 
 Resolve the GitHub execution record(s) for the in-scope work. This step is
 IDEMPOTENT: running it again resolves the same records and creates nothing new.
-Intake is owned by the [`ingest` responsibility](../../../.hypershell/agents/ingest/SKILL.md),
+Intake is owned by the [`ingest` responsibility](../agents/ingest/SKILL.md),
 which this step delegates to; it is bidirectional, origin-agnostic,
 create-if-missing, idempotent, and dry-run aware. For every in-scope work item of
 EITHER origin it ensures BOTH a GitHub execution record and a canonically linked
@@ -75,7 +75,7 @@ Delegate intake to `ingest`, passing any `$ISSUE_OVERRIDE` through as its source
 selector (a single Jira key / URL, a single GitHub issue, or empty for a full
 scope run):
 
-  skill(../../../.hypershell/agents/ingest, $LABEL_SCOPE, $ISSUE_OVERRIDE)
+  skill(../agents/ingest, $LABEL_SCOPE, $ISSUE_OVERRIDE)
 
 `ingest` resolves the in-scope set from BOTH the Jira source AND GitHub issues
 carrying `$LABEL_SCOPE`, so GitHub-origin records are discovered, not only
@@ -134,7 +134,7 @@ Jira-origin record (Scope Reconciliation Covers Both Origins). For an
   (an `agent/workable` record projects to `To Do`) and its canonical link and
   any existing artifacts surface as remote links:
 
-  skill(../../../.hypershell/agents/reconcile, $EXECUTION_RECORD)
+  skill(../agents/reconcile, $EXECUTION_RECORD)
 
   This runs with no `$PREVIOUS_PHASE`, so it projects status and syncs artifacts
   without posting a transition comment. It is idempotent, so an already-advanced
@@ -145,7 +145,7 @@ From here on, `$SELECTED_WORK_ITEM` refers to `$EXECUTION_RECORD`.
 ### Step 1: Execute Triage
 
 IF `$ISSUE_OVERRIDE` IS EMPTY:
-  skill(../../../.hypershell/agents/triage, openshift-online/hypershell, $LABEL_SCOPE)
+  skill(../agents/triage, openshift-online/hypershell, $LABEL_SCOPE)
 
 Triage classifies only items that are not already in flight. An item that already
 carries any active or terminal `agent/*` phase label (for example
@@ -186,7 +186,7 @@ OUTPUT: $SELECTED_WORK_ITEM
 Keep Jira in sync as the GitHub phase advances. Before the loop, record the
 current phase as `$PREVIOUS_PHASE`. After every iteration (every phase
 transition), project the new phase into Jira and sync artifacts and the phase
-narrative by invoking the [`reconcile` responsibility](../../../.hypershell/agents/reconcile/SKILL.md).
+narrative by invoking the [`reconcile` responsibility](../agents/reconcile/SKILL.md).
 Reconciliation is idempotent, so a no-op transition writes nothing.
 
 The phase is single-valued: exactly one ACTIVE phase label drives the item. The
@@ -213,17 +213,17 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
   SWITCH($CURRENT_PHASE):
     CASE `agent/workable`:
     CASE `agent/review-spec-rejected`:
-      skill(../../../.hypershell/agents/spec-implementation, $SELECTED_WORK_ITEM)
+      skill(../agents/spec-implementation, $SELECTED_WORK_ITEM)
       break
     CASE `agent/reviewable-spec`:
-      skill(../../../.hypershell/agents/spec-review, $SELECTED_WORK_ITEM)
+      skill(../agents/spec-review, $SELECTED_WORK_ITEM)
       break
     CASE `agent/review-spec-approved`:
     CASE `agent/review-code-rejected`:
-      skill(../../../.hypershell/agents/code-implementation, $SELECTED_WORK_ITEM)
+      skill(../agents/code-implementation, $SELECTED_WORK_ITEM)
       break
     CASE `agent/reviewable-code`:
-      skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
+      skill(../agents/code-review, $SELECTED_WORK_ITEM)
       break
 
   # Normalize to a single phase label (idempotent, self-correcting). The invoked
@@ -235,7 +235,7 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 
   # Keep Jira converged with the new phase: derived status, artifact remote links,
   # and an attributed phase-narrative comment. Idempotent and dry-run aware.
-  skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM, $PREVIOUS_PHASE)
+  skill(../agents/reconcile, $SELECTED_WORK_ITEM, $PREVIOUS_PHASE)
 
 # The loop ended at `agent/review-code-approved`. The last loop iteration already
 # ran reconcile for the `reviewable-code -> review-code-approved` transition, so
@@ -253,4 +253,4 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 STOP: Provide the PR URL for $SELECTED_WORK_ITEM to the human for review, and ask
 them to merge it and then re-run reconcile against this record so Jira projects to
 Done and this execution record is closed automatically:
-    skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM)
+    skill(../agents/reconcile, $SELECTED_WORK_ITEM)
