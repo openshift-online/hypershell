@@ -464,6 +464,7 @@ func plannedReportSteps() []harness.PlannedStep {
 		{StepID: "P2.4", Name: "managedcluster-lifecycle"},
 		{StepID: "P2.5", Name: "gateway-access-management"},
 		{StepID: "P2.6", Name: "gateway-service-accounts"},
+		{StepID: "P2.7", Name: "vault-fail-closed"},
 		{StepID: "P3.1", Name: "admin-inventory-validation"},
 		{StepID: "cleanup", Name: "suite-teardown"},
 	}

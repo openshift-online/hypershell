@@ -14,6 +14,10 @@ rules:
   # identity (HYPERSHELL-369). serviceaccounts/token is a distinct subresource.
   - apiGroups: [""]
     resources: ["serviceaccounts/token"]
+    # Scope to the gateway identity only: TokenRequest honors resourceNames (the SA name is
+    # in the request path), so the controller can mint tokens for the openshell-gateway SA
+    # and no other, rather than any ServiceAccount cluster-wide (CWE-269/CWE-250).
+    resourceNames: ["openshell-gateway"]
     verbs: ["create"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]

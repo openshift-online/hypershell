@@ -97,6 +97,31 @@ func migrationAddCredentialDriver() *gormigrate.Migration {
 	}
 }
 
+// migrationBackfillLegacyCredentialDriverKEK pins pre-existing gateways that have no
+// explicit credential_driver to kek-db, so the HYPERSHELL-369 flat vault default applies
+// only to gateways created after it ships (HYPERSHELL-369, CWE-664). Before the flip an
+// empty driver meant kek-db, and those gateways stored provider credentials in the gateway
+// database; resolving them to vault on the next reconcile would make that data unreadable,
+// and the immutability check does not catch an empty-to-vault transition. New gateways are
+// unaffected -- they are created after this one-time backfill. Idempotent: rows with an
+// explicit type (vault, kek-db, kubernetes-secrets) are left untouched, so a re-run is a
+// no-op. Runs after migrationAddCredentialDriver (the column must exist first).
+func migrationBackfillLegacyCredentialDriverKEK() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102000000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`UPDATE gateways
+				SET credential_driver = '{"type":"kek-db"}'::jsonb
+				WHERE credential_driver IS NULL
+				   OR (credential_driver->>'type') IS NULL
+				   OR (credential_driver->>'type') = ''`).Error
+		},
+		// Irreversible: the original NULL/empty values are not recoverable per-row, and
+		// reverting would wrongly clear legitimately kek-db gateways. No-op rollback.
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
+
 func migrationAddSupervisorImage() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080712000002",

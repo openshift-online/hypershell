@@ -1265,7 +1265,24 @@ cluster_up() {
   # the convention address - the production shape. Idempotent, so safe on the shared e2e
   # cluster across PR environments.
   header "Stand-in gateway-provider Vault (HYPERSHELL-369)"
-  CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" bash "${CLUSTER_SCRIPT_DIR}/vault.sh"
+  # Vault setup needs cluster-scoped rights (a namespace and a system:auth-delegator
+  # ClusterRoleBinding). On a developer-owned cluster without cluster-admin these are
+  # forbidden; don't abort the whole bring-up for that. Skip with a clear warning and let
+  # the environment come up. The gateway default is vault, so gateways here must pin
+  # credential_driver: kek-db explicitly (there is no reachable Vault to fall back to).
+  local vault_log
+  vault_log="$(mktemp)"
+  if CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" bash "${CLUSTER_SCRIPT_DIR}/vault.sh" 2>&1 | tee "${vault_log}"; then
+    :
+  elif grep -qi 'forbidden' "${vault_log}"; then
+    warn "Vault setup is forbidden on this cluster (not cluster-admin); skipping the stand-in Vault."
+    warn "Gateways here must set 'credential_driver: kek-db' explicitly (the default is vault and would fail closed without a reachable Vault)."
+  else
+    rm -f "${vault_log}"
+    error "Stand-in Vault setup failed."
+    exit 1
+  fi
+  rm -f "${vault_log}"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes

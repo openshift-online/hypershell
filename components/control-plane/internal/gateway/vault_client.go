@@ -44,7 +44,9 @@ func newVaultClient(address string, caPEM []byte, timeout time.Duration) (*vault
 	}
 	return &vaultClient{
 		address: strings.TrimRight(address, "/"),
-		http:    &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: tlsCfg}},
+		// DisableKeepAlives: this client is one-shot (a probe makes one or two requests
+		// then is discarded), so no idle keep-alive connection should outlive it (CWE-404).
+		http: &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true}},
 	}, nil
 }
 
@@ -111,7 +113,10 @@ func (c *vaultClient) do(ctx context.Context, method, url, token string, payload
 		return 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("read vault response body: %w", err)
+	}
 	return resp.StatusCode, body, nil
 }
 

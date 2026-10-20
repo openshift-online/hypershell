@@ -190,12 +190,18 @@ EOF
 # Wait for the pod to be Running (a sealed/uninitialized Vault never reports Ready,
 # and this script is what initializes+unseals it - mirror the gitops init Job).
 info "Waiting for the Vault pod to be Running..."
+VPOD=""; VPOD_READY=
 for _ in $(seq 1 60); do
   VPOD="$(vkube -n "${VAULT_NS}" get pod -l app=${VAULT_SVC} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [ -n "${VPOD}" ] && [ "$(vkube -n "${VAULT_NS}" get pod "${VPOD}" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ] && break
+  if [ -n "${VPOD}" ] && [ "$(vkube -n "${VAULT_NS}" get pod "${VPOD}" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ]; then
+    VPOD_READY=1; break
+  fi
   sleep 5
 done
-[ -n "${VPOD:-}" ] || { error "Vault pod did not start"; exit 1; }
+# Check the pod actually reached Running, not just that its name exists: the name is set
+# as soon as the pod object is created (Pending/ContainerCreating), so a plain name check
+# would let bring-up continue with a pod that never became ready.
+[ -n "${VPOD_READY}" ] || { error "Vault pod did not reach Running within 5 minutes"; exit 1; }
 
 vx()  { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
 vxt() { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
@@ -289,7 +295,14 @@ run_selftest() {
 }
 
 info "Waiting for the Vault API..."
-until vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; do sleep 3; done
+# Bounded so a Vault that never answers fails the bring-up instead of hanging it. Up (0) or
+# sealed (2) both mean the API is reachable; only unreachable (1) keeps us waiting.
+VAULT_API_UP=
+for _ in $(seq 1 60); do
+  if vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; then VAULT_API_UP=1; break; fi
+  sleep 3
+done
+[ -n "${VAULT_API_UP}" ] || { error "Vault API did not come up within 3 minutes"; exit 1; }
 
 if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
   # Already initialized (e.g. a shared cluster across PR environments). Reconcile the config
