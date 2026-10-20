@@ -93,6 +93,42 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
+// WatchRepositories streams Repository events and drives each through the handler.
+// Repository is a platform-level resource, not cluster-scoped, so the watch takes
+// no cluster filter, mirroring WatchManagedClusters. It drives the event-driven
+// declarative `.hypershell` import: a created or changed Repository is reconciled in
+// real time instead of waiting for the slow periodic drift re-check
+// (control-plane.spec.md, "Declarative `.hypershell` Import Reconciliation"). Like
+// the other watches it reconnects with backoff and is covered by the idle watchdog;
+// it does not replay existing Repositories, so the reconciler's periodic pass seeds
+// the ones already registered at startup.
+func WatchRepositories(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Repository], idleTimeout time.Duration) error {
+	client := pb.NewRepositoryServiceClient(conn)
+	return watchLoop(ctx, "Repository", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchRepositories(ctx, &pb.WatchRepositoriesRequest{})
+		if err != nil {
+			return fmt.Errorf("starting repository watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving repository event: %w", err)
+			}
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.Repository]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.Repository,
+			}); err != nil {
+				log.Printf("ERROR handling repository %s: %v", event.ResourceId, err)
+			}
+		}
+	})
+}
+
 // ErrMissingClusterID is returned by every cluster-scoped list/watch (gateways
 // and role bindings) when it is asked to run without this control plane's
 // registered cluster id. Every control

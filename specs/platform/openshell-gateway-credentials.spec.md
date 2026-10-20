@@ -58,7 +58,7 @@ HyperShell concern, for every driver.
 
 ## Requirements
 
-### Requirement: Credential Driver Configuration Field
+### Requirement: OSG-CRED-01 -- Credential Driver Configuration Field
 
 The Gateway API resource SHALL include an optional `credential_driver` JSONB field that
 selects the provider-credential storage backend. The field is set only through
@@ -104,7 +104,7 @@ Vault) and SHALL NOT be required for the common case.
 | `credential_driver.vault.kubernetes_auth_mount` | string | No | Vault Kubernetes auth mount. Default: `kubernetes` |
 | `credential_driver.vault.timeout_secs` | int | No | Vault client timeout in seconds. Default: `30` |
 
-#### Scenario: Gateway created with no credential_driver defaults to Vault
+#### Scenario: OSG-CRED-01.01 -- Gateway created with no credential_driver defaults to Vault
 
 - GIVEN a Gateway resource with no `credential_driver` field
 - WHEN the GatewayReconciler reconciles
@@ -113,14 +113,14 @@ Vault) and SHALL NOT be required for the common case.
 - AND the KEK Secret SHALL NOT be provisioned
 - AND the `[openshell.gateway.credential_storage]` section SHALL be omitted
 
-#### Scenario: Gateway with explicit Vault driver
+#### Scenario: OSG-CRED-01.02 -- Gateway with explicit Vault driver
 
 - GIVEN a Gateway resource with `credential_driver.type` = `vault`
 - WHEN the GatewayReconciler reconciles
 - THEN the gateway SHALL be configured identically to the omitted-field case, honoring
   any supplied overrides in `credential_driver.vault`
 
-#### Scenario: Gateway with explicit KEK database driver
+#### Scenario: OSG-CRED-01.03 -- Gateway with explicit KEK database driver
 
 - GIVEN a Gateway resource with `credential_driver.type` = `kek-db`
 - WHEN the GatewayReconciler reconciles
@@ -128,7 +128,7 @@ Vault) and SHALL NOT be required for the common case.
 - AND the KEK Secret SHALL be provisioned
 - AND no `credential_drivers` array SHALL be emitted
 
-#### Scenario: Gateway with Kubernetes Secrets driver
+#### Scenario: OSG-CRED-01.04 -- Gateway with Kubernetes Secrets driver
 
 - GIVEN a Gateway resource with `credential_driver.type` = `kubernetes-secrets`
 - WHEN the GatewayReconciler reconciles
@@ -138,7 +138,7 @@ Vault) and SHALL NOT be required for the common case.
 
 ---
 
-### Requirement: Credential Driver Validation
+### Requirement: OSG-CRED-02 -- Credential Driver Validation
 
 The GatewayReconciler SHALL validate the `credential_driver` configuration before
 reconciliation.
@@ -149,20 +149,20 @@ reconciliation.
   `address` SHALL use `https`).
 - Unknown fields SHALL be rejected.
 
-#### Scenario: Invalid credential driver type
+#### Scenario: OSG-CRED-02.01 -- Invalid credential driver type
 
 - GIVEN a Gateway resource with `credential_driver.type` = `s3`
 - WHEN the GatewayReconciler validates the configuration
 - THEN it SHALL reject the configuration with error: `unsupported credential driver type "s3"; supported: vault, kubernetes-secrets, kek-db`
 
-#### Scenario: Vault driver with no sub-fields is valid
+#### Scenario: OSG-CRED-02.02 -- Vault driver with no sub-fields is valid
 
 - GIVEN a Gateway resource with `credential_driver.type` = `vault` and no `vault` sub-fields
 - WHEN the GatewayReconciler validates the configuration
 - THEN it SHALL accept the configuration
 - AND it SHALL apply the convention defaults for address, mount, role, and auth
 
-#### Scenario: Vault override with a plaintext address is rejected
+#### Scenario: OSG-CRED-02.03 -- Vault override with a plaintext address is rejected
 
 - GIVEN a Gateway with `credential_driver.vault.address` = `http://vault.example.com:8200`
 - WHEN the GatewayReconciler validates the configuration
@@ -170,7 +170,7 @@ reconciliation.
 
 ---
 
-### Requirement: Vault Convention Defaults
+### Requirement: OSG-CRED-03 -- Vault Convention Defaults
 
 When the resolved driver is `vault`, the GatewayReconciler SHALL fill every unset Vault
 coordinate from fixed conventions, so a gateway is Vault-backed without user input. The
@@ -195,7 +195,7 @@ The role name and auth mount are shared, literal constants used identically by e
 gateway on the cluster and by `hypershell-gitops`; a mismatch there breaks
 authentication outright, so they SHALL match the GitOps Contract values.
 
-#### Scenario: Convention address used when none is supplied
+#### Scenario: OSG-CRED-03.01 -- Convention address used when none is supplied
 
 - GIVEN a Vault-backed Gateway whose `credential_driver.vault.address` is unset
 - AND no `GATEWAY_VAULT_ADDRESS` override is configured
@@ -203,7 +203,7 @@ authentication outright, so they SHALL match the GitOps Contract values.
 - THEN the `address` SHALL be `https://openshell-gateway-vault.openshell-vault.svc:8200`
 - AND the `role` SHALL be `openshell-gateway`, `mount` `secret`, `auth_method` `kubernetes`
 
-#### Scenario: Deployment override redirects the Vault address
+#### Scenario: OSG-CRED-03.02 -- Deployment override redirects the Vault address
 
 - GIVEN `GATEWAY_VAULT_ADDRESS` is set on the controller to a dev Vault URL
 - WHEN the GatewayReconciler generates `gateway.toml` for a Vault-backed gateway
@@ -212,7 +212,7 @@ authentication outright, so they SHALL match the GitOps Contract values.
 
 ---
 
-### Requirement: Credential Driver TOML Generation
+### Requirement: OSG-CRED-04 -- Credential Driver TOML Generation
 
 The GatewayReconciler SHALL generate the `gateway.toml` credential configuration based
 on the resolved driver. The `[openshell.gateway.credential_storage]` section (KEK) and
@@ -255,7 +255,7 @@ The generated Vault section SHALL contain only non-secret coordinates (address, 
 role, paths) and SHALL NEVER contain a provider secret value or the ServiceAccount
 token.
 
-#### Scenario: Vault TOML carries coordinates only
+#### Scenario: OSG-CRED-04.01 -- Vault TOML carries coordinates only
 
 - GIVEN a Vault-backed Gateway
 - WHEN the GatewayReconciler renders `gateway.toml`
@@ -265,7 +265,7 @@ token.
 
 ---
 
-### Requirement: Vault Serving-CA Propagation
+### Requirement: OSG-CRED-05 -- Vault Serving-CA Propagation
 
 When the resolved driver is `vault` and the address is not loopback, the gateway reaches
 Vault over HTTPS and SHALL verify the Vault serving certificate against the per-cluster
@@ -292,7 +292,7 @@ be deployed and the failure SHALL surface as a fail-closed reachability error (s
 Requirement: Fail Closed When Vault Is Unavailable), because a missing CA means the
 gateway cannot establish trust to Vault.
 
-#### Scenario: Vault CA mirrored into the tenant namespace
+#### Scenario: OSG-CRED-05.01 -- Vault CA mirrored into the tenant namespace
 
 - GIVEN a Vault-backed Gateway and a serving-CA Secret `openshell-gateway-vault-tls` in `openshell-vault`
 - WHEN the GatewayReconciler reconciles
@@ -300,14 +300,14 @@ gateway cannot establish trust to Vault.
 - AND the gateway Deployment SHALL mount it at `/etc/openshell-tls/vault-ca/ca.crt` (the TOML `ca_bundle`)
 - AND the ConfigMap SHALL carry `hypershell.redhat.io/managed: "true"`
 
-#### Scenario: Vault CA source missing
+#### Scenario: OSG-CRED-05.02 -- Vault CA source missing
 
 - GIVEN a Vault-backed Gateway whose serving-CA source Secret is absent on the cluster
 - WHEN the GatewayReconciler reconciles
 - THEN it SHALL NOT deploy the gateway
 - AND it SHALL report a fail-closed credential-backend error naming the missing CA source
 
-#### Scenario: Driver is not Vault
+#### Scenario: OSG-CRED-05.03 -- Driver is not Vault
 
 - GIVEN a Gateway whose resolved driver is `kek-db` or `kubernetes-secrets`
 - WHEN the GatewayReconciler reconciles
@@ -315,7 +315,7 @@ gateway cannot establish trust to Vault.
 
 ---
 
-### Requirement: Vault Driver Deployment Configuration
+### Requirement: OSG-CRED-06 -- Vault Driver Deployment Configuration
 
 When the resolved driver is `vault` with `auth_method` = `kubernetes`, the
 GatewayReconciler SHALL mount a projected ServiceAccount token volume in the gateway
@@ -343,7 +343,7 @@ default token path: a token minted for the `vault` audience is cryptographically
 against any other audience even if it leaks. When the resolved driver is not `vault`,
 this volume and mount SHALL NOT be present.
 
-#### Scenario: Vault SA token mounted with the vault audience
+#### Scenario: OSG-CRED-06.01 -- Vault SA token mounted with the vault audience
 
 - GIVEN a Vault-backed Gateway with `auth_method` = `kubernetes`
 - WHEN the GatewayReconciler reconciles
@@ -352,7 +352,7 @@ this volume and mount SHALL NOT be present.
 
 ---
 
-### Requirement: Fail Closed When Vault Is Unavailable
+### Requirement: OSG-CRED-07 -- Fail Closed When Vault Is Unavailable
 
 A Vault-backed gateway SHALL fail closed: there is no fallback to another backend,
 because a gateway resolves to exactly one driver at creation. The control plane SHALL
@@ -383,7 +383,7 @@ non-functional.
 - A `provider`/`sandbox` call made against an unreachable Vault surfaces as OpenShell's
   own gRPC error to the `openshell` CLI; the control plane SHALL NOT swallow it.
 
-#### Scenario: Vault unreachable at provisioning (pre-deploy)
+#### Scenario: OSG-CRED-07.01 -- Vault unreachable at provisioning (pre-deploy)
 
 - GIVEN a new Vault-backed Gateway on a cluster whose provider Vault is unreachable
 - WHEN the GatewayReconciler reconciles
@@ -391,7 +391,7 @@ non-functional.
 - AND it SHALL NOT deploy the gateway workload or mark the gateway `Running`
 - AND the reconcile SHALL be retried
 
-#### Scenario: Gateway identity cannot authenticate to Vault (before Running)
+#### Scenario: OSG-CRED-07.02 -- Gateway identity cannot authenticate to Vault (before Running)
 
 - GIVEN a Vault-backed Gateway whose workload has deployed but whose identity is not
   authorized by the Vault role (or Vault denies the login)
@@ -400,7 +400,7 @@ non-functional.
 - AND it SHALL NOT mark the gateway `Running`
 - AND the reconcile SHALL be retried
 
-#### Scenario: Vault outage after the gateway is running
+#### Scenario: OSG-CRED-07.03 -- Vault outage after the gateway is running
 
 - GIVEN a `Running` Vault-backed Gateway
 - WHEN its provider Vault becomes unreachable
@@ -409,7 +409,7 @@ non-functional.
 
 ---
 
-### Requirement: RBAC for Kubernetes Secrets Driver
+### Requirement: OSG-CRED-08 -- RBAC for Kubernetes Secrets Driver
 
 When `credential_driver.type` is `kubernetes-secrets`, the GatewayReconciler SHALL
 provision a Role and RoleBinding granting the gateway ServiceAccount access to Secrets in
@@ -436,14 +436,14 @@ created in the credential namespace.
 The Vault driver requires no such Role or RoleBinding: it authenticates to Vault with the
 projected ServiceAccount token, not the Kubernetes API.
 
-#### Scenario: RBAC provisioned for Kubernetes Secrets
+#### Scenario: OSG-CRED-08.01 -- RBAC provisioned for Kubernetes Secrets
 
 - GIVEN a Gateway with `credential_driver.type` = `kubernetes-secrets`
 - WHEN the GatewayReconciler reconciles
 - THEN a Role `openshell-gateway-credential-secrets` SHALL exist in the credential namespace
 - AND a RoleBinding `openshell-gateway-credential-secrets` SHALL bind it to the `openshell-gateway` ServiceAccount
 
-#### Scenario: Vault and default drivers create no credential RBAC
+#### Scenario: OSG-CRED-08.02 -- Vault and default drivers create no credential RBAC
 
 - GIVEN a Gateway resolved to `vault` or `kek-db`
 - WHEN the GatewayReconciler reconciles
@@ -451,7 +451,7 @@ projected ServiceAccount token, not the Kubernetes API.
 
 ---
 
-### Requirement: KEK Provisioning Conditional on Driver
+### Requirement: OSG-CRED-09 -- KEK Provisioning Conditional on Driver
 
 The GatewayReconciler SHALL provision the KEK Secret (`openshell-gateway-credential-kek`)
 and set the `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` env var **only** when the
@@ -461,14 +461,14 @@ resolved driver is `kek-db`.
 - Resolved driver `kubernetes-secrets`: no KEK Secret, no KEK env var.
 - Resolved driver `kek-db`: provision the KEK Secret and set the env var (former default behavior).
 
-#### Scenario: KEK skipped for the default Vault driver
+#### Scenario: OSG-CRED-09.01 -- KEK skipped for the default Vault driver
 
 - GIVEN a Gateway with no `credential_driver` field (resolves to `vault`)
 - WHEN the GatewayReconciler reconciles
 - THEN the Secret `openshell-gateway-credential-kek` SHALL NOT be created
 - AND the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL NOT be in the Deployment
 
-#### Scenario: KEK provisioned for explicit kek-db
+#### Scenario: OSG-CRED-09.02 -- KEK provisioned for explicit kek-db
 
 - GIVEN a Gateway with `credential_driver.type` = `kek-db`
 - WHEN the GatewayReconciler reconciles
@@ -477,7 +477,7 @@ resolved driver is `kek-db`.
 
 ---
 
-### Requirement: Provider Credential Isolation
+### Requirement: OSG-CRED-10 -- Provider Credential Isolation
 
 The OpenShell gateway runtime stores every provider credential at the flat, hash-addressed
 KV path `secret/data/openshell/provider-credentials/<hash>` (with its KV v2 metadata under
@@ -508,7 +508,7 @@ covered by upstream unit tests; HyperShell's contribution is the capability-scop
 policy that backs it (a gateway cannot reach a path it was never handed, even if the
 application layer were bypassed).
 
-#### Scenario: Gateway policy is capability-scoped with no list
+#### Scenario: OSG-CRED-10.01 -- Gateway policy is capability-scoped with no list
 
 - GIVEN the shared `openshell-gateway-provider` Vault policy
 - THEN it SHALL grant `create`, `read`, `update`, `delete` on `secret/data/openshell/provider-credentials/*`
@@ -517,7 +517,7 @@ application layer were bypassed).
 
 ---
 
-### Requirement: Provider Credential Lifecycle on Deletion
+### Requirement: OSG-CRED-11 -- Provider Credential Lifecycle on Deletion
 
 A provider credential's live-value lifecycle is owned by the OpenShell gateway runtime:
 the gateway deletes a credential's KV entry (by the handle it holds) when the provider or
@@ -541,7 +541,7 @@ deleting a gateway rather than an exceptional unreclaimed resource.
 There is no audit-retention exception: if an audit trail is required, it comes from Vault's
 own audit log (which records that an access happened, never the value).
 
-#### Scenario: Gateway delete leaves no reachable provider secret
+#### Scenario: OSG-CRED-11.01 -- Gateway delete leaves no reachable provider secret
 
 - GIVEN a Vault-backed Gateway whose runtime stored provider credentials under `secret/data/openshell/provider-credentials/*`
 - WHEN the Gateway is deleted
@@ -551,7 +551,7 @@ own audit log (which records that an access happened, never the value).
 
 ---
 
-### Requirement: Credential Secret Hygiene
+### Requirement: OSG-CRED-12 -- Credential Secret Hygiene
 
 Provider secret values and the Vault ServiceAccount token SHALL never leak into the API,
 logs, telemetry, Kubernetes Events, generated manifests, or `gateway.toml`. This applies
@@ -567,13 +567,13 @@ standard.
 - The SA token SHALL never appear in a log line, including on the fail-closed
   reachability-check failure path, which SHALL log that the login failed, never the token.
 
-#### Scenario: Generated config contains no secret material
+#### Scenario: OSG-CRED-12.01 -- Generated config contains no secret material
 
 - GIVEN a Vault-backed Gateway
 - WHEN the control plane renders and applies `gateway.toml`
 - THEN the rendered config SHALL contain no provider secret value and no ServiceAccount token
 
-#### Scenario: Reachability failure does not log the token
+#### Scenario: OSG-CRED-12.02 -- Reachability failure does not log the token
 
 - GIVEN a Vault-backed Gateway whose reachability/auth probe fails
 - WHEN the control plane logs the failure and sets the condition
@@ -582,13 +582,13 @@ standard.
 
 ---
 
-### Requirement: Credential Driver Immutability
+### Requirement: OSG-CRED-13 -- Credential Driver Immutability
 
 The `credential_driver` configuration on a Gateway SHALL be immutable after the gateway
 has stored provider credentials. Changing the driver would orphan credentials in the
 previous backend.
 
-#### Scenario: Attempt to change credential driver
+#### Scenario: OSG-CRED-13.01 -- Attempt to change credential driver
 
 - GIVEN a Gateway with `credential_driver.type` = `vault` that has active provider credentials
 - WHEN a user attempts to change `credential_driver.type` to `kubernetes-secrets`
@@ -598,7 +598,7 @@ previous backend.
 
 ---
 
-### Requirement: End-to-End Vault Coverage in CI
+### Requirement: OSG-CRED-14 -- End-to-End Vault Coverage in CI
 
 The Vault credential path SHALL be proven in CI so `vault` can become the flat default (see
 Requirement: Credential Driver Configuration Field) without reddening e2e. Each environment's
@@ -628,7 +628,7 @@ into Vault with a synthetic identity:
 - **Fail-closed** when Vault is unreachable is asserted by the suite through the **product API**
   only (no Vault fixture or kube access required).
 
-#### Scenario: Vault fixture self-verifies the capability policy
+#### Scenario: OSG-CRED-14.01 -- Vault fixture self-verifies the capability policy
 
 - GIVEN a stand-in Vault stood up to the GitOps Contract
 - WHEN the bring-up authenticates as a gateway identity (a `vault`-audience ServiceAccount token
@@ -638,7 +638,7 @@ into Vault with a synthetic identity:
 - AND a read or write outside `secret/data/openshell/provider-credentials/*` SHALL be denied
 - AND the bring-up SHALL fail if any of these do not hold
 
-#### Scenario: Fail-closed is observable when Vault is unavailable
+#### Scenario: OSG-CRED-14.02 -- Fail-closed is observable when Vault is unavailable
 
 - GIVEN a gateway provisioned with a Vault driver pointed at an unreachable address
 - WHEN the GatewayReconciler reconciles

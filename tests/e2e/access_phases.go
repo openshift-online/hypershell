@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -168,14 +169,26 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	ctx := t.Context()
 	expires := time.Now().UTC().Add(2 * time.Hour)
-	created, err := s.admin.OpenShellGatewayServiceAccounts().Create(ctx, s.primary.ID,
-		&sdktypes.OpenShellGatewayServiceAccountCreateRequest{
-			Name:           "e2e-service-account-" + s.runID,
-			Role:           sdktypes.OpenShellGatewayServiceAccountRoleOpenshellAdmin,
-			CredentialType: "client_secret",
-			ExpiresAt:      &expires,
-		})
-	s.Require().NoError(err, "create gateway service account")
+	var created *sdktypes.OpenShellGatewayServiceAccountCreateResponse
+	createErr := harness.Poll(ctx, 2*time.Second, 90*time.Second, func(ctx context.Context) (bool, error) {
+		account, err := s.admin.OpenShellGatewayServiceAccounts().Create(ctx, s.primary.ID,
+			&sdktypes.OpenShellGatewayServiceAccountCreateRequest{
+				Name:           "e2e-service-account-" + s.runID,
+				Role:           sdktypes.OpenShellGatewayServiceAccountRoleOpenshellAdmin,
+				CredentialType: "client_secret",
+				ExpiresAt:      &expires,
+			})
+		if err != nil {
+			var apiErr *sdktypes.APIError
+			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict && apiErr.Code == "gateway_not_ready" {
+				return false, nil
+			}
+			return false, err
+		}
+		created = account
+		return true, nil
+	})
+	s.Require().NoError(createErr, "create gateway service account")
 	s.Require().Equal(s.primary.ID, created.GatewayID)
 	s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountStatusReady, created.Status)
 	s.Require().NotEmpty(created.Subject)
@@ -195,7 +208,7 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 		s.Require().NoError(validateGatewayServiceAccountClaims(claims, created), "gateway service-account token claims")
 	}
 
-	_, err = s.admin.OpenShellGatewayServiceAccounts().Revoke(ctx, s.primary.ID, created.ID)
+	_, err := s.admin.OpenShellGatewayServiceAccounts().Revoke(ctx, s.primary.ID, created.ID)
 	s.Require().NoError(err, "revoke gateway service account")
 	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 90*time.Second, func(ctx context.Context) (bool, error) {
 		_, status, err := requestClientCredentialsToken(ctx, created.Credential)

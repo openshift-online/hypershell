@@ -45,7 +45,7 @@ enumerated code.
 
 ## Requirements
 
-### Requirement: Single Source of Truth for the Phase Vocabulary
+### Requirement: GTW-PHS-01 -- Single Source of Truth for the Phase Vocabulary
 
 The platform SHALL define the canonical Gateway phase vocabulary in exactly one
 shared location that both the API server and the control plane import. No
@@ -60,7 +60,7 @@ The canonical Go package is `components/api-server/pkg/gatewayhealth`. The web
 console mirrors the same vocabulary via `gatewayCanonicalPhaseStrings` in
 `@openshift-online/hypershell-gateway-management-ui`.
 
-#### Scenario: Control plane and API server agree on the vocabulary
+#### Scenario: GTW-PHS-01.01 -- Control plane and API server agree on the vocabulary
 
 - GIVEN the control plane writes a Gateway `phase`
 - AND the API server validates and reports that same `phase`
@@ -68,7 +68,7 @@ console mirrors the same vocabulary via `gatewayCanonicalPhaseStrings` in
 - THEN the change SHALL take effect in both components without editing duplicated
   literals in either one
 
-### Requirement: API Server Rejects Unknown Phase Values
+### Requirement: GTW-PHS-02 -- API Server Rejects Unknown Phase Values
 
 The API server SHALL reject any write (REST create/patch or gRPC
 create/update) that sets a Gateway `phase` to a value outside the canonical
@@ -76,26 +76,26 @@ vocabulary, returning a validation error (HTTP 400 / gRPC `InvalidArgument`). An
 absent or empty `phase` SHALL be accepted, so the field remains optional and a
 caller that does not set it is unaffected.
 
-#### Scenario: Unknown phase rejected on gRPC update
+#### Scenario: GTW-PHS-02.01 -- Unknown phase rejected on gRPC update
 
 - GIVEN a client calls `UpdateGateway` with `phase` set to `"Booting"`
 - WHEN the API server validates the request
 - THEN it SHALL reject the request with `InvalidArgument`
 - AND it SHALL NOT persist the value
 
-#### Scenario: Canonical phase accepted
+#### Scenario: GTW-PHS-02.02 -- Canonical phase accepted
 
 - GIVEN the control plane calls `UpdateGateway` with `phase` set to `"Running"`
 - WHEN the API server validates the request
 - THEN it SHALL accept the request and persist the value
 
-#### Scenario: Absent phase accepted
+#### Scenario: GTW-PHS-02.03 -- Absent phase accepted
 
 - GIVEN a client creates a Gateway without setting `phase`
 - WHEN the API server validates the request
 - THEN it SHALL accept the request
 
-### Requirement: Phase Metric Covers the Full Canonical Set
+### Requirement: GTW-PHS-03 -- Phase Metric Covers the Full Canonical Set
 
 The API server's per-phase gateway gauge and the BFF metrics proxy SHALL
 pre-seed and report every canonical phase on every scrape/response, so graphs
@@ -103,28 +103,28 @@ never omit a phase. The set of phases the metric reports SHALL be derived from
 the shared vocabulary rather than an independent hardcoded list, defaulting absent
 phases to zero.
 
-#### Scenario: Every canonical phase appears in the metric
+#### Scenario: GTW-PHS-03.01 -- Every canonical phase appears in the metric
 
 - GIVEN no gateways exist in the `Pending` phase
 - WHEN the gateway phase metric is scraped
 - THEN the gauge SHALL still emit a `Pending` series with value `0`
 - AND it SHALL emit a series for every other canonical phase
 
-### Requirement: Control Plane Uses the Canonical Vocabulary
+### Requirement: GTW-PHS-04 -- Control Plane Uses the Canonical Vocabulary
 
 The control plane SHALL derive every Gateway `phase` value it reads (the phase
 gate) or writes (provisioning path and continuous health reconciliation) from
 the shared vocabulary, and SHALL use the canonical `Healthy` status constant for
 the fully-healthy case, rather than duplicating string literals.
 
-#### Scenario: Health reconciler writes canonical values
+#### Scenario: GTW-PHS-04.01 -- Health reconciler writes canonical values
 
 - GIVEN the control plane observes a gateway workload return to Ready
 - WHEN it writes the recovered health back to the API server
 - THEN the `phase` it writes SHALL be the canonical `Running` value
 - AND the `status` it writes SHALL be the canonical `Healthy` value
 
-### Requirement: Console Vocabulary Aligns with the Canonical Phases
+### Requirement: GTW-PHS-05 -- Console Vocabulary Aligns with the Canonical Phases
 
 The web console SHALL recognize the canonical phase set as its source of truth
 for classifying a gateway as recoverable (keep polling), healthy, or terminally
@@ -136,20 +136,20 @@ phase set as the Go package, via `gatewayCanonicalPhases` /
 additionally tolerate broader status descriptors, but its canonical phase
 classification SHALL match this vocabulary.
 
-#### Scenario: Recoverable phase keeps polling
+#### Scenario: GTW-PHS-05.01 -- Recoverable phase keeps polling
 
 - GIVEN a Gateway displayed with a canonical recoverable phase
   (`Pending`, `Provisioning`, or `Degraded`)
 - WHEN the console evaluates whether to poll for status
 - THEN it SHALL continue polling
 
-#### Scenario: Failed phase stops polling
+#### Scenario: GTW-PHS-05.02 -- Failed phase stops polling
 
 - GIVEN a Gateway displayed with the canonical `Failed` phase
 - WHEN the console evaluates whether to poll for status
 - THEN it SHALL treat the gateway as terminally failed and stop polling
 
-#### Scenario: New phase surfaces in metrics dashboard
+#### Scenario: GTW-PHS-05.03 -- New phase surfaces in metrics dashboard
 
 - GIVEN the canonical vocabulary includes `Pending`
 - WHEN the BFF returns Prometheus phase counts including `Pending`

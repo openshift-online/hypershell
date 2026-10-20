@@ -149,14 +149,11 @@ Conventions are defined in CLAUDE.md and specs/.
 
 | Kind | Purpose |
 |------|---------|
-| Fleet | Top-level organizational unit (tenant/project) |
 | Gateway | API gateway instance deployed on a cluster |
-| GatewayNetwork | Network connectivity topology between gateways |
-| GatewayRelease | Versioned container images for gateway deployments |
-| ManagedCluster | Kubernetes cluster registered into a fleet |
+| ManagedCluster | Kubernetes cluster registered into the platform |
 
 **Resource Flow:**
-Fleet Created → Clusters Registered → Release Published → Gateway Deployed on Cluster → Network Mesh Established → Traffic Flows
+Clusters Registered → Gateway Deployed on Cluster → Traffic Flows
 
 **Critical Patterns You Enforce:**
 - API Server: OpenAPI client not manually edited (`make generate` only)

@@ -4,7 +4,7 @@
 **Version:** 0.3.1
 **Created:** 2026-09-21
 **Applies to:** `components/control-plane` (sandbox attention derivation and OTLP gauges), `deploy/base` and `deploy/kind` control-plane metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`
-**Related:** `platform/openshell-gateway-sandbox-count.spec.md`, `platform/gateway-sandbox-active-trends.spec.md`, `platform/openshell-gateway-namespace-gc.spec.md`, `platform/control-plane-observability.spec.md` (CP-OBS-07), `platform/gateway-provision-time.spec.md` (same OTLP→Prometheus→BFF pattern), `web-console/operational-dashboard.spec.md`
+**Related:** `platform/openshell-gateway-sandbox-count.spec.md`, `platform/gateway-sandbox-active-trends.spec.md`, `platform/openshell-gateway-namespace-gc.spec.md`, `platform/control-plane-observability.spec.md` (OBS-CPL-07), `platform/gateway-provision-time.spec.md` (same OTLP→Prometheus→BFF pattern), `web-console/operational-dashboard.spec.md`
 
 ## Purpose
 
@@ -16,7 +16,7 @@ Extend the operational dashboard **Sandbox status** widget so operators see thre
 
 Today's fleet Active total (`hypershell_gateways_active_sandboxes_total`) sums each Gateway's `active_sandbox_count` and therefore **excludes** sandboxes in namespaces with no live Gateway. Attention counts require observing sandbox state directly (including those namespaces) and surfacing separate instant fields to the widget.
 
-Attention counts are **control-plane application telemetry**: each control plane derives cluster-local tallies from Kubernetes sandbox pods and Sandbox CRs, exports them as OTLP gauges (CP-OBS-07), and the operational dashboard reads the Prometheus fleet sum through the BFF. Attention tallies SHALL NOT be persisted in HyperShell PostgreSQL or scraped from the API server `/metrics` endpoint.
+Attention counts are **control-plane application telemetry**: each control plane derives cluster-local tallies from Kubernetes sandbox pods and Sandbox CRs, exports them as OTLP gauges (OBS-CPL-07), and the operational dashboard reads the Prometheus fleet sum through the BFF. Attention tallies SHALL NOT be persisted in HyperShell PostgreSQL or scraped from the API server `/metrics` endpoint.
 
 ```
 +----------------------------------------------------------+
@@ -36,7 +36,7 @@ Attention counts are **control-plane application telemetry**: each control plane
 +----------------------------------------------------------+
 ```
 
-Attention chips are PatternFly Labels with icons (SSA-09): Expiring soon = `RhUiClockIcon`, Orphaned = `RhUiDisconnectedIcon`, Idle = `RhUiAsleepIcon`.
+Attention chips are PatternFly Labels with icons (OBS-SBXA-09): Expiring soon = `RhUiClockIcon`, Orphaned = `RhUiDisconnectedIcon`, Idle = `RhUiAsleepIcon`.
 
 ## Goals
 
@@ -64,25 +64,25 @@ Attention chips are PatternFly Labels with icons (SSA-09): Expiring soon = `RhUi
 - **Expiring-soon sandbox** - an active sandbox with a sandbox expiry time `T` such that `T <= now + 24 hours` (includes sandboxes whose expiry time is already in the past but whose pod is still active).
 - **Last activity time** - the upstream agent-sandbox status field `status.lastActivityTime` (updated by the router/SDK when activity is reported). When unset, HyperShell has no observed activity signal for that sandbox.
 - **Sandbox creation time** - the creation timestamp of the observed Sandbox object (or the sandbox pod when that is the observed object), used only for the never-used idle heuristic.
-- **Idle sandbox** - an active sandbox that has a live owning Gateway and meets either idle rule in SSA-03.
+- **Idle sandbox** - an active sandbox that has a live owning Gateway and meets either idle rule in OBS-SBXA-03.
 - **Attention required** - the Sandbox status widget section that presents the expiring-soon, orphaned, and idle counts.
 
 ## Actors
 
-- **Dashboard operator** - an authenticated user authorized for operational dashboard metrics (dashboard-admin role when OIDC is enabled; same gate as OP-DASH-04 / OP-DASH-06).
+- **Dashboard operator** - an authenticated user authorized for operational dashboard metrics (dashboard-admin role when OIDC is enabled; same gate as WEB-OPS-04 / WEB-OPS-06).
 - **Control plane** - observes cluster sandbox state, derives cluster-local attention counts, and exports them as OTLP gauges for the platform metrics pipeline.
 - **Web-console BFF** - proxies Prometheus (or equivalent metrics) into `GET /api/metrics/gateway-sandboxes` for the dashboard adapter.
 
 ## Requirements
 
-### Requirement: SSA-01 -- Orphaned Sandbox Definition
+### Requirement: OBS-SBXA-01 -- Orphaned Sandbox Definition
 
 An orphaned sandbox SHALL be an active sandbox whose namespace has no live owning Gateway in HyperShell.
 
 Succeeded, Failed, and Unknown sandbox pods SHALL NOT count as orphaned.
 Active sandboxes whose owning Gateway still exists SHALL NOT count as orphaned, even if the sandbox is idle or unused.
 
-#### Scenario: Active sandbox in a namespace with no Gateway is orphaned
+#### Scenario: OBS-SBXA-01.01 -- Active sandbox in a namespace with no Gateway is orphaned
 
 - GIVEN a managed `openshell-*` namespace with no live Gateway
 - AND that namespace contains 2 `Running` sandbox pods and 1 `Succeeded` sandbox pod
@@ -90,7 +90,7 @@ Active sandboxes whose owning Gateway still exists SHALL NOT count as orphaned, 
 - THEN the orphaned count SHALL include `2`
 - AND the `Succeeded` pod SHALL NOT be included
 
-#### Scenario: Active sandbox with a live Gateway is not orphaned
+#### Scenario: OBS-SBXA-01.02 -- Active sandbox with a live Gateway is not orphaned
 
 - GIVEN a Gateway whose namespace contains 3 active sandbox pods
 - WHEN the platform evaluates the orphaned count
@@ -98,7 +98,7 @@ Active sandboxes whose owning Gateway still exists SHALL NOT count as orphaned, 
 
 ---
 
-### Requirement: SSA-02 -- Expiring-Soon Sandbox Definition
+### Requirement: OBS-SBXA-02 -- Expiring-Soon Sandbox Definition
 
 An expiring-soon sandbox SHALL be an active sandbox that has a sandbox expiry time `T` and satisfies `T <= now + 24 hours`.
 
@@ -108,25 +108,25 @@ Active sandboxes whose expiry time is already past SHALL count as expiring soon 
 
 The 24-hour window SHALL be measured in wall-clock time from evaluation time (UTC).
 
-#### Scenario: Shutdown within 24 hours counts
+#### Scenario: OBS-SBXA-02.01 -- Shutdown within 24 hours counts
 
 - GIVEN an active sandbox with `shutdownTime` 6 hours from now
 - WHEN the platform evaluates the expiring-soon count
 - THEN that sandbox SHALL be included
 
-#### Scenario: Already-past shutdown still running counts
+#### Scenario: OBS-SBXA-02.02 -- Already-past shutdown still running counts
 
 - GIVEN an active sandbox with `shutdownTime` 2 hours in the past
 - WHEN the platform evaluates the expiring-soon count
 - THEN that sandbox SHALL be included
 
-#### Scenario: No shutdownTime does not count
+#### Scenario: OBS-SBXA-02.03 -- No shutdownTime does not count
 
 - GIVEN an active sandbox with no sandbox expiry time
 - WHEN the platform evaluates the expiring-soon count
 - THEN that sandbox SHALL NOT be included
 
-#### Scenario: Far-future shutdown does not count
+#### Scenario: OBS-SBXA-02.04 -- Far-future shutdown does not count
 
 - GIVEN an active sandbox with `shutdownTime` 48 hours from now
 - WHEN the platform evaluates the expiring-soon count
@@ -134,7 +134,7 @@ The 24-hour window SHALL be measured in wall-clock time from evaluation time (UT
 
 ---
 
-### Requirement: SSA-03 -- Idle Sandbox Definition
+### Requirement: OBS-SBXA-03 -- Idle Sandbox Definition
 
 An idle sandbox SHALL be an active sandbox that has a live owning Gateway (not orphaned) and satisfies exactly one of the following:
 
@@ -147,21 +147,21 @@ Succeeded, Failed, and Unknown sandbox pods SHALL NOT count as idle.
 
 The 1-hour and 24-hour windows SHALL be measured in wall-clock time from evaluation time (UTC).
 
-#### Scenario: Stale lastActivityTime counts as idle
+#### Scenario: OBS-SBXA-03.01 -- Stale lastActivityTime counts as idle
 
 - GIVEN an active sandbox with a live owning Gateway
 - AND `lastActivityTime` is 90 minutes in the past
 - WHEN the platform evaluates the idle count
 - THEN that sandbox SHALL be included
 
-#### Scenario: Recent lastActivityTime does not count as idle
+#### Scenario: OBS-SBXA-03.02 -- Recent lastActivityTime does not count as idle
 
 - GIVEN an active sandbox with a live owning Gateway
 - AND `lastActivityTime` is 10 minutes in the past
 - WHEN the platform evaluates the idle count
 - THEN that sandbox SHALL NOT be included
 
-#### Scenario: Unset lastActivityTime and age over 24 hours counts as idle
+#### Scenario: OBS-SBXA-03.03 -- Unset lastActivityTime and age over 24 hours counts as idle
 
 - GIVEN an active sandbox with a live owning Gateway
 - AND `lastActivityTime` is unset
@@ -169,7 +169,7 @@ The 1-hour and 24-hour windows SHALL be measured in wall-clock time from evaluat
 - WHEN the platform evaluates the idle count
 - THEN that sandbox SHALL be included
 
-#### Scenario: Unset lastActivityTime and age under 24 hours does not count as idle
+#### Scenario: OBS-SBXA-03.04 -- Unset lastActivityTime and age under 24 hours does not count as idle
 
 - GIVEN an active sandbox with a live owning Gateway
 - AND `lastActivityTime` is unset
@@ -177,7 +177,7 @@ The 1-hour and 24-hour windows SHALL be measured in wall-clock time from evaluat
 - WHEN the platform evaluates the idle count
 - THEN that sandbox SHALL NOT be included
 
-#### Scenario: Orphaned sandbox is not also idle
+#### Scenario: OBS-SBXA-03.05 -- Orphaned sandbox is not also idle
 
 - GIVEN an active sandbox with no live owning Gateway
 - AND `lastActivityTime` is 2 hours in the past
@@ -187,9 +187,9 @@ The 1-hour and 24-hour windows SHALL be measured in wall-clock time from evaluat
 
 ---
 
-### Requirement: SSA-04 -- Dual Membership
+### Requirement: OBS-SBXA-04 -- Dual Membership
 
-A single active sandbox SHALL be eligible for multiple attention counts at once when it meets more than one definition, except that idle and orphaned are mutually exclusive by SSA-03 (idle requires a live owning Gateway).
+A single active sandbox SHALL be eligible for multiple attention counts at once when it meets more than one definition, except that idle and orphaned are mutually exclusive by OBS-SBXA-03 (idle requires a live owning Gateway).
 
 Examples that MAY overlap:
 
@@ -198,7 +198,7 @@ Examples that MAY overlap:
 
 Each attention count SHALL be an independent tally. The platform SHALL NOT force a sandbox into only one attention bucket when multiple non-conflicting definitions apply.
 
-#### Scenario: Orphaned and expiring sandbox appears in both counts
+#### Scenario: OBS-SBXA-04.01 -- Orphaned and expiring sandbox appears in both counts
 
 - GIVEN an active sandbox with no live owning Gateway
 - AND that sandbox has `shutdownTime` within the next 24 hours
@@ -207,7 +207,7 @@ Each attention count SHALL be an independent tally. The platform SHALL NOT force
 - AND the sandbox SHALL contribute `1` to the expiring-soon count
 - AND the sandbox SHALL NOT contribute to the idle count
 
-#### Scenario: Idle and expiring sandbox appears in both counts
+#### Scenario: OBS-SBXA-04.02 -- Idle and expiring sandbox appears in both counts
 
 - GIVEN an active sandbox with a live owning Gateway
 - AND `lastActivityTime` is 2 hours in the past
@@ -218,7 +218,7 @@ Each attention count SHALL be an independent tally. The platform SHALL NOT force
 
 ---
 
-### Requirement: SSA-05 -- Fleet Attention Derivation
+### Requirement: OBS-SBXA-05 -- Fleet Attention Derivation
 
 The control plane SHALL derive **orphaned**, **expiring-soon**, and **idle** counts for the managed clusters it reconciles by observing active sandbox state in managed gateway namespaces, not by summing Gateway `active_sandbox_count` fields alone.
 
@@ -226,15 +226,15 @@ Orphaned derivation SHALL compare observed active sandbox pods (or equivalent Sa
 
 Expiring-soon derivation SHALL use each sandbox's sandbox expiry time when present.
 
-Idle derivation SHALL use `lastActivityTime` when set, and otherwise the never-used creation-age heuristic in SSA-03.
+Idle derivation SHALL use `lastActivityTime` when set, and otherwise the never-used creation-age heuristic in OBS-SBXA-03.
 
 When Sandbox CR listing fails, the control plane SHALL still export orphaned counts derived from active sandbox pods and live Gateway namespaces, and SHALL treat expiring-soon and idle as zero for that tick (pod-only degrade). Orphaned derivation MUST NOT depend on Sandbox CR availability.
 
-Each successful attention reconcile tick SHALL update the control plane's exported OTLP attention gauges (SSA-06) to the newly derived cluster-local counts.
+Each successful attention reconcile tick SHALL update the control plane's exported OTLP attention gauges (OBS-SBXA-06) to the newly derived cluster-local counts.
 
 Attention counts SHALL be advisory recent values, matching the advisory semantics of `active_sandbox_count` (not a real-time guarantee).
 
-#### Scenario: Orphaned sandboxes are visible even though Active gauge excludes them
+#### Scenario: OBS-SBXA-05.01 -- Orphaned sandboxes are visible even though Active gauge excludes them
 
 - GIVEN `hypershell_gateways_active_sandboxes_total` reports `10` from live Gateways
 - AND 3 active sandbox pods exist in namespaces with no live Gateway
@@ -242,27 +242,27 @@ Attention counts SHALL be advisory recent values, matching the advisory semantic
 - THEN the orphaned count SHALL be `3`
 - AND the Active total used by the widget SHALL remain `10`
 
-#### Scenario: Attention derivation does not persist tallies in PostgreSQL
+#### Scenario: OBS-SBXA-05.02 -- Attention derivation does not persist tallies in PostgreSQL
 
 - GIVEN the control plane has derived orphaned `3`, expiring-soon `12`, and idle `7`
 - WHEN the control plane finishes an attention reconcile tick
-- THEN the control plane SHALL export those counts as OTLP gauges (SSA-06)
+- THEN the control plane SHALL export those counts as OTLP gauges (OBS-SBXA-06)
 - AND the control plane SHALL NOT upsert attention tallies into HyperShell PostgreSQL
 
 ---
 
-### Requirement: SSA-06 -- Control-Plane Attention Gauges
+### Requirement: OBS-SBXA-06 -- Control-Plane Attention Gauges
 
-The control plane SHALL export cluster-local attention counts as OpenTelemetry gauges over OTLP (CP-OBS-01 / CP-OBS-07):
+The control plane SHALL export cluster-local attention counts as OpenTelemetry gauges over OTLP (OBS-CPL-01 / OBS-CPL-07):
 
 | OTLP metric | Type | Unit | Meaning |
 | --- | --- | --- | --- |
-| `gateway.sandbox.orphaned` | Gauge | `{sandbox}` | Cluster-local orphaned active sandbox count (SSA-01) |
-| `gateway.sandbox.expiring` | Gauge | `{sandbox}` | Cluster-local expiring-soon active sandbox count (SSA-02) |
-| `gateway.sandbox.idle` | Gauge | `{sandbox}` | Cluster-local idle active sandbox count (SSA-03) |
+| `gateway.sandbox.orphaned` | Gauge | `{sandbox}` | Cluster-local orphaned active sandbox count (OBS-SBXA-01) |
+| `gateway.sandbox.expiring` | Gauge | `{sandbox}` | Cluster-local expiring-soon active sandbox count (OBS-SBXA-02) |
+| `gateway.sandbox.idle` | Gauge | `{sandbox}` | Cluster-local idle active sandbox count (OBS-SBXA-03) |
 
-Each gauge SHALL report a non-negative integer reflecting the most recently derived cluster-local count from SSA-05.
-Each gauge SHALL include a low-cardinality `hypershell.cluster_id` attribute set to the control plane's managed-cluster ID, or `default` when the control plane runs in single-cluster mode (empty cluster ID). The gauges SHALL NOT include a sandbox identifier, namespace, or Gateway identifier attribute (cardinality bound CP-OBS-06).
+Each gauge SHALL report a non-negative integer reflecting the most recently derived cluster-local count from OBS-SBXA-05.
+Each gauge SHALL include a low-cardinality `hypershell.cluster_id` attribute set to the control plane's managed-cluster ID, or `default` when the control plane runs in single-cluster mode (empty cluster ID). The gauges SHALL NOT include a sandbox identifier, namespace, or Gateway identifier attribute (cardinality bound OBS-CPL-06).
 
 When a hard attention reconcile failure prevents derivation (for example live Gateway inventory or sandbox pod listing fails), the control plane SHALL export zero for all three gauges on that tick so a prior successful tick cannot leave stale non-zero values exporting while the process remains healthy. Prometheus staleness still drops series when a control plane stops exporting entirely.
 
@@ -274,15 +274,15 @@ When exported to Prometheus, the gauges SHALL appear as:
 | `gateway_sandbox_expiring` | Expiring-soon count from `gateway.sandbox.expiring` |
 | `gateway_sandbox_idle` | Idle count from `gateway.sandbox.idle` |
 
-The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as provision-time metrics) SHALL expose those series. Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance, matching the pipeline used for `gateway_provision_duration_seconds` (GPT-00). Control-plane OTLP resources SHALL include `k8s.namespace.name` set to the instance namespace (`HYPERSHELL_NAMESPACE`) so BFF queries can scope series with `k8s_namespace_name` the same way as provision-time metrics.
+The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as provision-time metrics) SHALL expose those series. Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance, matching the pipeline used for `gateway_provision_duration_seconds` (OBS-GPT-09). Control-plane OTLP resources SHALL include `k8s.namespace.name` set to the instance namespace (`HYPERSHELL_NAMESPACE`) so BFF queries can scope series with `k8s_namespace_name` the same way as provision-time metrics.
 
 Fleet-wide attention totals for the dashboard SHALL dedupe control-plane replicas per managed cluster, then sum across clusters (for example `sum(max by (hypershell_cluster_id) (gateway_sandbox_orphaned))`). When `PROMETHEUS_NAMESPACE` is set, the series selector SHALL use `k8s_namespace_name`, not scrape `namespace`. When a control plane stops exporting, Prometheus staleness SHALL drop that instance from the sum so a silent or removed cluster does not inflate fleet totals indefinitely.
 
-When OTLP metrics are disabled (`OTEL_EXPORTER_OTLP_ENDPOINT` unset, or `OTEL_METRICS_EXPORTER=none`), attention gauges SHALL NOT be exported. The BFF SHALL treat missing attention series as attention unavailable (SSA-07) rather than synthesizing zeros.
+When OTLP metrics are disabled (`OTEL_EXPORTER_OTLP_ENDPOINT` unset, or `OTEL_METRICS_EXPORTER=none`), attention gauges SHALL NOT be exported. The BFF SHALL treat missing attention series as attention unavailable (OBS-SBXA-07) rather than synthesizing zeros.
 
 The Active gauge `hypershell_gateways_active_sandboxes_total` SHALL remain unchanged in meaning (sum of live Gateway `active_sandbox_count` values) and SHALL remain an API-server scrape metric. Attention gauges SHALL NOT be exposed from the API server `/metrics` endpoint.
 
-#### Scenario: Exported gauges report cluster-local attention totals
+#### Scenario: OBS-SBXA-06.01 -- Exported gauges report cluster-local attention totals
 
 - GIVEN the control plane has derived orphaned count `3`, expiring-soon count `12`, and idle count `7` for its managed clusters
 - AND OTLP metrics export is enabled
@@ -291,61 +291,61 @@ The Active gauge `hypershell_gateways_active_sandboxes_total` SHALL remain uncha
 - AND `gateway_sandbox_expiring` SHALL report `12`
 - AND `gateway_sandbox_idle` SHALL report `7`
 
-#### Scenario: Fleet sum aggregates multiple control planes
+#### Scenario: OBS-SBXA-06.02 -- Fleet sum aggregates multiple control planes
 
 - GIVEN one control-plane instance exports `gateway_sandbox_orphaned = 3` with `hypershell.cluster_id = cluster-a`
 - AND another control-plane instance exports `gateway_sandbox_orphaned = 1` with `hypershell.cluster_id = cluster-b`
 - WHEN the BFF evaluates the fleet orphaned PromQL
 - THEN the orphaned fleet total SHALL be `4`
 
-#### Scenario: Fleet PromQL dedupes control-plane replicas for the same cluster
+#### Scenario: OBS-SBXA-06.03 -- Fleet PromQL dedupes control-plane replicas for the same cluster
 
 - GIVEN two control-plane pods for `hypershell.cluster_id = cluster-a` each export `gateway_sandbox_orphaned = 3`
 - WHEN the BFF evaluates the fleet orphaned PromQL
 - THEN the orphaned fleet total SHALL be `3` (not `6`)
 
-#### Scenario: Hard derive failure exports zeros
+#### Scenario: OBS-SBXA-06.04 -- Hard derive failure exports zeros
 
 - GIVEN the previous successful tick exported orphaned `3`, expiring-soon `12`, and idle `7`
 - AND the next tick fails to list live Gateway namespaces
 - WHEN that failed tick completes
 - THEN the control plane SHALL export orphaned `0`, expiring-soon `0`, and idle `0`
 
-#### Scenario: Attention gauges are absent when OTLP metrics are disabled
+#### Scenario: OBS-SBXA-06.05 -- Attention gauges are absent when OTLP metrics are disabled
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set on the control plane
 - WHEN the BFF queries attention PromQL
 - THEN the attention series SHALL be absent
-- AND the BFF SHALL omit attention fields per SSA-07
+- AND the BFF SHALL omit attention fields per OBS-SBXA-07
 
 ---
 
-### Requirement: SSA-07 -- BFF Gateway Sandboxes Attention Fields
+### Requirement: OBS-SBXA-07 -- BFF Gateway Sandboxes Attention Fields
 
 The web-console BFF SHALL extend `GET /api/metrics/gateway-sandboxes` with optional attention fields while preserving existing instant and trend fields:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `active_sandboxes` | number | Yes | Existing fleet Active total (unchanged) |
-| `orphaned_sandboxes` | number | No | Fleet orphaned count (SSA-01), `sum(max by (hypershell_cluster_id) (gateway_sandbox_orphaned))` |
-| `expiring_sandboxes` | number | No | Fleet expiring-soon count (SSA-02), `sum(max by (hypershell_cluster_id) (gateway_sandbox_expiring))` |
-| `idle_sandboxes` | number | No | Fleet idle count (SSA-03), `sum(max by (hypershell_cluster_id) (gateway_sandbox_idle))` |
-| `hourly_active_sandboxes` | array | No | Existing (GSAT-03) |
-| `daily_active_sandboxes` | array | No | Existing (GSAT-03) |
+| `orphaned_sandboxes` | number | No | Fleet orphaned count (OBS-SBXA-01), `sum(max by (hypershell_cluster_id) (gateway_sandbox_orphaned))` |
+| `expiring_sandboxes` | number | No | Fleet expiring-soon count (OBS-SBXA-02), `sum(max by (hypershell_cluster_id) (gateway_sandbox_expiring))` |
+| `idle_sandboxes` | number | No | Fleet idle count (OBS-SBXA-03), `sum(max by (hypershell_cluster_id) (gateway_sandbox_idle))` |
+| `hourly_active_sandboxes` | array | No | Existing (OBS-SBXT-03) |
+| `daily_active_sandboxes` | array | No | Existing (OBS-SBXT-03) |
 
 When the Active instant query succeeds but one or more attention gauges fail or are absent, the BFF SHALL respond with HTTP `200`, include `active_sandboxes`, and SHALL omit only the failed or absent attention field(s).
 When the Active instant query fails, the BFF SHALL continue to respond with HTTP `502` and SHALL NOT return attention-only JSON without `active_sandboxes`.
 
-Dashboard-operator authorization SHALL remain as defined in OP-DASH-06.
+Dashboard-operator authorization SHALL remain as defined in WEB-OPS-06.
 
-#### Scenario: Successful response includes Active and all attention fields
+#### Scenario: OBS-SBXA-07.01 -- Successful response includes Active and all attention fields
 
 - GIVEN Prometheus returns successful Active, orphaned, expiring-soon, and idle instant queries
 - WHEN an authorized caller sends `GET /api/metrics/gateway-sandboxes`
 - THEN the BFF SHALL respond with HTTP `200`
 - AND the body SHALL include `active_sandboxes`, `orphaned_sandboxes`, `expiring_sandboxes`, and `idle_sandboxes`
 
-#### Scenario: Attention gauge failure omits only failed attention fields
+#### Scenario: OBS-SBXA-07.02 -- Attention gauge failure omits only failed attention fields
 
 - GIVEN Prometheus returns a successful Active instant query
 - AND the orphaned, expiring-soon, and idle instant queries fail or return no series
@@ -355,7 +355,7 @@ Dashboard-operator authorization SHALL remain as defined in OP-DASH-06.
 
 ---
 
-### Requirement: SSA-08 -- Adapter Mapping onto provisioned-sandboxes
+### Requirement: OBS-SBXA-08 -- Adapter Mapping onto provisioned-sandboxes
 
 The host `DashboardControlPlane` adapter SHALL map attention fields from `GET /api/metrics/gateway-sandboxes` onto the existing `provisioned-sandboxes` metric used by the Sandbox status widget:
 
@@ -372,9 +372,9 @@ When an attention BFF field is absent, the adapter SHALL omit only that attentio
 The adapter SHALL NOT synthesize attention zeros from a missing field.
 The adapter SHALL NOT fail the `gateway-metrics` source solely because attention fields are missing while Active succeeds.
 
-Hourly and daily Active trends SHALL continue to map per GSAT-06.
+Hourly and daily Active trends SHALL continue to map per OBS-SBXT-06.
 
-#### Scenario: Adapter maps attention counts
+#### Scenario: OBS-SBXA-08.01 -- Adapter maps attention counts
 
 - GIVEN the BFF returns `{ "active_sandboxes": 214, "orphaned_sandboxes": 3, "expiring_sandboxes": 12, "idle_sandboxes": 7 }`
 - WHEN the adapter builds `provisioned-sandboxes`
@@ -383,7 +383,7 @@ Hourly and daily Active trends SHALL continue to map per GSAT-06.
 - AND the expiring-soon attention count SHALL be `12`
 - AND the idle attention count SHALL be `7`
 
-#### Scenario: Missing attention fields do not invent zeros
+#### Scenario: OBS-SBXA-08.02 -- Missing attention fields do not invent zeros
 
 - GIVEN the BFF returns `{ "active_sandboxes": 214 }` without attention fields
 - WHEN the adapter builds `provisioned-sandboxes`
@@ -392,14 +392,14 @@ Hourly and daily Active trends SHALL continue to map per GSAT-06.
 
 ---
 
-### Requirement: SSA-09 -- Sandbox Status Widget Attention Presentation
+### Requirement: OBS-SBXA-09 -- Sandbox Status Widget Attention Presentation
 
 The `sandbox-status` widget SHALL continue to show:
 
 1. The Active total and Active legend from `provisioned-sandboxes.value`
 2. Optional **Last 24 hours** and **Last 7 days** Active trend sparklines (GSAT / existing Sandbox status card behavior)
 
-The widget SHALL add an **Attention required** section between the Active summary and the trend sparklines when at least one present attention count is greater than `0` (SSA-08).
+The widget SHALL add an **Attention required** section between the Active summary and the trend sparklines when at least one present attention count is greater than `0` (OBS-SBXA-08).
 
 The Attention required section SHALL show:
 
@@ -423,9 +423,9 @@ When only some attention fields are present, the widget SHALL render chips only 
 
 Optional Active trend sparklines SHALL follow the Users card pattern: a horizontal rule above the sparkline block, a localized heading above each sparkline (**Active sandboxes per hour** for the 24-hour series, **Active sandboxes per day** for the 7-day series), and the existing window captions (**Last 24 hours** / **Last 7 days**).
 
-Layout height / persistence key bumps SHALL follow the same pattern as other adoption widgets when the default template would clip the new section (OP-DASH-11).
+Layout height / persistence key bumps SHALL follow the same pattern as other adoption widgets when the default template would clip the new section (WEB-OPS-11).
 
-#### Scenario: Attention section shows non-zero counts
+#### Scenario: OBS-SBXA-09.01 -- Attention section shows non-zero counts
 
 - GIVEN `provisioned-sandboxes` has `value: "214"`, orphaned `3`, expiring soon `12`, idle `7`
 - WHEN the Sandbox status widget renders
@@ -435,14 +435,14 @@ Layout height / persistence key bumps SHALL follow the same pattern as other ado
 - AND Attention required SHALL show Idle `7` with `RhUiAsleepIcon`
 - AND all three Labels SHALL be non-interactive
 
-#### Scenario: Zero attention counts hide the section
+#### Scenario: OBS-SBXA-09.02 -- Zero attention counts hide the section
 
 - GIVEN `provisioned-sandboxes` has orphaned `0`, expiring soon `0`, and idle `0`
 - WHEN the Sandbox status widget renders
 - THEN Attention required SHALL NOT be visible
 - AND Active and any available trends SHALL still render
 
-#### Scenario: Mixed zero and non-zero counts show only non-zero chips
+#### Scenario: OBS-SBXA-09.03 -- Mixed zero and non-zero counts show only non-zero chips
 
 - GIVEN `provisioned-sandboxes` has orphaned `3`, expiring soon `0`, and idle `0`
 - WHEN the Sandbox status widget renders
@@ -450,7 +450,7 @@ Layout height / persistence key bumps SHALL follow the same pattern as other ado
 - AND Attention required SHALL show Orphaned `3`
 - AND Expiring soon and Idle Labels SHALL NOT render
 
-#### Scenario: Attention unavailable keeps Active visible
+#### Scenario: OBS-SBXA-09.04 -- Attention unavailable keeps Active visible
 
 - GIVEN `provisioned-sandboxes` has `value: "214"` without attention fields
 - AND Active trends are present
@@ -461,16 +461,16 @@ Layout height / persistence key bumps SHALL follow the same pattern as other ado
 
 ---
 
-### Requirement: SSA-10 -- Partial Failure and Refresh Behavior
+### Requirement: OBS-SBXA-10 -- Partial Failure and Refresh Behavior
 
-Attention data SHALL be optional within the `gateway-metrics` metric source (OP-DASH-19), matching the optional treatment of sandbox trends (GSAT-08).
+Attention data SHALL be optional within the `gateway-metrics` metric source (WEB-OPS-19), matching the optional treatment of sandbox trends (OBS-SBXT-08).
 
 A failure to load orphaned, expiring-soon, or idle counts SHALL NOT omit instant Active `provisioned-sandboxes` when the Active query succeeds.
 An attention failure SHALL NOT omit `provisioned-gateways`, `provision-time`, or `provision-reliability` when those routes succeed.
 
 Attention counts SHALL refresh on the same operational dashboard cadence as other metrics (`operationalDashboardRefreshMilliseconds`, 15 minutes).
 
-#### Scenario: Attention failure does not hide Active total
+#### Scenario: OBS-SBXA-10.01 -- Attention failure does not hide Active total
 
 - GIVEN `GET /api/metrics/gateway-sandboxes` returns `{ "active_sandboxes": 8 }` without attention fields
 - AND other gateway-metrics routes succeed
@@ -481,7 +481,7 @@ Attention counts SHALL refresh on the same operational dashboard cadence as othe
 
 ---
 
-### Requirement: SSA-11 -- Verification
+### Requirement: OBS-SBXA-11 -- Verification
 
 The control plane SHALL include tests covering:
 
@@ -505,7 +505,7 @@ The operational dashboard package SHALL:
 - Extend fixtures / Storybook states for Sandbox status with representative attention counts, zero counts, and attention-unavailable
 - Document the control-plane gauges, Prometheus series, and BFF fields in `packages/operational-dashboard-ui/DATA_SOURCES.md`
 
-#### Scenario: CI exercises attention adapter mapping
+#### Scenario: OBS-SBXA-11.01 -- CI exercises attention adapter mapping
 
 - GIVEN a mocked BFF gateway-sandboxes response with known `orphaned_sandboxes`, `expiring_sandboxes`, and `idle_sandboxes`
 - WHEN dashboard adapter unit tests run
@@ -527,7 +527,7 @@ The operational dashboard package SHALL:
 - Upstream agent-sandbox exposes `status.lastActivityTime` when the router/SDK reports activity; HyperShell can observe that field for idle evaluation.
 - Managed gateway namespaces remain attributable the same way as namespace GC (`openshell-gateway-namespace-gc.spec.md`): HyperShell can tell which namespaces are (or were) gateway namespaces for this instance.
 - The Sandbox status widget continues to bind to the `provisioned-sandboxes` metric (current package behavior).
-- Control-plane OTLP metrics are routed into the same Prometheus instance the BFF uses for provision-time and provision-reliability (GPT-00 / GPO).
+- Control-plane OTLP metrics are routed into the same Prometheus instance the BFF uses for provision-time and provision-reliability (OBS-GPT-09 / GPO).
 
 ## Alternatives Considered
 

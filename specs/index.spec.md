@@ -24,6 +24,12 @@ UI standards cover accessible, usable, trustworthy, resilient, and verifiable we
 
 SDLC standards cover the agent-based development funnel and its synchronization with Jira in `standards/sdlc/`.
 
+## Requirement and Scenario IDs
+
+Every requirement and scenario has a stable `MODULE-GROUP-NN` identifier
+(`specs/standards/platform/spec-identifiers.spec.md`). The module/group
+registry lives in [`ids.md`](ids.md).
+
 ## Spec Registry
 
 Machine-readable index for autonomous reconciliation (`/reconcile` skill).
@@ -64,6 +70,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/cluster-pods.spec.md` | platform | Hub cluster pod utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, hub-cluster-utilization-trends, cluster-memory, cluster-cpu, gateway-metrics-dashboard, local-development |
 | `platform/cluster-nodes.spec.md` | platform | Hub cluster node inventory for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-pods, gateway-metrics-dashboard, local-development |
 | `platform/gateway-provision-time.spec.md` | platform | Gateway provision duration (mean, P50, P95) from control-plane histogram for operational dashboard | WEB, deploy, CP | web-console/operational-dashboard, control-plane-observability, cluster-memory |
+| `standards/platform/spec-identifiers.spec.md` | standards | Requirement/scenario ID syntax, `ids.md` registry, stability rules, verification method | ALL | - |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
@@ -86,6 +93,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
 | `platform/agent-runtime-images.spec.md` | platform | Full and slim agent runtime images, pinned inputs, security and release bundle delivery | agents, CLI | hsctl-release |
 | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | platform | Argo Application sync-retry count (status.operationState.retryCount) threaded to the gate details pane as nullable syncRetries with plain-English tooltip | WEB | gateway-managed-cluster-attribution |
+| `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | platform | Promotion-topology map geometry: every stage HUB on one centered horizontal spine, change diamond + analysis gates + terminal gate riding that line, HUB-first ordering so the hub always takes the spine, visible provider lanes (AWS/IBM/...) with the hub-hosting lane centered on the spine under the single-cloud-hub assumption (multi-cloud tension noted), role and provider together govern vertical placement, pure deterministic baked-in-free geometry | WEB | fleet-dashboard-sync-retry-visibility |
 | `platform/agent-sdlc-visibility-dashboard.spec.md` | platform | Agent SDLC tab for the glass dashboard: aging WIP board, rework meter, escalation lane, release x hub-cluster matrix; new /api/sdlc plane behind SdlcStateProvider port (GitHub adapter, Jira drop-in seam), shared cached bundle truth, label-event history from the GitHub timeline | WEB | fleet-dashboard-sync-retry-visibility, jira-github-sync, gateway-managed-cluster-attribution, UI standards |
 | `platform/e2e-run-log-visibility.spec.md` | platform | Opt-in structured NDJSON run reporting (hypershell.e2e.v1) consumed by the glass dashboard E2E run view: new /api/e2e/runs, /api/e2e/runs/{id}, /api/e2e/stream planes; Loki query_range history + tail live streaming behind an app port; FD_E2E_LOKI_* config; snapshot/tail bridge with dedup by runId/sequence; run-to-promotion correlation by env+hydrated revision; degraded-state distinctions | WEB, BFF | e2e-testing, fleet-dashboard-sync-retry-visibility, gateway-managed-cluster-attribution, domain-observability, UI standards |
 | `platform/glass-url-addressable-navigation.spec.md` | platform | One typed route/query contract for the glass dashboard making every tab, bundle, drawer, selection, sort, filter, and execution view URL-addressable; framework-free route codec + History adapter; pushState vs replaceState policy; hydration before data; popstate without loops; collision-free run identity and pinned-vs-live gate targets; bounded subscriptions under URL-driven navigation; SPA deep-link/base-path delivery | WEB | agent-sdlc-visibility-dashboard, e2e-run-log-visibility, hexagonal-architecture, accessibility, interaction, web-console/architecture |

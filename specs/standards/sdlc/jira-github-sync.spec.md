@@ -182,7 +182,7 @@ is its effective source even though the value lives in Jira.
 
 ## Requirements
 
-### Requirement: Authorization Gate Is Load-Bearing
+### Requirement: SDLC-JIRA-01 -- Authorization Gate Is Load-Bearing
 
 `agent/allowed` SHALL be the human authorization gate for the entire funnel. No
 funnel step that performs an outward-facing write SHALL act on a work item that
@@ -212,7 +212,7 @@ Authorization SHALL be granted only by a human. NO agent step SHALL apply
 and SHALL carry only its canonical-link marker (`agent/execution-record`) and the
 funnel scope label; it SHALL remain inert until a human grants `agent/allowed`.
 
-#### Scenario: Scoped but unauthorized item is not ingested
+#### Scenario: SDLC-JIRA-01.01 -- Scoped but unauthorized item is not ingested
 
 - GIVEN a GitHub issue carrying `agent/scope/<user>` but NOT `agent/allowed`
 - WHEN intake runs
@@ -220,14 +220,14 @@ funnel scope label; it SHALL remain inert until a human grants `agent/allowed`.
 - AND no canonical link is created
 - AND the issue is not treated as an in-scope execution record
 
-#### Scenario: Reconcile skips an unauthorized record
+#### Scenario: SDLC-JIRA-01.02 -- Reconcile skips an unauthorized record
 
 - GIVEN an execution record carrying the funnel scope label but NOT `agent/allowed`
 - WHEN reconciliation runs against it
 - THEN no Jira or GitHub write is performed
 - AND the record is reported as skipped, not failed
 
-#### Scenario: Work selection excludes an unauthorized record
+#### Scenario: SDLC-JIRA-01.03 -- Work selection excludes an unauthorized record
 
 - GIVEN an execution record carrying the funnel scope label and an active phase
   label but NOT `agent/allowed`
@@ -235,21 +235,21 @@ funnel scope label; it SHALL remain inert until a human grants `agent/allowed`.
 - THEN the record is not a candidate
 - AND no SDLC phase runs against it
 
-#### Scenario: Intake does not self-authorize a created record
+#### Scenario: SDLC-JIRA-01.04 -- Intake does not self-authorize a created record
 
 - GIVEN an authorized, in-scope Jira item with no linked GitHub execution record
 - WHEN intake creates the GitHub execution record
 - THEN the new record carries `agent/execution-record` and the funnel scope label
 - AND the new record does NOT carry `agent/allowed`
 
-#### Scenario: Granting authorization lets the funnel proceed
+#### Scenario: SDLC-JIRA-01.05 -- Granting authorization lets the funnel proceed
 
 - GIVEN a scoped execution record that was inert because it lacked `agent/allowed`
 - WHEN a human adds `agent/allowed` to the record
 - AND the funnel runs again
 - THEN the record is reconciled and becomes selectable for its phase
 
-### Requirement: Origin-Agnostic Intake
+### Requirement: SDLC-JIRA-02 -- Origin-Agnostic Intake
 
 The funnel scope selector SHALL accept a Jira source in addition to a GitHub
 label. A Jira source is a Jira label, a JQL query, an epic key, or a combination
@@ -293,7 +293,7 @@ execution record for one work item, the state is ambiguous: intake SHALL NOT
 guess, SHALL NOT create another record, and SHALL STOP and report an error that
 names the work item and asks a human to resolve the duplicates.
 
-#### Scenario: GitHub-first item gets a Jira epic and canonical link
+#### Scenario: SDLC-JIRA-02.01 -- GitHub-first item gets a Jira epic and canonical link
 
 - GIVEN an in-scope GitHub-origin execution record carrying the funnel scope
   label and the `agent/execution-record` marker
@@ -304,14 +304,14 @@ names the work item and asks a human to resolve the duplicates.
 - AND the GitHub issue remains the execution record that drives execution
 - AND no second GitHub execution record is created
 
-#### Scenario: GitHub-first intake is idempotent
+#### Scenario: SDLC-JIRA-02.02 -- GitHub-first intake is idempotent
 
 - GIVEN a GitHub-origin item already canonically linked to a Jira epic
 - WHEN intake runs again
 - THEN no new Jira epic is created
 - AND the existing linked pair is returned unchanged
 
-#### Scenario: Jira epic enters the funnel
+#### Scenario: SDLC-JIRA-02.03 -- Jira epic enters the funnel
 
 - GIVEN a Jira scope that selects epic `HYPERSHELL-374`
 - AND no GitHub execution record is linked to it
@@ -320,21 +320,21 @@ names the work item and asks a human to resolve the duplicates.
 - AND it carries the funnel scope label
 - AND it is canonically linked to `HYPERSHELL-374`
 
-#### Scenario: Intake is idempotent
+#### Scenario: SDLC-JIRA-02.04 -- Intake is idempotent
 
 - GIVEN a Jira-origin item already linked to a GitHub execution record
 - WHEN intake runs again
 - THEN no new GitHub issue is created
 - AND the existing execution record is returned unchanged
 
-#### Scenario: GitHub-origin item needs no second record
+#### Scenario: SDLC-JIRA-02.05 -- GitHub-origin item needs no second record
 
 - GIVEN a GitHub issue carrying the funnel scope label
 - WHEN intake runs
 - THEN the issue itself is the execution record
 - AND no additional GitHub issue is created
 
-#### Scenario: Multiple execution records for one item stop intake
+#### Scenario: SDLC-JIRA-02.06 -- Multiple execution records for one item stop intake
 
 - GIVEN a Jira-origin work item
 - AND more than one GitHub execution record matches that work item
@@ -344,7 +344,7 @@ names the work item and asks a human to resolve the duplicates.
 - AND intake stops and reports an error that names the work item and asks a
   human to resolve the duplicate records
 
-### Requirement: Canonical Identity Link
+### Requirement: SDLC-JIRA-03 -- Canonical Identity Link
 
 Every work item SHALL have a bidirectional canonical link between the Jira item
 and its GitHub execution record. The link SHALL be created if missing in either
@@ -355,14 +355,14 @@ item.
 The link SHALL be durable and machine-resolvable from either side, so later
 phases and the reconciler locate the counterpart without re-deriving it.
 
-#### Scenario: Link created from the Jira side
+#### Scenario: SDLC-JIRA-03.01 -- Link created from the Jira side
 
 - GIVEN a Jira-origin item with no GitHub record
 - WHEN intake creates the GitHub execution record
 - THEN the Jira item references the GitHub record
 - AND the GitHub record references the Jira item
 
-#### Scenario: Link created from the GitHub side
+#### Scenario: SDLC-JIRA-03.02 -- Link created from the GitHub side
 
 - GIVEN a GitHub-origin execution record with the `agent/execution-record` marker
 - AND no Jira counterpart yet exists
@@ -370,7 +370,7 @@ phases and the reconciler locate the counterpart without re-deriving it.
 - THEN a Jira epic is created for it
 - AND a bidirectional canonical link to that epic is created
 
-### Requirement: Canonical-Link-Only Resolution
+### Requirement: SDLC-JIRA-04 -- Canonical-Link-Only Resolution
 
 `ingest` and `reconcile` SHALL resolve a GitHub execution record's Jira
 counterpart ONLY through the canonical link: the `agent/execution-record` marker
@@ -392,7 +392,7 @@ GitHub-origin item with no Jira item yet; intake SHALL create and link one (see
 Origin-Agnostic Intake), and `reconcile` invoked before that link exists SHALL
 report nothing to reconcile and STOP without error.
 
-#### Scenario: Descriptive key mention does not resolve a Jira item
+#### Scenario: SDLC-JIRA-04.01 -- Descriptive key mention does not resolve a Jira item
 
 - GIVEN a GitHub-origin execution record whose body mentions `HYPERSHELL-374` to
   describe related work
@@ -403,14 +403,14 @@ report nothing to reconcile and STOP without error.
 - AND it does not write to `HYPERSHELL-374`
 - AND it treats this record as having no Jira counterpart
 
-#### Scenario: Marker plus exact key resolves the correct counterpart
+#### Scenario: SDLC-JIRA-04.02 -- Marker plus exact key resolves the correct counterpart
 
 - GIVEN a GitHub execution record carrying the `agent/execution-record` marker
 - AND its body records the exact Jira key of its own canonically linked epic
 - WHEN reconciliation resolves the counterpart
 - THEN it resolves exactly that epic and no other
 
-### Requirement: Scope Reconciliation Covers Both Origins
+### Requirement: SDLC-JIRA-05 -- Scope Reconciliation Covers Both Origins
 
 A scope run SHALL reconcile EVERY in-scope execution record, of either origin.
 Reconciliation SHALL NOT be limited to records that intake resolved from a Jira
@@ -425,7 +425,7 @@ counterpart, the reconciler SHALL converge all of them under the Per-Field
 Authority rule. A record that carries the scope label but not `agent/allowed`
 SHALL be skipped (no write), not failed (see Authorization Gate Is Load-Bearing).
 
-#### Scenario: GitHub-origin record is reconciled by a scope run
+#### Scenario: SDLC-JIRA-05.01 -- GitHub-origin record is reconciled by a scope run
 
 - GIVEN an in-scope GitHub-origin execution record whose pull request has merged
   to `main`
@@ -435,14 +435,14 @@ SHALL be skipped (no write), not failed (see Authorization Gate Is Load-Bearing)
 - AND the merge commit appears as a remote link on the Jira item
 - AND the GitHub execution record is closed
 
-#### Scenario: Scope run reconciles records of both origins
+#### Scenario: SDLC-JIRA-05.02 -- Scope run reconciles records of both origins
 
 - GIVEN a scope containing one Jira-origin and one GitHub-origin execution record
 - WHEN a scope run reconciles
 - THEN both records receive status projection, artifact links, and narrative
 - AND neither origin is skipped
 
-### Requirement: Status Projection
+### Requirement: SDLC-JIRA-06 -- Status Projection
 
 As the GitHub execution record moves through SDLC phases, the linked Jira item's
 status SHALL reflect the current phase per the Phase-to-Status Mapping. The
@@ -455,25 +455,25 @@ an error, never a hand-set arbitrary status. A Closed execution record projects
 to the `Done` category independently of merge detection (see Closed Execution
 Record Projects Done).
 
-#### Scenario: Spec phase moves Jira to In Progress
+#### Scenario: SDLC-JIRA-06.01 -- Spec phase moves Jira to In Progress
 
 - GIVEN a linked work item whose GitHub record enters `agent/reviewable-spec`
 - WHEN status projection runs
 - THEN the Jira item's status becomes In Progress
 
-#### Scenario: Merge moves Jira to Done
+#### Scenario: SDLC-JIRA-06.02 -- Merge moves Jira to Done
 
 - GIVEN a linked work item whose pull request merges to `main`
 - WHEN status projection runs
 - THEN the Jira item's status becomes Done
 
-#### Scenario: Projection is a no-op when already aligned
+#### Scenario: SDLC-JIRA-06.03 -- Projection is a no-op when already aligned
 
 - GIVEN a linked work item already in the status its phase maps to
 - WHEN status projection runs
 - THEN no transition is attempted
 
-### Requirement: Closed Execution Record Projects Done
+### Requirement: SDLC-JIRA-07 -- Closed Execution Record Projects Done
 
 GitHub is authoritative for an execution record's open/closed state, so a Closed
 record is an authoritative terminal signal in its own right. When the GitHub
@@ -498,28 +498,28 @@ SHALL honor per-field authority - it projects status only and SHALL NOT write
 assignee, priority, or intent. An open execution record with no merged pull
 request SHALL remain projected to `In Progress` and SHALL NOT be forced to `Done`.
 
-#### Scenario: Closed record with no merged pull request projects Done
+#### Scenario: SDLC-JIRA-07.01 -- Closed record with no merged pull request projects Done
 
 - GIVEN a linked execution record that is Closed
 - AND no merged pull request is detectable for it
 - WHEN reconciliation runs
 - THEN the Jira item's status is in the `Done` category
 
-#### Scenario: Open record without a merged pull request stays In Progress
+#### Scenario: SDLC-JIRA-07.02 -- Open record without a merged pull request stays In Progress
 
 - GIVEN a linked execution record that is Open
 - AND has no merged pull request
 - WHEN reconciliation runs
 - THEN the Jira item's status stays in the `In Progress` category
 
-#### Scenario: Closed-record Done projection is idempotent
+#### Scenario: SDLC-JIRA-07.03 -- Closed-record Done projection is idempotent
 
 - GIVEN a Closed execution record whose Jira item is already in the `Done`
   category
 - WHEN reconciliation runs again
 - THEN no transition is attempted and no field is written
 
-### Requirement: Terminal Execution Record Closure
+### Requirement: SDLC-JIRA-08 -- Terminal Execution Record Closure
 
 When a work item reaches its terminal Done state - the linked pull request is
 merged to `main` - the reconciler SHALL converge the ENTIRE stack of tickets to a
@@ -541,7 +541,7 @@ record has a merged pull request SHALL therefore converge the record, the pull
 request, and the Jira item to a consistent terminal state, including closing any
 already-merged-but-open execution record. Re-running SHALL change nothing.
 
-#### Scenario: Merge closes the execution record
+#### Scenario: SDLC-JIRA-08.01 -- Merge closes the execution record
 
 - GIVEN a linked work item whose pull request has merged to `main`
 - AND whose GitHub execution record is still Open
@@ -550,54 +550,54 @@ already-merged-but-open execution record. Re-running SHALL change nothing.
 - AND the Jira item's status is in the `Done` category
 - AND the merge commit appears as a remote link on the Jira item
 
-#### Scenario: Unmerged record stays open
+#### Scenario: SDLC-JIRA-08.02 -- Unmerged record stays open
 
 - GIVEN a linked work item whose pull request is not yet merged
 - WHEN reconciliation runs
 - THEN the GitHub execution record remains Open
 
-#### Scenario: Closing an already-closed record is a no-op
+#### Scenario: SDLC-JIRA-08.03 -- Closing an already-closed record is a no-op
 
 - GIVEN a linked work item whose pull request is merged
 - AND whose GitHub execution record is already closed
 - WHEN reconciliation runs again
 - THEN no change is made to the execution record
 
-### Requirement: Artifact Remote Links
+### Requirement: SDLC-JIRA-09 -- Artifact Remote Links
 
 The branch, each pull request, and the merge commit of a work item SHALL appear
 on the linked Jira item as remote links. Remote links SHALL be update-or-create:
 re-running SHALL update the existing link for a given artifact rather than
 creating a duplicate.
 
-#### Scenario: Pull request becomes a remote link
+#### Scenario: SDLC-JIRA-09.01 -- Pull request becomes a remote link
 
 - GIVEN a linked work item with an open pull request
 - WHEN artifact sync runs
 - THEN the pull request URL appears as a remote link on the Jira item
 
-#### Scenario: Re-run does not duplicate links
+#### Scenario: SDLC-JIRA-09.02 -- Re-run does not duplicate links
 
 - GIVEN a Jira item that already has the pull request as a remote link
 - WHEN artifact sync runs again
 - THEN the existing remote link is updated in place
 - AND no duplicate remote link is created
 
-### Requirement: Narrative Comments
+### Requirement: SDLC-JIRA-10 -- Narrative Comments
 
 Each SDLC phase transition SHALL post a Jira comment describing the transition.
 The comment SHALL be attributed to the human owner, phrased as acting on behalf
 of the owner. An agent SHALL NOT post a comment that claims the agent as the
 author of the work.
 
-#### Scenario: Phase transition posts an attributed comment
+#### Scenario: SDLC-JIRA-10.01 -- Phase transition posts an attributed comment
 
 - GIVEN a linked work item whose GitHub record transitions phase
 - WHEN narrative sync runs
 - THEN a Jira comment records the transition
 - AND the comment is attributed on behalf of the human owner
 
-### Requirement: Bidirectional Reconciliation
+### Requirement: SDLC-JIRA-11 -- Bidirectional Reconciliation
 
 Jira and GitHub SHALL be reconciled from each other under the Per-Field Authority
 rule. For each field, the reconciler SHALL copy the value from the authoritative
@@ -605,27 +605,27 @@ system to the other and SHALL NOT write back toward the authority. Reconciliatio
 SHALL be idempotent and drift-correcting: a field that has diverged SHALL be
 restored to the authority's value, and a run with no drift SHALL make no change.
 
-#### Scenario: Jira-authoritative field drift is corrected
+#### Scenario: SDLC-JIRA-11.01 -- Jira-authoritative field drift is corrected
 
 - GIVEN a work item whose description differs between Jira and GitHub
 - WHEN reconciliation runs
 - THEN the GitHub record's description matches the Jira description
 - AND the Jira description is unchanged
 
-#### Scenario: GitHub-authoritative field drift is corrected
+#### Scenario: SDLC-JIRA-11.02 -- GitHub-authoritative field drift is corrected
 
 - GIVEN a work item whose phase advanced in GitHub but whose Jira status lags
 - WHEN reconciliation runs
 - THEN the Jira status matches the phase per the mapping
 - AND the GitHub phase is unchanged
 
-#### Scenario: Second pass makes zero changes
+#### Scenario: SDLC-JIRA-11.03 -- Second pass makes zero changes
 
 - GIVEN a work item that was just fully reconciled
 - WHEN reconciliation runs a second time
 - THEN no field is written in either system
 
-### Requirement: Safety and Approval Gates
+### Requirement: SDLC-JIRA-12 -- Safety and Approval Gates
 
 All writes performed by intake, projection, artifact sync, narrative sync, and
 reconciliation SHALL respect `--dry-run` and the funnel's existing approval
@@ -634,27 +634,27 @@ Is Load-Bearing). Under `--dry-run`, every would-be write SHALL be reported and
 none SHALL be performed. No partial failure SHALL be silently swallowed: every
 failed write SHALL be propagated or collected and reported.
 
-#### Scenario: Dry-run performs no writes
+#### Scenario: SDLC-JIRA-12.01 -- Dry-run performs no writes
 
 - GIVEN the funnel runs with `--dry-run`
 - WHEN intake, projection, and reconciliation execute
 - THEN no GitHub or Jira write occurs
 - AND each would-be write is reported
 
-#### Scenario: Partial failure is reported
+#### Scenario: SDLC-JIRA-12.02 -- Partial failure is reported
 
 - GIVEN a reconciliation pass in which one Jira write fails
 - WHEN the pass completes
 - THEN the failure is reported
 - AND it is not silently ignored
 
-### Requirement: Credit Preservation
+### Requirement: SDLC-JIRA-13 -- Credit Preservation
 
 The Jira assignee SHALL remain the human owner throughout the funnel. Agents
 SHALL NOT set themselves as the Jira assignee and SHALL NOT claim authorship of
 the work in any Jira field or comment.
 
-#### Scenario: Assignee is unchanged after a run
+#### Scenario: SDLC-JIRA-13.01 -- Assignee is unchanged after a run
 
 - GIVEN a Jira item assigned to its human owner
 - WHEN the funnel processes the item through any phase

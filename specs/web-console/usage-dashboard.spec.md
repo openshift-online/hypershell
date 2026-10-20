@@ -61,7 +61,7 @@ The dashboard uses the same BFF-to-Prometheus architecture as the other operatio
 
 ## Requirements
 
-### Requirement: USAGE-DASH-01 - Package placement and exports
+### Requirement: WEB-USE-01 -- Package placement and exports
 
 The `@openshift-online/hypershell-operational-dashboard-ui` package SHALL host the usage dashboard presentation layer alongside the operational and reliability dashboards.
 
@@ -79,7 +79,7 @@ The package SHALL export at minimum:
 
 Presentation code SHALL NOT call `fetch`, the SDK, or BFF routes directly. Usage loading SHALL go through the host-injected application port.
 
-#### Scenario: Host imports the usage page
+#### Scenario: WEB-USE-01.01 -- Host imports the usage page
 
 - GIVEN the web console depends on `@openshift-online/hypershell-operational-dashboard-ui`
 - WHEN the host route renders `UsageDashboardPage` inside `DashboardUiProvider`
@@ -87,7 +87,7 @@ Presentation code SHALL NOT call `fetch`, the SDK, or BFF routes directly. Usage
 
 ---
 
-### Requirement: USAGE-DASH-02 - Hexagonal application boundary
+### Requirement: WEB-USE-02 -- Hexagonal application boundary
 
 The usage dashboard SHALL follow the narrow hexagonal UI boundary defined in `standards/ui/hexagonal-architecture.spec.md`.
 
@@ -97,7 +97,7 @@ The usage dashboard SHALL follow the narrow hexagonal UI boundary defined in `st
 - Workflow probes SHALL be published for usage load with outcomes `started`, `succeeded`, `failed`, or `cancelled`.
 - A partial metric-source failure SHALL publish a dashboard partial-failure probe.
 
-#### Scenario: AbortSignal propagates
+#### Scenario: WEB-USE-02.01 -- AbortSignal propagates
 
 - GIVEN a usage metrics request is cancelled
 - WHEN `getUsageMetrics` is in flight
@@ -106,7 +106,7 @@ The usage dashboard SHALL follow the narrow hexagonal UI boundary defined in `st
 
 ---
 
-### Requirement: USAGE-DASH-03 - Authenticated access and resource scope
+### Requirement: WEB-USE-03 -- Authenticated access and resource scope
 
 The `/dashboard/usage` SPA route SHALL be available to every authenticated user. It SHALL use the existing `RequireAuthenticatedDashboard` guard, not `RequireDashboardAdmin`.
 
@@ -126,7 +126,7 @@ The browser SHALL NOT receive fleet aggregates and filter them locally.
 
 No-auth development mode SHALL treat the caller as `platform:admin` only when OIDC is intentionally unconfigured. Partial OIDC configuration SHALL fail validation. Configured OIDC startup or runtime failures SHALL NOT fall back to no-auth.
 
-#### Scenario: Authenticated non-admin opens the dashboard
+#### Scenario: WEB-USE-03.01 -- Authenticated non-admin opens the dashboard
 
 - GIVEN OIDC is enabled and the signed-in user can access two gateways
 - WHEN the user opens `/dashboard/usage`
@@ -134,20 +134,20 @@ No-auth development mode SHALL treat the caller as `platform:admin` only when OI
 - AND every metric SHALL be calculated only from those two gateways and their sandboxes
 - AND no widget SHALL show the `System` label
 
-#### Scenario: Platform admin opens the dashboard
+#### Scenario: WEB-USE-03.02 -- Platform admin opens the dashboard
 
 - GIVEN OIDC is enabled and the signed-in user has `platform:admin`
 - WHEN the user opens `/dashboard/usage`
 - THEN the dashboard SHALL render fleet-wide values
 - AND every usage widget header SHALL show `System`
 
-#### Scenario: Unauthenticated metrics request
+#### Scenario: WEB-USE-03.03 -- Unauthenticated metrics request
 
 - GIVEN OIDC is enabled and no session is present
 - WHEN the caller requests a usage metrics route
 - THEN the BFF SHALL return the standard reauthentication response
 
-#### Scenario: Partial OIDC configuration
+#### Scenario: WEB-USE-03.04 -- Partial OIDC configuration
 
 - GIVEN the BFF starts with partial OIDC configuration
 - WHEN the configuration is validated
@@ -156,7 +156,7 @@ No-auth development mode SHALL treat the caller as `platform:admin` only when OI
 
 ---
 
-### Requirement: USAGE-DASH-04 - SPA and BFF route surfaces
+### Requirement: WEB-USE-04 -- SPA and BFF route surfaces
 
 The web console SHALL add:
 
@@ -180,13 +180,13 @@ Route behavior:
 - Explicit zero is valid only where the source or inventory explicitly supports it.
 - Actual data coverage dates are returned so the UI can distinguish partial from full coverage.
 
-#### Scenario: Route defaults to seven days
+#### Scenario: WEB-USE-04.01 -- Route defaults to seven days
 
 - GIVEN the caller omits `range`
 - WHEN the BFF handles a usage metrics request
 - THEN the route SHALL behave as if `range=7`
 
-#### Scenario: Independent route failure
+#### Scenario: WEB-USE-04.02 -- Independent route failure
 
 - GIVEN the gateway usage route fails
 - WHEN the sandbox usage route succeeds
@@ -195,7 +195,7 @@ Route behavior:
 
 ---
 
-### Requirement: USAGE-DASH-05 - Widgetized layout and shared components
+### Requirement: WEB-USE-05 -- Widgetized layout and shared components
 
 The usage dashboard SHALL use the same widgetized dashboard package and layout behavior as the operational dashboard.
 
@@ -227,14 +227,14 @@ The approved visual reference is:
 
 Because the implementation runtime cannot create or compare screenshots, the production page SHALL follow the repository UI build gate's complete-without-visual-review path. All non-parity checks SHALL still run.
 
-#### Scenario: Manual refresh preserves stale values
+#### Scenario: WEB-USE-05.01 -- Manual refresh preserves stale values
 
 - GIVEN a successful usage load has completed
 - WHEN a later refresh fails for one source
 - THEN the dashboard SHALL keep the last successful value for that source
 - AND it SHALL show the shared partial-failure warning
 
-#### Scenario: Partial 30-day data
+#### Scenario: WEB-USE-05.02 -- Partial 30-day data
 
 - GIVEN the selected range is 30 days and the source has data for only 18 days
 - WHEN the dashboard renders
@@ -244,7 +244,7 @@ Because the implementation runtime cannot create or compare screenshots, the pro
 
 ---
 
-### Requirement: USAGE-DASH-06 - Gateway request metrics
+### Requirement: WEB-USE-06 -- Gateway request metrics
 
 Gateway request metrics SHALL use the gateway-native Prometheus series:
 
@@ -266,13 +266,13 @@ Calculations:
 - An absent error series with qualifying traffic represents zero observed errors. A failed error-series query makes the error rate unavailable.
 - A successful absent gRPC or HTTP series contributes zero. A failed gRPC or HTTP query makes request volume, daily request volume, active Gateways, and unused Gateways unavailable.
 
-#### Scenario: Peer traffic is excluded
+#### Scenario: WEB-USE-06.01 -- Peer traffic is excluded
 
 - GIVEN a gateway namespace has only internal `Peer*` gRPC requests in the selected range
 - WHEN request volume is calculated
 - THEN those requests SHALL NOT count toward the total
 
-#### Scenario: Zero requests
+#### Scenario: WEB-USE-06.02 -- Zero requests
 
 - GIVEN a supported series reports zero total requests
 - WHEN the error-rate widget renders
@@ -281,7 +281,7 @@ Calculations:
 
 ---
 
-### Requirement: USAGE-DASH-07 - Active and unused gateways
+### Requirement: WEB-USE-07 -- Active and unused gateways
 
 An active gateway is an authorized current gateway namespace with at least one non-peer gateway request in the covered range.
 
@@ -299,7 +299,7 @@ The BFF SHALL resolve the current authorized Gateway inventory from the Gateway 
 
 Deleted gateways SHALL NOT inflate active or unused counts.
 
-#### Scenario: Deleted namespace has historical traffic
+#### Scenario: WEB-USE-07.01 -- Deleted namespace has historical traffic
 
 - GIVEN a gateway was deleted after generating traffic
 - WHEN active and unused gateways are calculated
@@ -307,7 +307,7 @@ Deleted gateways SHALL NOT inflate active or unused counts.
 
 ---
 
-### Requirement: USAGE-DASH-08 - Sandbox utilization and lifetime
+### Requirement: WEB-USE-08 -- Sandbox utilization and lifetime
 
 The control plane SHALL export:
 
@@ -338,13 +338,13 @@ Lifetime calculations:
 - P50: `histogram_quantile(0.50, ...)`
 - P95: `histogram_quantile(0.95, ...)`
 
-#### Scenario: Sandbox CR timestamp is unavailable
+#### Scenario: WEB-USE-08.01 -- Sandbox CR timestamp is unavailable
 
 - GIVEN a sandbox leaves the active set and the Sandbox CR creation timestamp is unavailable
 - WHEN lifetime is recorded
 - THEN the control plane SHALL use the pod creation timestamp
 
-#### Scenario: Total sandbox count is missing
+#### Scenario: WEB-USE-08.02 -- Total sandbox count is missing
 
 - GIVEN the total-sandbox series is absent
 - WHEN the dashboard renders
@@ -353,7 +353,7 @@ Lifetime calculations:
 
 ---
 
-### Requirement: USAGE-DASH-09 - Data source documentation
+### Requirement: WEB-USE-09 -- Data source documentation
 
 `packages/operational-dashboard-ui/DATA_SOURCES.md` SHALL document every usage metric with:
 
@@ -368,7 +368,7 @@ Lifetime calculations:
 - known data gaps
 - zero versus missing semantics
 
-#### Scenario: Data source documentation is complete
+#### Scenario: WEB-USE-09.01 -- Data source documentation is complete
 
 - GIVEN the usage dashboard is implemented
 - WHEN a reviewer reads `DATA_SOURCES.md`
@@ -376,7 +376,7 @@ Lifetime calculations:
 
 ---
 
-### Requirement: USAGE-DASH-10 - Localization and accessibility
+### Requirement: WEB-USE-10 -- Localization and accessibility
 
 All usage dashboard text SHALL be localized through the existing dashboard message catalog.
 
@@ -390,7 +390,7 @@ The page SHALL provide:
 - accessible time-range controls
 - accessible chart and summary alternatives
 
-#### Scenario: Non-English locale
+#### Scenario: WEB-USE-10.01 -- Non-English locale
 
 - GIVEN the browser locale is not English
 - WHEN the usage dashboard renders
@@ -398,7 +398,7 @@ The page SHALL provide:
 
 ---
 
-### Requirement: USAGE-DASH-11 - Tests and verification
+### Requirement: WEB-USE-11 -- Tests and verification
 
 The implementation SHALL include tests for:
 
@@ -420,7 +420,7 @@ Mockup verification SHALL run `check_mockup_patternfly.py` for every changed moc
 
 The production page SHALL pass the repository web-console UI build gate using the complete-without-visual-review path because this model cannot create or compare screenshots.
 
-#### Scenario: Non-admin scope test
+#### Scenario: WEB-USE-11.01 -- Non-admin scope test
 
 - GIVEN a non-admin is authorized for one gateway namespace
 - WHEN the usage adapter requests metrics

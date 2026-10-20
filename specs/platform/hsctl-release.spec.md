@@ -9,7 +9,7 @@ Distribute the CLI built by Konflux as both a Quay image and executable download
 
 ## Requirements
 
-### HSR-01 -- Build once and distribute the same binaries
+### Requirement: CLI-REL-01 -- Build once and distribute the same binaries
 
 Konflux SHALL build `hypershell-cli-main` from `components/cli` on main pushes and validate changes on pull requests and merge queues. The image SHALL contain a runnable Linux CLI at `/usr/local/bin/hsctl` and these regular executable files under `/releases/`:
 
@@ -23,7 +23,7 @@ Konflux SHALL build `hypershell-cli-main` from `components/cli` on main pushes a
 
 All targets SHALL use CGO disabled. The initial Konflux runtime image is Linux amd64; the download matrix is independent of runtime image platforms. The publisher SHALL extract these files from the released CLI image by digest, verify layer digests, and reject incomplete sets or nonregular files. It SHALL NOT rebuild the CLI during publication. Binary signing and macOS notarization are outside this initial implementation.
 
-### HSR-02 -- Six required bundle components
+### Requirement: CLI-REL-02 -- Six required bundle components
 
 A newly published bundle SHALL require API server, control plane, web console, CLI, agent-runtime, and agent-runtime-slim. Fleet dashboard remains independently distributed. Each component SHALL record its name, immutable released image digest, source repository and commit, and `tags`, containing its full Git SHA tag in the released repository. The publisher SHALL verify that the tag resolves to the recorded digest. Mutable `latest` aliases and release timestamp aliases are not canonical bundle tags.
 
@@ -31,21 +31,21 @@ These are additive fields to schema version 1. Consumers SHALL select workloads 
 
 Given a Snapshot missing any required component, publication SHALL fail before registry writes. Given an unchanged CLI, its earlier accepted build MAY be reused in later bundles. A bundle does not promise all component builds share a source commit or wait for other in-flight builds.
 
-### HSR-03 -- One GitHub release per bundle identity
+### Requirement: CLI-REL-03 -- One GitHub release per bundle identity
 
 The GitHub release and Git tag SHALL use the existing `release-bundle-<snapshot-time>-<release-uid-hash>` identifier. The Git tag SHALL identify `manifests.git.revision`, the Snapshot component commit containing all component revisions. Individual component revisions SHALL remain in the attached bundle. One Konflux Release UID produces one identity; a new Konflux Release resource for the same Snapshot produces a new bundle and GitHub release.
 
 The release SHALL attach all five binaries, the exact `bundle.json` stored in the OCI artifact, and `SHA256SUMS` covering the other six assets. Its notes SHALL include the OCI bundle digest and each component's full commit tag and immutable image reference. Automatic publication SHALL leave GitHub's `latest` designation unchanged, so retries of old bundles cannot replace the user's latest selection.
 
-### HSR-04 -- Failure and retry behavior
+### Requirement: CLI-REL-04 -- Failure and retry behavior
 
-Publication SHALL require a successful managed release, accepted push metadata, valid source ancestry, and all six Snapshot component images resolved, with matching tags, in their release repositories. This gate is measured against the accepted Snapshot, not against the managed release artifact list, which MAY be partial (HSR-06). It SHALL publish the OCI bundle before completing the GitHub release. GitHub assets SHALL be uploaded to a draft; the release SHALL become public only after all assets have matching SHA-256 digests and sizes.
+Publication SHALL require a successful managed release, accepted push metadata, valid source ancestry, and all six Snapshot component images resolved, with matching tags, in their release repositories. This gate is measured against the accepted Snapshot, not against the managed release artifact list, which MAY be partial (CLI-REL-06). It SHALL publish the OCI bundle before completing the GitHub release. GitHub assets SHALL be uploaded to a draft; the release SHALL become public only after all assets have matching SHA-256 digests and sizes.
 
 Quay and GitHub cannot commit atomically. A failed GitHub operation MAY leave a Quay bundle and a draft. Retrying the same Konflux Release SHALL reuse that bundle and resume the same draft. Existing bundle contents, Git tag targets, release notes, and uploaded assets SHALL be validated; conflicting contents SHALL fail rather than be overwritten. A completed matching release SHALL be a successful no-op. An unfinished GitHub upload in `starter` state MAY be deleted and retried while the release is still a draft.
 
 The final pipeline SHALL report success only after both publications succeed. Operations SHALL serialize retries of a given Konflux Release; concurrent final pipelines for the same identity are not supported. Historical bundles SHALL NOT be backfilled automatically.
 
-### HSR-05 -- Configuration and credentials
+### Requirement: CLI-REL-05 -- Configuration and credentials
 
 The tenant SHALL register the CLI Component and ImageRepository. The managed release mapping SHALL promote it to `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-cli-main` with the same Git SHA tag convention as the services.
 
@@ -55,13 +55,13 @@ The GitHub App and tenant secret were provisioned and live publication succeeded
 
 The documented RelEng Vault/ExternalSecret SOP provisions secrets in `rhtap-releng-tenant`. It SHALL NOT be assumed to provision this tenant's secret. Before activation, RelEng must confirm an approved secret delivery mechanism for `hcm-eng-prod-tenant`. If using Vault, the source record must include `generated-by`, `generated-on`, `owner-team`, and `expires` provenance metadata. Existing Quay write access for the API-server build repository is reused for bundle publication; released component images are public.
 
-### HSR-06 -- Partial and empty managed artifact lists
+### Requirement: CLI-REL-06 -- Partial and empty managed artifact lists
 
 The managed release mirrors only the component images that changed, so `status.artifacts.images` SHALL be treated as a possibly partial subset of the accepted Snapshot, not as the source of bundle contents. The publisher SHALL assemble the bundle from the complete Snapshot component digests and SHALL cross-check a released artifact only for a component that appears in that list. Components that are independently distributed and excluded from the bundle (the fleet dashboard) SHALL be removed from the released artifact list before it is used.
 
-Snapshot completeness is the sole publication gate for component coverage: a Snapshot missing any required component SHALL fail before registry writes (HSR-02), while the released artifact list, after exclusions, MAY be empty without blocking publication. A merge that changes only an excluded component therefore SHALL re-confirm the existing bundle from the full Snapshot digests and complete the final pipeline successfully, with bundle contents identical to the prior bundle and no new component digests.
+Snapshot completeness is the sole publication gate for component coverage: a Snapshot missing any required component SHALL fail before registry writes (CLI-REL-02), while the released artifact list, after exclusions, MAY be empty without blocking publication. A merge that changes only an excluded component therefore SHALL re-confirm the existing bundle from the full Snapshot digests and complete the final pipeline successfully, with bundle contents identical to the prior bundle and no new component digests.
 
-#### Scenario: Merge of an excluded component only publishes successfully
+#### Scenario: CLI-REL-06.01 -- Merge of an excluded component only publishes successfully
 
 - GIVEN an accepted Snapshot that contains all six required components
 - AND a managed release whose `status.artifacts.images` lists only the excluded fleet-dashboard component
@@ -70,7 +70,7 @@ Snapshot completeness is the sole publication gate for component coverage: a Sna
 - AND the bundle is assembled from the six Snapshot digests
 - AND the final pipeline completes successfully with bundle contents identical to the prior bundle and no new component digests
 
-#### Scenario: Partial managed artifact list is cross-checked only where present
+#### Scenario: CLI-REL-06.02 -- Partial managed artifact list is cross-checked only where present
 
 - GIVEN an accepted complete Snapshot
 - AND a managed release that lists only a subset of the required components as released images
@@ -79,7 +79,7 @@ Snapshot completeness is the sole publication gate for component coverage: a Sna
 - AND each component absent from the list is taken from its Snapshot digest without a released-artifact cross-check
 - AND publication proceeds
 
-#### Scenario: Incomplete Snapshot still fails regardless of the artifact list
+#### Scenario: CLI-REL-06.03 -- Incomplete Snapshot still fails regardless of the artifact list
 
 - GIVEN a Snapshot that is missing a required component
 - WHEN the final pipeline runs

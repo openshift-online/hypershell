@@ -9,19 +9,19 @@ Make HyperShell unmistakably Red Hat while preserving accessibility and semantic
 
 ## Requirements
 
-### Requirement UI-BRAND-01: Red Hat Color Identity
+### Requirement: UIS-BRND-01 -- Red Hat Color Identity
 
 A brand-bearing composition SHALL include Red Hat red (`red-50`, `#ee0000`) through a restrained accent, identifying element, or approved logo treatment. Red SHALL highlight what matters and SHALL NOT flood the interface or represent error, failure, decrease, or danger.
 
 **Verification:** Inspect rendered pages, themes, exports, diagrams, and generated imagery. Confirm red is present, intentional, not dominant without an approved exception, and never used as a negative semantic signal.
 
-### Requirement UI-BRAND-02: Approved Palette and Tokens
+### Requirement: UIS-BRND-02 -- Approved Palette and Tokens
 
 Interfaces SHALL use the approved colors below through named design tokens. Secondary colors SHALL accompany the core palette rather than replace it; a composition SHOULD use no more than one or two secondary colors. Interfaces SHALL NOT introduce colors outside this palette.
 
 **Verification:** Resolve every rendered color to its semantic token and approved swatch. Flag hard-coded duplicates, off-palette colors, and secondary-only compositions.
 
-### Requirement UI-BRAND-03: Semantic Information Colors
+### Requirement: UIS-BRND-03 -- Semantic Information Colors
 
 Information colors SHALL retain these meanings across UI, charts, diagrams, and reports:
 
@@ -45,19 +45,19 @@ SHALL NOT infer success from the absence of a recognized failure value.
 
 **Verification:** Compare semantic tokens and visible labels/icons/patterns across all states. Exercise every documented status plus an unknown value and representative future/unrecognized values. Test monochrome and color-vision-deficiency simulations, and confirm screen-reader/state semantics agree with the visual meaning.
 
-### Requirement UI-BRAND-04: Restraint, Balance, and Gradients
+### Requirement: UIS-BRND-04 -- Restraint, Balance, and Gradients
 
 Layouts SHALL use generous neutral space and reserve saturated colors for hierarchy, navigation, interaction, or emphasis. Large surfaces SHOULD use light tints, dark shades, or an approved subtle gradient. Interfaces SHALL NOT invent gradients or make gradients the primary focus.
 
 **Verification:** Audit color-area balance and attention direction at page and journey level. Resolve every gradient to a repository-approved Red Hat gradient token; if none exists, do not use a gradient.
 
-### Requirement UI-BRAND-05: Accessible Color Application
+### Requirement: UIS-BRND-05 -- Accessible Color Application
 
-All colors SHALL satisfy `UI-A11Y-05`: normally 4.5:1 for text, 3:1 for WCAG large text, and 3:1 for informative graphics and essential control/state boundaries, subject to WCAG exceptions. Text labels, icons, shapes, patterns, or position SHALL supplement color. Similar saturated colors SHALL NOT be combined where they create visual vibration or indistinct edges.
+All colors SHALL satisfy `UIS-A11Y-05`: normally 4.5:1 for text, 3:1 for WCAG large text, and 3:1 for informative graphics and essential control/state boundaries, subject to WCAG exceptions. Text labels, icons, shapes, patterns, or position SHALL supplement color. Similar saturated colors SHALL NOT be combined where they create visual vibration or indistinct edges.
 
 **Verification:** Measure rendered foreground/background combinations in every state and theme; do not infer contrast from palette membership. Review charts and status displays with color-vision simulation and without color.
 
-### Requirement UI-BRAND-06: Visual Assets and People Colors
+### Requirement: UIS-BRND-06 -- Visual Assets and People Colors
 
 Illustrated skin tones SHALL use one approved cool- or warm-tone family per person and SHALL NOT be reused as decorative or semantic UI colors. Photography, illustration, 3D, and AI-generated imagery SHALL be evaluated and adjusted to the approved palette before use.
 

@@ -152,10 +152,12 @@ flowchart LR
 | --- | --- | --- |
 | Gateway name | All users with create permission | Required and validated before submission |
 | Intended use - personal or team | All users with create permission | Proposed; needed only if personal and team ownership become different product concepts |
-| Network visibility - VPN or Public | All users with create permission | Required; unavailable choices explain why they can't be selected |
-| Cloud provider - Amazon Web Services or IBM Cloud | All users with create permission | Required for managed placement; available providers depend on network visibility and placement availability |
+| Internal services - No or Yes | All users with create permission | Required; No maps to Public and Yes requires Red Hat VPN |
+| Cloud provider - IBM or AWS | All users with create permission | Required for managed placement; available providers depend on network visibility and placement availability |
+| OpenShell version | All users with create permission | Defaults to Any version; only versions advertised for the selected placement are offered |
 | Local development - Use local-kind | Kind development users with no managed placement available | Replaces network and cloud-provider selection when the connected local-kind cluster is available |
 | Placement availability | All users with create permission | Shows whether a matching cluster is available without exposing the selected cluster ID |
+| Provision preview card | All users with create permission | Shows only a verified available managed placement; omitted while loading, without managed placement, or for local-kind-only development |
 | Team owner | Team users | Proposed; current authorization is based on individual creator and gateway bindings |
 | Initial team members | Team users | Proposed; group access and team membership are not yet defined |
 | Validation and provisioning errors | All users with create permission | Keeps entered values and explains how to recover |

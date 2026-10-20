@@ -495,6 +495,17 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		return err
 	}
 	clusterID := specString(res.Spec, "cluster_id")
+	placement, err := gatewayPlacement(res.Spec)
+	if err != nil {
+		return fmt.Errorf("gateway %s: %w", res.Name, err)
+	}
+	// A gateway is late-bound when it declares a placement and no explicit
+	// cluster_id: the api-server resolves the placement selector to a concrete
+	// cluster and assigns cluster_id server-side (data-model.spec.md, "Gateway
+	// Placement and Late Binding"). The rendered manifest never carries that
+	// assigned cluster_id, so for a late-bound gateway the server-assigned
+	// cluster_id must not be read as drift and must never be reassigned.
+	lateBound := clusterID == "" && placement != nil
 	externalDNS := specStringPtr(res.Spec, "external_dns")
 	tlsMode := specStringPtr(res.Spec, "tls_mode")
 	serviceType := specStringPtr(res.Spec, "service_type")
@@ -509,7 +520,15 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		if existing.GetName() != res.Name {
 			continue
 		}
-		if existing.GetClusterId() == clusterID &&
+		// For a pinned gateway the declared cluster_id must match. For a late-bound
+		// gateway the server owns cluster_id, so a resolved value is not drift and is
+		// excluded from the no-op comparison; this keeps re-import idempotent after
+		// the api-server binds the gateway to a cluster. Placement itself is not
+		// exposed on the Gateway gRPC read surface, so it cannot be diffed or mutated
+		// here: the import sets placement only at create (see CreateGatewayRequest
+		// below).
+		clusterMatches := lateBound || existing.GetClusterId() == clusterID
+		if clusterMatches &&
 			stringPtrEqual(existing.ExternalDns, externalDNS) &&
 			stringPtrEqual(existing.TlsMode, tlsMode) &&
 			stringPtrEqual(existing.ServiceType, serviceType) &&
@@ -523,8 +542,9 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		}
 		// Only send cluster_id when the spec actually declares one. An empty
 		// clusterID would be read by the handler as a reassignment to "" and
-		// rejected; leaving it nil keeps the gateway on its current cluster while
-		// the other changed fields still apply.
+		// rejected; leaving it nil keeps the gateway on its current cluster (for a
+		// late-bound gateway, on its server-assigned cluster) while the other changed
+		// fields still apply.
 		var clusterIDPtr *string
 		if clusterID != "" {
 			clusterIDPtr = &clusterID
@@ -544,9 +564,14 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		})
 		return err
 	}
+	// On create, supply exactly one of cluster_id (pinned) or placement
+	// (late-bound), matching the api-server's exactly-one-of contract (#625,
+	// data-model.spec.md). A pinned gateway sends cluster_id and no placement; a
+	// late-bound gateway sends an empty cluster_id and the mapped placement intent.
 	_, err = w.gateways.CreateGateway(withOwnership(ctx, repoID), &pb.CreateGatewayRequest{
 		Name:             res.Name,
 		ClusterId:        clusterID,
+		Placement:        placement,
 		ExternalDns:      externalDNS,
 		TlsMode:          tlsMode,
 		ServiceType:      serviceType,
@@ -558,6 +583,43 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 		ServerDnsNames:   serverDNSNames,
 	})
 	return err
+}
+
+// gatewayPlacement builds the gRPC GatewayPlacementIntent from a rendered Gateway
+// spec's `placement` block, mapping the declarative late-binding manifest onto the
+// api-server create contract (data-model.spec.md, "Gateway Placement and Late
+// Binding"; gateway-provision-placement.spec.md GP-01). A `selector` list maps to
+// CapabilitySelectorPlacement; `mode: local-kind` maps to LocalKindPlacement. It
+// returns (nil, nil) when the spec declares no placement at all (a pinned gateway).
+// When a `placement` block IS present but declares neither a non-empty selector nor
+// `mode: local-kind`, it returns an error naming the problem, so a malformed
+// late-bound manifest fails with a clear cause rather than silently rendering a
+// create with neither cluster_id nor placement.
+func gatewayPlacement(spec map[string]interface{}) (*pb.GatewayPlacementIntent, error) {
+	if spec == nil {
+		return nil, nil
+	}
+	raw, ok := spec["placement"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	placementMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("placement must be a mapping with a selector list or mode: local-kind")
+	}
+	if selector := specStringSlice(placementMap, "selector"); len(selector) > 0 {
+		return &pb.GatewayPlacementIntent{
+			Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+				CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: selector},
+			},
+		}, nil
+	}
+	if specString(placementMap, "mode") == "local-kind" {
+		return &pb.GatewayPlacementIntent{
+			Placement: &pb.GatewayPlacementIntent_LocalKind{LocalKind: &pb.LocalKindPlacement{}},
+		}, nil
+	}
+	return nil, fmt.Errorf("placement declares neither a non-empty selector nor mode: local-kind")
 }
 
 // ---- AgentRuntime ----

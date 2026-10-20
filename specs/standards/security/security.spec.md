@@ -4,7 +4,7 @@
 
 ## Critical Security Rules
 
-### Secret Handling
+### Requirement: SEC-STD-01 -- Secret Handling
 
 **1. No Secrets in Logs or Routine Responses**
 
@@ -84,7 +84,7 @@ SHALL use a per-cluster, least-privilege WRITER identity authorized only to writ
 granted read access to provider material and SHALL NOT be granted write access to the
 gateway-provider Vault plane.
 
-#### Scenario: Store access respects component direction
+#### Scenario: SEC-STD-01.01 -- Store access respects component direction
 
 - GIVEN a user submits credential material to the API server
 - WHEN the API server stores it
@@ -92,28 +92,28 @@ gateway-provider Vault plane.
 - AND the API server SHALL NOT read the material back from the store
 - AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the material through its read-only store client and realize an OpenShell provider from it, rendering no raw credential `Secret` and using no `ExternalSecret`
 
-#### Scenario: Agent material is read cluster-locally and the writer is confined
+#### Scenario: SEC-STD-01.02 -- Agent material is read cluster-locally and the writer is confined
 
 - GIVEN an `AgentRuntime` placed on cluster `Y` with a `SecretSource` reference
 - WHEN its material is uploaded by the per-cluster writer identity and later consumed
 - THEN the material SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
 - AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read provider material or write the gateway-provider Vault plane
 
-#### Scenario: OpenShell-native strategy rotation is owned by OpenShell
+#### Scenario: SEC-STD-01.03 -- OpenShell-native strategy rotation is owned by OpenShell
 
 - GIVEN an agent credential realized as an OpenShell provider from stored durable material with an OpenShell-native refresh strategy (`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, or `static-token`)
 - WHEN the short-lived usable credential expires
 - THEN OpenShell SHALL mint and rotate it under the provider `refresh_strategy`
 - AND the control plane SHALL NOT mint, refresh, or rotate the credential and SHALL NOT render or re-place a raw credential `Secret`
 
-#### Scenario: GitHub App credential rotation is owned by the control-plane rotator
+#### Scenario: SEC-STD-01.04 -- GitHub App credential rotation is owned by the control-plane rotator
 
 - GIVEN an agent GitHub provider realized from a stored GitHub App PEM (the `app-installation-token` / `app-private-key` intent), which the installed OpenShell CLI does not refresh
 - WHEN the short-lived installation token approaches expiry
 - THEN the bounded control-plane GitHub rotator SHALL mint a fresh installation token from the PEM and set it on the OpenShell provider through `provider update --credential`
 - AND OpenShell SHALL NOT rotate it and the control plane SHALL NOT render or re-place a raw credential `Secret`
 
-### Input Validation
+### Requirement: SEC-STD-02 -- Input Validation
 
 **1. Validate All User Input**
 
@@ -130,7 +130,7 @@ name = strings.ReplaceAll(name, "\n", "")
 name = strings.ReplaceAll(name, "\r", "")
 ```
 
-### Container Security
+### Requirement: SEC-STD-03 -- Container Security
 
 All containers must set:
 - `AllowPrivilegeEscalation: false`
@@ -149,11 +149,11 @@ chart has no mechanism to mount a CA bundle into the gateway pod for this connec
 (see
 [`openshell-gateway-database.spec.md`](../../platform/openshell-gateway-database.spec.md)).
 
-### Gateway Access Isolation
+### Requirement: SEC-STD-04 -- Gateway Access Isolation
 
 Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:admin`, `gateway:viewer`). All gateway queries MUST filter by the caller's RoleBindings so users can only see and operate on gateways where they have a binding. See [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md) for the scope-aware RBAC model and [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge.
 
-#### Scenario: Cross-User Gateway Access Prevention
+#### Scenario: SEC-STD-04.01 -- Cross-User Gateway Access Prevention
 - GIVEN user A querying gateways
 - WHEN user A has no RoleBinding on a gateway
 - THEN the query SHALL NOT return that gateway

@@ -240,7 +240,6 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # release_id was removed from the Gateway schema (GatewayRelease kind removed).
     # cluster_id is server-resolved too: create takes a required placement
     # intent, and local-kind selects the ManagedCluster awaited above.
     GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"mode\":\"local-kind\"},\"oidc\":\"${OIDC_JSON}\""

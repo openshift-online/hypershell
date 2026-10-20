@@ -61,7 +61,22 @@ Output: `$REVIEW_VERDICT` - One of
 
 _Note: Create `$REVIEW_VERDICT` label if not exist._
 
-Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
+Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` only.
+
+The verdict labels are mutually exclusive. On `$GITHUB_ISSUE_URL`, remove the
+opposite verdict label if present:
+- Verdict `agent/review-spec-approved`: remove `agent/review-spec-rejected`.
+- Verdict `agent/review-spec-rejected`: remove `agent/review-spec-approved`.
+
+Do NOT place any `agent/*` phase label on `$GITHUB_PR_URL`. The issue is the only
+holder of phase state:
+- The next agent starts from the issue label and finds the pull request through
+  the issue.
+- The verdict labels are selector labels. The coordinator scans issues and pull
+  requests, so a verdict label on the pull request starts an agent on the pull
+  request. No other agent removes labels from the pull request, so the label
+  stays and re-triggers the agent on every run.
+- The review comment below keeps the verdict visible on the pull request.
 
 **Always post the review as a comment on `$GITHUB_PR_URL`, for BOTH an approved
 and a rejected verdict.** An approved review MUST NOT be silent: the record of

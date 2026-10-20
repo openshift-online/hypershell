@@ -30,7 +30,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 
 **Verification:** Start the server with the endpoint set, absent, and set-but-unreachable; confirm export when configured, no initialization and no overhead when absent, and continued request handling with logged failures when unreachable. Send SIGTERM after serving traffic and confirm a bounded flush.
 
-#### Scenario: Telemetry enabled with a collector endpoint
+#### Scenario: API-OBS-01.01 -- Telemetry enabled with a collector endpoint
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set to `http://collector:4317`
 - AND `OTEL_TRACES_SAMPLER_ARG` is set to `0.5`
@@ -39,7 +39,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND the sampler SHALL sample 50 percent of root traces
 - AND spans and metrics SHALL be exported to the configured endpoint
 
-#### Scenario: Telemetry disabled when no endpoint is configured
+#### Scenario: API-OBS-01.02 -- Telemetry disabled when no endpoint is configured
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
 - WHEN the API server starts
@@ -47,7 +47,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND no tracing or metrics middleware SHALL be registered
 - AND the server SHALL operate with no observability overhead
 
-#### Scenario: Collector unreachable at runtime
+#### Scenario: API-OBS-01.03 -- Collector unreachable at runtime
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set but the collector is unreachable
 - WHEN the API server handles requests
@@ -55,7 +55,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND telemetry export failures SHALL be logged rather than surfaced to the caller
 - AND the server SHALL NOT crash or degrade request handling because of export errors
 
-#### Scenario: Graceful shutdown flushes telemetry
+#### Scenario: API-OBS-01.04 -- Graceful shutdown flushes telemetry
 
 - GIVEN the OTel SDK is initialized and the server has served requests
 - WHEN the server receives SIGTERM
@@ -70,7 +70,7 @@ The span name SHALL combine the request method and the templated route (for exam
 
 **Verification:** Send representative requests to fixed and parameterized routes; confirm one server span each, named by method and templated route with resource identifiers collapsed to placeholders, carrying the HTTP semantic-convention attributes, and that plugin-registered routes are instrumented without plugin changes.
 
-#### Scenario: Inbound HTTP request produces a templated span
+#### Scenario: API-OBS-02.01 -- Inbound HTTP request produces a templated span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client sends `GET /api/hypershell/v1/gateways/abc123`
@@ -86,14 +86,14 @@ Each span SHALL be named by the fully qualified RPC method and SHALL follow the 
 
 **Verification:** Issue a unary call and open a Watch stream with propagated trace metadata; confirm a span per RPC named by full method, carrying the RPC semantic-convention attributes, that the stream span spans the stream lifetime and records its terminal status, and that extraction precedes auth.
 
-#### Scenario: Unary gRPC call produces a span
+#### Scenario: API-OBS-03.01 -- Unary gRPC call produces a span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a control-plane client calls a unary RPC
 - THEN one span SHALL be created named by the fully qualified method
 - AND the span SHALL record the RPC service, method, and gRPC status code
 
-#### Scenario: Streaming Watch produces a lifetime span
+#### Scenario: API-OBS-03.02 -- Streaming Watch produces a lifetime span
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane opens a Watch stream
@@ -102,11 +102,11 @@ Each span SHALL be named by the fully qualified RPC method and SHALL follow the 
 
 ### Requirement: API-OBS-04 -- Cross-Service Trace Continuation
 
-The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether carried in HTTP headers or gRPC metadata, as the parent context and SHALL continue that trace. When inbound context is absent or malformed, the API server SHALL start a new root span whose sampling is governed by `API-OBS-01`; it SHALL NOT adopt a malformed value. This is the API-server counterpart to `web-console/tracing.spec.md` (`WEB-TRACE-04`, `WEB-TRACE-05`): a browser workflow span, the BFF server span, and the API server span SHALL join a single trace identified by one trace identifier.
+The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether carried in HTTP headers or gRPC metadata, as the parent context and SHALL continue that trace. When inbound context is absent or malformed, the API server SHALL start a new root span whose sampling is governed by `API-OBS-01`; it SHALL NOT adopt a malformed value. This is the API-server counterpart to `web-console/tracing.spec.md` (`WEB-TRC-04`, `WEB-TRC-05`): a browser workflow span, the BFF server span, and the API server span SHALL join a single trace identified by one trace identifier.
 
 **Verification:** Drive a representative browser-to-API workflow through the deployed console and confirm one trace whose spans include the browser workflow span, the BFF server span, and the API server span sharing one trace identifier. Send an API request with a malformed `traceparent` and confirm a new root span rather than a decapitated child.
 
-#### Scenario: API joins the trace propagated by the BFF
+#### Scenario: API-OBS-04.01 -- API joins the trace propagated by the BFF
 
 - GIVEN the OTel SDK is initialized
 - AND the BFF proxies a request to `/api/hypershell/v1/*` carrying a valid `traceparent`
@@ -114,7 +114,7 @@ The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether c
 - THEN the API server span SHALL be a child of the trace identified in `traceparent`
 - AND the browser, BFF, and API spans SHALL share one trace identifier
 
-#### Scenario: Absent context starts a new trace
+#### Scenario: API-OBS-04.02 -- Absent context starts a new trace
 
 - GIVEN the OTel SDK is initialized
 - AND a request arrives without a `traceparent`
@@ -134,14 +134,14 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 
 **Verification:** Complete representative HTTP and gRPC calls and confirm the duration histograms record them labeled by method or service and status code, that the active-request counter tracks in-flight requests, and that the existing Prometheus metrics are still exposed.
 
-#### Scenario: HTTP latency metric recorded
+#### Scenario: API-OBS-05.01 -- HTTP latency metric recorded
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client completes a `POST /api/hypershell/v1/gateways` request
 - THEN `http.server.request.duration` SHALL record the request duration
 - AND the sample SHALL be labeled with the request method, templated route, and response status code
 
-#### Scenario: gRPC latency metric recorded
+#### Scenario: API-OBS-05.02 -- gRPC latency metric recorded
 
 - GIVEN the OTel SDK is initialized
 - WHEN a unary gRPC call completes
@@ -150,19 +150,19 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 
 ### Requirement: API-OBS-06 -- Telemetry Privacy, Cardinality, and Operation Correlation
 
-Trace spans, span events, and metric attributes SHALL NOT include sensitive data. Authorization headers, bearer tokens, cookie values, database credentials, connection strings, secret references, and request or response bodies SHALL NOT appear in telemetry. Raw resource identifiers SHALL NOT become span-name segments or propagated baggage; stable route templates and bounded enumerations SHALL replace raw URLs, and a high-cardinality value SHALL NOT be a span name segment. This aligns with `standards/security/security.spec.md` and with `web-console/tracing.spec.md` (`WEB-TRACE-07`).
+Trace spans, span events, and metric attributes SHALL NOT include sensitive data. Authorization headers, bearer tokens, cookie values, database credentials, connection strings, secret references, and request or response bodies SHALL NOT appear in telemetry. Raw resource identifiers SHALL NOT become span-name segments or propagated baggage; stable route templates and bounded enumerations SHALL replace raw URLs, and a high-cardinality value SHALL NOT be a span name segment. This aligns with `standards/security/security.spec.md` and with `web-console/tracing.spec.md` (`WEB-TRC-07`).
 
 The API server already returns a per-request operation identifier (the `X-Operation-ID` response header and the `operation_id` field of the error envelope). The request span SHALL record that operation identifier as a bounded attribute so a user-visible failure can be joined to the server-side trace evidence.
 
 **Verification:** Run redaction checks with seeded secrets, tokens, and an `Authorization` header and confirm none appear in spans or metric attributes; confirm span names use route templates with identifiers collapsed; trigger a failing request and confirm the returned `operation_id` matches the operation-identifier attribute on the request span.
 
-#### Scenario: Authorization header excluded from telemetry
+#### Scenario: API-OBS-06.01 -- Authorization header excluded from telemetry
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client sends a request with an `Authorization: Bearer <token>` header
 - THEN no span attribute or metric label SHALL contain the header value or the token
 
-#### Scenario: Failure operation identifier correlates to the span
+#### Scenario: API-OBS-06.02 -- Failure operation identifier correlates to the span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a request fails and the response envelope carries an `operation_id`
@@ -171,18 +171,18 @@ The API server already returns a per-request operation identifier (the `X-Operat
 
 ### Requirement: API-OBS-07 -- Development Trace Export
 
-When local development tracing is enabled (`KIND_JAEGER=true`), the API server Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317`, so a developer can view the API server spans joined with the browser and BFF spans in one trace. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the API server to that endpoint. When `KIND_JAEGER` is unset, the API server Deployment SHALL NOT receive a collector endpoint and SHALL run without telemetry. The automated cross-service trace check defined by `platform/e2e-testing.spec.md` (`WEB-TRACE-11`) SHOULD be extended to assert the API server span joins the browser and BFF spans once the API server is instrumented.
+When local development tracing is enabled (`KIND_JAEGER=true`), the API server Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317`, so a developer can view the API server spans joined with the browser and BFF spans in one trace. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the API server to that endpoint. When `KIND_JAEGER` is unset, the API server Deployment SHALL NOT receive a collector endpoint and SHALL run without telemetry. The automated cross-service trace check defined by `platform/e2e-testing.spec.md` (`WEB-TRC-11`) SHOULD be extended to assert the API server span joins the browser and BFF spans once the API server is instrumented.
 
 **Verification:** Bring up the local cluster with `KIND_JAEGER=true`, drive a workflow that reaches the API, and confirm the API server span appears in Jaeger joined to the browser and BFF spans; bring it up without `KIND_JAEGER` and confirm the API server Deployment has no collector endpoint and emits no telemetry.
 
-#### Scenario: API spans reach the development Jaeger
+#### Scenario: API-OBS-07.01 -- API spans reach the development Jaeger
 
 - GIVEN the local cluster is running with `KIND_JAEGER=true`
 - WHEN a developer completes a gateway workflow through the console
 - THEN the API server SHALL export its spans to the in-cluster Jaeger OTLP/gRPC endpoint on port `4317`
 - AND one Jaeger trace SHALL contain the browser workflow span, the BFF server span, and the API server span
 
-#### Scenario: No export when development tracing is disabled
+#### Scenario: API-OBS-07.02 -- No export when development tracing is disabled
 
 - GIVEN `KIND_JAEGER` is unset
 - WHEN a developer runs `make kind-up`
@@ -199,7 +199,7 @@ Database instrumentation MAY additionally export database client metrics over OT
 
 **Verification:** Drive a representative request that reads and writes the database with tracing enabled; confirm each query yields a client span that is a child of the request span, that the spans share one trace identifier, that span names are bounded by operation with no raw SQL or identifier, and that no bound value, credential, or secret appears in any database span attribute. Issue the same request with tracing disabled and confirm no database spans are produced.
 
-#### Scenario: Query during a request produces a nested database span
+#### Scenario: API-OBS-08.01 -- Query during a request produces a nested database span
 
 - GIVEN the OTel SDK is initialized
 - AND a client sends a request that reads from the database
@@ -208,14 +208,14 @@ Database instrumentation MAY additionally export database client metrics over OT
 - AND the database span, the request span, and any propagated upstream spans SHALL share one trace identifier
 - AND the database span name SHALL be bounded by the operation and SHALL NOT contain raw SQL or a resource identifier
 
-#### Scenario: Database span excludes bound values and secrets
+#### Scenario: API-OBS-08.02 -- Database span excludes bound values and secrets
 
 - GIVEN the OTel SDK is initialized
 - WHEN the API server issues a query whose parameters include a resource identifier
 - THEN no database span attribute SHALL contain a bound parameter value, a database credential, or a connection string
 - AND a recorded statement SHALL be the parameterized statement without interpolated values
 
-#### Scenario: No database spans when telemetry is disabled
+#### Scenario: API-OBS-08.03 -- No database spans when telemetry is disabled
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
 - WHEN the API server handles a request that queries the database
@@ -242,7 +242,7 @@ Database instrumentation MAY additionally export database client metrics over OT
 ## Primary Basis
 
 - `standards/security/security.spec.md`
-- `web-console/tracing.spec.md` (`WEB-TRACE-04`, `WEB-TRACE-05`, `WEB-TRACE-07`, `WEB-TRACE-11`)
+- `web-console/tracing.spec.md` (`WEB-TRC-04`, `WEB-TRC-05`, `WEB-TRC-07`, `WEB-TRC-11`)
 - `platform/local-development.spec.md` (development Jaeger, `KIND_JAEGER`)
 - `platform/e2e-testing.spec.md` (automated cross-service trace verification)
 - [OpenTelemetry Go](https://opentelemetry.io/docs/languages/go/)

@@ -93,7 +93,8 @@ Use a separate sandbox per agent run, because agents execute repository code.
 
 `GIT_VERSION` and `GIT_REVISION` build arguments are set to the source SHA by
 Konflux for OCI and descriptive image labels. No ports are exposed. The default
-command is bash; the harness executes the chosen `.hypershell/agents/*/run.sh`.
+command is bash; the harness discovers what to run from the repository's
+`AgentRuntime.selector` (see `.hypershell/README.md`).
 
 ## Release integration and rollout
 

@@ -447,10 +447,12 @@ OpenAPI `readOnly` marking):
 
 ```bash
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
-# ...create ManagedCluster and GatewayRelease first; the gateway database server is
-# configured through the hypershell-gateway-database-admin Secret, not the API...
+# Create takes a required placement intent, not a cluster_id. The selector
+# matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm. The gateway
+# database server is configured through the hypershell-gateway-database-admin
+# Secret, not the API.
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
-  "name":"ibm-test-gw","cluster_id":"...","release_id":"...",
+  "name":"ibm-test-gw","placement":{"selector":["network/public","provider/ibm"]},
   "namespace":"openshell-ibmtest",
   "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.109",
   "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109",

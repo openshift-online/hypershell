@@ -82,11 +82,11 @@ GatewayReconciler
 
 ## Requirements
 
-### Requirement: Helm Integration
+### Requirement: OSG-HELM-01 -- Helm Integration
 
 The control plane SHALL use the Helm CLI to manage gateway Helm releases programmatically. The `internal/helm` package shells out to the `helm` binary (avoiding Go dependency conflicts between the Helm SDK and the project's Kubernetes client packages). This replaces the previous static manifest loading and SSA-based application.
 
-#### Scenario: Helm client initialization
+#### Scenario: OSG-HELM-01.01 -- Helm client initialization
 
 - GIVEN the control plane starts up
 - WHEN the GatewayReconciler initializes
@@ -95,7 +95,7 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 - AND it SHALL create a `ShellClient` configured with the chart path and helm binary location
 - AND the Helm storage driver SHALL be `secrets` (the Helm default) so release state is stored as Secrets in the gateway namespace
 
-#### Scenario: New gateway provisioning (Helm install)
+#### Scenario: OSG-HELM-01.02 -- New gateway provisioning (Helm install)
 
 - GIVEN a Gateway ADDED event is received
 - AND no Helm release exists in the gateway namespace
@@ -105,7 +105,7 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 - AND the release namespace SHALL be the gateway's API-assigned namespace
 - AND `--create-namespace=false` SHALL be set (the reconciler creates and labels the namespace before the Helm install, applying labels `app.kubernetes.io/managed-by: hypershell-control-plane` and `hypershell.redhat.io/managed: "true"` that the upstream chart does not support)
 
-#### Scenario: Retry after failed install
+#### Scenario: OSG-HELM-01.03 -- Retry after failed install
 
 - GIVEN a previous Helm install failed (e.g. certgen job timed out waiting for cert-manager)
 - WHEN the GatewayReconciler processes the next reconciliation event
@@ -115,7 +115,7 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 - AND it SHALL mark the Gateway status as `State: "Failed"` after 5 consecutive failures
 - AND this is the only scenario where `helm upgrade` is invoked
 
-#### Scenario: Gateway deletion (Helm uninstall + namespace deletion)
+#### Scenario: OSG-HELM-01.04 -- Gateway deletion (Helm uninstall + namespace deletion)
 
 - GIVEN a Gateway DELETED event is received
 - WHEN the GatewayReconciler processes the event
@@ -127,11 +127,11 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 
 ---
 
-### Requirement: Chart Sourcing
+### Requirement: OSG-HELM-02 -- Chart Sourcing
 
 The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image. An OCI registry override is available for development.
 
-#### Scenario: Embedded chart (default)
+#### Scenario: OSG-HELM-02.01 -- Embedded chart (default)
 
 - GIVEN the chart archive is vendored into the control plane container image at `/charts/openshell.tgz`
 - WHEN the reconciler starts up
@@ -141,7 +141,7 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
 
-#### Scenario: OCI registry override (development only)
+#### Scenario: OSG-HELM-02.02 -- OCI registry override (development only)
 
 - GIVEN the environment variable `HELM_CHART_REGISTRY` is set (e.g. `oci://ghcr.io/nvidia/openshell/helm-chart`)
 - WHEN the reconciler starts up
@@ -152,7 +152,7 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 
 ---
 
-### Requirement: Values Mapping
+### Requirement: OSG-HELM-03 -- Values Mapping
 
 The GatewayReconciler SHALL translate Gateway resource fields and cluster-derived configuration into Helm chart `values.yaml` overrides. This mapping replaces the current manifest placeholder substitution and Go-based config patching.
 
@@ -262,7 +262,7 @@ Set only when the target cluster is detected as OpenShift.
 | OpenShift detected | `podSecurityContext.fsGroup=null` | Let SCC assign |
 | OpenShift detected | `securityContext.runAsUser=null` | Let SCC assign |
 
-#### Scenario: Values computation
+#### Scenario: OSG-HELM-03.01 -- Values computation
 
 - GIVEN a Gateway resource with image, OIDC config, route, and credential driver settings
 - WHEN the GatewayReconciler computes Helm values
@@ -272,7 +272,7 @@ Set only when the target cluster is detected as OpenShift.
 
 ---
 
-### Requirement: Migration Path
+### Requirement: OSG-HELM-04 -- Migration Path
 
 The platform is in beta. The migration path is intentionally simple.
 

@@ -338,7 +338,7 @@ components:
       properties:
         name:
           type: string
-          description: Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call.
+          description: Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call.
         capabilities:
           type: array
           uniqueItems: true

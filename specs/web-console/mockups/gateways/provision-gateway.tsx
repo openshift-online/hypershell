@@ -1,30 +1,388 @@
+import "@patternfly/react-core/dist/styles/base.css";
+
 import {
-  ActionGroup, Button, Card, CardBody, CardHeader, CardTitle, Form,
-  FormGroup, Gallery, FormHelperText, HelperText, HelperTextItem, Label,
+  ActionGroup,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  ExpandableSection,
+  Form,
+  FormGroup,
+  FormSection,
+  FormSelect,
+  FormSelectOption,
+  Grid,
+  GridItem,
+  Label,
+  LabelGroup,
+  Radio,
   TextInput,
+  Tooltip,
 } from "@patternfly/react-core";
+import { SlidersHIcon, StarIcon } from "@patternfly/react-icons";
 import { useState } from "react";
-import awsLogoSvg from "../../../../packages/gateway-management-ui/src/assets/aws-logo.svg?raw";
+
+import awsLogo from "../../../../packages/gateway-management-ui/src/assets/aws-logo.svg";
 import ibmCloudLogo from "../../../../packages/gateway-management-ui/src/assets/ibm-cloud.svg";
 import { MockupShell } from "../shell/mockup-template";
 import { ProvisionGatewayPageSurface } from "./provision-gateway-page-surface";
+import "./provision-gateway.css";
 
-const awsLogoThemedSvg = awsLogoSvg
-  .replace("#252F3E", "var(--aws-wordmark-color, #252F3E)")
-  .replace("<svg ", '<svg style="width:100%;height:100%;" ');
+type Provider = "aws" | "ibm";
+type YesNo = "yes" | "no";
 
-function Choice({ title, description, descriptionLabel, value, selected, icon, iconSvg, iconPadding, isDisabled, name, onChoose }: { title: string; description?: string; descriptionLabel?: string; value: string; selected?: boolean; icon?: string; iconSvg?: string; iconPadding?: string; isDisabled?: boolean; name: string; onChoose: () => void }) {
-  const labelId = `${name}-${value}-label`;
-  return <Card isDisabled={isDisabled} isSelectable isSelected={selected} onClick={() => { if (!isDisabled) onChoose(); }}><CardHeader selectableActions={{ isChecked: selected, isHidden: true, name, onChange: onChoose, selectableActionAriaLabelledby: labelId, selectableActionProps: { value }, variant: "single" }}><CardTitle><span id={labelId}>{title}</span></CardTitle></CardHeader>{description ? <CardBody>{descriptionLabel ? <Label isCompact>{descriptionLabel}</Label> : null}{icon || iconSvg ? <span style={{ display: "block", textAlign: "center" }}>{iconSvg ? <span aria-hidden="true" style={{ display: "block", height: "64px", margin: "0 auto 0.75rem", width: "160px" }} dangerouslySetInnerHTML={{ __html: iconSvg }} /> : <img alt="" height="40" src={icon} style={{ display: "block", margin: "0 auto 0.75rem", padding: iconPadding }} width="96" />}{description}</span> : <span style={{ display: "block", marginTop: "0.25rem" }}>{description}</span>}</CardBody> : null}</Card>;
+function ChoiceQuestion({
+  disabledOption,
+  id,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  disabledOption?: { reason: string; value: string };
+  id: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: { description?: string; label: string; value: string }[];
+  value: string;
+}) {
+  return (
+    <FormGroup fieldId={id} isInline isRequired label={label} role="radiogroup">
+      {options.map((option) => {
+        const disabled = disabledOption?.value === option.value;
+        const radio = (
+          <Radio
+            id={`${id}-${option.value}`}
+            isChecked={value === option.value}
+            isDisabled={disabled}
+            label={
+              option.description
+                ? `${option.label} (${option.description})`
+                : option.label
+            }
+            name={id}
+            onChange={() => onChange(option.value)}
+            value={option.value}
+          />
+        );
+        return disabled ? (
+          <Tooltip
+            content={disabledOption.reason}
+            key={option.value}
+            position="top"
+          >
+            <span className="provision-choice-tooltip">{radio}</span>
+          </Tooltip>
+        ) : (
+          <span className="provision-choice-tooltip" key={option.value}>
+            {radio}
+          </span>
+        );
+      })}
+    </FormGroup>
+  );
 }
 
-export function ProvisionGatewayForm({ showValidationErrors = false }: { showValidationErrors?: boolean }) {
+function YesNoQuestion({
+  disabledValue,
+  id,
+  label,
+  onChange,
+  value,
+}: {
+  disabledValue?: YesNo;
+  id: string;
+  label: string;
+  onChange: (value: YesNo) => void;
+  value: YesNo;
+}) {
+  return (
+    <FormGroup fieldId={id} isInline isRequired label={label} role="radiogroup">
+      <Radio
+        id={`${id}-yes`}
+        isChecked={value === "yes"}
+        isDisabled={disabledValue === "yes"}
+        label="Yes, use Kata"
+        name={id}
+        onChange={() => onChange("yes")}
+        value="yes"
+      />
+      <Radio
+        id={`${id}-no`}
+        isChecked={value === "no"}
+        isDisabled={disabledValue === "no"}
+        label="No, use the default runtime"
+        name={id}
+        onChange={() => onChange("no")}
+        value="no"
+      />
+    </FormGroup>
+  );
+}
+
+function RecommendationCard({
+  description,
+  features,
+  provider,
+  recommended,
+  specialized,
+  title,
+  version,
+}: {
+  description: string;
+  features: string[];
+  provider: Provider;
+  recommended?: boolean;
+  specialized?: boolean;
+  title: string;
+  version?: string;
+}) {
+  const featureColors = {
+    AWS: "orange",
+    "IBM Cloud": "purple",
+    Kata: "green",
+    "VPN required": "blue",
+    Public: "teal",
+  } as const;
+
+  return (
+    <Card className="gateway-set-card--recommended">
+      <CardHeader>
+        <CardTitle>
+          <span className="gateway-set-card-title">{title}</span>
+          {recommended ? (
+            <Label color="green" icon={<StarIcon />} isCompact>
+              Recommended
+            </Label>
+          ) : null}
+          {specialized ? (
+            <Label color="grey" icon={<SlidersHIcon />} isCompact>
+              Specialized
+            </Label>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        <LabelGroup aria-label="Gateway set features" isCompact>
+          {features.map((feature) => (
+            <Label
+              color={featureColors[feature as keyof typeof featureColors]}
+              isCompact
+              key={feature}
+            >
+              {feature}
+            </Label>
+          ))}
+        </LabelGroup>
+        <img
+          alt={provider === "aws" ? "Amazon Web Services" : "IBM Cloud"}
+          className={
+            provider === "aws"
+              ? "card-provider-icon card-provider-icon-aws"
+              : "card-provider-icon card-provider-icon-ibm"
+          }
+          height="40"
+          src={provider === "aws" ? awsLogo : ibmCloudLogo}
+        />
+        {version ? (
+          <p className="gateway-set-card-version">
+            OpenShell version: {version}
+          </p>
+        ) : null}
+        <p className="gateway-set-card-description">{description}</p>
+      </CardBody>
+    </Card>
+  );
+}
+
+export function ProvisionGatewayForm({
+  localDevelopmentOnly = false,
+}: {
+  localDevelopmentOnly?: boolean;
+}) {
+  const [kata, setKata] = useState<YesNo>("no");
   const [name, setName] = useState("");
-  const [network, setNetwork] = useState<"public" | "vpn">("public");
-  const [provider, setProvider] = useState<"aws" | "ibm">("ibm");
-  return <Form aria-label="Provision gateway" isWidthLimited><FormGroup isRequired label="Gateway name" fieldId="gateway-name"><TextInput id="gateway-name" isRequired onChange={(_event, value) => setName(value)} value={name} validated={showValidationErrors && !name ? "error" : "default"} />{showValidationErrors ? <FormHelperText><HelperText><HelperTextItem screenReaderText="error status" variant="error">This field is required.</HelperTextItem></HelperText></FormHelperText> : null}</FormGroup><FormGroup isRequired label="Network access" fieldId="network-access"><Gallery hasGutter minWidths={{ default: "250px", md: "300px" }} role="radiogroup"><Choice name="placement" value="public" selected={network === "public"} title="Public" description="Accessible through a public endpoint." onChoose={() => setNetwork("public")} /><Choice name="placement" value="vpn" selected={network === "vpn"} title="VPN" description="For gateways that need to reach GitLab and other internal Red Hat services." descriptionLabel="Red Hat VPN required" onChoose={() => { setNetwork("vpn"); setProvider("aws"); }} /></Gallery></FormGroup><FormGroup isRequired label="Cloud provider" fieldId="cloud-provider"><Gallery hasGutter minWidths={{ default: "250px", md: "300px" }} role="radiogroup"><Choice name="provider" value="aws" selected={provider === "aws"} title="Amazon Web Services" description="For workloads that rely heavily on AWS services or data." iconSvg={awsLogoThemedSvg} iconPadding="1rem 0" onChoose={() => setProvider("aws")} /><Choice name="provider" value="ibm" selected={provider === "ibm"} title="IBM Cloud" description="The default home for gateways. General-purpose workloads with no special network or data needs." icon={ibmCloudLogo} isDisabled={network === "vpn"} onChoose={() => setProvider("ibm")} /></Gallery></FormGroup><p>A matching managed cluster is selected at random for the chosen network and provider.</p><ActionGroup><Button type="submit" variant="primary">Provision gateway</Button><Button type="button" variant="link">Cancel</Button></ActionGroup></Form>;
+  const [needsInternalServices, setNeedsInternalServices] = useState(false);
+  const [provider, setProvider] = useState<Provider>("ibm");
+  const [version, setVersion] = useState("any");
+
+  const isAws = provider === "aws";
+  const isVpn = needsInternalServices;
+  const recommendation = {
+    description: isVpn
+      ? "For gateways that need to reach GitLab and other internal Red Hat services."
+      : kata === "yes"
+        ? "For workloads that require special security considerations."
+        : isAws
+          ? "For publicly accessible workloads that rely heavily on AWS services or data."
+          : "General-purpose workloads with no special network or data needs.",
+    features: [
+      isVpn ? "VPN required" : "Public",
+      ...(kata === "yes" ? ["Kata"] : []),
+      isAws ? "AWS" : "IBM Cloud",
+    ],
+    provider,
+    recommended: !isVpn && !isAws && kata === "no",
+    specialized: kata === "yes",
+    title: `${isVpn ? "VPN" : "Public"}${kata === "yes" ? " Kata" : ""} ${isAws ? "AWS" : "IBM Cloud"}`,
+    version: version === "any" ? undefined : version,
+  };
+
+  return (
+    <Grid hasGutter>
+      <GridItem span={7}>
+        <Form aria-label="Provision gateway">
+          <FormGroup
+            fieldId="chunky-gateway-name"
+            isRequired
+            label="Gateway name"
+          >
+            <TextInput
+              id="chunky-gateway-name"
+              isRequired
+              onChange={(_event, value) => setName(value)}
+              value={name}
+            />
+          </FormGroup>
+          {localDevelopmentOnly ? (
+            <FormGroup
+              fieldId="chunky-local-development"
+              isRequired
+              label="Local development"
+              role="radiogroup"
+            >
+              <Radio
+                id="chunky-local-kind"
+                isChecked
+                label="Use local-kind"
+                name="chunky-local-development"
+                onChange={() => undefined}
+                value="local-kind"
+              />
+            </FormGroup>
+          ) : (
+            <>
+              <ChoiceQuestion
+                id="chunky-internal-services"
+                label="Does the gateway need to reach GitLab or other internal Red Hat services?"
+                onChange={(value) => {
+                  setNeedsInternalServices(value === "yes");
+                  if (value === "yes") {
+                    setKata("no");
+                    setProvider("aws");
+                  } else {
+                    setProvider("ibm");
+                  }
+                }}
+                options={[
+                  {
+                    label: "No",
+                    value: "no",
+                  },
+                  {
+                    description: "Requires Red Hat VPN",
+                    label: "Yes",
+                    value: "yes",
+                  },
+                ]}
+                value={needsInternalServices ? "yes" : "no"}
+              />
+              <ChoiceQuestion
+                disabledOption={{
+                  reason: isVpn
+                    ? "This option is not available behind VPN"
+                    : "This option is not available with Public network access",
+                  value: isVpn ? "ibm" : "aws",
+                }}
+                id="chunky-provider"
+                label="Cloud provider"
+                onChange={(value) => setProvider(value as Provider)}
+                options={[
+                  {
+                    description: "default",
+                    label: "IBM",
+                    value: "ibm",
+                  },
+                  {
+                    description:
+                      "For workloads that rely heavily on AWS services or data",
+                    label: "AWS",
+                    value: "aws",
+                  },
+                ]}
+                value={provider}
+              />
+            </>
+          )}
+          {!localDevelopmentOnly ? (
+            <ExpandableSection toggleText="Advanced options">
+              <FormSection>
+                <YesNoQuestion
+                  disabledValue={isVpn || isAws ? "yes" : undefined}
+                  id="chunky-kata"
+                  label="Is Kata required?"
+                  onChange={setKata}
+                  value={kata}
+                />
+                <FormGroup
+                  fieldId="chunky-openshell-version"
+                  isRequired
+                  label="OpenShell version"
+                >
+                  <FormSelect
+                    id="chunky-openshell-version"
+                    onChange={(_event, value) => setVersion(value)}
+                    value={version}
+                  >
+                    <FormSelectOption label="Any version" value="any" />
+                    <FormSelectOption
+                      label="OpenShell version 1.2.3"
+                      value="1.2.3"
+                    />
+                    <FormSelectOption
+                      label="OpenShell version 1.2.2"
+                      value="1.2.2"
+                    />
+                    <FormSelectOption
+                      label="OpenShell version 1.1.0"
+                      value="1.1.0"
+                    />
+                  </FormSelect>
+                </FormGroup>
+              </FormSection>
+            </ExpandableSection>
+          ) : null}
+          <ActionGroup>
+            <Button type="submit" variant="primary">
+              Provision gateway
+            </Button>
+            <Button type="button" variant="link">
+              Cancel
+            </Button>
+          </ActionGroup>
+        </Form>
+      </GridItem>
+      {!localDevelopmentOnly ? (
+        <GridItem span={5}>
+          <RecommendationCard {...recommendation} />
+        </GridItem>
+      ) : null}
+    </Grid>
+  );
 }
 
-export function ProvisionGatewayParityMockup({ showValidationErrors = false }: { showValidationErrors?: boolean }) {
-  return <MockupShell><ProvisionGatewayPageSurface showValidationErrors={showValidationErrors} /></MockupShell>;
+export function ProvisionGatewayParityMockup({
+  localDevelopmentOnly = false,
+}: {
+  localDevelopmentOnly?: boolean;
+}) {
+  return (
+    <MockupShell>
+      <ProvisionGatewayPageSurface
+        localDevelopmentOnly={localDevelopmentOnly}
+      />
+    </MockupShell>
+  );
 }

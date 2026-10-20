@@ -93,7 +93,7 @@ Produce a gap table:
 
 ```
 ENTITY          COMPONENT   STATUS      GAP
-Fleet           API         present     --
+ManagedCluster  API         present     --
 Gateway.phase   SDK (Go)    missing     no Phase field in Gateway type
 Gateway.phase   BE          missing     no phase field in model
 Gateway         CLI         partial     get/list implemented, delete missing

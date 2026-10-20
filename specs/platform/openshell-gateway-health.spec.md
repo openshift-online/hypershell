@@ -70,7 +70,7 @@ without user action; `Failed` is not.
 
 ## Requirements
 
-### Requirement: Phase Reflects Workload and Route Readiness
+### Requirement: OSG-HLTH-01 -- Phase Reflects Workload and Route Readiness
 
 The control plane SHALL NOT report a Gateway `phase` of `Running` until the
 gateway's Kubernetes Deployment is observed Ready - that is, its ready replicas
@@ -90,7 +90,7 @@ concrete exposure backend. For the Gateway API adapter, "Ready" means the
 per-tenant Gateway API `Gateway` reports condition `Programmed=True` and has a
 non-empty `.status.addresses`.
 
-#### Scenario: Deployment ready but route not yet programmed
+#### Scenario: OSG-HLTH-01.01 -- Deployment ready but route not yet programmed
 
 - GIVEN a routed Gateway whose `openshell-gateway` Deployment has reached ready
   replicas ≥ desired
@@ -99,7 +99,7 @@ non-empty `.status.addresses`.
 - THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
 - AND it SHALL NOT set the `phase` to `Running`
 
-#### Scenario: Deployment ready and route becomes programmed
+#### Scenario: OSG-HLTH-01.02 -- Deployment ready and route becomes programmed
 
 - GIVEN a routed Gateway whose Deployment is Ready and whose phase is
   `Provisioning`
@@ -108,14 +108,14 @@ non-empty `.status.addresses`.
   `.status.addresses`)
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
 
-#### Scenario: Non-routed gateway becomes ready
+#### Scenario: OSG-HLTH-01.03 -- Non-routed gateway becomes ready
 
 - GIVEN a Gateway with no `route` configuration whose manifests have been applied
 - WHEN the `openshell-gateway` Deployment reaches ready replicas ≥ desired
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
   without requiring any external-exposure readiness
 
-#### Scenario: Route never becomes ready within the grace window
+#### Scenario: OSG-HLTH-01.04 -- Route never becomes ready within the grace window
 
 - GIVEN a routed Gateway whose Deployment is Ready
 - AND whose external exposure does not become Ready within the route-readiness
@@ -126,7 +126,7 @@ non-empty `.status.addresses`.
 - AND it SHALL continue to observe the exposure, so that if it later becomes
   Ready the phase returns to `Running`
 
-#### Scenario: Gateway pod crash-loops during provisioning
+#### Scenario: OSG-HLTH-01.05 -- Gateway pod crash-loops during provisioning
 
 - GIVEN a Gateway whose `openshell-gateway` Deployment has been applied
 - AND the gateway pod exits non-zero on startup (e.g. OIDC discovery fails) and
@@ -137,7 +137,7 @@ non-empty `.status.addresses`.
 - AND it SHALL set the `phase` to `Degraded`
 - AND it SHALL record the reason in `status`
 
-#### Scenario: Gateway pod still starting during provisioning
+#### Scenario: OSG-HLTH-01.06 -- Gateway pod still starting during provisioning
 
 - GIVEN a Gateway with `phase` `Provisioning` that has never been `Running`
 - AND its `openshell-gateway` Deployment has been applied, but its pod is still
@@ -159,13 +159,13 @@ completes (e.g. the control plane restarted mid-provision). It applies only to
 a gateway that has not yet reached `Running`: a `Running` gateway whose
 Deployment loses readiness is moved to `Degraded` without a grace window.
 
-#### Scenario: Provisioning fails to apply
+#### Scenario: OSG-HLTH-01.07 -- Provisioning fails to apply
 
 - GIVEN a Gateway being reconciled
 - WHEN manifest templating or applying a resource returns an error
 - THEN the control plane SHALL set the `phase` to `Failed`
 
-### Requirement: Continuous Gateway Health Reconciliation
+### Requirement: OSG-HLTH-02 -- Continuous Gateway Health Reconciliation
 
 After a Gateway reaches `Running`, the control plane SHALL continue to observe
 both the health of its Deployment and, for routed gateways, the readiness of its
@@ -178,7 +178,7 @@ health-reconciliation interval. When both the workload and (for routed gateways)
 the external exposure return to Ready, the control plane SHALL set the `phase`
 back to `Running`.
 
-#### Scenario: Running gateway begins crash-looping
+#### Scenario: OSG-HLTH-02.01 -- Running gateway begins crash-looping
 
 - GIVEN a Gateway with `phase` `Running`
 - WHEN its gateway pod begins failing and ready replicas drop below desired
@@ -186,7 +186,7 @@ back to `Running`.
   health-reconciliation interval
 - AND record the reason in `status`
 
-#### Scenario: Running gateway loses route readiness
+#### Scenario: OSG-HLTH-02.02 -- Running gateway loses route readiness
 
 - GIVEN a routed Gateway with `phase` `Running`
 - WHEN its external exposure loses readiness (for the Gateway API adapter, the
@@ -196,7 +196,7 @@ back to `Running`.
   health-reconciliation interval
 - AND record the reason in `status`
 
-#### Scenario: Running Vault-backed gateway loses its credential backend
+#### Scenario: OSG-HLTH-02.03 -- Running Vault-backed gateway loses its credential backend
 
 - GIVEN a `Running` Vault-backed Gateway (the default credential driver)
 - WHEN its per-cluster provider Vault becomes unreachable
@@ -206,14 +206,14 @@ back to `Running`.
 - AND the gateway SHALL return to `Running` once Vault is reachable again, without
   recreation (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
 
-#### Scenario: Degraded gateway recovers
+#### Scenario: OSG-HLTH-02.04 -- Degraded gateway recovers
 
 - GIVEN a Gateway with `phase` `Degraded`
 - WHEN its Deployment returns to ready replicas ≥ desired
 - AND, for a routed gateway, its external exposure is observed Ready
 - THEN the control plane SHALL set the `phase` back to `Running`
 
-### Requirement: Provisioning Gate Keyed On Desired State
+### Requirement: OSG-HLTH-03 -- Provisioning Gate Keyed On Desired State
 
 The control plane's provisioning gate SHALL prevent redundant re-provisioning
 (re-applying manifests) **only when a Gateway is converged**
@@ -241,7 +241,7 @@ observed workload health: a `Running` Gateway SHALL still be able to transition
 to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 `Running`, independently of convergence.
 
-#### Scenario: Spec change to a Running gateway re-provisions
+#### Scenario: OSG-HLTH-03.01 -- Spec change to a Running gateway re-provisions
 
 - GIVEN a converged Gateway with `phase` `Running`
   (`observed_generation == generation`)
@@ -251,7 +251,7 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
   `Running` phase
 - AND upon success SHALL set `observed_generation` to the applied `generation`
 
-#### Scenario: Converged gateway is not re-applied
+#### Scenario: OSG-HLTH-03.02 -- Converged gateway is not re-applied
 
 - GIVEN a converged Gateway with `phase` `Running` whose desired spec is
   unchanged (`observed_generation == generation`)
@@ -260,7 +260,7 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 - BUT it SHALL still update the `phase` to `Degraded` if the workload is
   observed unhealthy
 
-#### Scenario: Degraded gateway re-provisions on spec change
+#### Scenario: OSG-HLTH-03.03 -- Degraded gateway re-provisions on spec change
 
 - GIVEN a Gateway with `phase` `Degraded` that is not converged
   (`generation` advanced after a spec fix)
@@ -268,7 +268,7 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 - THEN it SHALL re-apply the gateway manifests rather than skip on phase
 - AND SHALL set `observed_generation` to the applied `generation` upon success
 
-### Requirement: Gateway Runtime Version Is Reconciled
+### Requirement: OSG-HLTH-04 -- Gateway Runtime Version Is Reconciled
 
 The control plane SHALL read the runtime version from the gateway `/health`
 endpoint after the gateway Deployment is Ready. The control plane SHALL store a
@@ -320,20 +320,20 @@ Service operation SHALL have its own three-second timeout, including conflict
 retries. This reconciliation SHALL repair existing gateways after a control
 plane upgrade and SHALL repair later drift or deletion.
 
-#### Scenario: Runtime version is observed for the first time
+#### Scenario: OSG-HLTH-04.01 -- Runtime version is observed for the first time
 
 - GIVEN a Gateway with a Ready Deployment and no `gateway_version`
 - WHEN its `/health` endpoint returns a non-empty version
 - THEN the control plane SHALL store that version in `gateway_version`
 - AND it SHALL NOT update an unchanged `phase` or `status`
 
-#### Scenario: Runtime version changes
+#### Scenario: OSG-HLTH-04.02 -- Runtime version changes
 
 - GIVEN a Gateway with a stored `gateway_version`
 - WHEN its Ready Deployment reports a different version from `/health`
 - THEN the control plane SHALL replace `gateway_version` with the observed value
 
-#### Scenario: CI installs the matching CLI
+#### Scenario: OSG-HLTH-04.03 -- CI installs the matching CLI
 
 - GIVEN a ready gateway with a reported `gateway_version`
 - WHEN the end-to-end test runs in CI
@@ -343,14 +343,14 @@ plane upgrade and SHALL repair later drift or deletion.
 - AND it SHALL compare the complete installed CLI version with that value
 - AND it SHALL fail if the API does not report a version within a bounded wait
 
-#### Scenario: Runtime version observation fails
+#### Scenario: OSG-HLTH-04.04 -- Runtime version observation fails
 
 - GIVEN a Gateway with a stored `gateway_version`
 - WHEN its `/health` request fails, times out, or returns an invalid value
 - THEN the control plane SHALL keep the stored `gateway_version`
 - AND it SHALL retry the observation during the next reconciliation pass
 
-#### Scenario: One runtime endpoint is slow
+#### Scenario: OSG-HLTH-04.05 -- One runtime endpoint is slow
 
 - GIVEN one Gateway runtime does not answer before the request timeout
 - AND another Gateway is ready for reconciliation
@@ -358,7 +358,7 @@ plane upgrade and SHALL repair later drift or deletion.
 - THEN the slow Gateway SHALL NOT block the other Gateway
 - AND no more than the configured number of workers SHALL run at the same time
 
-#### Scenario: Reconciler starts after a gateway is ready
+#### Scenario: OSG-HLTH-04.06 -- Reconciler starts after a gateway is ready
 
 - GIVEN a Gateway that was Ready before the health reconciler started
 - WHEN the reconciler starts
@@ -366,21 +366,21 @@ plane upgrade and SHALL repair later drift or deletion.
 - AND the reconciler SHALL observe its runtime version without waiting for an
   event
 
-### Requirement: Console Reflects Recoverable States
+### Requirement: OSG-HLTH-05 -- Console Reflects Recoverable States
 
 The web console SHALL treat recoverable, non-terminal phases - including
 `Pending`, `Provisioning`, and `Degraded` - as states that require continued
 status polling, so that a Gateway recovering from `Degraded` to `Running`, or
 failing from `Running` to `Degraded`, is reflected without a manual refresh.
 
-#### Scenario: Degraded gateway keeps polling
+#### Scenario: OSG-HLTH-05.01 -- Degraded gateway keeps polling
 
 - GIVEN a Gateway displayed in the console with `phase` `Degraded`
 - WHEN the console evaluates whether to poll for status
 - THEN it SHALL continue polling until the Gateway settles into a terminal
   healthy (`Running`) or non-recoverable (`Failed`) state
 
-### Requirement: Connection Command Surfaced Only When Ready
+### Requirement: OSG-HLTH-06 -- Connection Command Surfaced Only When Ready
 
 The web console and CLI SHALL present a Gateway as ready-to-connect - and surface
 its connection command as a usable "your gateway is ready" affordance - only when
@@ -390,7 +390,7 @@ SHALL NOT represent the Gateway as ready to accept connections, even if a
 `routeAddress` has already been published. This prevents handing users a command
 that targets an endpoint that is not yet programmed and routable.
 
-#### Scenario: Command withheld while provisioning
+#### Scenario: OSG-HLTH-06.01 -- Command withheld while provisioning
 
 - GIVEN a routed Gateway with `phase` `Provisioning` whose `routeAddress` is
   already populated
@@ -398,7 +398,7 @@ that targets an endpoint that is not yet programmed and routable.
 - THEN it SHALL show a provisioning state
 - AND it SHALL NOT present the Gateway as ready to connect
 
-#### Scenario: Command surfaced once running
+#### Scenario: OSG-HLTH-06.02 -- Command surfaced once running
 
 - GIVEN a routed Gateway that transitions to `phase` `Running`
 - WHEN the console next renders the Gateway detail

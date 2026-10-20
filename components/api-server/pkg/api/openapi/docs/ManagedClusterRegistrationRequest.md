@@ -4,7 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | **string** | Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call. |
+**Name** | **string** | Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call. |
 **Capabilities** | Pointer to **[]string** | Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities. | [optional]
 
 ## Methods

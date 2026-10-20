@@ -56,7 +56,7 @@ Roles:       openshell-admin, openshell-user (client-scoped)
 
 ## Requirements
 
-### Requirement: Gateway OIDC API Fields
+### Requirement: OSG-OIDC-01 -- Gateway OIDC API Fields
 
 The Gateway API resource SHALL have an `oidc` object containing OIDC configuration fields. These fields are auto-populated by the API server during Keycloak provisioning (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)) and are read-only in the REST and gRPC contracts. The fields map directly to the upstream OpenShell `server.oidc.*` helm values.
 
@@ -70,7 +70,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 | `oidc.user_role` | string | `"openshell-user"` | Role name conferring standard user access |
 | `oidc.scopes_claim` | string | `""` | Dot-delimited path to scopes array in JWT claims |
 
-#### Scenario: OIDC auto-populated after Keycloak provisioning
+#### Scenario: OSG-OIDC-01.01 -- OIDC auto-populated after Keycloak provisioning
 
 - GIVEN a Gateway `my-gateway` is created via `hsctl apply -k` or the REST API
 - AND the kustomize overlay does NOT include OIDC fields (they are system-managed)
@@ -79,7 +79,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 - AND the GatewayReconciler SHALL generate a `gateway.toml` containing the `[openshell.gateway.oidc]` section
 - AND `allow_unauthenticated_users` SHALL be `false`
 
-#### Scenario: OIDC fields are read-only
+#### Scenario: OSG-OIDC-01.02 -- OIDC fields are read-only
 
 - GIVEN a Gateway with auto-populated OIDC configuration
 - WHEN a user attempts to PATCH the Gateway's `oidc` fields via the REST or gRPC API
@@ -88,11 +88,11 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 
 ---
 
-### Requirement: OIDC Role Validation
+### Requirement: OSG-OIDC-02 -- OIDC Role Validation
 
 The auto-provisioned OIDC configuration always sets both `admin_role` and `user_role` to fixed values (`openshell-admin` and `openshell-user`). The upstream OpenShell gateway requires both to be set or both empty -- setting only one is not supported. Since the control plane always populates both, this constraint is satisfied by construction.
 
-#### Scenario: Auto-provisioned roles are always complete
+#### Scenario: OSG-OIDC-02.01 -- Auto-provisioned roles are always complete
 
 - GIVEN the control plane auto-populates OIDC configuration
 - THEN `oidc.admin_role` SHALL be `"openshell-admin"` and `oidc.user_role` SHALL be `"openshell-user"`
@@ -100,11 +100,11 @@ The auto-provisioned OIDC configuration always sets both `admin_role` and `user_
 
 ---
 
-### Requirement: OIDC Configuration in gateway.toml
+### Requirement: OSG-OIDC-03 -- OIDC Configuration in gateway.toml
 
 When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL inject the OIDC configuration into the `gateway.toml` ConfigMap.
 
-#### Scenario: OIDC section injected into default gateway.toml
+#### Scenario: OSG-OIDC-03.01 -- OIDC section injected into default gateway.toml
 
 - GIVEN a Gateway with OIDC enabled and no custom `config` field
 - WHEN the GatewayReconciler generates the ConfigMap
@@ -123,13 +123,13 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
   ```
 - AND `allow_unauthenticated_users` SHALL be `false`
 
-#### Scenario: Custom config overrides bypass OIDC injection
+#### Scenario: OSG-OIDC-03.02 -- Custom config overrides bypass OIDC injection
 
 - GIVEN a Gateway with OIDC enabled AND a custom `config` field (raw TOML)
 - THEN the custom `config` SHALL be used verbatim
 - AND the GatewayReconciler SHALL NOT inject the OIDC section
 
-#### Scenario: Only non-empty OIDC fields written to TOML
+#### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields written to TOML
 
 - GIVEN a Gateway with only `oidc.issuer` set (all other fields at zero values)
 - THEN `gateway.toml` SHALL contain only the `issuer` key in the OIDC section
@@ -137,11 +137,11 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
 
 ---
 
-### Requirement: OIDC Change Detection
+### Requirement: OSG-OIDC-04 -- OIDC Change Detection
 
 The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a gateway restart. OIDC fields are system-managed; changes occur when the control plane updates them (e.g., Keycloak realm migration, service account secret rotation).
 
-#### Scenario: OIDC configuration changed by control plane
+#### Scenario: OSG-OIDC-04.01 -- OIDC configuration changed by control plane
 
 - GIVEN a running gateway with OIDC configured for issuer `https://old-keycloak.example.com/realms/hypershell`
 - WHEN the Keycloak service account secret is updated to point to a new Keycloak instance

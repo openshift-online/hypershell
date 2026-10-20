@@ -31,9 +31,9 @@ The three per-gateway roles form a strict hierarchy, **Owner > Admin > Viewer**:
 | `gateway:admin` | Zero or more; grantable; removable | Admin | Read/update the gateway; grant/change/revoke `gateway:admin` and `gateway:viewer` | `openshell-admin`, `openshell-user` |
 | `gateway:viewer` | Zero or more; grantable; removable | User | Read-only | `openshell-user` |
 
-`gateway:owner` and `gateway:admin` are indistinguishable **to the gateway**: both are gateway administrators and receive the same Keycloak client roles. Their difference is entirely a management-plane concern -- only owners may delete the gateway and assign other owners. A gateway always retains at least one owner (GAM-07).
+`gateway:owner` and `gateway:admin` are indistinguishable **to the gateway**: both are gateway administrators and receive the same Keycloak client roles. Their difference is entirely a management-plane concern -- only owners may delete the gateway and assign other owners. A gateway always retains at least one owner (GTW-ACC-07).
 
-Separately, `platform:admin` (a global, Keycloak-sourced role, not a per-gateway role) has **owner-equivalent access-management authority on every gateway**: it may list, grant, change, and revoke any tier (including `gateway:owner`) and search the directory, without holding any per-gateway binding (GAM-08). It is purely a management-plane authority: it confers **no gateway login** (no Keycloak client roles) unless the `platform:admin` is separately granted a per-gateway binding, so a platform administrator managing a gateway's access does not thereby gain `openshell` CLI access to it.
+Separately, `platform:admin` (a global, Keycloak-sourced role, not a per-gateway role) has **owner-equivalent access-management authority on every gateway**: it may list, grant, change, and revoke any tier (including `gateway:owner`) and search the directory, without holding any per-gateway binding (GTW-ACC-08). It is purely a management-plane authority: it confers **no gateway login** (no Keycloak client roles) unless the `platform:admin` is separately granted a per-gateway binding, so a platform administrator managing a gateway's access does not thereby gain `openshell` CLI access to it.
 
 The creator (the auto-provisioned first owner, `security/rbac-enforcement.spec.md`) holds no capability beyond any other owner; ownership is shared and transferable among owners, and the first owner is not distinguished from the others in the access list.
 
@@ -45,17 +45,17 @@ The creator (the auto-provisioned first owner, `security/rbac-enforcement.spec.m
 
 ## Requirements
 
-### Requirement: GAM-01 -- Granted Administrator Role
+### Requirement: GTW-ACC-01 -- Granted Administrator Role
 
 The platform SHALL define a per-gateway built-in role `gateway:admin` representing a granted gateway administrator, below `gateway:owner` in the hierarchy.
 
 `gateway:admin` SHALL confer, on its bound gateway:
 
 - Read and update the gateway (including rename).
-- Manage access **for the Admin and User tiers only**: grant, change, and revoke `gateway:admin` and `gateway:viewer` bindings (GAM-08).
-- Create and manage all OpenShellGatewayServiceAccounts on the gateway, selecting `openshell-user` or `openshell-admin` (GAM-12).
+- Manage access **for the Admin and User tiers only**: grant, change, and revoke `gateway:admin` and `gateway:viewer` bindings (GTW-ACC-08).
+- Create and manage all OpenShellGatewayServiceAccounts on the gateway, selecting `openshell-user` or `openshell-admin` (GTW-ACC-12).
 
-`gateway:admin` SHALL NOT delete the gateway, and SHALL NOT grant, change, or revoke the Owner tier (`gateway:owner`). Deleting a gateway SHALL require `gateway:owner` or `platform:admin`; assigning an owner SHALL require `gateway:owner` or `platform:admin` (GAM-08).
+`gateway:admin` SHALL NOT delete the gateway, and SHALL NOT grant, change, or revoke the Owner tier (`gateway:owner`). Deleting a gateway SHALL require `gateway:owner` or `platform:admin`; assigning an owner SHALL require `gateway:owner` or `platform:admin` (GTW-ACC-08).
 
 The Gateway REST resource SHALL advertise a read-only, per-caller `can_delete` boolean on `GET` (list and single) responses, computed from the authenticated caller's current bindings with the **same check that authorizes `DELETE`** (`gateway:owner` on that gateway, or `platform:admin`). `can_delete` is advisory: it exists so clients (console, CLI) can disable a delete affordance the API would reject, and SHALL NOT weaken enforcement. The API server SHALL remain the authorization boundary and SHALL enforce delete authorization on `DELETE` regardless of `can_delete`. When RBAC enforcement is disabled, every delete is permitted, so `can_delete` SHALL be `true`.
 
@@ -65,7 +65,7 @@ The Gateway REST resource SHALL likewise advertise a read-only, per-caller `can_
 
 A user holding `gateway:admin` on a gateway SHALL see that gateway in list and get results (gateway visibility follows any per-gateway binding).
 
-#### Scenario: Granted admin can manage the gateway but not delete it
+#### Scenario: GTW-ACC-01.01 -- Granted admin can manage the gateway but not delete it
 
 - GIVEN user B has `gateway:admin` on gw-1
 - WHEN user B calls `PATCH /api/hypershell/v1/gateways/gw-1`
@@ -73,13 +73,13 @@ A user holding `gateway:admin` on a gateway SHALL see that gateway in list and g
 - WHEN user B calls `DELETE /api/hypershell/v1/gateways/gw-1`
 - THEN the response SHALL be `403 Forbidden`
 
-#### Scenario: Granted admin sees the gateway
+#### Scenario: GTW-ACC-01.02 -- Granted admin sees the gateway
 
 - GIVEN user B has `gateway:admin` on gw-1 and no other bindings
 - WHEN user B calls `GET /api/hypershell/v1/gateways`
 - THEN the response SHALL include gw-1
 
-#### Scenario: can_delete reflects the caller's delete authorization
+#### Scenario: GTW-ACC-01.03 -- can_delete reflects the caller's delete authorization
 
 - GIVEN user A demoted their own access on gw-1 from `gateway:owner` to the User tier (`gateway:viewer`), and user C remains an owner
 - WHEN user A calls `GET /api/hypershell/v1/gateways/gw-1`
@@ -88,7 +88,7 @@ A user holding `gateway:admin` on a gateway SHALL see that gateway in list and g
 - WHEN user C (a `gateway:owner`) or a `platform:admin` calls `GET /api/hypershell/v1/gateways/gw-1`
 - THEN the response `can_delete` SHALL be `true`
 
-#### Scenario: can_edit reflects the caller's edit authorization
+#### Scenario: GTW-ACC-01.04 -- can_edit reflects the caller's edit authorization
 
 - GIVEN user V holds `gateway:viewer` on gw-1
 - WHEN user V calls `GET /api/hypershell/v1/gateways/gw-1`
@@ -99,7 +99,7 @@ A user holding `gateway:admin` on a gateway SHALL see that gateway in list and g
 
 ---
 
-### Requirement: GAM-02 -- Keycloak Role Bridge Mapping
+### Requirement: GTW-ACC-02 -- Keycloak Role Bridge Mapping
 
 The control plane SHALL map per-gateway HyperShell roles to per-gateway Keycloak client roles as follows:
 
@@ -115,20 +115,20 @@ On every RoleBinding event (created, updated, deleted) for a gateway-scoped bind
 
 The Role Bridge SHALL NOT depend solely on the `WatchRoleBindings` event stream for delivery. The control plane SHALL also seed and periodically resync the RoleBinding reconciler from `ListRoleBindings` so an owner grant is recovered even when an event is missed or the stream goes silent (`control-plane.spec.md`, "Requirement: Role Binding Resync" and "Requirement: Watch Stream Liveness"). The resync applies the same union reconciliation and is idempotent.
 
-#### Scenario: Admin grant assigns both client roles
+#### Scenario: GTW-ACC-02.01 -- Admin grant assigns both client roles
 
 - GIVEN gw-1 has a provisioned Keycloak client
 - WHEN a `gateway:admin` binding for user B on gw-1 is created
 - THEN the control plane SHALL assign `openshell-admin` and `openshell-user` to user B on gw-1's Keycloak client
 
-#### Scenario: Demotion strips the admin client role
+#### Scenario: GTW-ACC-02.02 -- Demotion strips the admin client role
 
 - GIVEN user B holds `gateway:admin` on gw-1 (Keycloak `openshell-admin` + `openshell-user`)
 - WHEN user B's access is changed to `gateway:viewer`
 - THEN the control plane SHALL remove `openshell-admin` from user B on gw-1's Keycloak client
 - AND `openshell-user` SHALL remain
 
-#### Scenario: Overlapping bindings keep the union
+#### Scenario: GTW-ACC-02.03 -- Overlapping bindings keep the union
 
 - GIVEN user B holds both `gateway:viewer` and `gateway:admin` on gw-1
 - WHEN the `gateway:viewer` binding is deleted
@@ -137,7 +137,7 @@ The Role Bridge SHALL NOT depend solely on the `WatchRoleBindings` event stream 
 
 ---
 
-### Requirement: GAM-03 -- Gateway Access List
+### Requirement: GTW-ACC-03 -- Gateway Access List
 
 The API server SHALL expose `GET /api/hypershell/v1/gateways/{gateway_id}/access`, returning the list of access grants on the gateway as an enriched, paginated collection.
 
@@ -145,7 +145,7 @@ Each grant item SHALL expose:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `role_binding_id` | string | The backing RoleBinding id; informational only. Change (GAM-05) and revoke (GAM-06) are keyed by `user_id` in the URL and operate on all of that user's bindings on the gateway, not by `role_binding_id` |
+| `role_binding_id` | string | The backing RoleBinding id; informational only. Change (GTW-ACC-05) and revoke (GTW-ACC-06) are keyed by `user_id` in the URL and operate on all of that user's bindings on the gateway, not by `role_binding_id` |
 | `user_id` | string | HyperShell User id |
 | `username` | string | `User.username` (= Keycloak `preferred_username`); the console "User ID" column |
 | `name` | string | `User.name` display name, when present; the console "Name" column |
@@ -157,19 +157,19 @@ The response SHALL be assembled server-side with the user fields already joined;
 
 Any caller with a binding on the gateway (owner, admin, or viewer) or `platform:admin` SHALL be authorized to read the access list. Callers with no access to the gateway SHALL receive `404` (existence not disclosed, per `security/rbac-enforcement.spec.md`).
 
-#### Scenario: Owner lists access
+#### Scenario: GTW-ACC-03.01 -- Owner lists access
 
 - GIVEN gw-1 has two `gateway:owner`, one `gateway:admin`, and two `gateway:viewer` grants
 - WHEN an owner calls `GET /api/hypershell/v1/gateways/gw-1/access`
 - THEN the response SHALL contain five items with `username`, `name`, and `role` populated
 - AND exactly two items SHALL have `role: owner`
 
-#### Scenario: Filter by role and search by name
+#### Scenario: GTW-ACC-03.02 -- Filter by role and search by name
 
 - WHEN a caller requests the access list with `role=user` and `search=ali`
 - THEN only `user`-tier grants whose username or name contains `ali` SHALL be returned
 
-#### Scenario: Non-member cannot read the access list
+#### Scenario: GTW-ACC-03.03 -- Non-member cannot read the access list
 
 - GIVEN user C has no binding on gw-1 and is not `platform:admin`
 - WHEN user C calls `GET /api/hypershell/v1/gateways/gw-1/access`
@@ -177,26 +177,26 @@ Any caller with a binding on the gateway (owner, admin, or viewer) or `platform:
 
 ---
 
-### Requirement: GAM-04 -- Grant Access
+### Requirement: GTW-ACC-04 -- Grant Access
 
 The API server SHALL expose `POST /api/hypershell/v1/gateways/{gateway_id}/access` to grant a user `owner`, `admin`, or `user` access to the gateway.
 
-The request SHALL identify the target user by a directory identity (`username`, or an equivalent Keycloak subject reference returned by GAM-09) and a `role` of `owner`, `admin`, or `user`. Granting `owner` SHALL create a `gateway:owner` binding; granting `admin` SHALL create a `gateway:admin` binding; granting `user` SHALL create a `gateway:viewer` binding. Granting (or changing to) the `owner` tier SHALL require the caller to be a `gateway:owner` or `platform:admin` (GAM-08); `gateway:admin` callers SHALL NOT assign owners.
+The request SHALL identify the target user by a directory identity (`username`, or an equivalent Keycloak subject reference returned by GTW-ACC-09) and a `role` of `owner`, `admin`, or `user`. Granting `owner` SHALL create a `gateway:owner` binding; granting `admin` SHALL create a `gateway:admin` binding; granting `user` SHALL create a `gateway:viewer` binding. Granting (or changing to) the `owner` tier SHALL require the caller to be a `gateway:owner` or `platform:admin` (GTW-ACC-08); `gateway:admin` callers SHALL NOT assign owners.
 
-The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GAM-09.
+The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GTW-ACC-09.
 
 When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, and `name`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
 
-Granting SHALL be idempotent with respect to the effective role (GAM-10). On success the endpoint SHALL return the resulting grant item (GAM-03 shape).
+Granting SHALL be idempotent with respect to the effective role (GTW-ACC-10). On success the endpoint SHALL return the resulting grant item (GTW-ACC-03 shape).
 
-#### Scenario: Grant admin to a previously registered user
+#### Scenario: GTW-ACC-04.01 -- Grant admin to a previously registered user
 
 - GIVEN user B has a HyperShell User record and no binding on gw-1
 - WHEN an owner of gw-1 grants B the `admin` role
 - THEN a `gateway:admin` binding SHALL be created for B on gw-1
 - AND the Role Bridge SHALL assign `openshell-admin` and `openshell-user` to B on gw-1
 
-#### Scenario: Grant access to a user who has never signed in
+#### Scenario: GTW-ACC-04.02 -- Grant access to a user who has never signed in
 
 - GIVEN directory user `dana` exists in the Keycloak realm with no HyperShell User record
 - WHEN an owner of gw-1 grants `dana` the `user` role
@@ -204,25 +204,25 @@ Granting SHALL be idempotent with respect to the effective role (GAM-10). On suc
 - AND SHALL create a `gateway:viewer` binding for `dana` on gw-1
 - AND the Role Bridge SHALL assign `openshell-user` to `dana` on gw-1
 
-#### Scenario: Owner assigns another owner
+#### Scenario: GTW-ACC-04.03 -- Owner assigns another owner
 
 - GIVEN user A is an owner of gw-1
 - WHEN user A grants user E the `owner` role
 - THEN a `gateway:owner` binding SHALL be created for E on gw-1
 - AND E SHALL be able to delete gw-1 and assign further owners
 
-#### Scenario: Admin cannot assign an owner
+#### Scenario: GTW-ACC-04.04 -- Admin cannot assign an owner
 
 - GIVEN user B holds `gateway:admin` on gw-1 (not an owner)
 - WHEN user B grants user E the `owner` role
 - THEN the request SHALL be rejected with `403`
 
-#### Scenario: Unknown role is rejected
+#### Scenario: GTW-ACC-04.05 -- Unknown role is rejected
 
 - WHEN a caller posts an access grant with a role that is not `owner`, `admin`, or `user`
 - THEN the request SHALL be rejected with `400`
 
-#### Scenario: Grant to a user not in the realm is rejected
+#### Scenario: GTW-ACC-04.06 -- Grant to a user not in the realm is rejected
 
 - GIVEN identity `ghost` does not exist in the Keycloak realm
 - WHEN an owner of gw-1 grants `ghost` any role
@@ -231,36 +231,36 @@ Granting SHALL be idempotent with respect to the effective role (GAM-10). On suc
 
 ---
 
-### Requirement: GAM-05 -- Change Role
+### Requirement: GTW-ACC-05 -- Change Role
 
 The API server SHALL expose `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` to change a user's access among `owner`, `admin`, and `user`.
 
 The change SHALL be atomic: the user SHALL NOT be left with zero gateway access or with conflicting bindings at any observable point. The server SHALL converge the user's gateway bindings to exactly the requested tier (a single `gateway:owner`, `gateway:admin`, or `gateway:viewer` binding) within one transaction.
 
-**Mechanism.** When the user holds a single binding on the gateway (the normal case under GAM-10), the change SHALL be implemented by updating that `RoleBinding`'s `role_id` **in place**, emitting one `RoleBinding` `UPDATED` watch event -- not delete-then-create -- so there is no window in which the user has no binding. The generic `role_bindings` REST resource remains create/delete-only publicly (`data-model.spec.md`); the in-place role change is an internal mutation performed by the access facade / service layer, and the control plane's Role Bridge handles the `UPDATED` event by reconciling to the client-role union (GAM-02, `openshell-gateway-keycloak.spec.md`). The reconcile is union-based and reads live bindings, so it remains correct even if an implementation instead converges by adjusting individual bindings.
+**Mechanism.** When the user holds a single binding on the gateway (the normal case under GTW-ACC-10), the change SHALL be implemented by updating that `RoleBinding`'s `role_id` **in place**, emitting one `RoleBinding` `UPDATED` watch event -- not delete-then-create -- so there is no window in which the user has no binding. The generic `role_bindings` REST resource remains create/delete-only publicly (`data-model.spec.md`); the in-place role change is an internal mutation performed by the access facade / service layer, and the control plane's Role Bridge handles the `UPDATED` event by reconciling to the client-role union (GTW-ACC-02, `openshell-gateway-keycloak.spec.md`). The reconcile is union-based and reads live bindings, so it remains correct even if an implementation instead converges by adjusting individual bindings.
 
-Promoting a user to `owner`, or demoting a user from `owner`, SHALL require the caller to be a `gateway:owner` (GAM-08). Demoting an owner SHALL be rejected if that owner is the last remaining owner (GAM-07). Changing to a role the user already holds SHALL be a no-op success (GAM-10).
+Promoting a user to `owner`, or demoting a user from `owner`, SHALL require the caller to be a `gateway:owner` (GTW-ACC-08). Demoting an owner SHALL be rejected if that owner is the last remaining owner (GTW-ACC-07). Changing to a role the user already holds SHALL be a no-op success (GTW-ACC-10).
 
-#### Scenario: Promote a user to admin
+#### Scenario: GTW-ACC-05.01 -- Promote a user to admin
 
 - GIVEN user B holds `gateway:viewer` on gw-1
 - WHEN an admin of gw-1 PATCHes B's access to `admin`
 - THEN B SHALL hold exactly `gateway:admin` on gw-1 afterward
 - AND the Role Bridge SHALL add `openshell-admin` for B on gw-1
 
-#### Scenario: Owner promotes an admin to owner
+#### Scenario: GTW-ACC-05.02 -- Owner promotes an admin to owner
 
 - GIVEN user B holds `gateway:admin` on gw-1 and user A is an owner
 - WHEN user A PATCHes B's access to `owner`
 - THEN B SHALL hold exactly `gateway:owner` on gw-1 afterward
 
-#### Scenario: Admin cannot promote to owner
+#### Scenario: GTW-ACC-05.03 -- Admin cannot promote to owner
 
 - GIVEN user B holds `gateway:admin` on gw-1 (not an owner) and user C holds `gateway:viewer`
 - WHEN user B PATCHes C's access to `owner`
 - THEN the response SHALL be `403`
 
-#### Scenario: Role change never drops access mid-flight
+#### Scenario: GTW-ACC-05.04 -- Role change never drops access mid-flight
 
 - GIVEN user B holds `gateway:admin` on gw-1
 - WHEN B's access is changed to `user`
@@ -269,27 +269,27 @@ Promoting a user to `owner`, or demoting a user from `owner`, SHALL require the 
 
 ---
 
-### Requirement: GAM-06 -- Revoke Access
+### Requirement: GTW-ACC-06 -- Revoke Access
 
 The API server SHALL expose `DELETE /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` to revoke a user's access to the gateway.
 
-Revocation SHALL remove the user's `gateway:owner`, `gateway:admin`, and/or `gateway:viewer` bindings on the gateway and SHALL cause the Role Bridge to remove the corresponding Keycloak client roles for that user on that gateway's client. Revoking a user who holds `gateway:owner` SHALL require the caller to be a `gateway:owner` (GAM-08), and SHALL be rejected if that user is the last remaining owner (GAM-07).
+Revocation SHALL remove the user's `gateway:owner`, `gateway:admin`, and/or `gateway:viewer` bindings on the gateway and SHALL cause the Role Bridge to remove the corresponding Keycloak client roles for that user on that gateway's client. Revoking a user who holds `gateway:owner` SHALL require the caller to be a `gateway:owner` (GTW-ACC-08), and SHALL be rejected if that user is the last remaining owner (GTW-ACC-07).
 
-#### Scenario: Revoke a granted admin
+#### Scenario: GTW-ACC-06.01 -- Revoke a granted admin
 
 - GIVEN user B holds `gateway:admin` on gw-1
 - WHEN an owner or admin of gw-1 revokes B's access
 - THEN B SHALL hold no binding on gw-1
 - AND the Role Bridge SHALL remove `openshell-admin` and `openshell-user` for B on gw-1's Keycloak client
 
-#### Scenario: An owner may revoke their own access when another owner remains
+#### Scenario: GTW-ACC-06.02 -- An owner may revoke their own access when another owner remains
 
 - GIVEN users A and E both hold `gateway:owner` on gw-1
 - WHEN user A revokes their own access
 - THEN the request SHALL succeed and A SHALL lose access to gw-1
 - AND E SHALL remain an owner
 
-#### Scenario: Admin cannot revoke an owner
+#### Scenario: GTW-ACC-06.03 -- Admin cannot revoke an owner
 
 - GIVEN user B holds `gateway:admin` on gw-1 and user A holds `gateway:owner`
 - WHEN user B revokes user A's access
@@ -297,7 +297,7 @@ Revocation SHALL remove the user's `gateway:owner`, `gateway:admin`, and/or `gat
 
 ---
 
-### Requirement: GAM-07 -- Last-Owner Protection
+### Requirement: GTW-ACC-07 -- Last-Owner Protection
 
 A gateway SHALL always have at least one `gateway:owner`. The access facade SHALL reject any operation that would remove the last remaining owner, so a gateway can never be orphaned (left with no owner who can delete it or manage ownership):
 
@@ -310,21 +310,21 @@ These rejections SHALL apply regardless of the caller, including an owner acting
 
 The creator (the auto-provisioned first owner) is not distinguished from any other owner and SHALL NOT, by itself, confer immutability; only the **last owner** constraint protects a row.
 
-#### Scenario: Sole owner cannot demote themselves
+#### Scenario: GTW-ACC-07.01 -- Sole owner cannot demote themselves
 
 - GIVEN user A is the only owner of gw-1
 - WHEN user A PATCHes their own access to `user`
 - THEN the response SHALL be `409 Conflict`
 - AND user A SHALL remain `gateway:owner`
 
-#### Scenario: Sole owner cannot be removed
+#### Scenario: GTW-ACC-07.02 -- Sole owner cannot be removed
 
 - GIVEN user A is the only owner of gw-1
 - WHEN any caller revokes user A's access
 - THEN the response SHALL be `409 Conflict`
 - AND user A SHALL remain `gateway:owner`
 
-#### Scenario: An owner may be removed when another owner remains
+#### Scenario: GTW-ACC-07.03 -- An owner may be removed when another owner remains
 
 - GIVEN users A and E both hold `gateway:owner` on gw-1
 - WHEN an owner demotes A to `user`
@@ -333,61 +333,61 @@ The creator (the auto-provisioned first owner) is not distinguished from any oth
 
 ---
 
-### Requirement: GAM-08 -- Access Management Authorization
+### Requirement: GTW-ACC-08 -- Access Management Authorization
 
-Granting, changing, and revoking access (GAM-04, GAM-05, GAM-06) and searching the directory (GAM-09) SHALL require `gateway:owner` or `gateway:admin` on the target gateway, or `platform:admin`. Operations that touch the **Owner tier** -- granting `owner`, promoting to `owner`, or demoting/revoking a user who holds `gateway:owner` -- SHALL additionally require the caller to be a `gateway:owner` or `platform:admin`. A `gateway:admin` caller MAY manage only the Admin and User tiers.
+Granting, changing, and revoking access (GTW-ACC-04, GTW-ACC-05, GTW-ACC-06) and searching the directory (GTW-ACC-09) SHALL require `gateway:owner` or `gateway:admin` on the target gateway, or `platform:admin`. Operations that touch the **Owner tier** -- granting `owner`, promoting to `owner`, or demoting/revoking a user who holds `gateway:owner` -- SHALL additionally require the caller to be a `gateway:owner` or `platform:admin`. A `gateway:admin` caller MAY manage only the Admin and User tiers.
 
 `gateway:viewer` callers SHALL NOT manage access or search the directory.
 
-A `platform:admin` SHALL be authorized for **all** access-management operations on **any** gateway -- listing, granting, changing, and revoking **any** tier including `gateway:owner`, and searching the directory -- exactly like a `gateway:owner`, and **without requiring any per-gateway binding**. This authority is management-plane only: performing access management SHALL NOT grant the `platform:admin` gateway login (the per-gateway Keycloak client roles `openshell-admin`/`openshell-user`); gateway login follows solely from an explicit gateway-scoped binding on that gateway (`security/rbac-enforcement.spec.md`, OpenShell Role Bridge). Last-owner protection (GAM-07) applies to `platform:admin` actions exactly as to an owner's: a `platform:admin` SHALL NOT remove or demote the last remaining owner, but MAY assign a new owner first. The access-list capabilities (GAM-03) returned to a `platform:admin` SHALL report `can_manage_access` and `can_manage_owners` as true.
+A `platform:admin` SHALL be authorized for **all** access-management operations on **any** gateway -- listing, granting, changing, and revoking **any** tier including `gateway:owner`, and searching the directory -- exactly like a `gateway:owner`, and **without requiring any per-gateway binding**. This authority is management-plane only: performing access management SHALL NOT grant the `platform:admin` gateway login (the per-gateway Keycloak client roles `openshell-admin`/`openshell-user`); gateway login follows solely from an explicit gateway-scoped binding on that gateway (`security/rbac-enforcement.spec.md`, OpenShell Role Bridge). Last-owner protection (GTW-ACC-07) applies to `platform:admin` actions exactly as to an owner's: a `platform:admin` SHALL NOT remove or demote the last remaining owner, but MAY assign a new owner first. The access-list capabilities (GTW-ACC-03) returned to a `platform:admin` SHALL report `can_manage_access` and `can_manage_owners` as true.
 
 Unauthorized management attempts SHALL return `403`; callers with no access to the gateway SHALL receive `404`.
 
-#### Scenario: Viewer cannot grant access
+#### Scenario: GTW-ACC-08.01 -- Viewer cannot grant access
 
 - GIVEN user C holds `gateway:viewer` on gw-1
 - WHEN user C posts an access grant on gw-1
 - THEN the response SHALL be `403`
 
-#### Scenario: Granted admin can grant access
+#### Scenario: GTW-ACC-08.02 -- Granted admin can grant access
 
 - GIVEN user B holds `gateway:admin` on gw-1
 - WHEN user B grants user D the `user` role on gw-1
 - THEN the grant SHALL be created
 
-#### Scenario: Platform admin manages access on any gateway without a binding
+#### Scenario: GTW-ACC-08.03 -- Platform admin manages access on any gateway without a binding
 
 - GIVEN user P holds `platform:admin` and has no binding on gw-1
 - WHEN user P grants user E the `owner` role on gw-1
 - THEN the grant SHALL be created
-- AND user P MAY likewise change and revoke any tier on gw-1, including owners (subject to GAM-07), and search the directory
+- AND user P MAY likewise change and revoke any tier on gw-1, including owners (subject to GTW-ACC-07), and search the directory
 
-#### Scenario: Platform admin managing access gains no gateway login
+#### Scenario: GTW-ACC-08.04 -- Platform admin managing access gains no gateway login
 
 - GIVEN user P holds `platform:admin` and has no gateway-scoped binding on gw-1
 - WHEN user P grants, changes, or revokes access on gw-1
 - THEN no gateway-scoped binding SHALL be created for user P
 - AND the Role Bridge SHALL assign user P no `openshell-admin` or `openshell-user` client role on gw-1 (user P has no gateway login unless separately granted a binding)
 
-#### Scenario: Platform admin cannot remove the last owner
+#### Scenario: GTW-ACC-08.05 -- Platform admin cannot remove the last owner
 
 - GIVEN gw-1 has exactly one owner, user A, and user P holds `platform:admin`
 - WHEN user P revokes or demotes user A
-- THEN the response SHALL be `409 Conflict` (a gateway must keep at least one owner, GAM-07)
+- THEN the response SHALL be `409 Conflict` (a gateway must keep at least one owner, GTW-ACC-07)
 
 ---
 
-### Requirement: GAM-09 -- Keycloak Directory Search
+### Requirement: GTW-ACC-09 -- Keycloak Directory Search
 
 The API server SHALL expose `GET /api/hypershell/v1/gateways/{gateway_id}/access/directory?search=` returning candidate users from the configured Keycloak realm for the "Add users" picker.
 
-Each candidate SHALL expose `username`, `name`, and `email`, and SHALL be usable as the target identity of a grant (GAM-04). Candidates SHALL include realm users who have never signed in to HyperShell (the directory is the Keycloak realm, not the HyperShell users inventory).
+Each candidate SHALL expose `username`, `name`, and `email`, and SHALL be usable as the target identity of a grant (GTW-ACC-04). Candidates SHALL include realm users who have never signed in to HyperShell (the directory is the Keycloak realm, not the HyperShell users inventory).
 
-**Backing store.** Rather than issuing a live Keycloak Admin REST query on every keystroke, the directory SHALL be served from a **control-plane-maintained projection of realm users** that the control plane refreshes periodically (and MAY refresh on demand). The control plane -- which holds the `hypershell-keycloak-admin` Secret and already runs reconcile loops -- SHALL periodically list realm users via the Keycloak Admin REST API and persist a directory projection (`username`, `name`, `email`, Keycloak subject) that the API server reads and filters for this endpoint. The API server SHALL NOT read the `hypershell-keycloak-admin` Secret (`openshell-gateway-keycloak.spec.md`). This keeps search fast and resilient to transient Keycloak unavailability; the tradeoff is bounded staleness equal to the refresh interval. Because the projection may be stale, grant (GAM-04) SHALL re-validate the chosen identity against the realm at grant time and reject unknown users (`404`). The refresh interval SHALL be configuration, not code (`specs/standards/`), and newly added realm users become selectable within one refresh cycle. Results SHALL be bounded (paginated/capped); the search SHALL apply the query term server-side against the projection.
+**Backing store.** Rather than issuing a live Keycloak Admin REST query on every keystroke, the directory SHALL be served from a **control-plane-maintained projection of realm users** that the control plane refreshes periodically (and MAY refresh on demand). The control plane -- which holds the `hypershell-keycloak-admin` Secret and already runs reconcile loops -- SHALL periodically list realm users via the Keycloak Admin REST API and persist a directory projection (`username`, `name`, `email`, Keycloak subject) that the API server reads and filters for this endpoint. The API server SHALL NOT read the `hypershell-keycloak-admin` Secret (`openshell-gateway-keycloak.spec.md`). This keeps search fast and resilient to transient Keycloak unavailability; the tradeoff is bounded staleness equal to the refresh interval. Because the projection may be stale, grant (GTW-ACC-04) SHALL re-validate the chosen identity against the realm at grant time and reject unknown users (`404`). The refresh interval SHALL be configuration, not code (`specs/standards/`), and newly added realm users become selectable within one refresh cycle. Results SHALL be bounded (paginated/capped); the search SHALL apply the query term server-side against the projection.
 
-Authorization SHALL follow GAM-08 (owner or admin on the gateway, or `platform:admin`).
+Authorization SHALL follow GTW-ACC-08 (owner or admin on the gateway, or `platform:admin`).
 
-#### Scenario: Directory search returns realm users from the projection
+#### Scenario: GTW-ACC-09.01 -- Directory search returns realm users from the projection
 
 - GIVEN the realm contains users `dana` and `dale`, neither registered in HyperShell
 - AND the control plane has refreshed the directory projection
@@ -395,7 +395,7 @@ Authorization SHALL follow GAM-08 (owner or admin on the gateway, or `platform:a
 - THEN the response SHALL include candidates for `dana` and `dale` with `username` and `name`
 - AND the API server SHALL serve them from the projection without a live Keycloak call
 
-#### Scenario: Directory search requires access management authorization
+#### Scenario: GTW-ACC-09.02 -- Directory search requires access management authorization
 
 - GIVEN user C holds only `gateway:viewer` on gw-1
 - WHEN user C calls the directory search for gw-1
@@ -403,20 +403,20 @@ Authorization SHALL follow GAM-08 (owner or admin on the gateway, or `platform:a
 
 ---
 
-### Requirement: GAM-10 -- One Effective Role Per User Per Gateway
+### Requirement: GTW-ACC-10 -- One Effective Role Per User Per Gateway
 
 A user SHALL have at most one effective access tier on a gateway. The access facade SHALL NOT create duplicate or conflicting bindings for the same user on the same gateway.
 
-Granting a role the user already holds SHALL be an idempotent no-op success. Granting a different tier than the user currently holds SHALL converge to the new tier (equivalent to a change, GAM-05), not accumulate bindings. The control plane Role Bridge SHALL remain correct under any surviving-binding union regardless (GAM-02).
+Granting a role the user already holds SHALL be an idempotent no-op success. Granting a different tier than the user currently holds SHALL converge to the new tier (equivalent to a change, GTW-ACC-05), not accumulate bindings. The control plane Role Bridge SHALL remain correct under any surviving-binding union regardless (GTW-ACC-02).
 
-#### Scenario: Re-granting the same role is a no-op
+#### Scenario: GTW-ACC-10.01 -- Re-granting the same role is a no-op
 
 - GIVEN user B holds `gateway:viewer` on gw-1
 - WHEN an admin grants B the `user` role again
 - THEN the request SHALL succeed
 - AND B SHALL still hold exactly one `gateway:viewer` binding on gw-1
 
-#### Scenario: Granting a higher tier converges, not accumulates
+#### Scenario: GTW-ACC-10.02 -- Granting a higher tier converges, not accumulates
 
 - GIVEN user B holds `gateway:viewer` on gw-1
 - WHEN an admin grants B the `admin` role
@@ -424,11 +424,11 @@ Granting a role the user already holds SHALL be an idempotent no-op success. Gra
 
 ---
 
-### Requirement: GAM-11 -- Service Account Role Capping for Admins
+### Requirement: GTW-ACC-11 -- Service Account Role Capping for Admins
 
 OpenShellGatewayServiceAccount creation (`openshell-gateway-service-accounts.spec.md`) caps the selectable OpenShell role at the creator's gateway tier. A `gateway:admin` caller SHALL be capped identically to `gateway:owner`: it MAY select `openshell-user` or `openshell-admin`. A `gateway:viewer` caller MAY select only `openshell-user`.
 
-#### Scenario: Granted admin creates an admin service account
+#### Scenario: GTW-ACC-11.01 -- Granted admin creates an admin service account
 
 - GIVEN user B holds `gateway:admin` on gw-1
 - WHEN user B creates an OpenShellGatewayServiceAccount on gw-1 with role `openshell-admin`
@@ -436,13 +436,13 @@ OpenShellGatewayServiceAccount creation (`openshell-gateway-service-accounts.spe
 
 ---
 
-### Requirement: GAM-12 -- Role Migration
+### Requirement: GTW-ACC-12 -- Role Migration
 
 Introducing `gateway:admin` SHALL be an additive, idempotent migration. The `gateway:admin` role SHALL be seeded with its permission set (gateway read/update, role_bindings create/read/delete/list, service_accounts manage) alongside the existing built-in roles. Existing `gateway:owner`, `gateway:viewer`, `gateway:creator`, and `platform:admin` bindings SHALL be unaffected, and re-running the migration SHALL be safe.
 
 No historical `gateway:owner` binding SHALL be rewritten; existing gateways keep their creator as owner. Going forward, owners may add further owners, admins, or viewers, and admins may add admins or viewers.
 
-#### Scenario: Migration seeds the role idempotently
+#### Scenario: GTW-ACC-12.01 -- Migration seeds the role idempotently
 
 - GIVEN a database already migrated with the existing built-in roles
 - WHEN the role seeding migration runs (including on a second run)
@@ -451,22 +451,22 @@ No historical `gateway:owner` binding SHALL be rewritten; existing gateways keep
 
 ---
 
-### Requirement: GAM-13 -- hsctl CLI Parity
+### Requirement: GTW-ACC-13 -- hsctl CLI Parity
 
 The `hsctl` CLI mirrors the REST API one-for-one (`data-model.spec.md`), as it already does for OpenShellGatewayServiceAccounts. The gateway access operations SHALL therefore have corresponding commands, following the gateway-nested `--gateway-id` pattern established by service accounts:
 
 | REST operation | `hsctl` command |
 | --- | --- |
-| GAM-03 list access | `hsctl list gatewayAccess --gateway-id <id> [--role <owner\|admin\|user>] [--search <q>]` |
-| GAM-04 grant access | `hsctl create gatewayAccess --gateway-id <id> --user <username> --role <owner\|admin\|user>` |
-| GAM-05 change role | `hsctl update gatewayAccess <user_id> --gateway-id <id> --role <owner\|admin\|user>` |
-| GAM-06 revoke access | `hsctl delete gatewayAccess <user_id> --gateway-id <id>` |
+| GTW-ACC-03 list access | `hsctl list gatewayAccess --gateway-id <id> [--role <owner\|admin\|user>] [--search <q>]` |
+| GTW-ACC-04 grant access | `hsctl create gatewayAccess --gateway-id <id> --user <username> --role <owner\|admin\|user>` |
+| GTW-ACC-05 change role | `hsctl update gatewayAccess <user_id> --gateway-id <id> --role <owner\|admin\|user>` |
+| GTW-ACC-06 revoke access | `hsctl delete gatewayAccess <user_id> --gateway-id <id>` |
 
-The directory search (GAM-09) is a deliberate exception to the CLI mirror: it serves the web console "Add users" picker and SHALL NOT have an `hsctl` command. CLI callers already supply the username to `create gatewayAccess --user <username>`.
+The directory search (GTW-ACC-09) is a deliberate exception to the CLI mirror: it serves the web console "Add users" picker and SHALL NOT have an `hsctl` command. CLI callers already supply the username to `create gatewayAccess --user <username>`.
 
-`--role` SHALL accept `owner`, `admin`, or `user` (mapping to `gateway:owner`, `gateway:admin`, `gateway:viewer`). The commands SHALL use the generated SDK and SHALL surface the same authorization and protection outcomes as the REST API -- a `403` (unauthorized management, including a non-owner touching the Owner tier) or `409` (last-owner protection) SHALL produce a non-zero exit with a clear message rather than a silent success. These commands assign only the role given by `--role`; assigning or removing the Owner tier requires the caller to be an owner (GAM-08).
+`--role` SHALL accept `owner`, `admin`, or `user` (mapping to `gateway:owner`, `gateway:admin`, `gateway:viewer`). The commands SHALL use the generated SDK and SHALL surface the same authorization and protection outcomes as the REST API -- a `403` (unauthorized management, including a non-owner touching the Owner tier) or `409` (last-owner protection) SHALL produce a non-zero exit with a clear message rather than a silent success. These commands assign only the role given by `--role`; assigning or removing the Owner tier requires the caller to be an owner (GTW-ACC-08).
 
-#### Scenario: Grant then revoke access via hsctl
+#### Scenario: GTW-ACC-13.01 -- Grant then revoke access via hsctl
 
 - GIVEN the caller administers gw-1
 - WHEN the caller runs `hsctl create gatewayAccess --gateway-id gw-1 --user dana --role user`
@@ -474,7 +474,7 @@ The directory search (GAM-09) is a deliberate exception to the CLI mirror: it se
 - WHEN the caller runs `hsctl delete gatewayAccess <dana-user-id> --gateway-id gw-1`
 - THEN dana's access SHALL be revoked
 
-#### Scenario: CLI surfaces last-owner protection
+#### Scenario: GTW-ACC-13.02 -- CLI surfaces last-owner protection
 
 - GIVEN user A is the only owner of gw-1
 - WHEN the caller runs `hsctl delete gatewayAccess <A-user-id> --gateway-id gw-1`
@@ -482,17 +482,17 @@ The directory search (GAM-09) is a deliberate exception to the CLI mirror: it se
 
 ---
 
-### Requirement: GAM-14 -- Verification
+### Requirement: GTW-ACC-14 -- Verification
 
 The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); grant to an identity absent from the realm rejected with `404` and no pre-provision/binding; atomic role change (promote and demote, including to/from owner) implemented as an in-place `role_id` update (single `UPDATED` event) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner, asserting the response carries a descriptive message; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization and serving from the control-plane projection; and idempotent re-grant.
 
 The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`), and the periodic directory-projection refresh.
 
-The `hsctl` CLI SHALL include tests covering the access commands (GAM-13), including a last-owner-protection failure surfacing as a non-zero exit.
+The `hsctl` CLI SHALL include tests covering the access commands (GTW-ACC-13), including a last-owner-protection failure surfacing as a non-zero exit.
 
 `make generate` SHALL regenerate the Go and TypeScript SDK clients for the new endpoints.
 
-#### Scenario: CI exercises last-owner protection and demotion
+#### Scenario: GTW-ACC-14.01 -- CI exercises last-owner protection and demotion
 
 - GIVEN the integration and control-plane test suites run
 - WHEN access-management and Role Bridge tests execute

@@ -109,7 +109,7 @@ field.
 
 ## Requirements
 
-### Requirement: GPP-01 -- Provisioning Conditions on the Gateway Resource
+### Requirement: GTW-PROG-01 -- Provisioning Conditions on the Gateway Resource
 
 The Gateway resource SHALL carry an ordered list of provisioning conditions that
 describe sub-phase progress during provisioning. The conditions SHALL be
@@ -132,7 +132,7 @@ when OIDC is not configured). The API server persists and exposes conditions but
 does not populate them - this avoids duplicating reconciler domain logic (such as
 which steps apply for a given configuration) in the API server.
 
-#### Scenario: Control plane initializes conditions on first reconciliation
+#### Scenario: GTW-PROG-01.01 -- Control plane initializes conditions on first reconciliation
 
 - GIVEN a user creates a new Gateway resource
 - AND the API server persists it with `provisioning_conditions` set to null
@@ -143,7 +143,7 @@ which steps apply for a given configuration) in the API server.
 - AND the control plane SHALL persist the initialized conditions via the API
   server
 
-#### Scenario: Conditions reflect gateway configuration
+#### Scenario: GTW-PROG-01.02 -- Conditions reflect gateway configuration
 
 - GIVEN a Gateway with no OIDC configuration (`oidc` is null or `oidc.issuer` is
   empty)
@@ -151,7 +151,7 @@ which steps apply for a given configuration) in the API server.
 - THEN the `IdentityProviderReady` condition SHALL be omitted from the list
 - AND the remaining conditions SHALL retain their relative order
 
-#### Scenario: Conditions visible via REST API
+#### Scenario: GTW-PROG-01.03 -- Conditions visible via REST API
 
 - GIVEN a Gateway with `phase` `Provisioning`
 - WHEN a client fetches the Gateway via `GET /api/hypershell/v1/gateways/{id}`
@@ -160,14 +160,14 @@ which steps apply for a given configuration) in the API server.
 
 ---
 
-### Requirement: GPP-02 -- Control Plane Updates Conditions During Reconciliation
+### Requirement: GTW-PROG-02 -- Control Plane Updates Conditions During Reconciliation
 
 The GatewayReconciler SHALL update each provisioning condition as it completes
 or fails the corresponding reconciliation step. Conditions SHALL transition in
 order - a later condition SHALL NOT move to `InProgress` until all prior
 conditions are `Complete`.
 
-#### Scenario: Successful provisioning progresses through all steps
+#### Scenario: GTW-PROG-02.01 -- Successful provisioning progresses through all steps
 
 - GIVEN a Gateway with all conditions at `condition_status` `Pending`
 - WHEN the GatewayReconciler begins reconciliation
@@ -177,7 +177,7 @@ conditions are `Complete`.
   are confirmed
 - AND it SHALL proceed to the next applicable condition in order
 
-#### Scenario: Step failure sets condition to Failed
+#### Scenario: GTW-PROG-02.02 -- Step failure sets condition to Failed
 
 - GIVEN the GatewayReconciler is processing the `DatabaseReady` step
 - WHEN the per-gateway DDL provisioning fails
@@ -188,7 +188,7 @@ conditions are `Complete`.
 - AND subsequent conditions SHALL remain at `condition_status` `Pending`
 - AND the gateway `phase` SHALL be set to `Failed`
 
-#### Scenario: Vault-backed gateway fails EnvironmentReady when its credential backend is unreachable
+#### Scenario: GTW-PROG-02.03 -- Vault-backed gateway fails EnvironmentReady when its credential backend is unreachable
 
 - GIVEN a Vault-backed Gateway (the default driver) on a cluster whose provider
   Vault is unreachable or denies the gateway role
@@ -200,14 +200,14 @@ conditions are `Complete`.
 - AND the message SHALL NOT contain the ServiceAccount token (see
   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
 
-#### Scenario: IdP step skipped for non-OIDC gateways
+#### Scenario: GTW-PROG-02.04 -- IdP step skipped for non-OIDC gateways
 
 - GIVEN a Gateway with no OIDC configuration
 - WHEN the GatewayReconciler completes the `DatabaseReady` step
 - THEN it SHALL proceed directly to `GatewayDeployed`
 - AND the `IdentityProviderReady` condition SHALL not be present
 
-#### Scenario: Conditions reset on re-provisioning
+#### Scenario: GTW-PROG-02.05 -- Conditions reset on re-provisioning
 
 - GIVEN a Gateway with `phase` `Running` and all conditions with `condition_status` `Complete`
 - WHEN the gateway is modified (e.g., image change, config update) and the
@@ -218,7 +218,7 @@ conditions are `Complete`.
   with initial provisioning
 - AND the UI SHALL reflect the reset, showing the stepper in its initial state
 
-#### Scenario: Failed phase is a terminal stepper state
+#### Scenario: GTW-PROG-02.06 -- Failed phase is a terminal stepper state
 
 - GIVEN a Gateway with `phase` `Failed` and a condition with `condition_status` `Failed`
 - WHEN the UI renders the gateway detail
@@ -230,7 +230,7 @@ conditions are `Complete`.
 
 ---
 
-### Requirement: GPP-03 -- UI Renders Provisioning Progress as a Stepper
+### Requirement: GTW-PROG-03 -- UI Renders Provisioning Progress as a Stepper
 
 The gateway detail view in `gateway-management-ui` SHALL render provisioning
 conditions as a vertical `ProgressStepper` (`@patternfly/react-core`) on the
@@ -263,7 +263,7 @@ and a non-empty `message`, the `ProgressStep` SHALL display the message using
 the `description` prop so the failure reason is visible inline beneath the step
 title.
 
-#### Scenario: User sees provisioning progress after creating a gateway
+#### Scenario: GTW-PROG-03.01 -- User sees provisioning progress after creating a gateway
 
 - GIVEN a user has just created a gateway
 - WHEN the gateway detail view loads and the gateway `phase` is `Provisioning`
@@ -273,7 +273,7 @@ title.
   and `isCurrent={true}`
 - AND future steps SHALL render as `ProgressStep` with `variant="default"`
 
-#### Scenario: User sees failure context on a failed step
+#### Scenario: GTW-PROG-03.02 -- User sees failure context on a failed step
 
 - GIVEN a gateway with `phase` `Failed`
 - AND the `DatabaseReady` condition has `condition_status` `Failed` with `message`
@@ -283,7 +283,7 @@ title.
 - AND the `description` prop SHALL display the failure message
 - AND subsequent steps SHALL render as `variant="default"` (inactive)
 
-#### Scenario: Provisioning completes successfully
+#### Scenario: GTW-PROG-03.03 -- Provisioning completes successfully
 
 - GIVEN a gateway with `phase` `Running` and `consoleReady` true
 - WHEN the user views the gateway detail
@@ -292,14 +292,14 @@ title.
 - AND the gateway detail view SHALL also display the standard ready-state
   affordances (connection command, console link, etc.)
 
-#### Scenario: Stepper visible on a Running gateway
+#### Scenario: GTW-PROG-03.04 -- Stepper visible on a Running gateway
 
 - GIVEN a gateway that completed provisioning and has `phase` `Running`
 - WHEN the user views the gateway detail
 - THEN the stepper SHALL remain visible with all steps showing `variant="success"`
 - AND the user SHALL be able to see which provisioning steps were performed
 
-#### Scenario: Degraded gateway shows health step with warning
+#### Scenario: GTW-PROG-03.05 -- Degraded gateway shows health step with warning
 
 - GIVEN a gateway that completed provisioning but later entered `phase` `Degraded`
   (e.g., deployment readiness window timed out, pod crash-looping)
@@ -313,7 +313,7 @@ title.
 
 ---
 
-### Requirement: GPP-04 -- Conditions Are Polling-Compatible
+### Requirement: GTW-PROG-04 -- Conditions Are Polling-Compatible
 
 The provisioning conditions SHALL be available on the standard Gateway fetch
 endpoints so that the existing console polling mechanism (which already polls
@@ -326,7 +326,7 @@ Polling follows the phase vocabulary spec's existing rules: recoverable phases
 terminal state until the user takes corrective action that triggers a new
 reconciliation).
 
-#### Scenario: Polling captures step transitions
+#### Scenario: GTW-PROG-04.01 -- Polling captures step transitions
 
 - GIVEN the UI is polling a Gateway in `Provisioning` phase
 - WHEN the control plane advances `DatabaseReady` from `InProgress` to `Complete`
@@ -334,7 +334,7 @@ reconciliation).
 - THEN the next poll response SHALL reflect both condition updates
 - AND the UI SHALL update the stepper accordingly
 
-#### Scenario: Polling stops on Failed phase
+#### Scenario: GTW-PROG-04.02 -- Polling stops on Failed phase
 
 - GIVEN a Gateway whose `phase` transitions to `Failed`
 - WHEN the UI receives the updated gateway
@@ -345,7 +345,7 @@ reconciliation).
 
 ---
 
-### Requirement: GPP-05 -- Failure Messages Are User-Facing
+### Requirement: GTW-PROG-05 -- Failure Messages Are User-Facing
 
 Condition failure messages SHALL be written for end users, not platform
 operators. Messages SHALL describe what went wrong at the level of the
@@ -358,7 +358,7 @@ The control plane MAY log the full infrastructure-level error for operator
 debugging, but the `message` field persisted on the condition SHALL contain
 only the user-facing summary.
 
-#### Scenario: Database provisioning error produces a user-facing message
+#### Scenario: GTW-PROG-05.01 -- Database provisioning error produces a user-facing message
 
 - GIVEN the per-gateway DDL provisioning fails because the gateway database
   server is unreachable
@@ -368,7 +368,7 @@ only the user-facing summary.
 - AND the `message` SHALL NOT contain the raw Kubernetes or PostgreSQL error
   string
 
-#### Scenario: IdP provisioning error produces a user-facing message
+#### Scenario: GTW-PROG-05.02 -- IdP provisioning error produces a user-facing message
 
 - GIVEN Keycloak client creation fails because the Keycloak service returns an
   HTTP 503

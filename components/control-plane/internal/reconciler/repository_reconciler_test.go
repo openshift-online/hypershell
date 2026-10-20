@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
@@ -283,7 +284,7 @@ func TestReconcileRepository_UpsertThenPrune(t *testing.T) {
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
 
 	rp := repo("abc")
-	if err := r.reconcileRepository(context.Background(), rp); err != nil {
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
 		t.Fatalf("first reconcile error = %v", err)
 	}
 	if len(writer.upserts) != 2 {
@@ -309,7 +310,7 @@ spec:
 `,
 	})
 	writer.upserts = nil
-	if err := r.reconcileRepository(context.Background(), rp); err != nil {
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
 		t.Fatalf("second reconcile error = %v", err)
 	}
 	if len(writer.deletes) != 1 || writer.deletes[0].Name != "drop-me" {
@@ -339,7 +340,7 @@ spec:
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
 
-	if err := r.reconcileRepository(context.Background(), repo("B")); err != nil {
+	if err := r.reconcileRepository(context.Background(), repo("B"), false); err != nil {
 		t.Fatalf("reconcile error = %v", err)
 	}
 	if len(writer.deletes) != 0 {
@@ -354,11 +355,126 @@ func TestReconcileRepository_CredentialPassedToFetcher(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeFetcher{fsys: twoResourceFS(t), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "secret-token"}, fetcher, writer)
-	if err := r.reconcileRepository(context.Background(), repo("abc")); err != nil {
+	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
 		t.Fatalf("reconcile error = %v", err)
 	}
 	if len(fetcher.calls) != 1 || fetcher.calls[0] != "secret-token" {
 		t.Fatalf("fetcher received tokens %v, want [secret-token]", fetcher.calls)
+	}
+}
+
+// fakeConditionalFetcher implements ConditionalSubtreeFetcher so the conditional
+// upstream fetch can be exercised. revision is the current branch head; fetchCount
+// and revCount record how often each path ran so a test can assert the heavy read
+// was skipped.
+type fakeConditionalFetcher struct {
+	fsys       filesys.FileSystem
+	root       string
+	revision   string
+	revErr     error
+	fetchCount int
+	revCount   int
+}
+
+func (f *fakeConditionalFetcher) Fetch(ctx context.Context, repo *pb.Repository, token string) (filesys.FileSystem, string, error) {
+	f.fetchCount++
+	return f.fsys, f.root, nil
+}
+
+func (f *fakeConditionalFetcher) HeadRevision(ctx context.Context, repo *pb.Repository, token string) (string, error) {
+	f.revCount++
+	return f.revision, f.revErr
+}
+
+func TestReconcileRepository_ConditionalSkipsUnchanged(t *testing.T) {
+	writer := newFakeImportWriter()
+	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+	rp := repo("abc")
+
+	// First periodic pass: no recorded revision yet, so it reads in full and records sha-1.
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("first reconcile error = %v", err)
+	}
+	if fetcher.fetchCount != 1 {
+		t.Fatalf("first pass fetchCount = %d, want 1", fetcher.fetchCount)
+	}
+	writer.upserts = nil
+
+	// Second periodic pass at the same revision: skip the heavy read and make no write.
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("second reconcile error = %v", err)
+	}
+	if fetcher.fetchCount != 1 {
+		t.Errorf("second pass fetchCount = %d; an unchanged subtree must skip the heavy read", fetcher.fetchCount)
+	}
+	if len(writer.upserts) != 0 || len(writer.deletes) != 0 {
+		t.Errorf("unchanged pass wrote: upserts=%+v deletes=%+v", writer.upserts, writer.deletes)
+	}
+}
+
+func TestReconcileRepository_ConditionalReadsOnChange(t *testing.T) {
+	writer := newFakeImportWriter()
+	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+	rp := repo("abc")
+
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("first reconcile error = %v", err)
+	}
+	// Upstream advances; the periodic drift re-check must read and reconcile again.
+	fetcher.revision = "sha-2"
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("second reconcile error = %v", err)
+	}
+	if fetcher.fetchCount != 2 {
+		t.Errorf("changed-revision fetchCount = %d, want 2 (a new commit must trigger a full read)", fetcher.fetchCount)
+	}
+}
+
+func TestHandle_WatchEventForcesImport(t *testing.T) {
+	writer := newFakeImportWriter()
+	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+	rp := repo("abc")
+
+	// Seed the revision cache with a full pass.
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("seed reconcile error = %v", err)
+	}
+	// A watch update at the SAME revision (e.g. the Repository's import_path changed)
+	// must still force a full re-import, because a field change can select a different
+	// subtree at an unchanged branch head.
+	if err := r.Handle(context.Background(), watcher.Event[*pb.Repository]{Type: watcher.EventUpdated, Resource: rp}); err != nil {
+		t.Fatalf("Handle error = %v", err)
+	}
+	if fetcher.fetchCount != 2 {
+		t.Errorf("watch-event fetchCount = %d, want 2 (an event must force a full read regardless of revision)", fetcher.fetchCount)
+	}
+}
+
+func TestHandle_DeleteForgetsRevision(t *testing.T) {
+	writer := newFakeImportWriter()
+	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+	rp := repo("abc")
+
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("seed reconcile error = %v", err)
+	}
+	// A delete event drops the cached revision and performs no read.
+	if err := r.Handle(context.Background(), watcher.Event[*pb.Repository]{Type: watcher.EventDeleted, Resource: rp}); err != nil {
+		t.Fatalf("Handle delete error = %v", err)
+	}
+	if r.revisionUnchanged("abc", "sha-1") {
+		t.Error("delete did not forget the cached revision")
+	}
+	// A later periodic pass at the same revision now reads in full again.
+	if err := r.reconcileRepository(context.Background(), rp, false); err != nil {
+		t.Fatalf("post-delete reconcile error = %v", err)
+	}
+	if fetcher.fetchCount != 2 {
+		t.Errorf("post-delete fetchCount = %d, want 2 (forgetting the revision must force a re-read)", fetcher.fetchCount)
 	}
 }
 
@@ -390,7 +506,7 @@ spec:
 `,
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
-	err := r.reconcileRepository(context.Background(), repo("abc"))
+	err := r.reconcileRepository(context.Background(), repo("abc"), false)
 	if err == nil {
 		t.Fatal("expected a collected error for the failing upsert, got nil")
 	}
@@ -464,7 +580,7 @@ spec:
 `,
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
-	if err := r.reconcileRepository(context.Background(), repo("abc")); err != nil {
+	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
 		t.Fatalf("reconcile error = %v", err)
 	}
 	if len(writer.upserts) != 7 {

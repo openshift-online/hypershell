@@ -57,7 +57,7 @@ than introducing new outcome values, and it is a sub-spec of
 
 ## Requirements
 
-### Requirement: Validate the Rendered Configuration Before Rollout
+### Requirement: GTW-CFG-01 -- Validate the Rendered Configuration Before Rollout
 
 The control plane SHALL validate the fully rendered gateway configuration
 artifact on every create and update reconcile, before it writes that artifact to
@@ -73,7 +73,7 @@ with the declared intent (for example, when OIDC is enabled the rendered artifac
 carries the OIDC section and marks the gateway as requiring authentication rather
 than allowing unauthenticated users).
 
-#### Scenario: Well-formed rendered configuration passes
+#### Scenario: GTW-CFG-01.01 -- Well-formed rendered configuration passes
 
 - GIVEN a Gateway whose declared configuration renders to a well-formed,
   structurally coherent artifact
@@ -81,7 +81,7 @@ than allowing unauthenticated users).
 - THEN rendered-configuration validation succeeds
 - AND the control plane proceeds to apply the gateway's resources
 
-#### Scenario: Malformed rendered configuration fails validation
+#### Scenario: GTW-CFG-01.02 -- Malformed rendered configuration fails validation
 
 - GIVEN a Gateway whose rendered configuration artifact does not parse as
   well-formed
@@ -89,7 +89,7 @@ than allowing unauthenticated users).
 - THEN rendered-configuration validation fails
 - AND the control plane applies no Kubernetes resource derived from that artifact
 
-#### Scenario: Structurally incoherent rendered configuration fails validation
+#### Scenario: GTW-CFG-01.03 -- Structurally incoherent rendered configuration fails validation
 
 - GIVEN a Gateway with OIDC enabled whose rendered configuration omits the OIDC
   section or still permits unauthenticated users
@@ -97,7 +97,7 @@ than allowing unauthenticated users).
 - THEN rendered-configuration validation fails with a reason describing the
   structural inconsistency
 
-### Requirement: A Validation Failure Blocks Rollout Without Disrupting a Running Gateway
+### Requirement: GTW-CFG-02 -- A Validation Failure Blocks Rollout Without Disrupting a Running Gateway
 
 When rendered-configuration validation fails, the control plane SHALL NOT apply
 the gateway's ConfigMap and SHALL NOT roll its workload; it SHALL apply no
@@ -105,7 +105,7 @@ Kubernetes resources derived from the invalid artifact. A Gateway that is alread
 `Running` SHALL continue serving its last successfully applied configuration and
 SHALL NOT be restarted onto, or degraded by, the invalid artifact.
 
-#### Scenario: New gateway with an invalid rendered configuration
+#### Scenario: GTW-CFG-02.01 -- New gateway with an invalid rendered configuration
 
 - GIVEN a newly created Gateway whose rendered configuration is invalid
 - WHEN the control plane reconciles the Gateway
@@ -113,7 +113,7 @@ SHALL NOT be restarted onto, or degraded by, the invalid artifact.
   created
 - AND no workload is rolled out for the Gateway
 
-#### Scenario: Update that renders invalid does not disturb a running gateway
+#### Scenario: GTW-CFG-02.02 -- Update that renders invalid does not disturb a running gateway
 
 - GIVEN a `Running` Gateway serving a previously validated configuration
 - AND a subsequent update whose rendered configuration is invalid
@@ -122,7 +122,7 @@ SHALL NOT be restarted onto, or degraded by, the invalid artifact.
 - AND it does not trigger a rolling restart of the workload
 - AND the Gateway keeps serving its last successfully applied configuration
 
-### Requirement: Validation Failures Are Observable
+### Requirement: GTW-CFG-03 -- Validation Failures Are Observable
 
 On a rendered-configuration validation failure the control plane SHALL set the
 Gateway `phase` to the canonical `Failed` value with a human-readable `status`
@@ -131,7 +131,7 @@ and SHALL log the error together with the Gateway name and its assigned
 namespace. It SHALL NOT introduce a phase or status value outside the canonical
 vocabulary.
 
-#### Scenario: Failure settles the gateway to Failed with a reason
+#### Scenario: GTW-CFG-03.01 -- Failure settles the gateway to Failed with a reason
 
 - GIVEN a Gateway whose rendered configuration fails validation
 - WHEN the control plane reconciles the Gateway
@@ -139,13 +139,13 @@ vocabulary.
 - AND it SHALL set a human-readable `status` reason identifying a
   generated-configuration validation failure
 
-#### Scenario: Failure is logged with identifying context
+#### Scenario: GTW-CFG-03.02 -- Failure is logged with identifying context
 
 - GIVEN a rendered-configuration validation failure
 - WHEN the control plane records the failure
 - THEN the log entry SHALL include the Gateway name and its assigned namespace
 
-### Requirement: Validation Is Idempotent and Self-Correcting
+### Requirement: GTW-CFG-04 -- Validation Is Idempotent and Self-Correcting
 
 Rendered-configuration validation SHALL be deterministic for a given Gateway
 state and SHALL leave no partial artifacts behind on failure. When a later
@@ -154,7 +154,7 @@ declared configuration is corrected - the control plane SHALL proceed with the
 normal rollout and settle the Gateway toward its healthy phase, with no manual
 cleanup required.
 
-#### Scenario: Corrected gateway rolls out on the next reconcile
+#### Scenario: GTW-CFG-04.01 -- Corrected gateway rolls out on the next reconcile
 
 - GIVEN a Gateway previously settled to `Failed` by a validation failure
 - WHEN its declared configuration is corrected so the artifact renders valid
@@ -163,7 +163,7 @@ cleanup required.
 - AND the control plane applies the gateway's resources and drives it toward its
   healthy phase
 
-#### Scenario: Repeated reconciles of the same invalid state are stable
+#### Scenario: GTW-CFG-04.02 -- Repeated reconciles of the same invalid state are stable
 
 - GIVEN a Gateway whose rendered configuration is invalid
 - WHEN the control plane reconciles it repeatedly without any change

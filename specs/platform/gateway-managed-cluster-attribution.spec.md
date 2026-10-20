@@ -38,7 +38,7 @@ topology.
 
 | Concern                                                 | This spec                                      | Related spec                                                    |
 | ------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
-| Gateway phase counts (fleet-wide)                       | Adds the per-spoke dimension                   | `platform/gateway-metrics-dashboard.spec.md` (DASH-01, DASH-05) |
+| Gateway phase counts (fleet-wide)                       | Adds the per-spoke dimension                   | `platform/gateway-metrics-dashboard.spec.md` (OBS-GMD-01, OBS-GMD-05) |
 | Active sandbox counts (fleet-wide)                      | Adds the per-spoke dimension                   | `platform/gateway-sandbox-active-trends.spec.md`                |
 | Managed cluster inventory (registry totals)             | Out of scope                                   | `platform/platform-inventory.spec.md`                           |
 | Map rendering of spokes (nest co-located / link remote) | Out of scope; this spec delivers the data only | `web-console/operational-dashboard.spec.md`                     |
@@ -50,7 +50,7 @@ downstream work that consumes the data this spec exposes.
 
 ## Requirements
 
-### Requirement: GMCA-01 -- Managed-Cluster Label on the Gateway Phase Gauge
+### Requirement: GTW-ATTR-01 -- Managed-Cluster Label on the Gateway Phase Gauge
 
 The API server gateway phase collector SHALL add a `managed_cluster` label to
 `hypershell_gateways_total`, in addition to the existing `phase` label. The label
@@ -73,23 +73,23 @@ clusters always equals the fleet total.
 
 When the database query fails, the collector SHALL emit
 `prometheus.NewInvalidMetric` so the scrape registers as failed, preserving the
-behavior of `platform/gateway-metrics-dashboard.spec.md` DASH-01.
+behavior of `platform/gateway-metrics-dashboard.spec.md` OBS-GMD-01.
 
-#### Scenario: Gateways on different spokes are attributed separately
+#### Scenario: GTW-ATTR-01.01 -- Gateways on different spokes are attributed separately
 
 - GIVEN three `Running` gateways reference ManagedCluster `hyp0-spoke0` and two reference `hyp0-spoke1`
 - WHEN Prometheus scrapes the API server `/metrics` endpoint
 - THEN the response SHALL contain `hypershell_gateways_total{phase="Running",managed_cluster="hyp0-spoke0"}` with value `3`
 - AND `hypershell_gateways_total{phase="Running",managed_cluster="hyp0-spoke1"}` with value `2`
 
-#### Scenario: Canonical phases are gapless per spoke
+#### Scenario: GTW-ATTR-01.02 -- Canonical phases are gapless per spoke
 
 - GIVEN managed cluster `hyp0-spoke0` has gateways only in the `Running` phase
 - WHEN Prometheus scrapes the metrics endpoint
 - THEN `hypershell_gateways_total{phase="Failed",managed_cluster="hyp0-spoke0"}` SHALL be present with value `0`
 - AND every other canonical phase SHALL be present for `hyp0-spoke0`
 
-#### Scenario: Gateway on an unresolved cluster is bucketed, not dropped
+#### Scenario: GTW-ATTR-01.03 -- Gateway on an unresolved cluster is bucketed, not dropped
 
 - GIVEN a gateway references a `cluster_id` with no matching ManagedCluster row
 - WHEN Prometheus scrapes the metrics endpoint
@@ -98,7 +98,7 @@ behavior of `platform/gateway-metrics-dashboard.spec.md` DASH-01.
 
 ---
 
-### Requirement: GMCA-02 -- Managed-Cluster Label on the Active-Sandbox Gauge
+### Requirement: GTW-ATTR-02 -- Managed-Cluster Label on the Active-Sandbox Gauge
 
 The API server active-sandbox collector SHALL add `managed_cluster` and
 `gateway_namespace` labels to `hypershell_gateways_active_sandboxes_total`. The
@@ -110,7 +110,7 @@ A gateway whose `cluster_id` does not resolve to a registered ManagedCluster
 SHALL contribute to `managed_cluster="unknown"`. When the database query fails,
 the collector SHALL emit `prometheus.NewInvalidMetric`.
 
-#### Scenario: Active sandboxes are attributed per spoke
+#### Scenario: GTW-ATTR-02.01 -- Active sandboxes are attributed per spoke
 
 - GIVEN gateways on `hyp0-spoke0` have 4 active sandboxes in total and gateways on `hyp0-spoke1` have 1
 - WHEN Prometheus scrapes the metrics endpoint
@@ -121,7 +121,7 @@ the collector SHALL emit `prometheus.NewInvalidMetric`.
 
 ---
 
-### Requirement: GMCA-03 -- Name Resolution from the Managed-Cluster Registry
+### Requirement: GTW-ATTR-03 -- Name Resolution from the Managed-Cluster Registry
 
 The API server SHALL resolve each gateway's `managed_cluster` label value from
 the ManagedCluster registry record referenced by the gateway's `cluster_id`,
@@ -134,7 +134,7 @@ issue one registry lookup per gateway. Resolution of all referenced
 `cluster_id`s to names SHALL be bounded by the number of distinct managed
 clusters, not the number of gateways.
 
-#### Scenario: Label value matches the registry name
+#### Scenario: GTW-ATTR-03.01 -- Label value matches the registry name
 
 - GIVEN a ManagedCluster registered with `Name: "hyp0-spoke0"` and a gateway referencing its `cluster_id`
 - WHEN the collector emits the gateway's metric
@@ -142,7 +142,7 @@ clusters, not the number of gateways.
 
 ---
 
-### Requirement: GMCA-04 -- Backward-Compatible Fleet Aggregation
+### Requirement: GTW-ATTR-04 -- Backward-Compatible Fleet Aggregation
 
 This change SHALL be additive. Neither metric SHALL be renamed, and no existing
 label SHALL be removed. Consumers that aggregate fleet-wide totals by summing
@@ -154,7 +154,7 @@ remain untouched and SHALL NOT be reinterpreted as spoke identity. Consumers tha
 attribute counts to a spoke SHALL use `managed_cluster`, never the scrape-injected
 `cluster` label.
 
-#### Scenario: Existing fleet-total consumers are unaffected
+#### Scenario: GTW-ATTR-04.01 -- Existing fleet-total consumers are unaffected
 
 - GIVEN a consumer computes `sum by (phase) (hypershell_gateways_total{...})`
 - WHEN the `managed_cluster` label is added
@@ -162,7 +162,7 @@ attribute counts to a spoke SHALL use `managed_cluster`, never the scrape-inject
 
 ---
 
-### Requirement: GMCA-05 -- BFF Attribution by Managed Cluster
+### Requirement: GTW-ATTR-05 -- BFF Attribution by Managed Cluster
 
 The fleet-dashboard BFF Prometheus source SHALL group gateway phase counts and
 active-sandbox counts by the `managed_cluster` label rather than by the
@@ -174,14 +174,14 @@ Per-instance and fleet-wide totals surfaced by the BFF SHALL remain unchanged by
 this grouping. A managed-cluster breakdown with no gateways SHALL contribute no
 rows rather than synthesizing zero-count spokes.
 
-#### Scenario: BFF reports counts per managed cluster
+#### Scenario: GTW-ATTR-05.01 -- BFF reports counts per managed cluster
 
 - GIVEN Prometheus holds `hypershell_gateways_total{managed_cluster="hyp0-spoke0"}` and `{managed_cluster="hyp0-spoke1"}` under hub instance `hyp0`
 - WHEN the BFF builds the fleet view for `hyp0`
 - THEN it SHALL report gateway counts for `hyp0-spoke0` and `hyp0-spoke1` separately
 - AND the sum of the per-managed-cluster counts SHALL equal the `hyp0` instance total
 
-#### Scenario: Scrape-injected cluster label is not used for attribution
+#### Scenario: GTW-ATTR-05.02 -- Scrape-injected cluster label is not used for attribution
 
 - GIVEN every `hyp0` sample carries the scrape-injected `cluster="hypc-ibm-00"` label
 - WHEN the BFF attributes gateway counts to spokes
@@ -190,7 +190,7 @@ rows rather than synthesizing zero-count spokes.
 
 ---
 
-### Requirement: GMCA-06 -- Verification
+### Requirement: GTW-ATTR-06 -- Verification
 
 The API server SHALL include unit tests for the gateway phase and active-sandbox
 collectors (or their DAO methods) covering: per-managed-cluster grouping, gapless
@@ -202,7 +202,7 @@ The fleet-dashboard BFF SHALL include tests asserting that gateway and
 active-sandbox counts are grouped by `managed_cluster` and that per-instance
 totals are preserved.
 
-#### Scenario: CI exercises per-spoke attribution
+#### Scenario: GTW-ATTR-06.01 -- CI exercises per-spoke attribution
 
 - GIVEN a fixture with gateways across two managed clusters plus one unresolved `cluster_id`
 - WHEN collector and BFF tests run

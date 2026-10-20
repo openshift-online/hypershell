@@ -13,8 +13,6 @@ func TestIsSupportedKind(t *testing.T) {
 		expected bool
 	}{
 		{"Gateway", true},
-		{"GatewayNetwork", false},
-		{"GatewayRelease", false},
 		{"ManagedCluster", true},
 		{"Role", true},
 		{"RoleBinding", true},

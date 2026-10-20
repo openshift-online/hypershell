@@ -1,10 +1,11 @@
 import type { GateExecutionProps } from "../e2e-run/gate-execution";
 // The interactive promotion-topology map: the spec's centrepiece visual. It
 // composes the pure model/layout (buildMapModel + computeLayout) with the viewport
-// controller (pan/zoom/momentum) and the SVG layers (lane bands, promotion rails +
-// gates, instance node cards), plus a minimap, a release "freight" bar and a detail
-// panel. It holds ZERO fleet knowledge: everything is derived from the promotion +
-// fleet payloads at runtime (firewall - data-architecture.spec §3.5).
+// controller (pan/zoom/momentum) and the SVG layers (provider lane bands, promotion
+// rails + gates on the centered hub spine, instance node cards), plus a minimap, a
+// release "freight" bar and a detail panel. It holds ZERO fleet knowledge: everything
+// is derived from the promotion + fleet payloads at runtime (firewall -
+// data-architecture.spec §3.5).
 
 import {
   Button,
@@ -235,8 +236,15 @@ export function TopologyMap({
   const firstCol = layout.columns[0];
   const changeX = firstCol ? firstCol.x - 90 : 40;
   const changeY = layout.hubSpineY;
-  // Column headers sit in the top margin, above the first lane band.
-  const headerY = Math.max((layout.lanes[0]?.y ?? 96) - 40, 24);
+  // Column headers sit in the top margin, above the topmost node row.
+  const topNodeY = layout.nodes.reduce(
+    (min, n) => Math.min(min, n.y),
+    Number.POSITIVE_INFINITY,
+  );
+  const headerY = Math.max(
+    (Number.isFinite(topNodeY) ? topNodeY : 96) - 40,
+    24,
+  );
   const changePts = [
     `${f(changeX)},${f(changeY - 28)}`,
     `${f(changeX + 34)},${f(changeY)}`,
@@ -343,7 +351,9 @@ export function TopologyMap({
                   onPointerUp={onPointerUp}
                   onPointerCancel={onPointerUp}
                 >
-                  {/* lane bands + labels (behind everything); one lane per cloud provider */}
+                  {/* provider lane bands + labels (behind everything); one lane per
+              cloud provider, grouping its clusters. The hub-hosting lane straddles the
+              centered spine; the others stack above and below it. */}
                   {layout.lanes.map((lane) => (
                     <g key={lane.key}>
                       <rect
@@ -362,7 +372,7 @@ export function TopologyMap({
                         fontWeight={700}
                         fill={TEXT_SUBTLE}
                       >
-                        {(lane.provider ?? lane.key).toUpperCase()}
+                        {(lane.provider ?? "unassigned").toUpperCase()}
                       </text>
                     </g>
                   ))}

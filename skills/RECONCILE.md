@@ -228,8 +228,6 @@ Stacks on the capability placement work above. Spec changes reconciled:
 
 **Backend verification:** api-server/control-plane/cli `go build`+`go vet` clean; `managedClusters` and `gateways` integration test packages green (testcontainers); new `capabilities_test.go`, `presenter_test.go`, and `test_sync_openshell_version.py` pass; `make check-forbidden-terms`, `check-openshell-version`, `generate-tui-check`, and SDK regeneration all reproduce in-tree. FE wave verified via the gateway-management-ui + web-console checks (see PR).
 
-**Deferred (same as PR #513):** the stale `gateway-release-*` / `gateway-version-selection` spec cleanup is out of scope and tracked with the GatewayRelease removal (RM-* items).
-
 ### gateway-access-management.spec.md + web-console/gateway-access-management.spec.md (user_management PR)
 
 | # | Requirement | Status | Code Location | Wave |
@@ -251,35 +249,6 @@ Stacks on the capability placement work above. Spec changes reconciled:
 | GAM-UI-01..11 | Manage access console tab (ports, probes, table, directory picker, role modal, last-owner UI, tests) | Present | `packages/gateway-management-ui/src/access/*`, `application/*`, `pages/gateway-pages.tsx`; WC adapter `components/web-console/app/adapters/api/gateway-operations.ts` + contract tests; GMUI `check` + WC `check` green | GAM-W-FE / GAM-W-WC |
 
 **Direction checks:** Spec->code: the facade implements all server behaviors (list/grant/change/revoke/directory) over existing RoleBinding storage; `gateway:admin` added across roles, RBAC, and the Role Bridge. Code->spec: the access facade adds no public RoleBinding mutation surface (the generic `role_bindings` resource stays create/delete-only; the in-place `role_id` change is an internal facade/service operation). OpenAPI->spec: `openapi.gatewayAccess.yaml` declares the 5 endpoints and their `required[]` matching GAM-03/04/05/09.
-
-### Kind Removal: GatewayRelease + GatewayNetwork
-
-These items track deletion of deprecated kinds across all implementation layers.
-Execution order is the reverse of creation: FE -> CLI -> CP (watcher+reconciler) -> BE+gRPC (plugin, handler, presenter, migration) -> SDK (generated types) -> API (OpenAPI routes+schema).
-Database tables are dropped via a final migration after confirmed zero rows.
-
-| # | Kind | Layer | Action | Status | Code Location | Wave |
-|---|------|-------|--------|--------|---------------|------|
-| RM-1 | GatewayRelease | FE | Remove any UI references (list/detail views, selectors) | Missing | `components/web-console/` | RM-W1 |
-| RM-2 | GatewayNetwork | FE | Remove any UI references | Missing | `components/web-console/` | RM-W1 |
-| RM-3 | GatewayRelease | CLI | Delete `hsctl create/get/list/delete gatewayRelease` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-4 | GatewayNetwork | CLI | Delete `hsctl create/get/list/delete gatewayNetwork` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-5 | GatewayRelease | CP | Delete `GatewayReleaseReconciler`, `WatchGatewayReleases`, `gateway_version_selection_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-6 | GatewayNetwork | CP | Delete `GatewayNetworkReconciler`, `WatchGatewayNetworks`, `gateway_network_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-7 | GatewayRelease | CP | Remove `release_id` propagation from `GatewayReconciler`; keep `image` path only | Missing | `components/control-plane/internal/reconciler/reconciler.go` | RM-W3 |
-| RM-8 | GatewayRelease | BE | Delete `components/api-server/plugins/gatewayReleases/` plugin entirely | Missing | `components/api-server/plugins/gatewayReleases/` | RM-W4 |
-| RM-9 | GatewayNetwork | BE | Delete `components/api-server/plugins/gatewayNetworks/` plugin entirely | Missing | `components/api-server/plugins/gatewayNetworks/` | RM-W4 |
-| RM-10 | GatewayRelease | gRPC | Delete `gateway_releases.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayReleases/grpc_*` | RM-W4 |
-| RM-11 | GatewayNetwork | gRPC | Delete `gateway_networks.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayNetworks/grpc_*` | RM-W4 |
-| RM-12 | GatewayRelease | API | Remove `/gateway_releases` routes and `GatewayRelease` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-13 | GatewayNetwork | API | Remove `/gateway_networks` routes and `GatewayNetwork` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-14 | GatewayRelease | SDK | Regenerate Go + TS SDKs (generated files will drop GatewayRelease types automatically) | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-15 | GatewayNetwork | SDK | Regenerate Go + TS SDKs | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-16 | GatewayRelease | DB | Add migration to drop `gateway_releases` table (after zero-row verification) | Missing | `components/api-server/plugins/gatewayReleases/migration.go` | RM-W6 |
-| RM-17 | GatewayNetwork | DB | Add migration to drop `gateway_networks` table | Missing | `components/api-server/plugins/gatewayNetworks/migration.go` | RM-W6 |
-| RM-18 | Gateway | BE | Remove `release_id` field from Gateway model, handler, and migration (nullable FK to removed table) | Missing | `components/api-server/plugins/gateways/` | RM-W4 |
-| RM-19 | Gateway | API | Remove `release_id` from OpenAPI Gateway schema, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-20 | GatewayRelease+GatewayNetwork | RBAC | Remove both from `grpc_authorization.go` control-plane identity allow-list | Missing | `components/api-server/pkg/rbac/grpc_authorization.go` | RM-W4 |
 
 ### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
 
@@ -445,8 +414,6 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | DM-3h | Gateway field: `dev_build` | Missing | Spec added by `630a5ed1` (#148); identity flag for branch-built gateways, copied to K8s labels | - | Future |
 | DM-3i | Gateway field: `dev_build_metadata` | Missing | Spec added by `630a5ed1` (#148); JSON metadata (sha, branch, repo) for branch-built gateways | - | Future |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
-| DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
-| DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
 | DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
 
 ### control-plane.spec.md
@@ -822,7 +789,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | BB-1 | Branch Build Entry Point (`make kind-openshell-up`, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO`) | Missing | No Makefile target or build script | - | Future |
-| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create, no release_id) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
+| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
 | BB-3 | Coexistence with `dev-gateway` | Missing | Depends on BB-1 | - | Future |
 | BB-4..BB-N | Image build, load, identity labels/annotations, E2E targeting, Kind cluster reuse | Missing | Spec authored; implementation not started | - | Future |
 
@@ -904,8 +871,8 @@ New e2e coverage requirements added by #413 (all test-only: the underlying API/C
 | E2E-14 | ManagedCluster registration coverage (area 12, single-cluster) | Present | ✅ Implemented as area 12a-12e in `e2e-openshell.sh`; verified on Kind (long run, 90 passed). Validate self-registration directly, not only consume the registered cluster: co-located CP record has non-empty `oidc_subject` + fresh `last_seen_at` (< 5min); `POST /managed_clusters/registration` idempotent returns existing `cluster_id` and advances `last_seen_at`; missing `managed-cluster-registrar` role -> 403, no record; name collision under same subject -> 409, no mutation; gateway create with empty `cluster_id` or placeholder record (empty `oidc_subject`) -> 400 naming `cluster_id`, no Gateway, placeholder deleted. Uses `E2E_REGISTRAR_CLIENT_ID`/`E2E_REGISTRAR_CLIENT_SECRET` (default `hypershell-control-plane`); inventory reads use admin token. Long-only. API route exists (`openapi.managedClusters.yaml`). | `tests/e2e/e2e-openshell.sh` (new area 12) | E2E-W4 |
 | E2E-15 | Multi-cluster fleet coverage (`E2E_MULTICLUSTER=1`, opt-in) | Missing | Second `ManagedCluster` via a second CP deployment under `E2E_SEED_CLUSTER_NAME_2` + its own registrar client: both clusters listed with fresh `last_seen_at` and selectable; gateway targeted to cluster 2 reaches `Running` reconciled only by CP2 (confirmed by owning CP's managed namespace), CP1 does not reconcile it. **Infra-gated:** second-CP deploy is owned by `local-development.spec.md`/`openshift-development.spec.md`; this spec owns only the assertions. Do not mark covered until that deploy path exists. | `tests/e2e/e2e-openshell.sh` | E2E-W5 (deferred) |
 | E2E-16 | Control-plane gRPC identity rejection + startup-seed coverage | Present | ✅ gRPC identity rejection stays in the Go e2e suite (`assertManagedClusterGRPCIdentity`, P2.4): no token -> `UNAUTHENTICATED`, foreign `cluster_id` -> `PERMISSION_DENIED`, omitted filter -> `INVALID_ARGUMENT`. The e2e scale-CP-to-zero reconnect step was removed (HYPERSHELL-403 / #576) so the concurrent console suite never loses the controller; startup-seed recovery is now covered by two cheaper tests instead: `TestGRPCWatchThenListReturnsPreExistingGateways` (api-server gRPC contract - a filtered watch+list returns the caller's pre-existing own-cluster gateways and none from a foreign cluster) and `TestWatchGateways_StartupSeedsPreExistingGateway` (control-plane - the real `WatchGateways` queues a pre-existing gateway after the subscription is live, with no watch event ever sent). **Divergence [D-E2E-DELETE-CP]:** delete-while-disconnected is still not exercised end-to-end -- gateway DELETE needs the CP's in-cluster provisioner and returns 503 while the CP is down; delete-driven namespace reaping on the live watch is covered by P2.3. | `tests/e2e/managed_cluster_grpc.go`, `components/api-server/plugins/gateways/grpc_integration_test.go`, `components/control-plane/internal/watcher/gateway_startup_seed_test.go` | E2E-W4 / HYPERSHELL-403 |
-| E2E-17 | Gateway release promotion coverage (area 13) | Present | ✅ Implemented as area 13c; verified on Kind. Provision gateway on release A -> Running; repoint to B -> `observed_release_id == B` (pass). **Divergence [D-E2E-DEGRADED]:** repointing a Running gateway to a bad (unpullable) release does NOT report `Degraded` as the spec states -- the revision-aware rolling update keeps the last-good pods serving (new ReplicaSet stuck ImagePullBackOff, Deployment stays Available), so the gateway stays `Running` on B. The core safety guarantees hold and are asserted: `observed_release_id` never moves to the bad release (never a successful move) and the last-good keeps serving; recover by repointing to B -> Running. The test accepts Degraded OR Running-on-last-good; spec should relax "Degraded" to "never reports the bad release as serving". Cross-cluster promotion `E2E_MULTICLUSTER`-gated (deferred E2E-W5). | `tests/e2e/e2e-openshell.sh` (area 13) | E2E-W4 ✅ (cross-cluster: E2E-W5) |
-| E2E-18 | Reconciled status assertions | Present | ✅ Implemented as area 13a/13b; verified on Kind. Note: invalid status is written as `"Invalid: <reason>"` (prefix, not the bare word) -- the test matches a prefix. Wait on CP status write-back, not just acceptance: `GatewayRelease` with valid image settles to `Available` within `E2E_PROVISION_TIMEOUT`; malformed image settles to `Invalid` and is not served to referencing gateways; `GatewayNetwork` coherent topology settles `Valid`, incoherent (dangling hub) settles `Invalid`. Long-only. | `tests/e2e/e2e-openshell.sh` | E2E-W4 |
+| E2E-17 | Gateway image promotion coverage (area 13) | Present | ✅ Implemented as area 13c; verified on Kind. Provision gateway on image A -> Running; repoint to image B -> Running. **Divergence [D-E2E-DEGRADED]:** repointing a Running gateway to a bad (unpullable) image does NOT report `Degraded` as the spec states -- the revision-aware rolling update keeps the last-good pods serving (new ReplicaSet stuck ImagePullBackOff, Deployment stays Available), so the gateway stays `Running` on B. The core safety guarantee holds and is asserted: a failed rollout never moves the gateway to the bad image and the last-good keeps serving; recover by repointing to B -> Running. The test accepts Degraded OR Running-on-last-good; spec should relax "Degraded" to "never reports the bad image as serving". Cross-cluster promotion `E2E_MULTICLUSTER`-gated (deferred E2E-W5). | `tests/e2e/e2e-openshell.sh` (area 13) | E2E-W4 ✅ (cross-cluster: E2E-W5) |
+| E2E-18 | Reconciled status assertions | Present | ✅ Implemented as area 13a/13b; verified on Kind. Note: invalid status is written as `"Invalid: <reason>"` (prefix, not the bare word) -- the test matches a prefix. Wait on CP status write-back, not just acceptance: Gateway with a valid image settles to `Available` within `E2E_PROVISION_TIMEOUT`; malformed image settles to `Invalid` and is not served to referencing gateways. Long-only. | `tests/e2e/e2e-openshell.sh` | E2E-W4 |
 | E2E-19 | Admin inventory + API validation (area 14) | Present | ✅ Implemented as area 14; verified on Kind. Unknown phase uses the HTTP PATCH 400 path (no grpcurl needed; validation fires before persist, stored phase unchanged). `/v1/users` admin-only: developer (`openshell-user`) GET -> 403; non-admin Get-by-id -> opaque 404 (not existence-revealing 403); platform-admin GET with `size=1` -> 200 with accurate `total`. Unknown gateway phase outside canonical vocabulary -> gRPC `INVALID_ARGUMENT` / HTTP 400, stored phase unchanged. `/v1/users` route exists (`openapi.users.yaml`). Long-only. | `tests/e2e/e2e-openshell.sh` (new area 14) | E2E-W4 |
 | E2E-20 | Extended platform qualification (HYPERSHELL-291) | Missing | Opt-in, infra-gated qualification scenarios, each behind its own flag, excluded from the Kind merge-queue gate: DNS/TLS renewal (`E2E_QUALIFY_DNS_TLS_RENEWAL`), DB credential rotation (`E2E_QUALIFY_DB_ROTATION`), DB backup/restore (`E2E_QUALIFY_DB_BACKUP_RESTORE`, CNPG), restricted-registry/mirroring (`E2E_QUALIFY_RESTRICTED_REGISTRY`), Sippy recurring-test reporting (HYPERSHELL-270). **Per spec: SHALL NOT be reported as covered until the required infrastructure exists.** ROKS route-mode (HYPERSHELL-244) is intentionally not specified (tracked in HYPERSHELL-363). HYPERSHELL-243/246 already covered elsewhere. | - | E2E-W6 (deferred) |
 
@@ -996,11 +963,11 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 | RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-2 | Resource List Filtering | Present | Per-query visibility filtering via `GatewayVisibilityFilter` in gateway List handler; `FindGatewayIDsByUserID` DAO method | `plugins/gateways/handler.go`, `pkg/rbac/visibility_filter.go` | KC-W3 ✅ |
 | RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go` | WR1 ✅, WR3 ✅ |
-| RBAC-4 | Bootstrap via Fleet Creation | Present | `fleetHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/fleets/handler.go`, `pkg/rbac/fleet_bootstrap.go` | WR3 ✅ |
+| RBAC-4 | Bootstrap via Gateway Creation | Present | `gatewayHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/gateways/handler.go`, `pkg/rbac/gateway_bootstrap.go` | WR3 ✅ |
 | RBAC-5 | Platform Admin Bootstrap | Deferred | First platform:admin created via DB migration; no CLI command by design | - | Future |
 | RBAC-6 | RoleBinding Mutation Authorization | Present | Strictly-below hierarchy enforcement on Create; advisory-locked last-owner protection on Delete | `plugins/roleBindings/service.go` | WR2 ✅, WR8 ✅ |
 | RBAC-7 | Gateway OIDC Role Bridge | Present | RoleBindingReconciler watches RoleBinding events via gRPC stream; maps gateway:owner→openshell-admin, gateway:viewer→openshell-user via Keycloak Admin REST API | `reconciler/role_binding_reconciler.go`, `keycloak/client.go` | KC-W2 ✅ |
-| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts POST /fleets, GET /roles, GET /roles/{id}, GET /metadata, GET /openapi | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
+| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts /metadata, /openapi, /openapi.html, /errors, and GET /roles, GET /roles/{id} | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
 | RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
 | RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
@@ -1628,8 +1595,6 @@ label-selected pod informer.
 | SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
-| DM-5 | Canary release logic | Data Model | GatewayReleaseReconciler is stub |
-| DM-6 | Network mesh logic | Data Model | GatewayNetworkReconciler is stub |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
 | CP-5 | Multi-cluster client pool | CP | Architecture: per-cluster kubeconfig |
 | LD-* | Local development (most items) | Local Dev | Spec recently authored; MVP first |

@@ -56,8 +56,8 @@ checks manually with `make check`.
 | **Gateway** | API gateway instance deployed on a cluster |
 | **ManagedCluster** | Kubernetes cluster registered into the platform |
 
-All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
-enforced by RBAC (platform-level and per-gateway), not by a resource grouping.
+All resources are top-level; tenancy is enforced by RBAC (platform-level and
+per-gateway), not by a resource grouping.
 Gateway databases are not API resources: the control plane provisions one
 PostgreSQL database and role per gateway on the server named by the mounted
 `hypershell-gateway-database-admin` Secret (`specs/platform/openshell-gateway-database.spec.md`).

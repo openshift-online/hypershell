@@ -76,7 +76,7 @@ Namespace creation and provisioning mechanics are defined in
 
 ## Requirements
 
-### Requirement: Gateway Deletion Reaps the Gateway Namespace
+### Requirement: OSG-NSGC-01 -- Gateway Deletion Reaps the Gateway Namespace
 
 When the control plane processes a Gateway delete event, it SHALL delete the
 gateway's managed namespace. Deleting the namespace cascades removal of every
@@ -115,7 +115,7 @@ Namespace deletion SHALL NOT be gated on the number of active sandboxes. A delet
 is processed and the namespace is removed; if the namespace no longer exists when
 the delete is processed, the delete is considered complete.
 
-#### Scenario: Gateway deleted with a managed namespace
+#### Scenario: OSG-NSGC-01.01 -- Gateway deleted with a managed namespace
 
 - GIVEN a Gateway with a managed namespace `openshell-a14873d1631f1b74`
 - WHEN the control plane receives the Gateway delete event
@@ -125,26 +125,26 @@ the delete is processed, the delete is considered complete.
   cluster-scoped ClusterRoleBinding, Keycloak client, and any cross-namespace
   credential RBAC)
 
-#### Scenario: Namespace already gone
+#### Scenario: OSG-NSGC-01.02 -- Namespace already gone
 
 - GIVEN a Gateway delete event whose namespace has already been deleted
 - WHEN the control plane processes the delete
 - THEN the delete SHALL be treated as complete (no error)
 
-#### Scenario: Delete does not touch an unmanaged namespace
+#### Scenario: OSG-NSGC-01.03 -- Delete does not touch an unmanaged namespace
 
 - GIVEN a Gateway whose namespace does not carry both management labels
 - WHEN the control plane processes the Gateway delete event
 - THEN it SHALL NOT delete that namespace
 
-#### Scenario: Delete does not touch another instance's namespace
+#### Scenario: OSG-NSGC-01.04 -- Delete does not touch another instance's namespace
 
 - GIVEN a Gateway delete event whose namespace carries
   `hypershell.redhat.io/instance` set to a different control-plane instance
 - WHEN the control plane processes the Gateway delete event
 - THEN it SHALL NOT delete that namespace
 
-### Requirement: Periodic Garbage Collection of Orphaned Namespaces
+### Requirement: OSG-NSGC-02 -- Periodic Garbage Collection of Orphaned Namespaces
 
 The control plane SHALL run a background reconciler that periodically lists
 namespaces owned by this control-plane instance and reaps gateway workload
@@ -178,7 +178,7 @@ pull-request reaper SHALL delete namespaces labeled
 `hypershell.redhat.io/instance=<the platform namespace>` as
 `openshift-development.spec.md` and `ephemeral-pr-environments.spec.md` define.
 
-#### Scenario: Orphaned gateway namespace reaped after grace period
+#### Scenario: OSG-NSGC-02.01 -- Orphaned gateway namespace reaped after grace period
 
 - GIVEN a namespace owned by this control-plane instance with a gateway-prefixed
   name (`openshell-<hex>`) with no live Gateway in this
@@ -187,7 +187,7 @@ pull-request reaper SHALL delete namespaces labeled
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL delete the namespace
 
-#### Scenario: Another instance's gateway namespace is not treated as orphaned
+#### Scenario: OSG-NSGC-02.02 -- Another instance's gateway namespace is not treated as orphaned
 
 - GIVEN two HyperShell control-plane instances share a cluster
 - AND instance A has live Gateways whose namespaces are labeled
@@ -196,7 +196,7 @@ pull-request reaper SHALL delete namespaces labeled
 - THEN it SHALL NOT list, annotate, or delete instance A's namespaces
 - AND it SHALL NOT record them as orphaned of instance B
 
-#### Scenario: Unlabeled leftover is left for an operator
+#### Scenario: OSG-NSGC-02.03 -- Unlabeled leftover is left for an operator
 
 - GIVEN a namespace that carries the two management labels but not
   `hypershell.redhat.io/instance`
@@ -206,7 +206,7 @@ pull-request reaper SHALL delete namespaces labeled
 - THEN it SHALL NOT stamp `hypershell.redhat.io/instance`
 - AND it SHALL NOT stamp `gc-eligible-since` or delete that namespace
 
-#### Scenario: Live unlabeled gateway namespace is labeled on reconcile, not by GC
+#### Scenario: OSG-NSGC-02.04 -- Live unlabeled gateway namespace is labeled on reconcile, not by GC
 
 - GIVEN a namespace that carries the two management labels but not
   `hypershell.redhat.io/instance`
@@ -215,14 +215,14 @@ pull-request reaper SHALL delete namespaces labeled
 - THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
 - AND the garbage-collection sweep SHALL NOT stamp that label on its own
 
-#### Scenario: Failed-to-bootstrap gateway namespace is reclaimed
+#### Scenario: OSG-NSGC-02.05 -- Failed-to-bootstrap gateway namespace is reclaimed
 
 - GIVEN a gateway that failed to bootstrap and whose Gateway was then deleted,
   leaving its managed namespace behind
 - WHEN the namespace has been orphaned past the grace period
 - THEN the garbage-collection reconciler SHALL delete the namespace
 
-#### Scenario: Delete event missed during downtime is recovered
+#### Scenario: OSG-NSGC-02.06 -- Delete event missed during downtime is recovered
 
 - GIVEN the control plane was down when a Gateway is deleted, so the namespace
   was never reaped by the delete path
@@ -231,7 +231,7 @@ pull-request reaper SHALL delete namespaces labeled
 - THEN it SHALL observe the namespace as orphaned and, once the grace period has
   elapsed, delete it
 
-### Requirement: Stamp This Instance's Identity on Namespaces It Manages
+### Requirement: OSG-NSGC-03 -- Stamp This Instance's Identity on Namespaces It Manages
 
 When the control plane creates or reconciles a namespace it owns, it SHALL stamp
 `hypershell.redhat.io/instance` with a value unique to that controller (the
@@ -246,7 +246,7 @@ namespaces. An operator who wants an unlabeled leftover swept assigns
 `HYPERSHELL_NAMESPACE` SHALL NOT create or relabel a managed namespace. Two
 controllers on the same cluster SHALL NOT share an instance identity.
 
-#### Scenario: Created gateway namespace is labeled for this instance
+#### Scenario: OSG-NSGC-03.01 -- Created gateway namespace is labeled for this instance
 
 - GIVEN a Gateway ADDED event for a namespace that does not yet exist
 - WHEN the control plane creates the namespace
@@ -254,7 +254,7 @@ controllers on the same cluster SHALL NOT share an instance identity.
   controller's unique identity (`HYPERSHELL_NAMESPACE`, the namespace the
   controller pod runs in)
 
-#### Scenario: Live reconcile labels a legacy namespace this instance owns
+#### Scenario: OSG-NSGC-03.02 -- Live reconcile labels a legacy namespace this instance owns
 
 - GIVEN a live Gateway whose namespace carries the two management labels but no
   instance label
@@ -263,7 +263,7 @@ controllers on the same cluster SHALL NOT share an instance identity.
 - AND it SHALL NOT change an instance label that already identifies a different
   instance
 
-#### Scenario: Foreign instance namespace is not adopted
+#### Scenario: OSG-NSGC-03.03 -- Foreign instance namespace is not adopted
 
 - GIVEN a namespace labeled `hypershell.redhat.io/instance` for a different
   control-plane instance
@@ -271,7 +271,7 @@ controllers on the same cluster SHALL NOT share an instance identity.
 - THEN it SHALL NOT overwrite the instance label
 - AND it SHALL NOT deploy into or delete that namespace
 
-### Requirement: Backfill Instance Labels on Startup
+### Requirement: OSG-NSGC-04 -- Backfill Instance Labels on Startup
 
 On startup, before the periodic garbage collector's first sweep, the control
 plane SHALL stamp `hypershell.redhat.io/instance` onto the legacy gateway
@@ -300,7 +300,7 @@ backfill: on a shared cluster it is indistinguishable from a namespace another
 HyperShell owns, so claiming it is unsafe. Such namespaces require manual
 cleanup.
 
-#### Scenario: Startup backfill labels a live gateway's legacy namespace
+#### Scenario: OSG-NSGC-04.01 -- Startup backfill labels a live gateway's legacy namespace
 
 - GIVEN a namespace that carries the two management labels but no instance label
 - AND a live Gateway in this instance's API server records that namespace
@@ -308,7 +308,7 @@ cleanup.
 - THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance onto that
   namespace
 
-#### Scenario: Startup backfill does not claim a foreign or unmanaged namespace
+#### Scenario: OSG-NSGC-04.02 -- Startup backfill does not claim a foreign or unmanaged namespace
 
 - GIVEN a live Gateway in this instance's API server records a namespace
 - AND that namespace either carries `hypershell.redhat.io/instance` for a
@@ -316,13 +316,13 @@ cleanup.
 - WHEN the control plane runs the instance-label backfill
 - THEN it SHALL NOT stamp or overwrite the instance label on that namespace
 
-#### Scenario: Startup backfill never creates a namespace
+#### Scenario: OSG-NSGC-04.03 -- Startup backfill never creates a namespace
 
 - GIVEN a live Gateway that records a namespace which does not exist on the cluster
 - WHEN the control plane runs the instance-label backfill
 - THEN it SHALL NOT create that namespace
 
-### Requirement: Grace Period Prevents Premature Deletion
+### Requirement: OSG-NSGC-05 -- Grace Period Prevents Premature Deletion
 
 The control plane SHALL NOT delete an orphaned namespace immediately. It SHALL
 record, on the namespace itself, the time it was first observed orphaned (in the
@@ -331,20 +331,20 @@ grace period from that timestamp, so the delay survives control-plane restarts.
 If a Gateway reappears for that namespace, the control plane SHALL clear the
 annotation so the timer resets.
 
-#### Scenario: Namespace within grace period is deferred
+#### Scenario: OSG-NSGC-05.01 -- Namespace within grace period is deferred
 
 - GIVEN a managed namespace first observed orphaned less than the grace period ago
 - WHEN the reconciler sweeps
 - THEN it SHALL NOT delete the namespace
 - AND it SHALL leave the `gc-eligible-since` annotation in place
 
-#### Scenario: Grace timer resets when the gateway returns
+#### Scenario: OSG-NSGC-05.02 -- Grace timer resets when the gateway returns
 
 - GIVEN a managed namespace marked `gc-eligible-since`
 - WHEN a live Gateway is again observed for that namespace
 - THEN the control plane SHALL clear the `gc-eligible-since` annotation
 
-### Requirement: Do Not Reap Namespaces of Live Gateways
+### Requirement: OSG-NSGC-06 -- Do Not Reap Namespaces of Live Gateways
 
 The garbage collector SHALL determine liveness from the set of Gateways reported
 by the API server. If it cannot list Gateways, it SHALL abort the entire sweep
@@ -362,19 +362,19 @@ it and SHALL clear the `gc-eligible-since` annotation instead. If it cannot
 re-confirm liveness at that point (the Gateway list fails), it SHALL defer the
 delete to a later sweep rather than delete on a stale view.
 
-#### Scenario: Gateway list failure aborts the sweep
+#### Scenario: OSG-NSGC-06.01 -- Gateway list failure aborts the sweep
 
 - GIVEN the API server is unreachable
 - WHEN the garbage-collection reconciler attempts a sweep
 - THEN it SHALL NOT delete any namespace
 
-#### Scenario: Degraded gateway's namespace is preserved
+#### Scenario: OSG-NSGC-06.02 -- Degraded gateway's namespace is preserved
 
 - GIVEN a Gateway with `phase` `Degraded` whose namespace is managed
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL NOT delete that namespace, because the Gateway still exists
 
-#### Scenario: Gateway created after the sweep began is spared at delete time
+#### Scenario: OSG-NSGC-06.03 -- Gateway created after the sweep began is spared at delete time
 
 - GIVEN a managed namespace observed orphaned past its grace period when the
   sweep captured its liveness snapshot
@@ -384,7 +384,7 @@ delete to a later sweep rather than delete on a stale view.
 - THEN it SHALL NOT delete the namespace
 - AND it SHALL clear the `gc-eligible-since` annotation
 
-#### Scenario: Liveness re-check failure defers the delete
+#### Scenario: OSG-NSGC-06.04 -- Liveness re-check failure defers the delete
 
 - GIVEN a managed namespace orphaned past its grace period by the sweep snapshot
 - AND the Gateway list fails when liveness is re-confirmed before the delete
@@ -392,7 +392,7 @@ delete to a later sweep rather than delete on a stale view.
 - THEN it SHALL NOT delete the namespace in that pass
 - AND it SHALL defer the reap to a later sweep
 
-### Requirement: Preserve a Durable Record Before Deletion
+### Requirement: OSG-NSGC-07 -- Preserve a Durable Record Before Deletion
 
 Before deleting an orphaned namespace, the control plane SHALL record a
 Kubernetes Event describing the reap so operators retain a durable record after
@@ -404,7 +404,7 @@ best-effort: failure to collect it SHALL NOT block the reap. If recording the
 Event itself fails, the reconciler SHALL defer deletion and retry in a later
 sweep so the durable record is preserved.
 
-#### Scenario: GC event recorded on reap
+#### Scenario: OSG-NSGC-07.01 -- GC event recorded on reap
 
 - GIVEN an orphaned managed namespace past its grace period containing pods
 - WHEN the reconciler reaps it
@@ -412,7 +412,7 @@ sweep so the durable record is preserved.
   identifying the namespace and summarizing its workloads and active sandbox count
 - AND then delete the namespace
 
-#### Scenario: Event write failure defers deletion
+#### Scenario: OSG-NSGC-07.02 -- Event write failure defers deletion
 
 - GIVEN an orphaned managed namespace past its grace period
 - AND Event creation in the control-plane namespace fails
@@ -420,7 +420,7 @@ sweep so the durable record is preserved.
 - THEN it SHALL return an error for the current sweep item
 - AND it SHALL NOT delete the namespace in that pass
 
-### Requirement: Surface Active Sandbox Count Before Deletion
+### Requirement: OSG-NSGC-08 -- Surface Active Sandbox Count Before Deletion
 
 So an operator can see how many running sessions a deletion would disrupt, the
 Gateway's read-only `active_sandbox_count` field SHALL be surfaced as a warning
@@ -435,14 +435,14 @@ The reported value reflects the control plane's most recent observation and MAY
 lag real time; consumers SHALL treat it as an advisory recent count, not a
 real-time guarantee.
 
-#### Scenario: Count surfaced in the delete confirmation
+#### Scenario: OSG-NSGC-08.01 -- Count surfaced in the delete confirmation
 
 - GIVEN a Gateway reporting `active_sandbox_count = 3`
 - WHEN an operator initiates deletion of that gateway in the console
 - THEN the console SHALL surface the active sandbox count as a warning
 - BUT it SHALL NOT block the deletion on that count
 
-#### Scenario: Count is self-healing, not clobbered by a missed observation
+#### Scenario: OSG-NSGC-08.02 -- Count is self-healing, not clobbered by a missed observation
 
 - GIVEN a gateway namespace containing three active sandbox pods
 - WHEN an event is missed or the control plane restarts

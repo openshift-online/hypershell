@@ -115,6 +115,42 @@ func TestGitHubSubtreeFetcher_FetchSubtree(t *testing.T) {
 	}
 }
 
+func TestGitHubSubtreeFetcher_HeadRevision(t *testing.T) {
+	var acceptSeen, pathSeen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptSeen = r.Header.Get("Accept")
+		pathSeen = r.URL.Path
+		if !strings.Contains(r.URL.Path, "/commits/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// The `.sha` media type returns the bare commit SHA, not JSON.
+		_, _ = w.Write([]byte("abc123def456"))
+	}))
+	defer srv.Close()
+
+	f := NewGitHubSubtreeFetcher(srv.Client(), srv.URL)
+	mainBranch := "main"
+	r := &pb.Repository{
+		Metadata:      &pb.ObjectReference{Id: "r1"},
+		Url:           "https://github.com/acme/widgets",
+		DefaultBranch: &mainBranch,
+	}
+	rev, err := f.HeadRevision(context.Background(), r, "tok-123")
+	if err != nil {
+		t.Fatalf("HeadRevision() error = %v", err)
+	}
+	if rev != "abc123def456" {
+		t.Errorf("revision = %q, want abc123def456", rev)
+	}
+	if acceptSeen != "application/vnd.github.sha" {
+		t.Errorf("Accept header = %q, want application/vnd.github.sha (bare SHA, not the full commit)", acceptSeen)
+	}
+	if !strings.Contains(pathSeen, "/commits/main") {
+		t.Errorf("request path = %q, want the commits endpoint for branch main", pathSeen)
+	}
+}
+
 func TestGitHubSubtreeFetcher_TruncatedTreeFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(gitTreeResponse{Truncated: true})

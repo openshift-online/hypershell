@@ -14,7 +14,7 @@ graph LR
   BFF[Web Console BFF]
   HTTP[REST API<br/>/api/hypershell/v1]
   RPC[gRPC API<br/>Watch + CRUD]
-  PLUGINS[Kind plugins<br/>Gateway · Cluster · Database<br/>Release · Network · ServiceAccount]
+  PLUGINS[Kind plugins<br/>Gateway · Cluster · ServiceAccount]
   DB[(PostgreSQL<br/>externally provisioned)]
   CP[Control Plane<br/>watch clients]
   CLI --> HTTP

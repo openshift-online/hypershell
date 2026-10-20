@@ -916,9 +916,6 @@ func kindToResource(kind string) string {
 		"HTTPRoute":             "httproutes",
 		"BackendTLSPolicy":      "backendtlspolicies",
 		"Route":                 "routes",
-		"Cluster":               "clusters",
-		"Database":              "databases",
-		"DatabaseRole":          "databaseroles",
 	}
 
 	if resource, ok := mapping[kind]; ok {

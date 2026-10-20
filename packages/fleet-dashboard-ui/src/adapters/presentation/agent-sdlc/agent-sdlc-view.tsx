@@ -883,9 +883,12 @@ function AgingColumn({
                 onSelect={onSelect}
               />
             ))}
-            {clusters.map((cl, idx) => (
+            {clusters.map((cl) => (
+              // Key by the stacked issues, not the position: live aging moves the
+              // stack every second, and a position key would remount the chip and
+              // close its open popover.
               <ClusterChip
-                key={`cluster-${String(idx)}-${String(cl.top)}`}
+                key={`cluster-${cl.cards.map((c) => String(c.number)).join("-")}`}
                 cluster={cl}
                 onSelect={onSelect}
               />

@@ -36,13 +36,7 @@ message LocalKindPlacement {}
 message Gateway {
   ObjectReference metadata = 1;
   string name = 2;
-  reserved 3;
-  reserved "fleet_id";
   string cluster_id = 4;
-  reserved 5;
-  reserved "release_id";
-  reserved 6;
-  reserved "database_id";
   string namespace = 7;
   optional string external_dns = 8;
   optional string tls_mode = 9;
@@ -60,8 +54,6 @@ message Gateway {
   optional string console_address = 22;
   repeated ProvisioningCondition provisioning_conditions = 23;
   optional string gateway_version = 24;
-  reserved 25;
-  reserved "observed_release_id";
   int64 generation = 26;
   optional int64 observed_generation = 27;
   // provisioning_version is the gateway version the gateway's cluster advertises
@@ -81,13 +73,7 @@ message Gateway {
 
 message CreateGatewayRequest {
   string name = 1;
-  reserved 2;
-  reserved "fleet_id";
   string cluster_id = 3;
-  reserved 4;
-  reserved "release_id";
-  reserved 5;
-  reserved "database_id";
   optional string external_dns = 6;
   optional string tls_mode = 7;
   optional string service_type = 8;
@@ -117,13 +103,7 @@ message GetGatewayResponse {
 message UpdateGatewayRequest {
   string id = 1;
   optional string name = 2;
-  reserved 3;
-  reserved "fleet_id";
   optional string cluster_id = 4;
-  reserved 5;
-  reserved "release_id";
-  reserved 6;
-  reserved "database_id";
   optional string external_dns = 7;
   optional string tls_mode = 8;
   optional string service_type = 9;
@@ -142,8 +122,6 @@ message UpdateGatewayRequest {
   // openshell-gateway-sandbox-count.spec.md.
   optional string console_address = 20;
   repeated ProvisioningCondition provisioning_conditions = 21;
-  reserved 22;
-  reserved "observed_release_id";
   optional int64 observed_generation = 23;
 }
 

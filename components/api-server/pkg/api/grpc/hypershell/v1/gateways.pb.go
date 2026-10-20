@@ -1685,7 +1685,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"9\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
-	"\x12LocalKindPlacement\"\x98\v\n" +
+	"\x12LocalKindPlacement\"\xc8\n" +
+	"\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1734,8 +1735,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14_observed_generationB\x17\n" +
 	"\x15_provisioning_versionB\x0f\n" +
 	"\r_image_pinnedB\x10\n" +
-	"\x0e_repository_idJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x19\x10\x1aR\bfleet_idR\n" +
-	"release_idR\vdatabase_idR\x13observed_release_id\"\xd2\x05\n" +
+	"\x0e_repository_id\"\x9d\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1762,14 +1762,13 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driverJ\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\bfleet_idR\n" +
-	"release_idR\vdatabase_id\"I\n" +
+	"\x12_credential_driver\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x85\b\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xb5\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -1806,8 +1805,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\x16\x10\x17R\bfleet_idR\n" +
-	"release_idR\vdatabase_idR\x13observed_release_id\"I\n" +
+	"\x14_observed_generation\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

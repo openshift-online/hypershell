@@ -39,7 +39,7 @@ Requires:
 
 ## Requirements
 
-### Requirement: NetworkPolicy for Gateway API Proxy Ingress
+### Requirement: OSG-ROUT-01 -- NetworkPolicy for Gateway API Proxy Ingress
 
 **Superseded.** The control plane no longer creates NetworkPolicies for gateway
 namespaces. On OVN-Kubernetes the default network posture is allow-all, so no
@@ -51,17 +51,17 @@ verification.
 
 ---
 
-### Requirement: Gateway API Detection
+### Requirement: OSG-ROUT-02 -- Gateway API Detection
 
 The control plane SHALL detect at startup whether the cluster supports the Gateway API for route provisioning.
 
-#### Scenario: Gateway API available
+#### Scenario: OSG-ROUT-02.01 -- Gateway API available
 
 - GIVEN the `gateway.networking.k8s.io` API group is available (Gateway, GRPCRoute, BackendTLSPolicy CRDs exist)
 - AND `GATEWAY_API_GATEWAY_NAME` is set to the name of a pre-existing Gateway resource
 - THEN the control plane SHALL enable Gateway API route provisioning
 
-#### Scenario: Gateway API not available
+#### Scenario: OSG-ROUT-02.02 -- Gateway API not available
 
 - GIVEN the `gateway.networking.k8s.io` API group is NOT available
 - THEN the control plane SHALL disable route provisioning
@@ -69,30 +69,30 @@ The control plane SHALL detect at startup whether the cluster supports the Gatew
 
 ---
 
-### Requirement: Gateway Route Configuration
+### Requirement: OSG-ROUT-03 -- Gateway Route Configuration
 
 The Gateway resource SHALL support an optional `route` field that declares external exposure via Gateway API resources.
 
-#### Scenario: Gateway with auto-assigned route host
+#### Scenario: OSG-ROUT-03.01 -- Gateway with auto-assigned route host
 
 - GIVEN a Gateway with `route: {}`
 - THEN the control plane SHALL create a GRPCRoute in the tenant namespace with a cross-namespace parentRef to the pre-existing shared Gateway
 - AND the hostname SHALL be `gw-<tenant-namespace>.<base-domain>`
 - AND the derived hostname's first DNS label (e.g., `gw-openshell-a1b2c3d4e5f67890` at 29 chars) SHALL be well within the 63-character DNS label limit (RFC 1123), so no truncation is needed
 
-#### Scenario: Gateway with explicit route host
+#### Scenario: OSG-ROUT-03.02 -- Gateway with explicit route host
 
 - GIVEN a Gateway with `route: { host: "custom.example.com" }`
 - THEN the control plane SHALL use the provided hostname instead of auto-deriving it
 - AND the hostname SHALL be validated as a valid RFC 1123 DNS name before use
 
-#### Scenario: Gateway without route configuration
+#### Scenario: OSG-ROUT-03.03 -- Gateway without route configuration
 
 - GIVEN a Gateway with no `route` field
 - THEN no Gateway API resources (GRPCRoute, BackendTLSPolicy) SHALL be created
 - AND the gateway SHALL be accessible only via cluster-internal DNS and `kubectl port-forward`
 
-#### Scenario: Route configuration removed from existing Gateway
+#### Scenario: OSG-ROUT-03.04 -- Route configuration removed from existing Gateway
 
 - GIVEN a Gateway that previously had `route` configuration and associated route resources
 - WHEN the `route` field is removed or set to null
@@ -102,7 +102,7 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 
 ---
 
-### Requirement: Shared Gateway (Admin Prerequisite)
+### Requirement: OSG-ROUT-04 -- Shared Gateway (Admin Prerequisite)
 
 The control plane does NOT create Gateway resources. An administrator provisions a shared Gateway as cluster infrastructure, similar to a GatewayClass. All tenant GRPCRoutes attach to this shared Gateway.
 
@@ -117,7 +117,7 @@ The `GATEWAY_API_GATEWAY_NAME` environment variable MUST be set on the controlle
 
 ---
 
-### Requirement: GRPCRoute Resource Specification
+### Requirement: OSG-ROUT-05 -- GRPCRoute Resource Specification
 
 The GRPCRoute SHALL be created in the tenant namespace with a cross-namespace parentRef pointing to the shared Gateway:
 
@@ -149,7 +149,7 @@ The explicit hostname ensures each tenant's GRPCRoute only matches its own subdo
 
 ---
 
-### Requirement: BackendTLSPolicy for Re-encrypt
+### Requirement: OSG-ROUT-06 -- BackendTLSPolicy for Re-encrypt
 
 The control plane SHALL create a BackendTLSPolicy to enable TLS verification from the shared Gateway to the openshell gateway pod.
 
@@ -162,7 +162,7 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 
 ---
 
-### Requirement: Route Address Discovery
+### Requirement: OSG-ROUT-07 -- Route Address Discovery
 
 The GatewayReconciler SHALL obtain the external route address through the Gateway
 Exposure port (see § Gateway Exposure Port) and PATCH it into the Gateway's
@@ -179,7 +179,7 @@ reports readiness.
 - `hsctl get gateways` displays the routeAddress
 - If the address cannot be resolved (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
 
-### Requirement: Gateway Exposure Port
+### Requirement: OSG-ROUT-08 -- Gateway Exposure Port
 
 External exposure of a gateway - both **resolving the route address/URL** and
 **observing readiness** - SHALL be accessed through an application-owned port so
@@ -209,7 +209,7 @@ API adapter SHALL read the per-tenant `Gateway` object's status using the typed
 > also move behind this port as adapters are added; at minimum, address
 > resolution and readiness observation SHALL be behind it.
 
-#### Scenario: Gateway API adapter reports not-ready before Programmed
+#### Scenario: OSG-ROUT-08.01 -- Gateway API adapter reports not-ready before Programmed
 
 - GIVEN a routed Gateway whose per-tenant Gateway API `Gateway` reports
   `Programmed=False` or has an empty `.status.addresses`
@@ -217,14 +217,14 @@ API adapter SHALL read the per-tenant `Gateway` object's status using the typed
 - THEN the port SHALL report the exposure as not Ready
 - AND SHALL provide a reason (e.g. "gateway not programmed")
 
-#### Scenario: Gateway API adapter reports ready when programmed
+#### Scenario: OSG-ROUT-08.02 -- Gateway API adapter reports ready when programmed
 
 - GIVEN a routed Gateway whose per-tenant Gateway API `Gateway` reports
   `Programmed=True` with a non-empty `.status.addresses`
 - WHEN the reconciler queries readiness through the Gateway Exposure port
 - THEN the port SHALL report the exposure as Ready
 
-#### Scenario: New exposure backend added without touching the reconciler
+#### Scenario: OSG-ROUT-08.03 -- New exposure backend added without touching the reconciler
 
 - GIVEN a future OpenShift `Route`-based exposure adapter implementing the
   Gateway Exposure port
@@ -234,7 +234,7 @@ API adapter SHALL read the per-tenant `Gateway` object's status using the typed
 
 ---
 
-### Requirement: Gateway API Configuration
+### Requirement: OSG-ROUT-09 -- Gateway API Configuration
 
 | Variable | Default | Description |
 |---|---|---|
@@ -242,7 +242,7 @@ API adapter SHALL read the per-tenant `Gateway` object's status using the typed
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 
-### Requirement: Gateway Exposure Configuration
+### Requirement: OSG-ROUT-10 -- Gateway Exposure Configuration
 
 | Variable | Default | Description |
 |---|---|---|
@@ -255,7 +255,7 @@ elapses, so a gateway that eventually becomes programmed returns to `Running`.
 
 ---
 
-### Requirement: RBAC for Routing Resources
+### Requirement: OSG-ROUT-11 -- RBAC for Routing Resources
 
 The control-plane ServiceAccount needs permissions in two namespaces:
 
