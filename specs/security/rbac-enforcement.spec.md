@@ -207,8 +207,25 @@ The middleware SHALL automatically create a User record when a JWT-authenticated
 is seen for the first time. The User record SHALL be populated from standard OIDC claims
 (`preferred_username`, `email`, `given_name`, `family_name`).
 
-Auto-provisioning SHALL use upsert semantics (keyed on `username`) to handle concurrent
-first-time requests and profile updates.
+Auto-provisioning SHALL use insert-or-update semantics keyed on `username` to handle
+concurrent first-time requests without a race: when no row exists yet, two concurrent
+first requests for the same username SHALL both resolve to the single row that gets
+created, instead of one failing on a unique-constraint error.
+
+When a User row already exists, auto-provisioning SHALL write to a stored profile field
+(`email`, `name`) only when the JWT carries a claim for that field and the claim's value
+differs from the stored one. It SHALL NOT write to the row, and SHALL NOT take a row
+lock on it, on a request whose claims already match what is stored. A JWT that omits a
+profile claim (for example, a service-account token with no `email` or `name`) SHALL
+leave the corresponding stored field unchanged; auto-provisioning SHALL NEVER overwrite
+a stored non-empty profile field with an empty or absent claim.
+
+This conditional-write behavior keeps a caller's own row from being locked on every
+request the caller makes -- including the control plane's gRPC write-backs -- so a slow
+downstream call inside one request cannot stall that caller's other concurrent requests.
+It also prevents a lock-ordering deadlock when two callers concurrently provision each
+other's row, such as two users granting each other gateway access at the same time (see
+`platform/gateway-access-management.spec.md` GAM-04).
 
 The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator` and
 `platform:admin`) from the JWT on every request, creating or removing bindings as
@@ -221,6 +238,33 @@ needed to match the JWT claims.
 - THEN a User record is created from the JWT claims
 - AND RoleBindings are created to match the JWT's role claims
 - AND the request proceeds to authorization evaluation
+
+#### Scenario: SEC-RBAC-03.02 -- Concurrent first-time requests resolve to one row
+
+- GIVEN no User record exists for username `newuser`
+- WHEN two authenticated requests for `newuser` are processed at the same time
+- THEN exactly one User record is created for `newuser`
+- AND both requests resolve to that record's `user_id`
+
+#### Scenario: SEC-RBAC-03.03 -- Unchanged profile issues no write
+
+- GIVEN an existing User record whose `email` and `name` already match the caller's JWT claims
+- WHEN an authenticated request from that caller is processed
+- THEN auto-provisioning SHALL NOT update the User record
+- AND SHALL NOT take a row lock on it
+
+#### Scenario: SEC-RBAC-03.04 -- Missing claim does not clear a stored profile field
+
+- GIVEN an existing User record with `email` set from a prior request
+- WHEN an authenticated request carries a JWT with no `email` claim
+- THEN the stored `email` SHALL remain unchanged
+
+#### Scenario: SEC-RBAC-03.05 -- Mutual access grant does not deadlock
+
+- GIVEN user A and user B each already have a User record
+- AND each caller's JWT carries a directory profile claim that differs from what is stored, so each request's auto-provisioning self-upsert and Grant's target pre-provisioning both write
+- WHEN user A grants user B gateway access and user B grants user A gateway access at the same time
+- THEN both grants SHALL complete without a database deadlock error
 
 ### Requirement: SEC-RBAC-04 -- Gateway Creation Bootstrap
 
