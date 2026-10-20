@@ -194,7 +194,7 @@ names did not go away.
 3. **Codes start with a letter.** Digits are allowed after that (`E2E`,
    `A11Y`, `L10N`), so a code never looks like a bare counter.
 4. **Files with no `### Requirement` heading are exempted**, not converted.
-   Ten files in the current corpus are narrative or reference documents
+   Eight files in the current corpus are narrative or reference documents
    (conventions, cross-cutting constraints, naming rules, image pipelines)
    with no Given/When/Then scenarios; forcing them into the Requirement
    format would manufacture structure the content doesn't have. They are

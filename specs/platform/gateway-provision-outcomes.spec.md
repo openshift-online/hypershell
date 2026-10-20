@@ -18,7 +18,7 @@ Version 1 aggregates fleet-wide counts from the control-plane counter over a rol
 | **Success rate (24h)** | `successes / (successes + failures) * 100`, rounded to one decimal place |
 | **Hourly success rate** | Per-hour success rate over the same 24-hour window for sparkline display |
 
-The operational dashboard `system-summary` card SHALL render a success-rate row (WEB-OPS-13). The default layout SHALL include a `provision-reliability` widget (WEB-OPS-10, OP-DASH-24).
+The operational dashboard `system-summary` card SHALL render a success-rate row (WEB-OPS-13). The default layout SHALL include a `provision-reliability` widget (WEB-OPS-10).
 
 ### Relationship to other specifications
 
@@ -330,6 +330,6 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 
 - `platform/control-plane-observability.spec.md` (OBS-CPL-07)
 - `platform/gateway-provision-time.spec.md` (companion duration histogram and shared one-per-gateway claim)
-- `web-console/operational-dashboard.spec.md` (WEB-OPS-08, WEB-OPS-13, WEB-OPS-19, OP-DASH-24)
+- `web-console/operational-dashboard.spec.md` (WEB-OPS-08, WEB-OPS-13, WEB-OPS-19)
 - `platform/cluster-memory.spec.md` (BFF Prometheus proxy pattern)
 - `platform/gateway-metrics-dashboard.spec.md` (`PROMETHEUS_URL` configuration)

@@ -643,7 +643,7 @@ Each default-layout change that would leave saved positions incompatible with th
 
 | Key   | Trigger                                                                                                                                                                    |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v23` | Section title widgets (OP-DASH-20)                                                                                                                                         |
+| `v23` | Section title widgets                                                                                                                                                      |
 | `v30` | Platform inventory section and default inventory widgets (WEB-OPS-22, WEB-OPS-21)                                                                                          |
 | `v31` | Taller `registered-users` widget for activity stats rows (PLAT-USR-10)                                                                                                           |
 | `v32` | `registered-users` spans two columns; `gateway-status` compact single column                                                                                               |
