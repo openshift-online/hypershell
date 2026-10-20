@@ -17,8 +17,8 @@ func TestHandlerGroupsEventsAndPreservesFullRepresentation(t *testing.T) {
 	first := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	last := first.Add(time.Minute)
 	store.Replace("gateway-ns", "writer", []Event{
-		{Type: "Warning", Reason: "old", Message: "old message", FirstObservedAt: &first, LastObservedAt: &first, Count: 1, InvolvedPodName: "writer-pod", InvolvedPodUID: "writer-uid"},
 		{Type: "Warning", Reason: "recent", Message: "recent message", FirstObservedAt: &first, LastObservedAt: &last, Count: 2, InvolvedPodName: "writer-pod", InvolvedPodUID: "writer-uid"},
+		{Type: "Warning", Reason: "old", Message: "old message", FirstObservedAt: &first, LastObservedAt: &first, Count: 1, InvolvedPodName: "writer-pod", InvolvedPodUID: "writer-uid"},
 	})
 	store.Replace("gateway-ns", "reviewer", []Event{{Type: "Normal", Reason: "Started", Message: "sandbox started", Count: 1, InvolvedPodName: "reviewer-pod", InvolvedPodUID: "reviewer-uid"}})
 
@@ -61,6 +61,45 @@ func TestHandlerGroupsEventsAndPreservesFullRepresentation(t *testing.T) {
 	recent := writer[0]
 	if recent.Type != "Warning" || recent.Reason != "recent" || recent.Message != "recent message" || recent.FirstObservedAt == nil || !recent.FirstObservedAt.Equal(first) || recent.LastObservedAt == nil || !recent.LastObservedAt.Equal(last) || recent.Count != 2 || recent.InvolvedPodName != "writer-pod" || recent.InvolvedPodUID != "writer-uid" {
 		t.Fatalf("event representation = %#v", recent)
+	}
+}
+
+func TestHandlerPreservesGSE01ReportedOrder(t *testing.T) {
+	store := NewMemoryStore(time.Minute, 10, 10)
+	defer store.Close()
+
+	first := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	// The control plane received newer-event-time after older-event-time, so it
+	// reported this GSE-01 order to the store. EventTime is not in the REST
+	// representation. Sorting these fields would incorrectly put the older event
+	// first because its series last-observed time is later.
+	newerSeriesLastObserved := first.Add(time.Minute)
+	olderSeriesLastObserved := first.Add(2 * time.Minute)
+	store.Replace("gateway-ns", "writer", []Event{
+		{Reason: "newer-event-time", FirstObservedAt: &first, LastObservedAt: &newerSeriesLastObserved},
+		{Reason: "older-event-time", FirstObservedAt: &first, LastObservedAt: &olderSeriesLastObserved},
+	})
+
+	h := NewHandler(store, func(_ context.Context, gatewayID string) (string, bool) {
+		return "gateway-ns", gatewayID == "gateway-id"
+	})
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request = mux.SetURLVars(request, map[string]string{"gateway_id": "gateway-id"})
+	response := httptest.NewRecorder()
+	h.List(response, request)
+
+	var got struct {
+		Items []struct {
+			Events []struct {
+				Reason string `json:"reason"`
+			} `json:"events"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Items) != 1 || len(got.Items[0].Events) != 2 || got.Items[0].Events[0].Reason != "newer-event-time" || got.Items[0].Events[1].Reason != "older-event-time" {
+		t.Fatalf("reported event order = %#v, want newer-event-time then older-event-time", got.Items)
 	}
 }
 

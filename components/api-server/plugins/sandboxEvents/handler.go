@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -59,9 +58,10 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, snapshot := range h.store.List(namespace) {
 			group := groupResponse{SandboxName: snapshot.Sandbox, ObservedAt: snapshot.ObservedAt, Events: make([]eventResponse, 0, len(snapshot.Events))}
-			events := append([]Event(nil), snapshot.Events...)
-			sort.SliceStable(events, func(i, j int) bool { return eventNewer(events[i], events[j]) })
-			for _, event := range events {
+			// The control plane establishes GSE-01 order before it projects source
+			// Kubernetes events into this REST representation. Preserve that reported
+			// order because EventTime and creation timestamp are not available here.
+			for _, event := range snapshot.Events {
 				group.Events = append(group.Events, eventResponse(event))
 			}
 			out.Items = append(out.Items, group)
@@ -76,30 +76,4 @@ func writeSandboxEventsJSON(w http.ResponseWriter, value response) {
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		log.Printf("WARN sandbox events: encode response: %v", err)
 	}
-}
-
-func eventNewer(left, right Event) bool {
-	leftTime, rightTime := eventTime(left), eventTime(right)
-	if !leftTime.Equal(rightTime) {
-		return leftTime.After(rightTime)
-	}
-	if left.InvolvedPodUID != right.InvolvedPodUID {
-		return left.InvolvedPodUID < right.InvolvedPodUID
-	}
-	if left.InvolvedPodName != right.InvolvedPodName {
-		return left.InvolvedPodName < right.InvolvedPodName
-	}
-	if left.Reason != right.Reason {
-		return left.Reason < right.Reason
-	}
-	return left.Message < right.Message
-}
-func eventTime(event Event) time.Time {
-	if event.LastObservedAt != nil {
-		return *event.LastObservedAt
-	}
-	if event.FirstObservedAt != nil {
-		return *event.FirstObservedAt
-	}
-	return time.Time{}
 }
