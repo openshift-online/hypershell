@@ -107,15 +107,18 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 	// E2E-COV-02.02: revoking the binding removes access.
 	s.Require().NoError(s.admin.RoleBindings().Delete(ctx, binding.ID), "owner revokes the role binding")
 
-	revokeCtx, cancel := context.WithTimeout(ctx, durationSecondsEnv("E2E_ROLE_REVOKE_TIMEOUT", 30*time.Second))
-	defer cancel()
-	// Every role-gated gateway operation, including sandbox create, requires a
-	// token carrying openshell-user; once minting one for this user reliably
-	// fails, every such operation is denied by construction. A second,
-	// CLI-level denial check would only re-test the already-issued grant
-	// token's natural expiry, not the revoke itself, so it is not repeated here.
-	_, err = s.driver.AcquireGatewayTokenWithRole(revokeCtx, s.devCreds(), clientID, "openshell-user")
-	s.Assert().Error(err, "second user's per-gateway token must not carry openshell-user after revoke")
+	// Revocation propagates to Keycloak asynchronously, so poll until minting a
+	// per-gateway openshell-user token for the second user fails rather than
+	// checking once right after the delete. Every role-gated gateway operation,
+	// including sandbox create, requires a token carrying openshell-user; once
+	// minting one reliably fails, every such operation is denied by construction.
+	// A CLI-level denial check would only re-test the already-issued grant token's
+	// natural expiry, not the revoke itself, so it is not repeated here.
+	revokeErr := harness.Poll(ctx, 2*time.Second, durationSecondsEnv("E2E_ROLE_REVOKE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
+		_, tokErr := s.driver.AcquireGatewayTokenWithRole(ctx, s.devCreds(), clientID, "openshell-user")
+		return tokErr != nil, nil
+	})
+	s.Require().NoError(revokeErr, "second user's per-gateway token must not carry openshell-user after revoke")
 
 	s.deleteGatewayAndWaitGC(t, gw.ID, ref.Namespace)
 }
