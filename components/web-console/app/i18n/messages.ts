@@ -195,8 +195,9 @@ export const messages = defineMessages({
   },
   homepageAllGatewaysHealthy: {
     id: "app.homepage.gatewayHealth.allHealthy",
-    defaultMessage: "All {total} gateways are healthy",
-    description: "Alert title when every visible gateway is healthy.",
+    defaultMessage:
+      "{total, plural, =0 {No gateways yet} one {# gateway is healthy} other {All # gateways are healthy}}",
+    description: "Alert title for the visible gateway health summary.",
   },
   homepageGatewaysNeedAttention: {
     id: "app.homepage.gatewayHealth.attention",

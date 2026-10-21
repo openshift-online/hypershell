@@ -82,17 +82,17 @@ const statusDonutTextStyle = {
 } as React.CSSProperties;
 
 const chartColors: Record<string, string> = {
-  Active: "#63993d",
+  Active: "var(--pf-t--global--color--status--success--default)",
   Degraded: "#f0ab00",
   Expiring: "#f0ab00",
   Failed: "#c9190b",
-  Healthy: "#63993d",
+  Healthy: "var(--pf-t--global--color--status--success--default)",
   Idle: "#0066cc",
   Orphaned: "#c9190b",
   Pending: "#0066cc",
   Provisioning: "#0066cc",
-  Running: "#63993d",
-  active: "#63993d",
+  Running: "var(--pf-t--global--color--status--success--default)",
+  active: "var(--pf-t--global--color--status--success--default)",
   expiring: "#f0ab00",
   idle: "#0066cc",
   orphaned: "#c9190b",
@@ -103,7 +103,7 @@ function statusTone(status: string): StatusTone {
   if (["failed", "error", "orphaned"].includes(normalized)) {
     return "danger";
   }
-  if (["degraded", "expiring", "warning"].includes(normalized)) {
+  if (["degraded", "expiring", "unavailable", "warning"].includes(normalized)) {
     return "warning";
   }
   return "success";

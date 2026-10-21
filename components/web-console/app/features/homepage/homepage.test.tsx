@@ -191,6 +191,16 @@ describe("HomepagePageSurface", () => {
     ).toBe(2);
   });
 
+  it("marks unavailable clusters with a warning icon", () => {
+    const { getByTitle } = renderSurface();
+
+    expect(
+      getByTitle("Unavailable")
+        .querySelector(".pf-v6-c-icon__content")
+        ?.getAttribute("class"),
+    ).toContain("pf-m-warning");
+  });
+
   it("shows the support link when summary data is unavailable", () => {
     renderSurface({
       summaryValue: { gatewayHealth: { available: false } },
@@ -218,6 +228,34 @@ describe("HomepagePageSurface", () => {
     });
 
     expect(screen.getByText("All 3 gateways are healthy")).toBeTruthy();
+  });
+
+  it("uses singular and empty-state gateway health messages", () => {
+    renderSurface({
+      summaryValue: {
+        gatewayHealth: {
+          attention: [],
+          attentionCount: 0,
+          healthy: 1,
+          total: 1,
+        },
+      },
+    });
+
+    expect(screen.getByText("1 gateway is healthy")).toBeTruthy();
+
+    renderSurface({
+      summaryValue: {
+        gatewayHealth: {
+          attention: [],
+          attentionCount: 0,
+          healthy: 0,
+          total: 0,
+        },
+      },
+    });
+
+    expect(screen.getByText("No gateways yet")).toBeTruthy();
   });
 
   it("renders a stable gateway-summary loading state", () => {
