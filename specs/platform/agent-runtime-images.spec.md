@@ -66,9 +66,8 @@ sandbox isolation or a guarantee of zero vulnerabilities.
 ## ARI-04 -- Build and delivery
 
 Both Components SHALL use repository-root context and the corresponding
-`components/agents/Containerfile.*` file. Push, pull-request and merge-queue pipelines
-SHALL include changes to agent image inputs and CLI source; merge-queue images
-SHALL NOT auto-release. Existing Konflux scanning and signing tasks SHALL apply.
+`components/agents/Containerfile.*` file. Push and pull-request pipelines
+SHALL include changes to agent image inputs and CLI source. Existing Konflux scanning and signing tasks SHALL apply.
 
 The managed mapping SHALL promote both components using the existing application
 registry prefix and full Git SHA tags. New bundles SHALL require exactly the six
