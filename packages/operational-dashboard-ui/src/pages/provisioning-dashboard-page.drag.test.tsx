@@ -110,7 +110,16 @@ function renderProvisioningDashboard() {
       <DashboardUiProvider
         dashboard={dashboard}
         isAdmin
-        navigation={{ collectionHref: "/", navigate: () => undefined }}
+        navigation={{
+          adoptionHref: "/dashboard/adoption",
+          collectionHref: "/",
+          dashboardHref: "/dashboard",
+          inventoryHref: "/dashboard/inventory",
+          provisioningHref: "/dashboard/provisioning",
+          reliabilityHref: "/dashboard/reliability",
+          usageHref: "/dashboard/usage",
+          navigate: () => undefined,
+        }}
       >
         <ProvisioningDashboardPage
           metrics={{

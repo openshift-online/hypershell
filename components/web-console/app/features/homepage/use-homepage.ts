@@ -1,0 +1,81 @@
+import {
+  defaultGatewayListRequest,
+  gatewayListQueryKey,
+  gatewayListQueryRoot,
+} from "@openshift-online/hypershell-gateway-management-ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { createHomepageAdapter } from "../../adapters/api/homepage";
+import { createBrowserRandomSource } from "../../adapters/security/browser-random";
+import {
+  createQuickCreateGateway,
+  createQuickCreateNameGenerator,
+  quickCreatePlacement,
+} from "../../application/homepage/quick-create";
+import { gatewayOperations } from "../../composition/gateway-composition";
+import { hasDashboardAdminRole } from "../../lib/session-roles";
+import { useSession } from "../shell/use-session";
+
+const homepageGateway = createHomepageAdapter();
+const randomSource = createBrowserRandomSource();
+const generateQuickCreateName = createQuickCreateNameGenerator(randomSource);
+
+export const homepageSummaryQueryKey = [
+  ...gatewayListQueryRoot,
+  "homepage-summary",
+] as const;
+
+export const homepagePlatformOverviewQueryKey = [
+  ...gatewayListQueryRoot,
+  "homepage-platform-overview",
+] as const;
+
+export function useHomepageSummary() {
+  return useQuery({
+    queryFn: ({ signal }) => homepageGateway.getHomepageSummary(signal),
+    queryKey: homepageSummaryQueryKey,
+  });
+}
+
+export function useHomepagePlatformOverview() {
+  const sessionQuery = useSession();
+  const isAdmin = hasDashboardAdminRole(sessionQuery.data?.roles ?? []);
+  return useQuery({
+    enabled: sessionQuery.isSuccess && isAdmin,
+    queryFn: ({ signal }) =>
+      homepageGateway.getHomepagePlatformOverview(signal),
+    queryKey: homepagePlatformOverviewQueryKey,
+  });
+}
+
+export function useQuickCreateGateway(
+  onCreated: (gatewayId: string) => void,
+  enabled: boolean,
+) {
+  const queryClient = useQueryClient();
+  const knownGateways = useQuery({
+    enabled,
+    queryFn: ({ signal }) =>
+      gatewayOperations.listGateways(defaultGatewayListRequest, signal),
+    queryKey: gatewayListQueryKey(defaultGatewayListRequest),
+  });
+
+  return useMutation({
+    mutationFn: () =>
+      createQuickCreateGateway({
+        generateName: generateQuickCreateName,
+        knownNames: new Set(
+          (knownGateways.data?.items ?? []).map((gateway) => gateway.name),
+        ),
+        provisionGateway: (name) =>
+          gatewayOperations.provisionGateway({
+            name,
+            placement: { ...quickCreatePlacement },
+          }),
+      }),
+    onSuccess: async (gateway) => {
+      await queryClient.invalidateQueries({ queryKey: gatewayListQueryRoot });
+      onCreated(gateway.id);
+    },
+  });
+}

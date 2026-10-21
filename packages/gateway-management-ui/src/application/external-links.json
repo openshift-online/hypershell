@@ -1,0 +1,8 @@
+{
+  "hyperShellRepository": "https://github.com/openshift-online/hypershell/",
+  "localInferenceEndpoint": "https://inference.local",
+  "openShellDocs": "https://docs.nvidia.com/openshell/about/overview",
+  "openShellInstallerScript": "https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh",
+  "openShellCliInstallation": "https://docs.nvidia.com/openshell/about/installation",
+  "sandboxConnectDocs": "https://docs.nvidia.com/openshell/how-it-works/sandboxes/overview#connect-to-a-sandbox"
+}

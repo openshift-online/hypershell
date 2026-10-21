@@ -38,6 +38,7 @@ import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
 import { useSession } from "./use-session";
 import { UserMenu } from "./user-menu";
+import { gatewayDetailPath, routePaths } from "../../../shared/routes";
 import styles from "./application-shell.module.css";
 
 export function ApplicationShell() {
@@ -47,16 +48,22 @@ export function ApplicationShell() {
   const navigate = useNavigate();
   const gatewayNavigation = useMemo<GatewayUiNavigation>(
     () => ({
-      collectionHref: "/",
-      createHref: "/gateways/new",
-      detailHref: (gatewayId) => `/gateways/${encodeURIComponent(gatewayId)}`,
+      collectionHref: routePaths.gatewayList,
+      createHref: routePaths.gatewayNew,
+      detailHref: gatewayDetailPath,
       navigate: (href, options) => navigate(href, options),
     }),
     [navigate],
   );
   const dashboardNavigation = useMemo<DashboardUiNavigation>(
     () => ({
-      collectionHref: "/",
+      adoptionHref: routePaths.dashboardAdoption,
+      collectionHref: routePaths.gatewayList,
+      dashboardHref: routePaths.dashboard,
+      inventoryHref: routePaths.dashboardInventory,
+      provisioningHref: routePaths.dashboardProvisioning,
+      reliabilityHref: routePaths.dashboardReliability,
+      usageHref: routePaths.dashboardUsage,
       navigate: (href) => navigate(href),
     }),
     [navigate],
@@ -91,7 +98,7 @@ export function ApplicationShell() {
           <MastheadLogo
             className={styles.brand}
             component={Link}
-            {...{ to: "/" }}
+            {...{ to: routePaths.home }}
           >
             <img
               alt=""
@@ -131,7 +138,7 @@ export function ApplicationShell() {
   if (gatewayId || isNewGateway) {
     breadcrumb = (
       <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
-        <BreadcrumbItem to="/">
+        <BreadcrumbItem to={routePaths.gatewayList}>
           <FormattedMessage {...gatewayMessages.gateways} />
         </BreadcrumbItem>
         {gatewayId ? (

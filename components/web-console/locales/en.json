@@ -2155,6 +2155,174 @@
     "defaultMessage": "Hello world",
     "description": "Main heading on the initial web-console landing page."
   },
+  "app.homepage.actions.createGateway": {
+    "defaultMessage": "Create a gateway",
+    "description": "Primary action that opens the full gateway creation page."
+  },
+  "app.homepage.actions.dashboard": {
+    "defaultMessage": "Dashboard",
+    "description": "Action that opens the operational dashboard."
+  },
+  "app.homepage.actions.goToDashboard": {
+    "defaultMessage": "Go to your dashboard",
+    "description": "Action in the non-administrator dashboard card."
+  },
+  "app.homepage.actions.quickCreate": {
+    "defaultMessage": "Quick create",
+    "description": "Action that opens the gateway quick-create dialog."
+  },
+  "app.homepage.actions.viewGateways": {
+    "defaultMessage": "View gateways",
+    "description": "Action that opens the gateway list."
+  },
+  "app.homepage.actions.viewMyGateways": {
+    "defaultMessage": "View my gateways",
+    "description": "Action in the gateway health card."
+  },
+  "app.homepage.dashboard.body": {
+    "defaultMessage": "Track your gateways, sandbox activity, and reliability in one place.",
+    "description": "Body of the non-administrator dashboard card."
+  },
+  "app.homepage.dashboard.title": {
+    "defaultMessage": "Your dashboard",
+    "description": "Title of the non-administrator dashboard card."
+  },
+  "app.homepage.dataUnavailable.body": {
+    "defaultMessage": "Refresh the page to try again.",
+    "description": "Recovery guidance shown when homepage data is unavailable."
+  },
+  "app.homepage.gatewayHealth.allHealthy": {
+    "defaultMessage": "All {total} gateways are healthy",
+    "description": "Alert title when every visible gateway is healthy."
+  },
+  "app.homepage.gatewayHealth.attention": {
+    "defaultMessage": "{count} gateways need attention",
+    "description": "Alert title when gateways need attention."
+  },
+  "app.homepage.gatewayHealth.progress": {
+    "defaultMessage": "{healthy} of {total} gateways healthy",
+    "description": "Progress label for healthy gateway count."
+  },
+  "app.homepage.gatewayHealth.title": {
+    "defaultMessage": "Gateway health",
+    "description": "Title of the gateway health card."
+  },
+  "app.homepage.gatewayHealth.unavailable": {
+    "defaultMessage": "Gateway status is unavailable",
+    "description": "Alert title when gateway health cannot be loaded."
+  },
+  "app.homepage.learn.cli": {
+    "defaultMessage": "OpenShell CLI",
+    "description": "External link to the OpenShell CLI installation instructions."
+  },
+  "app.homepage.learn.cli.description": {
+    "defaultMessage": "Install and start using the CLI.",
+    "description": "Description for the OpenShell CLI installation link."
+  },
+  "app.homepage.learn.docs": {
+    "defaultMessage": "OpenShell docs",
+    "description": "External link to the OpenShell documentation."
+  },
+  "app.homepage.learn.docs.description": {
+    "defaultMessage": "Get oriented with OpenShell concepts.",
+    "description": "Description for the OpenShell documentation link."
+  },
+  "app.homepage.learn.repository": {
+    "defaultMessage": "HyperShell repo",
+    "description": "External link to the HyperShell repository."
+  },
+  "app.homepage.learn.repository.description": {
+    "defaultMessage": "Explore the source and project history.",
+    "description": "Description for the HyperShell repository link."
+  },
+  "app.homepage.learn.title": {
+    "defaultMessage": "Learn and explore",
+    "description": "Title of the learning links card."
+  },
+  "app.homepage.loading": {
+    "defaultMessage": "Loading",
+    "description": "Accessible label for homepage loading states."
+  },
+  "app.homepage.platformOverview.clusters.progress": {
+    "defaultMessage": "{healthy} of {total} clusters healthy",
+    "description": "Progress label for healthy cluster count."
+  },
+  "app.homepage.platformOverview.clusters.title": {
+    "defaultMessage": "Cluster availability",
+    "description": "Title of the cluster availability section."
+  },
+  "app.homepage.platformOverview.clusters.unavailable": {
+    "defaultMessage": "Unavailable",
+    "description": "Status shown for an unhealthy cluster."
+  },
+  "app.homepage.platformOverview.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Title of the gateway status donut chart."
+  },
+  "app.homepage.platformOverview.gatewaysSubTitle": {
+    "defaultMessage": "gateways",
+    "description": "Center subtitle for the gateway status donut chart."
+  },
+  "app.homepage.platformOverview.sandboxes": {
+    "defaultMessage": "Active sandboxes",
+    "description": "Title of the active sandbox status donut chart."
+  },
+  "app.homepage.platformOverview.sandboxesSubTitle": {
+    "defaultMessage": "sandboxes",
+    "description": "Center subtitle for the active sandbox status donut chart."
+  },
+  "app.homepage.platformOverview.title": {
+    "defaultMessage": "Platform overview",
+    "description": "Title of the administrator platform overview card."
+  },
+  "app.homepage.platformOverview.unavailable": {
+    "defaultMessage": "Platform overview is unavailable",
+    "description": "Alert title when platform overview cannot be loaded."
+  },
+  "app.homepage.quickCreate.body": {
+    "defaultMessage": "Quick create makes a gateway on IBM Cloud public with a generated name. You can rename it after it starts.",
+    "description": "Explanation shown in the gateway quick-create dialog."
+  },
+  "app.homepage.quickCreate.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Cancellation action in the quick-create dialog."
+  },
+  "app.homepage.quickCreate.error": {
+    "defaultMessage": "The gateway could not be created. Retry to generate another unique name.",
+    "description": "Error shown when quick create cannot create a gateway."
+  },
+  "app.homepage.quickCreate.submit": {
+    "defaultMessage": "Create gateway",
+    "description": "Confirmation action in the quick-create dialog."
+  },
+  "app.homepage.quickCreate.title": {
+    "defaultMessage": "Quick create a gateway",
+    "description": "Title of the gateway quick-create dialog."
+  },
+  "app.homepage.roleLoading.title": {
+    "defaultMessage": "Dashboard",
+    "description": "Neutral title shown while the session role is loading."
+  },
+  "app.homepage.support.open": {
+    "defaultMessage": "Open in Slack",
+    "description": "Action that opens the configured support channel."
+  },
+  "app.homepage.support.unavailable.body": {
+    "defaultMessage": "Ask your HyperShell administrator to configure the support channel.",
+    "description": "Guidance shown when no support channel is configured."
+  },
+  "app.homepage.support.unavailable.title": {
+    "defaultMessage": "Support channel is unavailable",
+    "description": "Title shown when no support channel is configured."
+  },
+  "app.homepage.welcome.body": {
+    "defaultMessage": "HyperShell runs OpenShell gateways across clusters and clouds for you. Choose where your workload belongs and get to a running gateway in just a few steps.",
+    "description": "Primary call-to-action copy on the HyperShell homepage."
+  },
+  "app.homepage.welcome.title": {
+    "defaultMessage": "Pick a gateway. Ship your sandboxes.",
+    "description": "Primary heading on the HyperShell homepage."
+  },
   "app.logout": {
     "defaultMessage": "Log out",
     "description": "Sign-out action in the masthead identity menu."
@@ -2470,6 +2638,14 @@
   "app.page.gateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
+  },
+  "app.page.homepage.description": {
+    "defaultMessage": "Gateway health, quick gateway creation, dashboards, support, and learning resources.",
+    "description": "Browser metadata description for the HyperShell homepage."
+  },
+  "app.page.homepage.title": {
+    "defaultMessage": "HyperShell homepage",
+    "description": "Browser metadata title for the HyperShell homepage."
   },
   "app.page.metrics.description": {
     "defaultMessage": "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",

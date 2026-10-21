@@ -90,6 +90,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if req.Placement != nil {
 		if selector := req.Placement.GetCapabilitySelector(); selector != nil {
 			intent.Selector = selector.Selector
+			intent.ExcludedSelector = selector.ExcludedSelector
 			hasPlacement = true
 		} else if req.Placement.GetLocalKind() != nil {
 			mode := "local-kind"
@@ -113,7 +114,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		if h.placement == nil {
 			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
 		}
-		if svcErr := validatePlacementIntent(intent); svcErr != nil {
+		if svcErr := validatePlacementIntent(&intent); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}
 		marshaled, marshalErr := marshalPlacement(intent)

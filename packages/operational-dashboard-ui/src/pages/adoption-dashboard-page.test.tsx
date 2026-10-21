@@ -43,7 +43,16 @@ function renderPage(
         <DashboardUiProvider
           dashboard={dashboard}
           isAdmin
-          navigation={{ collectionHref: "/", navigate: vi.fn() }}
+          navigation={{
+            adoptionHref: "/dashboard/adoption",
+            collectionHref: "/",
+            dashboardHref: "/dashboard",
+            inventoryHref: "/dashboard/inventory",
+            provisioningHref: "/dashboard/provisioning",
+            reliabilityHref: "/dashboard/reliability",
+            usageHref: "/dashboard/usage",
+            navigate: vi.fn(),
+          }}
         >
           <AdoptionDashboardPage metrics={metrics} />
         </DashboardUiProvider>
