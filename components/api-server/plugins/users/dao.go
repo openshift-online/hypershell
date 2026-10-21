@@ -2,9 +2,11 @@ package users
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -36,12 +38,25 @@ type UserDao interface {
 
 var _ UserDao = &sqlUserDao{}
 
+// userProfileWriteLockType scopes the single advisory lock resource
+// updateChangedFields takes around a conditional profile UPDATE. Every
+// caller that needs to write a changed email/name claim -- the caller's own
+// row from auto-provisioning, or a grant's target-user pre-provisioning --
+// contends for this one lock, so two concurrent transactions can never each
+// hold a different row lock while waiting on the other's: there is only ever
+// one lock resource in play, not two acquired in opposite order. The common
+// case (profile already matches) takes no lock at all, so this only ever
+// engages on the already-rare write path.
+const userProfileWriteLockType db.LockType = "user_profile_write"
+const userProfileWriteLockID = "user-profile-write"
+
 type sqlUserDao struct {
 	sessionFactory *db.SessionFactory
+	locks          db.LockFactory
 }
 
-func NewUserDao(sessionFactory *db.SessionFactory) UserDao {
-	return &sqlUserDao{sessionFactory: sessionFactory}
+func NewUserDao(sessionFactory *db.SessionFactory, locks db.LockFactory) UserDao {
+	return &sqlUserDao{sessionFactory: sessionFactory, locks: locks}
 }
 
 func (d *sqlUserDao) Get(ctx context.Context, id string) (*User, error) {
@@ -89,12 +104,27 @@ func (d *sqlUserDao) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Upsert atomically inserts or updates by username via INSERT ... ON
-// CONFLICT, avoiding the check-then-act race of a separate SELECT + Create/
-// Save: two concurrent first-time provisioning calls for the same brand-new
-// username (e.g. a JIT-provisioned OIDC identity's first API request) would
-// otherwise both find no existing row, both attempt Create, and the loser
-// would get a raw unique-constraint error instead of the persisted user.
+// Upsert resolves a User row by username, writing a stored profile field
+// (email, name) only when the caller supplied a value for it and that value
+// differs from what is stored. A call whose claims already match the stored
+// row takes no UPDATE and so no row lock; a nil field (e.g. a service-account
+// token with no email claim) never clears a stored value. This matters
+// because auto-provisioning runs on every authenticated request inside the
+// request's own DB transaction, alongside any other write that request
+// makes (e.g. granting another user gateway access pre-provisions that
+// user's row in the same transaction) -- an unconditional UPDATE here would
+// lock the caller's row on every request and risk a lock-ordering deadlock
+// when two callers concurrently provision each other's row. When a write IS
+// needed, updateChangedFields serializes through userProfileWriteLockType
+// instead of taking the row lock directly, so that risk cannot materialize
+// even when both callers' claims changed at once (see updateChangedFields).
+//
+// For a brand-new username, insert-or-ignore via INSERT ... ON CONFLICT DO
+// NOTHING avoids the check-then-act race of a separate SELECT + Create: two
+// concurrent first-time provisioning calls for the same brand-new username
+// (e.g. a JIT-provisioned OIDC identity's first API request) would otherwise
+// both find no existing row, both attempt Create, and the loser would get a
+// raw unique-constraint error instead of the persisted user.
 //
 // The user's ID is client-generated (BeforeCreate, not DB-autoincrement), so
 // GORM does not reliably scan the server's post-conflict row back into it:
@@ -102,20 +132,68 @@ func (d *sqlUserDao) Delete(ctx context.Context, id string) error {
 // instead of the row that actually persisted. Re-read by username so every
 // caller resolves to the one canonical row regardless of who won the race.
 func (d *sqlUserDao) Upsert(ctx context.Context, user *User) (*User, error) {
+	existing, err := d.GetByUsername(ctx, user.Username)
+	switch {
+	case err == nil:
+		return d.updateChangedFields(ctx, existing, user)
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return d.insertIfAbsent(ctx, user)
+	default:
+		return nil, err
+	}
+}
+
+// updateChangedFields writes only the profile fields incoming carries that
+// differ from existing, taking no UPDATE (and so no row lock) when nothing
+// changed. When a write is needed, it takes the single userProfileWriteLock
+// advisory lock first: that resource is also what a concurrent transaction
+// writing a *different* user's row would need, so two transactions can only
+// ever queue behind the one lock -- never hold a different row lock each
+// while waiting on the other's, which is the structural precondition for a
+// deadlock (see the Upsert doc comment for the mutual-grant scenario this
+// protects).
+func (d *sqlUserDao) updateChangedFields(ctx context.Context, existing, incoming *User) (*User, error) {
+	updates := map[string]interface{}{}
+	if incoming.Email != nil && (existing.Email == nil || *existing.Email != *incoming.Email) {
+		updates["email"] = *incoming.Email
+	}
+	if incoming.Name != nil && (existing.Name == nil || *existing.Name != *incoming.Name) {
+		updates["name"] = *incoming.Name
+	}
+	if len(updates) == 0 {
+		return existing, nil
+	}
+
+	if d.locks != nil {
+		owner, err := d.locks.NewAdvisoryLock(ctx, userProfileWriteLockID, userProfileWriteLockType)
+		if err != nil {
+			return nil, fmt.Errorf("acquire user profile write lock: %w", err)
+		}
+		defer d.locks.Unlock(ctx, owner)
+	}
+
+	g2 := (*d.sessionFactory).New(ctx)
+	if err := g2.Model(&User{}).Where("username = ?", existing.Username).Updates(updates).Error; err != nil {
+		db.MarkForRollback(ctx, err)
+		return nil, err
+	}
+	return d.GetByUsername(ctx, existing.Username)
+}
+
+// insertIfAbsent inserts user, leaving any row a concurrent caller already
+// created in place, then re-reads by username so every racing caller
+// resolves to the same canonical row.
+func (d *sqlUserDao) insertIfAbsent(ctx context.Context, user *User) (*User, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	if err := g2.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "username"}},
-		DoUpdates: clause.AssignmentColumns([]string{"email", "name"}),
+		DoNothing: true,
 	}).Omit(clause.Associations).Create(user).Error; err != nil {
 		db.MarkForRollback(ctx, err)
 		return nil, err
 	}
 
-	var persisted User
-	if err := g2.Take(&persisted, "username = ?", user.Username).Error; err != nil {
-		return nil, err
-	}
-	return &persisted, nil
+	return d.GetByUsername(ctx, user.Username)
 }
 
 func (d *sqlUserDao) FindByIDs(ctx context.Context, ids []string) (UserList, error) {

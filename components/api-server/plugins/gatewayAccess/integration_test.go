@@ -13,6 +13,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
@@ -459,4 +460,104 @@ func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	aerr = svc.Revoke(context.Background(), gw, padmin, owner1)
 	Expect(aerr).NotTo(BeNil())
 	Expect(aerr.Status).To(Equal(http.StatusConflict))
+}
+
+// seedWithProfile provisions a user with a stored email/name (unlike seed,
+// which leaves both nil) and gives them roleName on gatewayID. Use this when
+// a test needs a later request's claims to present a *changed* email/name so
+// the conditional-write path -- not the already-covered no-op path -- is the
+// one under test.
+func seedWithProfile(t *testing.T, gatewayID, username, email, name, roleName string) string {
+	t.Helper()
+	uid, err := userService().UpsertByUsername(context.Background(), strings.ToLower(username), &email, &name)
+	Expect(err).NotTo(HaveOccurred())
+	_, serr := rbService().SetGatewayRole(context.Background(), uid, gatewayID, roleName)
+	Expect(serr).To(BeNil())
+	return uid
+}
+
+// grantInOwnRequestTransaction reproduces, at the function-call level, the
+// exact per-request transaction shape TransactionMiddleware and
+// UserProvisioningMiddleware give a real HTTP request: db.NewContext binds
+// one transaction to ctx (as TransactionMiddleware does per request), the
+// caller's own conditional profile write runs first in that ctx (as
+// UserProvisioningMiddleware does before any handler runs), then Grant's
+// target pre-provisioning and role bind run in the same ctx, and db.Resolve
+// commits or rolls back (as TransactionMiddleware's deferred resolve does)
+// when the call returns. This is what actually puts two row writes under one
+// transaction's lock lifetime -- the precondition for the deadlock this test
+// guards against -- without needing a real HTTP round trip, JWT, or the
+// directory-resolver override (which only takes effect for a fresh
+// ServiceFrom() call, not the handler bound once at router registration).
+func grantInOwnRequestTransaction(svc gatewayAccess.Service, callerUsername, callerEmail, callerName, gatewayID, targetUsername string) *gatewayAccess.APIError {
+	sessionFactory := environments.Environment().Database.SessionFactory
+	ctx, err := db.NewContext(context.Background(), sessionFactory)
+	Expect(err).NotTo(HaveOccurred())
+	defer db.Resolve(ctx)
+
+	callerID, uerr := userService().UpsertByUsername(ctx, callerUsername, &callerEmail, &callerName)
+	Expect(uerr).NotTo(HaveOccurred())
+
+	_, aerr := svc.Grant(ctx, gatewayID, callerID, gatewayAccess.GrantInput{Username: targetUsername, Role: gatewayAccess.TierUser})
+	return aerr
+}
+
+// TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock guards the
+// RBAC-3 "Mutual access grant does not deadlock" guarantee under the
+// condition Amber's PR #638 review flagged as untested: two callers whose
+// directory profile changed since the last request grant each other access
+// at the same time. Each request's self-upsert (changed claims -> a real
+// UPDATE) and its Grant's target pre-provisioning (also a real UPDATE, since
+// the fake directory disagrees with what's stored) run inside the one
+// transaction db.NewContext binds to that request -- the exact lock shape
+// (own row, then the other's) that deadlocks if the two requests take it in
+// opposite order. sqlUserDao serializes that conditional write through a
+// single advisory lock (userProfileWriteLockType) instead of the row lock
+// directly, so the two requests can only ever queue behind one shared
+// resource, never each hold a different one while waiting on the other's.
+func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing.T) {
+	test.RegisterIntegration(t)
+	defer gatewayAccess.SetDirectoryResolver(nil)
+
+	gwAlice := "gw-mutual-alice"
+	gwBob := "gw-mutual-bob"
+
+	// Each user already has a stored profile that differs from what their
+	// next request's claims -- and the directory -- will present.
+	seedWithProfile(t, gwAlice, "mutual-alice", "alice-old@example.com", "Alice Old", roles.RoleGatewayOwner)
+	seedWithProfile(t, gwBob, "mutual-bob", "bob-old@example.com", "Bob Old", roles.RoleGatewayOwner)
+
+	dir := realm(
+		gatewayAccess.DirectoryUser{Username: "mutual-alice", Name: "Alice New", Email: "alice-new@example.com"},
+		gatewayAccess.DirectoryUser{Username: "mutual-bob", Name: "Bob New", Email: "bob-new@example.com"},
+	)
+	svc := accessSvc(dir)
+
+	var aliceErr, bobErr *gatewayAccess.APIError
+	done := make(chan struct{}, 2)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		aliceErr = grantInOwnRequestTransaction(svc, "mutual-alice", "alice-new@example.com", "Alice New", gwAlice, "mutual-bob")
+	}()
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bobErr = grantInOwnRequestTransaction(svc, "mutual-bob", "bob-new@example.com", "Bob New", gwBob, "mutual-alice")
+	}()
+	<-done
+	<-done
+
+	Expect(aliceErr).To(BeNil())
+	Expect(bobErr).To(BeNil())
+
+	// Both self- and target-upserts actually wrote the changed claims, so
+	// this proved the write path, not the already-covered no-op path.
+	alice, aerr := userService().GetByUsername(context.Background(), "mutual-alice")
+	Expect(aerr).NotTo(HaveOccurred())
+	Expect(alice.Name).NotTo(BeNil())
+	Expect(*alice.Name).To(Equal("Alice New"))
+	bob, berr := userService().GetByUsername(context.Background(), "mutual-bob")
+	Expect(berr).NotTo(HaveOccurred())
+	Expect(bob.Name).NotTo(BeNil())
+	Expect(*bob.Name).To(Equal("Bob New"))
 }
