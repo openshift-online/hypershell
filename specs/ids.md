@@ -150,6 +150,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
+| `SDLC-VAL` | `platform/sdlc-funnel-validation.spec.md` | 4 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 22 |
 
 ### SEC
