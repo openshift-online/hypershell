@@ -1,4 +1,5 @@
 import {
+  kataRuntimeSelector,
   GatewayOperationError,
   type GatewayRecord,
 } from "@openshift-online/hypershell-gateway-management-ui";
@@ -15,7 +16,7 @@ export interface QuickCreateDependencies {
 }
 
 export const quickCreatePlacement = {
-  excludedSelector: ["runtime/kata"],
+  excludedSelector: [kataRuntimeSelector],
   selector: ["network/public", "provider/ibm"],
 };
 

@@ -41,6 +41,7 @@ import { Tooltip } from "@patternfly/react-core";
 import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
+import { kataRuntimeSelector } from "../application/gateway-types";
 import type {
   GatewayPlacementAvailability,
   GatewayPlacementAvailabilityItem,
@@ -63,10 +64,10 @@ const placementSelectors = {
   ibmVpn: ["network/vpn", "provider/ibm"],
 } as const;
 const kataPlacementSelectors = {
-  awsPublic: ["network/public", "provider/aws", "runtime/kata"],
-  awsVpn: ["network/vpn", "provider/aws", "runtime/kata"],
-  ibmPublic: ["network/public", "provider/ibm", "runtime/kata"],
-  ibmVpn: ["network/vpn", "provider/ibm", "runtime/kata"],
+  awsPublic: [...placementSelectors.awsPublic, kataRuntimeSelector],
+  awsVpn: [...placementSelectors.awsVpn, kataRuntimeSelector],
+  ibmPublic: [...placementSelectors.ibmPublic, kataRuntimeSelector],
+  ibmVpn: [...placementSelectors.ibmVpn, kataRuntimeSelector],
 } as const;
 const requestedPlacementSelectors = [
   ...Object.values(placementSelectors),
@@ -699,8 +700,8 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       `provider/${values.provider}`,
     ];
     const placement = values.kata
-      ? { selector: [...selector, "runtime/kata"] }
-      : { excludedSelector: ["runtime/kata"], selector };
+      ? { selector: [...selector, kataRuntimeSelector] }
+      : { excludedSelector: [kataRuntimeSelector], selector };
     createGateway.mutate({
       name: values.name.trim(),
       placement,

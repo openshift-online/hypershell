@@ -595,7 +595,10 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
     name: "team-gateway",
-    placement: { selector: ["network/public", "provider/aws"] },
+    placement: {
+      excludedSelector: ["runtime/kata"],
+      selector: ["network/public", "provider/aws"],
+    },
     route: '{"enabled":true}',
   });
 });
