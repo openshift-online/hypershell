@@ -197,17 +197,17 @@ When the range query fails but instant queries succeed, the BFF returns HTTP `20
 
 ## Sparklines and trends
 
-| Location                       | Series                             | When shown                                                                |
-| ------------------------------ | ---------------------------------- | ------------------------------------------------------------------------- |
+| Location                       | Series                             | When shown                                                                    |
+| ------------------------------ | ---------------------------------- | ----------------------------------------------------------------------------- |
 | `gateway-status` widget        | Selected-range daily fleet totals  | When `provisioned-gateways.trend.points` has at least two points (OBS-GFT-06) |
-| `active-sandboxes` widget      | Selected-range daily Active totals | When `provisioned-sandboxes.trend.points` has at least two points         |
+| `active-sandboxes` widget      | Selected-range daily Active totals | When `provisioned-sandboxes.trend.points` has at least two points             |
 | `memory` widget                | Selected-range daily used memory   | When `memory.trend.points` has at least two points (OBS-HCUT-08)              |
 | `cpu` widget                   | Selected-range daily used CPU      | When `cpu.trend.points` has at least two points (OBS-HCUT-08)                 |
 | `pods` widget                  | Fixed 7-day daily used pods        | When `pods.trend.points` has at least two points (OBS-HCUT-08)                |
-| `registered-users` widget      | 30-day daily unique logins         | When `trend.points` has at least two points                               |
-| `provision-reliability` widget | Selected-range daily success rate  | When BFF returns at least two `daily_success_rate` buckets                |
+| `registered-users` widget      | 30-day daily unique logins         | When `trend.points` has at least two points                                   |
+| `provision-reliability` widget | Selected-range daily success rate  | When BFF returns at least two `daily_success_rate` buckets                    |
 | Resource summary Gateways row  | Trend arrow on total               | When `provisioned-gateways.trend` is present (OBS-GFT-07)                     |
-| Resource summary Sandboxes row | Trend arrows                       | When `provisioned-sandboxes.hourlyTrend` or `trend` is present            |
+| Resource summary Sandboxes row | Trend arrows                       | When `provisioned-sandboxes.hourlyTrend` or `trend` is present                |
 | System summary Memory row      | Trend arrow on used GiB            | When `memory.trend` change is at least 5% (OBS-HCUT-08)                       |
 | System summary CPU row         | Trend arrow on used cores          | When `cpu.trend` change is at least 5% (OBS-HCUT-08)                          |
 
