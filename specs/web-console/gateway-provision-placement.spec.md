@@ -18,6 +18,8 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 
 The provision form SHALL NOT submit a `gateway-version` label. The placement contract remains compatible with a managed selector that carries at most one `gateway-version/<tag>` label for non-form clients. The `local-kind` mode SHALL NOT carry a version selector.
 
+A managed-placement intent MAY also carry `excludedSelector`, a non-empty array of capability labels that a candidate cluster SHALL NOT advertise. The required selector and excluded selector SHALL both be validated, normalized, and persisted. The `local-kind` mode SHALL NOT carry a version or excluded selector. This negative selector is required for workflows such as homepage Quick create that must choose IBM Cloud public placement without Kata.
+
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
 #### Scenario: WEB-PLC-01.01 -- Provision form omits the version label
@@ -51,6 +53,13 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - WHEN the user submits the form
 - THEN the request SHALL contain `selector: ["network/vpn", "provider/aws"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
+
+#### Scenario: WEB-PLC-01.05 -- Public IBM placement excludes Kata
+
+- GIVEN a workflow requires Public IBM Cloud placement without Kata
+- WHEN the client submits a managed placement intent
+- THEN the request SHALL contain `selector: ["network/public", "provider/ibm"]`
+- AND the request SHALL contain `excludedSelector: ["runtime/kata"]`
 
 ### Requirement: WEB-PLC-02 -- Network Visibility Selection
 
@@ -114,7 +123,7 @@ When Public is the default network, IBM Cloud SHALL be the default provider when
 
 ### Requirement: WEB-PLC-04 -- Placement Availability
 
-The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request. The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
+The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request. A request selector MAY include an excluded-selector set. The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every required label and none of the excluded labels. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
 
@@ -226,7 +235,7 @@ The existing gateway-name validation and normalization rules SHALL remain unchan
 
 ### Requirement: WEB-PLC-07 -- Backend Placement Resolution
 
-The backend SHALL validate every selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every requested label. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
+The backend SHALL validate every required and excluded selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every required label and none of the excluded labels. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A required selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a required selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
 
 When one eligible cluster matches, the backend SHALL select that cluster. When multiple eligible clusters match, the backend SHALL select one at random. Each matching eligible cluster SHALL have an equal probability of selection.
 
@@ -234,7 +243,7 @@ The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage
 
 If no eligible cluster matches the selector, the backend SHALL NOT reject the create: the Gateway is LATE-BOUND. The backend SHALL create the Gateway with an empty `cluster_id`, hold it in the `Pending` phase with a clear awaiting-placement `status`, and bind it when a matching cluster appears, per [`data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway Placement and Late Binding"). The backend SHALL NOT drop selector labels or fall back to another selector or local-kind. This late-binding model lets a declarative `.hypershell` Gateway (which declares a selector and no `cluster_id`) import successfully even when no matching cluster is connected yet.
 
-The backend SHALL persist BOTH the `placement` selector (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
+The backend SHALL persist BOTH the `placement` required and excluded selectors (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
 
 #### Scenario: WEB-PLC-07.01 -- Backend randomly selects a matching cluster
 
@@ -265,6 +274,13 @@ The backend SHALL persist BOTH the `placement` selector (so it can re-resolve fo
 - THEN the Gateway SHALL be created with an empty `cluster_id` and `phase` `Pending`
 - AND the create SHALL NOT return a placement-unavailable error
 - AND the backend SHALL assign `cluster_id` when a matching cluster later becomes eligible
+
+#### Scenario: WEB-PLC-07.05 -- Excluded capability removes a candidate
+
+- GIVEN two connected clusters match `network/public` and `provider/ibm`
+- AND one advertises `runtime/kata`
+- WHEN the backend resolves an intent that excludes `runtime/kata`
+- THEN the backend SHALL select the cluster that does not advertise `runtime/kata`
 
 ### Requirement: WEB-PLC-08 -- Local-kind Placement Resolution
 

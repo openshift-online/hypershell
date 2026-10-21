@@ -164,7 +164,7 @@ The web console SPA SHALL expose the operational dashboard at `/dashboard` via a
 
 When the browser hostname is `dashboard.hypershell.localhost`, the SPA root route (`/`) SHALL also render `OperationalDashboardPage` (dashboard-dedicated host entry point).
 
-`route-contract.json` SHALL declare `"dashboard": "dashboard"`. The BFF SHALL treat `/dashboard` as a valid application route that returns `index.html` for direct navigation and refresh, alongside `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
+`route-contract.json` SHALL declare `"dashboard": "dashboard"`. The BFF SHALL treat `/dashboard` as a valid application route that returns `index.html` for direct navigation and refresh, alongside `/`, `/gateways`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
 
 The reliability dashboard route `/dashboard/reliability` is specified in REL-OBS-GMD-05. Both dashboard pages SHALL render the shared secondary horizontal navigation defined in WEB-OPS-26.
 

@@ -201,6 +201,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-DATA` | `web-console/architecture.spec.md` | 4 |
 | `WEB-DOCS` | `platform/openshell-install-docs-link.spec.md` | 2 |
 | `WEB-DPLY` | `web-console/architecture.spec.md` | 2 |
+| `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
