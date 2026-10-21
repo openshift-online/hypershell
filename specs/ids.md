@@ -135,7 +135,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 22 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 23 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
