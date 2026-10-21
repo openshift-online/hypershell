@@ -28,6 +28,8 @@ SPECS_DIR = "specs/"
 REGISTRY_PATH = "specs/ids.md"
 RENAME_MAP_PATH = "specs/id-rename-map.md"
 IDENTIFIER_SPEC_PATH = "specs/standards/platform/spec-identifiers.spec.md"
+# IDs that a test covered when the baseline was last updated (STD-IDS-09).
+BASELINE_PATH = "specs/test-coverage-baseline.txt"
 
 # Generated lockfiles carry integrity digests whose base64 bytes can look like
 # IDs and nothing in them is human-authored. Keep this list small.
@@ -39,7 +41,7 @@ SELF_PATHS = frozenset({"scripts/check_spec_ids.py", "scripts/test_check_spec_id
 
 # Not scanned for citations (rule 5): the registry and the rename map list IDs
 # as data.
-CITATION_EXEMPT_DATA = frozenset({REGISTRY_PATH, RENAME_MAP_PATH})
+CITATION_EXEMPT_DATA = frozenset({REGISTRY_PATH, RENAME_MAP_PATH, BASELINE_PATH})
 # Not scanned for citations (rule 5): these show illustrative example IDs.
 CITATION_EXEMPT_EXAMPLES = frozenset(
     {IDENTIFIER_SPEC_PATH, "skills/plan/spec/SKILL.md"}
@@ -314,6 +316,9 @@ class Analysis:
         self.rename: Dict[str, str] = {}
         self.markers: List[Marker] = []
         self.errors: List[Error] = []
+        # IDs a test covers now, and covered IDs missing from the baseline.
+        self.covered: Set[str] = set()
+        self.not_in_baseline: Set[str] = set()
 
 
 def analyze(files: Dict[str, str]) -> Analysis:
@@ -399,12 +404,75 @@ def analyze(files: Dict[str, str]) -> Analysis:
                     old = match.group(1)
                     errors.append((path, number, f"old ID {old}, now {result.rename[old]}"))
 
+    # Rule 8 (STD-IDS-09): the coverage ratchet.
+    result.covered = covered_ids(result)
+    if BASELINE_PATH in files:
+        baseline, baseline_errors = parse_baseline(files[BASELINE_PATH])
+        errors.extend(baseline_errors)
+        for id_, line in baseline:
+            if id_ not in locations:
+                errors.append((BASELINE_PATH, line, f"baseline lists {id_}, which is not a current requirement or scenario; remove the line"))
+            elif id_ not in result.covered:
+                errors.append((
+                    BASELINE_PATH, line,
+                    f"{id_} lost its last covering test; restore its Verifies marker, "
+                    "or remove the line and say why in the pull request",
+                ))
+        result.not_in_baseline = result.covered - {id_ for id_, _ in baseline}
+
     errors[:] = sorted(set(errors))
     return result
 
 
+def covered_ids(analysis: Analysis) -> Set[str]:
+    """IDs a test covers: cited scenarios, and requirements cited directly or
+    through any of their scenarios (the same rule as the report)."""
+    cited = {id_ for marker in analysis.markers for id_ in marker.ids}
+    covered: Set[str] = set()
+    for spec in analysis.specs:
+        for req in spec.requirements:
+            scenarios = {s.id for s in req.scenarios} & cited
+            covered |= scenarios
+            if req.id in cited or scenarios:
+                covered.add(req.id)
+    return covered
+
+
+def parse_baseline(text: str) -> Tuple[List[Tuple[str, int]], List[Error]]:
+    """One ID per line; blank lines and lines starting with # are ignored."""
+    entries: List[Tuple[str, int]] = []
+    errors: List[Error] = []
+    for number, line in enumerate(text.split("\n"), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if REQ_RE.match(stripped) or SCENARIO_RE.match(stripped):
+            entries.append((stripped, number))
+        else:
+            errors.append((BASELINE_PATH, number, f"malformed baseline line {stripped!r}"))
+    return entries, errors
+
+
+BASELINE_HEADER = """\
+# Spec IDs covered by at least one test marker (`Verifies:`).
+# make check fails when an ID listed here loses its last covering test
+# (STD-IDS-09 in specs/standards/platform/spec-identifiers.spec.md).
+# Add newly covered IDs with: make traceability-baseline
+# Remove an ID only on purpose, and say why in the pull request.
+"""
+
+
+def render_baseline(covered: Set[str]) -> str:
+    return BASELINE_HEADER + "".join(f"{id_}\n" for id_ in sorted(covered))
+
+
 def check_root(root: Path) -> Analysis:
-    return analyze(load_files(root, tracked_files(root)))
+    paths = tracked_files(root)
+    # Read the baseline even before it is committed, so the ratchet is never
+    # silently off for a new or regenerated file.
+    if BASELINE_PATH not in paths and (root / BASELINE_PATH).is_file():
+        paths = list(paths) + [BASELINE_PATH]
+    return analyze(load_files(root, paths))
 
 
 # --------------------------------------------------------------------------
@@ -537,6 +605,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--report", action="store_true", help="print a coverage report instead of checking")
     parser.add_argument("--format", choices=("md", "json"), default="md")
     parser.add_argument("--output", help="write the report to this path instead of stdout")
+    parser.add_argument(
+        "--update-baseline", action="store_true",
+        help=f"rewrite {BASELINE_PATH} with every ID a test covers now",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -559,11 +631,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"warning: {len(analysis.errors)} spec ID check error(s); run without --report to list them", file=sys.stderr)
         return 0
 
+    if args.update_baseline:
+        (REPOSITORY_ROOT / BASELINE_PATH).write_text(render_baseline(analysis.covered), encoding="utf-8")
+        print(f"{BASELINE_PATH}: {len(analysis.covered)} covered IDs", file=sys.stderr)
+        return 0
+
     if analysis.errors:
         for path, line, message in analysis.errors:
             print(f"{path}:{line}: {message}")
         print(f"\n{len(analysis.errors)} spec ID error(s). See {IDENTIFIER_SPEC_PATH}.", file=sys.stderr)
         return 1
+    if analysis.not_in_baseline:
+        print(
+            f"note: {len(analysis.not_in_baseline)} newly covered ID(s) are not in {BASELINE_PATH}; "
+            "run make traceability-baseline to protect them",
+            file=sys.stderr,
+        )
     return 0
 
 

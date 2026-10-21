@@ -268,4 +268,4 @@ Template files:
 - **Spec is frozen during execution**: queue changes for next cycle
 - **PRs are atomic per wave per component**: one PR per wave
 - **SDK regeneration is mandatory**: after any OpenAPI change, regenerate SDKs before touching BE/CLI
-- **Tests cite the scenario they prove**: put `// Verifies: <scenario-ID>` (or `# Verifies:`) on the line above each test that asserts a spec scenario's THEN clause. The format is in `specs/standards/platform/spec-identifiers.spec.md` (STD-IDS-07). `make check` rejects unknown IDs; `make traceability` shows coverage.
+- **Tests cite the scenario they prove**: put `// Verifies: <scenario-ID>` (or `# Verifies:`) on the line above each test that asserts a spec scenario's THEN clause. The format is in `specs/standards/platform/spec-identifiers.spec.md` (STD-IDS-07). `make check` rejects unknown IDs and fails if a covered ID loses its last test; `make traceability` shows coverage; run `make traceability-baseline` after adding markers so the new coverage is protected.

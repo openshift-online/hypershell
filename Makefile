@@ -288,6 +288,11 @@ check-spec-ids: test-spec-ids-policy
 traceability:
 	@PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py --report
 
+.PHONY: traceability-baseline
+# Record every currently covered spec ID so make check fails if one loses its test (STD-IDS-09).
+traceability-baseline:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py --update-baseline
+
 .PHONY: check-cli-drift
 check-cli-drift: generate-tui-check
 	scripts/generate-cli.sh --check

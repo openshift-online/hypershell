@@ -326,5 +326,61 @@ class ReportTest(unittest.TestCase):
         self.assertEqual("test_a", CHECKER.test_name(["# V", "    def test_a(self):"], 0))
 
 
+GO_TEST = "tests/a_test.go"
+
+
+def covered_tree(baseline=None, marker="OSG-TLS-01.01"):
+    """Base tree plus one Go test citing `marker` and an optional baseline."""
+    tree = base_tree()
+    if marker:
+        tree[GO_TEST] = "// Verifies: " + marker + "\nfunc TestA(t *testing.T) {}\n"
+    if baseline is not None:
+        tree[CHECKER.BASELINE_PATH] = CHECKER.BASELINE_HEADER + "".join(i + "\n" for i in baseline)
+    return tree
+
+
+class RatchetTest(unittest.TestCase):
+    assertError = CheckTest.assertError
+
+    def test_covered_ids_include_parent_requirement(self):
+        self.assertEqual({"OSG-TLS-01", "OSG-TLS-01.01"}, run_tree(covered_tree()).covered)
+
+    def test_matching_baseline_passes(self):
+        analysis = run_tree(covered_tree(["OSG-TLS-01", "OSG-TLS-01.01"]))
+        self.assertEqual([], messages(analysis))
+        self.assertEqual(set(), analysis.not_in_baseline)
+
+    # Verifies: STD-IDS-09.01
+    def test_lost_coverage_fails_and_names_the_id(self):
+        analysis = run_tree(covered_tree(["OSG-TLS-01", "OSG-TLS-01.01"], marker=None))
+        self.assertError(analysis, "OSG-TLS-01.01 lost its last covering test")
+        self.assertError(analysis, "OSG-TLS-01 lost its last covering test")
+
+    # Verifies: STD-IDS-09.02
+    def test_new_coverage_is_only_a_notice(self):
+        analysis = run_tree(covered_tree(["OSG-TLS-01"]))
+        self.assertEqual([], messages(analysis))
+        self.assertEqual({"OSG-TLS-01.01"}, analysis.not_in_baseline)
+
+    # Verifies: STD-IDS-09.03
+    def test_baseline_entry_for_missing_id_fails(self):
+        analysis = run_tree(covered_tree(["OSG-TLS-01", "OSG-TLS-01.01", "OSG-TLS-01.09"]))
+        self.assertError(analysis, "baseline lists OSG-TLS-01.09, which is not a current requirement")
+
+    def test_malformed_baseline_line_fails(self):
+        analysis = run_tree(covered_tree(["OSG-TLS-01", "OSG-TLS-01.01", "not an id"]))
+        self.assertError(analysis, "malformed baseline line 'not an id'")
+
+    def test_no_baseline_file_means_no_ratchet(self):
+        analysis = run_tree(covered_tree(marker=None))
+        self.assertEqual([], messages(analysis))
+
+    def test_render_baseline_round_trips(self):
+        covered = {"OSG-TLS-01.01", "OSG-TLS-01"}
+        entries, errors = CHECKER.parse_baseline(CHECKER.render_baseline(covered))
+        self.assertEqual([], errors)
+        self.assertEqual(sorted(covered), [id_ for id_, _ in entries])
+
+
 if __name__ == "__main__":
     unittest.main()

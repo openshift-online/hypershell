@@ -243,8 +243,9 @@ when a marker cites it or any of its scenarios. A requirement whose
 verification method (STD-IDS-05) is `Inspection`, `Analysis`, or
 `Demonstration` SHALL be counted separately and not listed as a gap.
 
-Missing coverage SHALL NOT fail `make check`. The report shows the gaps;
-closing them is planned work.
+A requirement or scenario that no test has ever covered SHALL NOT fail
+`make check`. The report shows these gaps; closing them is planned work.
+Coverage that existed and is lost is handled by STD-IDS-09.
 
 #### Scenario: STD-IDS-08.01 -- An inspection-verified requirement is not a gap
 
@@ -253,6 +254,45 @@ closing them is planned work.
 - WHEN the traceability report is generated
 - THEN `OSG-TLS-05` SHALL be counted as verified by inspection
 - AND it SHALL NOT appear in the uncovered list
+
+### Requirement: STD-IDS-09 -- Coverage Ratchet
+
+Test coverage SHALL NOT drop silently.
+
+1. `specs/test-coverage-baseline.txt` SHALL list every requirement and
+   scenario ID that a test covered when the file was last updated, one ID
+   per line. "Covered" has the same meaning as in STD-IDS-08.
+2. `make check` SHALL fail when an ID in the baseline is no longer covered
+   by any test. The error SHALL name the ID.
+3. `make check` SHALL fail when the baseline lists an ID that is not a
+   current requirement or scenario, so the baseline cannot go stale.
+4. Removing an ID from the baseline is the deliberate way to accept lost
+   coverage. The pull request that removes it SHALL say why.
+5. Newly covered IDs that are not yet in the baseline SHALL NOT fail
+   `make check`. The check SHALL print a notice, and
+   `make traceability-baseline` SHALL add them.
+
+#### Scenario: STD-IDS-09.01 -- Deleting the last covering test fails the check
+
+- GIVEN `OSG-TLS-03.02` is listed in the baseline
+- AND the only test with `Verifies: OSG-TLS-03.02` is deleted
+- WHEN `make check` runs
+- THEN the check SHALL fail and name `OSG-TLS-03.02`
+
+#### Scenario: STD-IDS-09.02 -- New coverage only prints a notice
+
+- GIVEN a new test adds `Verifies: OSG-TLS-03.03`
+- AND `OSG-TLS-03.03` is not in the baseline
+- WHEN `make check` runs
+- THEN the check SHALL pass
+- AND it SHALL print a notice to run `make traceability-baseline`
+
+#### Scenario: STD-IDS-09.03 -- A baseline entry for a missing ID fails the check
+
+- GIVEN the baseline lists `OSG-TLS-03.09`
+- AND no requirement or scenario `OSG-TLS-03.09` exists
+- WHEN `make check` runs
+- THEN the check SHALL fail and ask for the line to be removed
 
 ## Retired IDs
 
@@ -284,7 +324,8 @@ names did not go away.
    listed in `specs/ids.md` with a reserved prefix for future use.
 5. **Proposal A (test traceability)**: adopted. Tests cite the scenario
    ID they verify with a `Verifies:` marker (STD-IDS-07), and
-   `make traceability` reports coverage (STD-IDS-08).
+   `make traceability` reports coverage (STD-IDS-08). A committed baseline
+   keeps covered IDs from losing their tests silently (STD-IDS-09).
 6. **Proposal B (verification method per requirement)**: adopted, captured
    in Requirement STD-IDS-05 above.
 7. **Proposal C (revision suffixes for stale-test detection)**: not
