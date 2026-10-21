@@ -287,8 +287,12 @@ apply_config() {
     '  capabilities = ["read"]' \
     '}' | vxti "$rt" vault policy write openshell-gateway-provider -
 
+  # bound_service_account_namespaces="" is REQUIRED: a role update MERGES unspecified fields,
+  # so on a reused Vault that previously used namespaces='*' omitting it would leave '*' in
+  # place ('*' OR selector admits everything). Clear it so the selector is the sole matcher.
   vxt "$rt" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
     bound_service_account_names="openshell-gateway" \
+    bound_service_account_namespaces="" \
     bound_service_account_namespace_selector='{"matchLabels":{"hypershell.redhat.io/managed":"true"}}' \
     audience=vault \
     token_policies="openshell-gateway-provider" \
@@ -304,6 +308,7 @@ apply_config() {
     '}' | vxti "$rt" vault policy write openshell-gateway-provisioner -
   vxt "$rt" vault write "auth/kubernetes/role/openshell-gateway-provisioner" \
     bound_service_account_names="hypershell-controller" \
+    bound_service_account_namespaces="" \
     bound_service_account_namespace_selector='{"matchLabels":{"hypershell.redhat.io/control-plane":"true"}}' \
     audience=vault \
     token_policies="openshell-gateway-provisioner" \
