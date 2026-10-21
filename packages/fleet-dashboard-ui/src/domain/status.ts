@@ -1,4 +1,4 @@
-// Brand-color semantics (app-repo standards/ui/brand-color.spec.md UI-BRAND-03):
+// Brand-color semantics (app-repo standards/ui/brand-color.spec.md UIS-BRND-03):
 // color is NEVER the sole carrier of state - every status resolves to both a
 // semantic token *and* a text label. Unknown/absent always resolves to neutral,
 // never inferred success.

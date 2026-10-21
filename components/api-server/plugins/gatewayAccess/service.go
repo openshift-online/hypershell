@@ -63,14 +63,14 @@ type ListOptions struct {
 	Order  string
 }
 
-// GrantInput identifies the target of a grant by directory identity (GAM-04).
+// GrantInput identifies the target of a grant by directory identity (GTW-ACC-04).
 type GrantInput struct {
 	Username string
 	Subject  string
 	Role     string
 }
 
-// GrantItem is the enriched access grant returned to callers (GAM-03 shape).
+// GrantItem is the enriched access grant returned to callers (GTW-ACC-03 shape).
 type GrantItem struct {
 	RoleBindingID string
 	UserID        string
@@ -82,14 +82,14 @@ type GrantItem struct {
 }
 
 // Capabilities tells the console what the caller may do, so it can gate controls
-// (GAM-UI-07/08). The server remains authoritative.
+// (WEB-ACC-07/08). The server remains authoritative.
 type Capabilities struct {
 	CallerRole      string
 	CanManageAccess bool
 	CanManageOwners bool
 }
 
-// DirectoryCandidate is a realm user returned by the directory search (GAM-09).
+// DirectoryCandidate is a realm user returned by the directory search (GTW-ACC-09).
 type DirectoryCandidate struct {
 	Username string
 	Name     string
@@ -153,7 +153,7 @@ func (s *service) userTier(ctx context.Context, userID, gatewayID string) (strin
 }
 
 // callerTier returns the caller's EFFECTIVE management tier on gatewayID. A
-// platform:admin is owner-equivalent on every gateway (GAM-08) even without a
+// platform:admin is owner-equivalent on every gateway (GTW-ACC-08) even without a
 // per-gateway binding, so it resolves to owner; this governs manage
 // authorization (authorizeManage), directory search, and the capabilities
 // reported to the console (List). Resolving a platform admin as owner here never
@@ -204,7 +204,7 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 		return GrantItem{}, aerr
 	}
 
-	// Resolve the identity against the Keycloak realm before any write (GAM-04).
+	// Resolve the identity against the Keycloak realm before any write (GTW-ACC-04).
 	// Unknown -> 404, no pre-provision and no binding.
 	dirUser, found, derr := s.directory.Resolve(ctx, input.Username)
 	if derr != nil {
@@ -232,8 +232,8 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	defer release()
 
 	// A grant that converges an existing owner is a change, not a fresh grant
-	// (GAM-10): re-run owner-tier gating under the lock now that the target's
-	// current tier is known, so an admin cannot demote or alter an owner (GAM-08).
+	// (GTW-ACC-10): re-run owner-tier gating under the lock now that the target's
+	// current tier is known, so an admin cannot demote or alter an owner (GTW-ACC-08).
 	current, aerr := s.userTier(ctx, targetUserID, gatewayID)
 	if aerr != nil {
 		return GrantItem{}, aerr
@@ -243,7 +243,7 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	}
 
 	// A grant that converges an existing owner to a lower tier is a change
-	// (GAM-10); apply last-owner protection.
+	// (GTW-ACC-10); apply last-owner protection.
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, input.Role); aerr != nil {
 		return GrantItem{}, aerr
 	}
@@ -333,7 +333,7 @@ func (s *service) SearchDirectory(ctx context.Context, gatewayID, callerUserID, 
 	return out, nil
 }
 
-// authorizeManage enforces GAM-08: the caller must be owner or admin, and any
+// authorizeManage enforces GTW-ACC-08: the caller must be owner or admin, and any
 // operation touching the Owner tier (assigning owner, or changing/revoking a
 // user who currently holds owner) requires the caller to be an owner.
 // newTier is "" for revoke; currentTier is "" for a fresh grant.
@@ -352,7 +352,7 @@ func (s *service) authorizeManage(ctx context.Context, callerUserID, gatewayID, 
 }
 
 // guardLastOwner rejects an operation (demote or revoke) that would remove the
-// last remaining owner (GAM-07). newTier is "" for revoke.
+// last remaining owner (GTW-ACC-07). newTier is "" for revoke.
 func (s *service) guardLastOwner(ctx context.Context, gatewayID, targetUserID, newTier string) *APIError {
 	owners, err := s.dao.ownerUserIDs(ctx, gatewayID)
 	if err != nil {

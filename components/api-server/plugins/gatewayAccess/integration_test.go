@@ -17,7 +17,7 @@ import (
 )
 
 // fakeDirectory is an in-memory Keycloak realm directory keyed by lowercased
-// username, standing in for the control-plane projection (GAM-09).
+// username, standing in for the control-plane projection (GTW-ACC-09).
 type fakeDirectory struct {
 	users map[string]gatewayAccess.DirectoryUser
 }
@@ -185,7 +185,7 @@ func TestGrant_AdminCanGrantUser(t *testing.T) {
 }
 
 // A Grant that targets a user who is already an owner is a change, not a fresh
-// grant; an admin must not be able to use it to demote or alter an owner (GAM-08).
+// grant; an admin must not be able to use it to demote or alter an owner (GTW-ACC-08).
 func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -222,10 +222,10 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	item, aerr := svc.ChangeRole(context.Background(), gw, owner, target, gatewayAccess.TierAdmin)
 	Expect(aerr).To(BeNil())
 	Expect(item.Role).To(Equal(gatewayAccess.TierAdmin))
-	// In-place update (GAM-05): same binding id, no delete-then-create.
+	// In-place update (GTW-ACC-05): same binding id, no delete-then-create.
 	Expect(item.RoleBindingID).To(Equal(beforeID))
 
-	// Exactly one binding remains for the target (GAM-10).
+	// Exactly one binding remains for the target (GTW-ACC-10).
 	after, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range after {
@@ -381,7 +381,7 @@ func userTierOf(svc gatewayAccess.Service, gw, userID string) (string, error) {
 
 // seedPlatformAdmin provisions a user and gives them the global platform:admin
 // binding (as JWT sync does in production), with NO gateway-scoped binding, so
-// their access-management authority comes solely from platform:admin (GAM-08).
+// their access-management authority comes solely from platform:admin (GTW-ACC-08).
 func seedPlatformAdmin(t *testing.T, username string) string {
 	t.Helper()
 	uid, err := userService().UpsertByUsername(context.Background(), strings.ToLower(username), nil, nil)
@@ -403,7 +403,7 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 	return false
 }
 
-// GAM-08: a platform:admin manages access on any gateway with owner-equivalent
+// GTW-ACC-08: a platform:admin manages access on any gateway with owner-equivalent
 // authority (including assigning the owner tier) without holding a per-gateway
 // binding, the reported capabilities reflect that, and doing so grants the
 // platform admin no gateway login (no gateway-scoped binding is created for it).
@@ -429,7 +429,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	Expect(aerr).To(BeNil())
 	Expect(item.Role).To(Equal(gatewayAccess.TierOwner))
 
-	// Can search the directory (GAM-09).
+	// Can search the directory (GTW-ACC-09).
 	candidates, aerr := svc.SearchDirectory(context.Background(), gw, padmin, "er")
 	Expect(aerr).To(BeNil())
 	Expect(len(candidates)).To(Equal(1))
@@ -439,7 +439,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	Expect(hasGatewayBinding(t, padmin, gw)).To(BeFalse())
 }
 
-// GAM-07/GAM-08: a platform:admin may revoke an owner while another owner
+// GTW-ACC-07/GTW-ACC-08: a platform:admin may revoke an owner while another owner
 // remains, but is still blocked from removing the last remaining owner.
 func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	test.RegisterIntegration(t)
@@ -455,7 +455,7 @@ func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	aerr := svc.Revoke(context.Background(), gw, padmin, owner2)
 	Expect(aerr).To(BeNil())
 
-	// One owner remains: the platform admin may not remove the last owner (GAM-07).
+	// One owner remains: the platform admin may not remove the last owner (GTW-ACC-07).
 	aerr = svc.Revoke(context.Background(), gw, padmin, owner1)
 	Expect(aerr).NotTo(BeNil())
 	Expect(aerr.Status).To(Equal(http.StatusConflict))

@@ -76,9 +76,9 @@ export function App(): React.ReactElement {
   const sdlc = useSdlc();
   const e2e = useE2eRuns();
 
-  // The URL is the single source of truth for navigation state (GLASS-NAV-05):
+  // The URL is the single source of truth for navigation state (FLT-NAV-05):
   // the active tab and the shared freight-bar bundle both come from the route and
-  // all transitions go through typed navigation actions (GLASS-NAV-04).
+  // all transitions go through typed navigation actions (FLT-NAV-04).
   const { route, navigate } = useRouter();
   const activeTab = route.tab;
   // The shared freight bar's selection drives both tabs and survives a tab switch

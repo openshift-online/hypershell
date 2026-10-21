@@ -216,7 +216,7 @@ func TestSDLCMatrix(t *testing.T) {
 }
 
 // countingIssues wraps a PR resolver and counts AssociatedPRs calls, so a test can
-// prove the released-vs-unreleased decision adds no GitHub lookups (SDLC-VIS-11a/04).
+// prove the released-vs-unreleased decision adds no GitHub lookups (SDLC-VIS-22.04).
 type countingIssues struct {
 	inner WorkItemPRResolver
 	calls int
@@ -228,7 +228,7 @@ func (c *countingIssues) AssociatedPRs(ctx context.Context, rec SdlcRecord) []in
 }
 
 // TestSDLCMatrixPreHorizonReleased is the compare-window horizon regression
-// (SDLC-VIS-11a). A shipped execution-record issue whose delivering pull request is in
+// (SDLC-VIS-22). A shipped execution-record issue whose delivering pull request is in
 // no resolved bundle's compare window but which merged at or before the oldest resolved
 // bundle's build date is contained in that bundle and every newer one, so it SHALL land
 // in a released row (the oldest resolved bundle row), not the Unreleased row. Only work

@@ -97,7 +97,7 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 
 // After an in-place demotion from gateway:admin to gateway:viewer (a single
 // UPDATED event, one surviving binding), union reconcile must assign
-// openshell-user and remove openshell-admin (GAM-02).
+// openshell-user and remove openshell-admin (GTW-ACC-02).
 func TestUnionReconcile_DemotionToViewerStripsAdminKeepsUser(t *testing.T) {
 	surviving := []*pb.RoleBinding{roleBinding("rb-1", "gateway:viewer")}
 	desired := unionKcRoles(surviving, "")

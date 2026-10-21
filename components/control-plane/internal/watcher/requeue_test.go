@@ -1051,7 +1051,7 @@ func TestReconcileQueue_DuplicateDeleteRetainsPayload(t *testing.T) {
 	}
 }
 
-// WithRetryableReason attaches a CRM-007 reason code that retryableReasonFromErr
+// WithRetryableReason attaches a OBS-CRM-07 reason code that retryableReasonFromErr
 // can extract; both wrappers must compose transparently with PreservePayloadForRetry.
 func TestWithRetryableReason(t *testing.T) {
 	base := errors.New("base")
@@ -1104,8 +1104,8 @@ func TestWithRetryableReason(t *testing.T) {
 }
 
 // gatewayWorkerCount clamps a non-positive configured count to the default so the
-// gateway reconcile pool always has at least one worker (CP-CONC-03), and honors
-// any positive value (CP-CONC-01).
+// gateway reconcile pool always has at least one worker (GTW-CONC-03), and honors
+// any positive value (GTW-CONC-01).
 func TestGatewayWorkerCount(t *testing.T) {
 	tests := []struct {
 		name       string

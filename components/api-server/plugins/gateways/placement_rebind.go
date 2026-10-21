@@ -36,7 +36,7 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 			continue
 		}
 		// Late binding applies only to capability-label selectors. A local-kind
-		// placement resolves or hard-errors at create (GP-08) and must not be retried
+		// placement resolves or hard-errors at create (WEB-PLC-08) and must not be retried
 		// here, where it would error on every sweep.
 		if intent.Mode != nil {
 			continue

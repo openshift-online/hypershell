@@ -318,7 +318,7 @@ describe("App", () => {
       ...e2eApi,
     }) satisfies FleetApi;
 
-  it("hydrates a deep link to the E2E tab from the URL before data resolves (GLASS-NAV-05)", async () => {
+  it("hydrates a deep link to the E2E tab from the URL before data resolves (FLT-NAV-05)", async () => {
     const history = renderApp(baseApi(), {
       path: "/e2e",
       search: "?run=tenant-1%2Fns%2Frun-1",
@@ -335,7 +335,7 @@ describe("App", () => {
     expect(parsed.search).toContain("run=tenant-1");
   });
 
-  it("retraces a cross-tab investigation with Back and Forward (GLASS-NAV-07)", async () => {
+  it("retraces a cross-tab investigation with Back and Forward (FLT-NAV-07)", async () => {
     const history = renderApp(baseApi());
     fireEvent.click(await screen.findByRole("tab", { name: "Agent SDLC" }));
     fireEvent.click(await screen.findByRole("tab", { name: "E2E Runs" }));

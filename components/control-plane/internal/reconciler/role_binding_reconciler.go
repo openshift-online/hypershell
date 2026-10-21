@@ -132,7 +132,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	}
 
 	// On every event, reconcile the user's client roles on this gateway to the
-	// exact union implied by their surviving bindings (GAM-02): assign any
+	// exact union implied by their surviving bindings (GTW-ACC-02): assign any
 	// missing role and remove any role no longer backed by a binding. This makes
 	// promotions, demotions (including an in-place role_id UPDATE from
 	// gateway:admin to gateway:viewer that must strip openshell-admin while

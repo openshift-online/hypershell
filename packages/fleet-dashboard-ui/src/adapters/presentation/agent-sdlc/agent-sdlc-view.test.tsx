@@ -180,7 +180,7 @@ describe("AgentSdlcView matrix", () => {
     expect(screen.getAllByText("current").length).toBeGreaterThan(0);
 
     // Activating the bundle opens it on the map (shared freight bar + tab jump)
-    // as a single addressable navigation (GLASS-NAV-08). The bundle reads by its
+    // as a single addressable navigation (FLT-NAV-08). The bundle reads by its
     // identiname (the stable two-word alias), not the raw version.
     fireEvent.click(screen.getByRole("link", { name: identiName("d2") }));
     const route = parseRoute(history.read());

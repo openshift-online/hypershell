@@ -24,7 +24,7 @@ type RoleBindingService interface {
 	BindingsForGateway(ctx context.Context, gatewayID string) (RoleBindingList, *errors.ServiceError)
 	// SetGatewayRole converges the user's bindings on gatewayID to exactly one
 	// binding for roleName (one of gateway:owner/admin/viewer), in place where
-	// possible (GAM-05, GAM-10). It emits an UPDATED watch event when an existing
+	// possible (GTW-ACC-05, GTW-ACC-10). It emits an UPDATED watch event when an existing
 	// single binding's role_id is changed in place (no zero-access window), a
 	// CREATED event when a new binding is made, and DELETED events for any surplus
 	// bindings removed during convergence. It performs NO caller authorization;
@@ -93,7 +93,7 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 	// binding (created as a side effect of gateway provisioning), not a client
 	// request, so there is no meaningful originating request span to link. The
 	// trace context stays NULL and the resulting reconcile is knowingly
-	// link-less (RTC-01 tolerates NULL trace context).
+	// link-less (CTRL-TRC-01 tolerates NULL trace context).
 	_, createErr := s.rbDao.Create(ctx, rb)
 	if createErr != nil {
 		return createErr
@@ -166,7 +166,7 @@ func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string,
 		// Intentionally no CaptureTraceContext here: JWT role sync is driven by
 		// the login/token flow, not a client mutation of this resource, so there
 		// is no originating request span worth linking. NULL trace context is a
-		// valid state (RTC-01) and these reconciles are knowingly link-less.
+		// valid state (CTRL-TRC-01) and these reconciles are knowingly link-less.
 		if _, createErr := s.rbDao.Create(ctx, rb); createErr != nil {
 			return fmt.Errorf("unable to create binding for role %s: %w", roleName, createErr)
 		}
@@ -340,7 +340,7 @@ func (s *sqlRoleBindingService) SetGatewayRole(ctx context.Context, userID, gate
 		return created, nil
 	}
 
-	// Converge to exactly one binding (GAM-10): keep the earliest-created,
+	// Converge to exactly one binding (GTW-ACC-10): keep the earliest-created,
 	// delete any surplus so a user never accumulates conflicting bindings.
 	sort.Slice(existing, func(i, j int) bool {
 		if existing[i].CreatedAt.Equal(existing[j].CreatedAt) {
@@ -358,12 +358,12 @@ func (s *sqlRoleBindingService) SetGatewayRole(ctx context.Context, userID, gate
 		}
 	}
 
-	// Already the target role: idempotent no-op success (GAM-10).
+	// Already the target role: idempotent no-op success (GTW-ACC-10).
 	if keep.RoleID == targetRole.ID {
 		return keep, nil
 	}
 
-	// Change in place (GAM-05): a single UPDATED event, no zero-access window.
+	// Change in place (GTW-ACC-05): a single UPDATED event, no zero-access window.
 	keep.RoleID = targetRole.ID
 	keep.CaptureTraceContext(ctx)
 	updated, updErr := s.rbDao.Update(ctx, keep)

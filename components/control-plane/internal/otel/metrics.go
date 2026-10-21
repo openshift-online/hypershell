@@ -33,7 +33,7 @@ var (
 	reconcileFailed            metric.Int64Counter
 )
 
-// Reconciliation outcome taxonomy (CRM-006). These are the single source of
+// Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
 // truth for all reconciliation outcome metrics.
 const (
 	OutcomeNoop      = "noop"
@@ -42,7 +42,7 @@ const (
 	OutcomeFailed    = "failed"
 )
 
-// Retryable reason codes (CRM-007).
+// Retryable reason codes (OBS-CRM-07).
 const (
 	ReasonGRPCUnavailable    = "grpc_unavailable"
 	ReasonK8sConflict        = "k8s_conflict"
@@ -51,7 +51,7 @@ const (
 	ReasonKeycloakTransient  = "keycloak_transient"
 )
 
-// Failed reason codes (CRM-007).
+// Failed reason codes (OBS-CRM-07).
 const (
 	ReasonInvalidConfig       = "invalid_config"
 	ReasonMissingPrerequisite = "missing_prerequisite"
@@ -273,8 +273,8 @@ func RecordReconcileQueueWaitDuration(ctx context.Context, kind string, duration
 }
 
 // RecordReconcileDuration records the duration of a reconcile operation with
-// an outcome label (CRM-008). The outcome must be one of the constants from
-// CRM-006; unrecognized values are rejected and logged.
+// an outcome label (OBS-CRM-08). The outcome must be one of the constants from
+// OBS-CRM-06; unrecognized values are rejected and logged.
 func RecordReconcileDuration(ctx context.Context, kind, eventType, outcome string, start time.Time) {
 	if reconcileDuration == nil {
 		return
@@ -325,7 +325,7 @@ func AttentionClusterID(clusterID string) string {
 }
 
 // RecordSandboxAttentionCounts updates the cluster-local attention gauges from
-// the most recent sandbox attention reconcile tick (SSA-06). clusterID labels
+// the most recent sandbox attention reconcile tick (OBS-SBXA-06). clusterID labels
 // the series so fleet PromQL can max-by-cluster before summing (replica dedupe).
 func RecordSandboxAttentionCounts(ctx context.Context, clusterID string, orphaned, expiring, idle int) {
 	attrs := metric.WithAttributes(
@@ -381,7 +381,7 @@ func RecordReconcileError(ctx context.Context, kind string) {
 }
 
 // RecordReconciliationRetry records a retry scheduled for a reconciliation with
-// a reason code (CRM-010). The reason must be a retryable code from CRM-007 or
+// a reason code (OBS-CRM-10). The reason must be a retryable code from OBS-CRM-07 or
 // ReasonUnknown; unrecognized values fall back to ReasonUnknown and are logged.
 func RecordReconciliationRetry(ctx context.Context, kind, reason string) {
 	if reconciliationRetries == nil {
@@ -440,8 +440,8 @@ func RecordWatchReconnect(ctx context.Context, kind string) {
 }
 
 // RecordReconcileOutcome increments the reconcile outcomes counter with the
-// given outcome (CRM-009). The outcome must be one of the constants from
-// CRM-006; unrecognized values are rejected and logged.
+// given outcome (OBS-CRM-09). The outcome must be one of the constants from
+// OBS-CRM-06; unrecognized values are rejected and logged.
 func RecordReconcileOutcome(ctx context.Context, kind, outcome string) {
 	if reconcileOutcomes == nil {
 		return
@@ -457,8 +457,8 @@ func RecordReconcileOutcome(ctx context.Context, kind, outcome string) {
 }
 
 // RecordReconcileFailedWithReason increments the reconcile.failed counter with
-// the given reason code (CRM-011). The reason must be a failed code from
-// CRM-007 or ReasonUnknown; unrecognized values fall back to ReasonUnknown and
+// the given reason code (OBS-CRM-11). The reason must be a failed code from
+// OBS-CRM-07 or ReasonUnknown; unrecognized values fall back to ReasonUnknown and
 // are logged at WARN.
 func RecordReconcileFailedWithReason(ctx context.Context, kind, reason string) {
 	if reconcileFailed == nil {
@@ -474,7 +474,7 @@ func RecordReconcileFailedWithReason(ctx context.Context, kind, reason string) {
 	))
 }
 
-// isValidOutcome returns true if outcome is one of the CRM-006 constants.
+// isValidOutcome returns true if outcome is one of the OBS-CRM-06 constants.
 func isValidOutcome(outcome string) bool {
 	switch outcome {
 	case OutcomeNoop, OutcomeSuccess, OutcomeRetryable, OutcomeFailed:
@@ -485,7 +485,7 @@ func isValidOutcome(outcome string) bool {
 }
 
 // validateRetryableReason returns the reason if it is a valid retryable code
-// from CRM-007, otherwise returns ReasonUnknown.
+// from OBS-CRM-07, otherwise returns ReasonUnknown.
 func validateRetryableReason(reason string) string {
 	switch reason {
 	case ReasonGRPCUnavailable, ReasonK8sConflict, ReasonK8sUnavailable,
@@ -497,7 +497,7 @@ func validateRetryableReason(reason string) string {
 }
 
 // validateFailedReason returns the reason if it is a valid failed code from
-// CRM-007, otherwise returns ReasonUnknown.
+// OBS-CRM-07, otherwise returns ReasonUnknown.
 func validateFailedReason(reason string) string {
 	switch reason {
 	case ReasonInvalidConfig, ReasonMissingPrerequisite, ReasonIdentityInvalid, ReasonUnknown:

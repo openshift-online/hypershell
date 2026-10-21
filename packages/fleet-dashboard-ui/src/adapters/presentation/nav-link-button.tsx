@@ -1,6 +1,6 @@
 // A PatternFly link button backed by a real anchor and a typed navigation action,
 // so copy-link, open-in-new-tab, and Ctrl/Cmd-click work while a plain click
-// navigates in place (GLASS-NAV-08). One hook call per instance keeps it usable
+// navigates in place (FLT-NAV-08). One hook call per instance keeps it usable
 // inside table rows and lists (render it as a component, never call useNavLink in a
 // map callback).
 

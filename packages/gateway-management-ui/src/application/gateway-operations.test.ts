@@ -379,7 +379,7 @@ describe("gateway application operations", () => {
 });
 
 describe("deriveGatewayVersionDrift", () => {
-  it("fires for a tracking gateway strictly behind its spoke default (GVV-03)", () => {
+  it("fires for a tracking gateway strictly behind its spoke default (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "v0.1.1-rhaiv.3",
@@ -388,7 +388,7 @@ describe("deriveGatewayVersionDrift", () => {
     ).toBe("behind");
   });
 
-  it("never fires for a pinned-image gateway, even when behind (GVV-03)", () => {
+  it("never fires for a pinned-image gateway, even when behind (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "v0.1.1-rhaiv.3",
@@ -398,7 +398,7 @@ describe("deriveGatewayVersionDrift", () => {
     ).toBe("none");
   });
 
-  it("does not fire for an up-to-date gateway (GVV-03)", () => {
+  it("does not fire for an up-to-date gateway (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "v0.1.2-rhaiv.7",
@@ -416,7 +416,7 @@ describe("deriveGatewayVersionDrift", () => {
     ).toBe("none");
   });
 
-  it("fires when only the release suffix is behind on an equal core (GVV-03)", () => {
+  it("fires when only the release suffix is behind on an equal core (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "v0.1.2-rhaiv.3",
@@ -425,7 +425,7 @@ describe("deriveGatewayVersionDrift", () => {
     ).toBe("behind");
   });
 
-  it("does not fire when either version is missing (GVV-03)", () => {
+  it("does not fire when either version is missing (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({ provisioningVersion: "v0.1.2-rhaiv.7" }),
     ).toBe("none");
@@ -435,7 +435,7 @@ describe("deriveGatewayVersionDrift", () => {
     expect(deriveGatewayVersionDrift({})).toBe("none");
   });
 
-  it("does not fire when either version is unparseable (GVV-03)", () => {
+  it("does not fire when either version is unparseable (WEB-VER-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "latest",

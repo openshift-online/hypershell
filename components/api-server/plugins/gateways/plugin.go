@@ -205,10 +205,10 @@ func managedPlacementAvailable(snapshot placementSnapshot, selector []string) bo
 }
 
 // Resolve implements PlacementResolver. A local-kind intent that cannot be
-// satisfied is a hard error (GP-08), while a capability-label selector that
+// satisfied is a hard error (WEB-PLC-08), while a capability-label selector that
 // matches no eligible cluster yields resolved=false with a nil error so the
 // gateway is late-bound (created Pending, awaiting placement) rather than rejected
-// (GP-07).
+// (WEB-PLC-07).
 func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *errors.ServiceError) {
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {

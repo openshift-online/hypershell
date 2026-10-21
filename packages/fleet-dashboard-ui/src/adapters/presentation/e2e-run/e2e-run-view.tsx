@@ -99,11 +99,11 @@ import { TONE_COLOR } from "../map/colors";
 import styles from "./e2e-run-view.module.css";
 
 /**
- * The shared execution-detail controls (GLASS-NAV-11): one bundle of route-derived
+ * The shared execution-detail controls (FLT-NAV-11): one bundle of route-derived
  * state plus typed dispatchers, wired by the E2E run container to route.e2e.exec and
  * by the Fleet Map gate drawer to route.map.exec. The presentational pane and its
  * tables stay router-agnostic and fully controlled, so a single stream per run is
- * preserved across sub-tab, step, sort, and log-search changes (GLASS-NAV-18).
+ * preserved across sub-tab, step, sort, and log-search changes (FLT-NAV-18).
  */
 export interface ExecControls {
   readonly exec: ExecState;
@@ -353,7 +353,7 @@ function useLiveRunDetail(
 
 // Sort source values, never localized display strings. Null durations sort last.
 // Controlled by route state: the current sort and its dispatcher come from the
-// caller so sort selection round-trips through the URL (GLASS-NAV-12, GLASS-NAV-11).
+// caller so sort selection round-trips through the URL (FLT-NAV-12, FLT-NAV-11).
 function useTableSort<T>(
   rows: readonly T[],
   values: (row: T) => readonly (string | number | null)[],
@@ -657,16 +657,16 @@ function LogPane({
   detail: E2eRunDetail;
   selectedStepId: string | null;
   onSelectScope: (stepId: string | null) => void;
-  /** Log search text (URL-coalesced, GLASS-NAV-11). */
+  /** Log search text (URL-coalesced, FLT-NAV-11). */
   search: string;
   onSearch: (value: string) => void;
-  /** Expanded log viewer (URL-represented, GLASS-NAV-11). */
+  /** Expanded log viewer (URL-represented, FLT-NAV-11). */
   expanded: boolean;
   onExpanded: (value: boolean) => void;
 }): React.ReactElement {
   const intl = useIntl();
   // follow/pause and the timestamp toggle are transient view toggles, not
-  // URL-represented (GLASS-NAV-11).
+  // URL-represented (FLT-NAV-11).
   const [following, setFollowing] = useState(true);
   const [timestamps, setTimestamps] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -857,7 +857,7 @@ export function SelectedRunPane({
   const [snapshot, setSnapshot] = useState<E2eRunDetail | null>(null);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   // The log scope and sub-tab are URL-represented via the shared controls, so they
-  // survive reload and Back/Forward without restarting the live stream (GLASS-NAV-18).
+  // survive reload and Back/Forward without restarting the live stream (FLT-NAV-18).
   const selectedStepId = controls.exec.step;
   const activeTab: string | number = controls.exec.tab;
 
@@ -1065,7 +1065,7 @@ export function SelectedRunPane({
   );
 }
 
-/** Build the e2e run execution controls from the route (GLASS-NAV-11). */
+/** Build the e2e run execution controls from the route (FLT-NAV-11). */
 function useE2eExecControls(exec: ExecState): ExecControls {
   const { navigate } = useRouter();
   return useMemo(
@@ -1096,7 +1096,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
   const intl = useIntl();
   const nowMs = resolveNowMs(props.nowMs);
   // The URL is authoritative for selection, drawer, search, sort, and the shared
-  // execution detail (GLASS-NAV-05, GLASS-NAV-12).
+  // execution detail (FLT-NAV-05, FLT-NAV-12).
   const route = useRoute();
   const { navigate } = useRouter();
   const selectedId = route.e2e.run;
@@ -1123,7 +1123,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
     };
   }, []);
   const close = useCallback(() => {
-    // Closing preserves the selected run (GLASS-NAV-12); only the drawer closes.
+    // Closing preserves the selected run (FLT-NAV-12); only the drawer closes.
     navigate({ type: "e2eDrawer", open: false });
     triggerRef.current?.focus();
   }, [navigate]);
@@ -1249,7 +1249,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                   selectedId={selectedId}
                   onActivate={(event) => {
                     // Record the trigger for focus restoration on close; the link
-                    // itself performs the navigation (GLASS-NAV-08, GLASS-NAV-15).
+                    // itself performs the navigation (FLT-NAV-08, FLT-NAV-15).
                     triggerRef.current = event.currentTarget as HTMLElement;
                   }}
                   sort={route.e2e.runSort}

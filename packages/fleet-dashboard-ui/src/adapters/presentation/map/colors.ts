@@ -2,7 +2,7 @@
 // component props, so we centralise the handful of status + accent colours here as
 // PF v6 design-token references (with hex fallbacks for non-browser test renders).
 // State is ALWAYS paired with text/!shape elsewhere, so colour is never the sole
-// signal (brand spec UI-BRAND-03).
+// signal (brand spec UIS-BRND-03).
 
 import { fnv1a } from "../../../domain/map/hash";
 import type { SemanticTone } from "../../../domain/status";

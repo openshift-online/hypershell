@@ -1,4 +1,4 @@
-/* Shared promotion-flight motion (SDLC-VIS-12a): the single arc + impact-dust + timing
+/* Shared promotion-flight motion (SDLC-VIS-20): the single arc + impact-dust + timing
    used by BOTH the Fleet Map (SVG, flying an identicon) and the Agent SDLC board (DOM,
    flying a full card). Neither surface duplicates the arc, dust, or timing - they import
    these classes and feed their own geometry (the --f0..--f10 travel samples and the
@@ -72,7 +72,7 @@
 }
 
 /* Flight SCALE (board card): a full-size card must NOT balloon the way a small identicon
-   does, so the swell stays subtle (SDLC-VIS-12a) - a slight lift mid-arc, back to 1:1 on
+   does, so the swell stays subtle (SDLC-VIS-20) - a slight lift mid-arc, back to 1:1 on
    landing. */
 .flightScaleCard {
   transform-origin: center;

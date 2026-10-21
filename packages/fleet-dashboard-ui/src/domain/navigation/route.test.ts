@@ -32,7 +32,7 @@ describe("parseRoute / serializeRoute", () => {
     expect(routeToHref({ ...DEFAULT_ROUTE, tab: "e2e" })).toBe("/e2e");
   });
 
-  it("accepts a base-path prefix on the tab segment (GLASS-NAV-19)", () => {
+  it("accepts a base-path prefix on the tab segment (FLT-NAV-19)", () => {
     expect(parseHref("/glass/e2e").tab).toBe("e2e");
     expect(parseHref("/some/base/sdlc").tab).toBe("sdlc");
   });
@@ -63,7 +63,7 @@ describe("parseRoute / serializeRoute", () => {
     expect(state.e2e.exec.stepSort).toEqual({ col: 1, dir: "asc" });
   });
 
-  it("distinguishes the explicit live gate mode from a pinned attempt (GLASS-NAV-10)", () => {
+  it("distinguishes the explicit live gate mode from a pinned attempt (FLT-NAV-10)", () => {
     const live = "/?gate=g1&gattempt=live";
     expect(canonical(live)).toBe(live);
     expect(parseHref(live).map.attempt).toBe(GATE_LIVE_ATTEMPT);
@@ -72,7 +72,7 @@ describe("parseRoute / serializeRoute", () => {
     expect(pinned.map.attempt).not.toBe(GATE_LIVE_ATTEMPT);
   });
 
-  it("encodes the selected-but-closed drawer as rund=0 (GLASS-NAV-12)", () => {
+  it("encodes the selected-but-closed drawer as rund=0 (FLT-NAV-12)", () => {
     const open = parseHref("/e2e?run=t%2Fn%2Fr");
     expect(open.e2e.drawer).toBe(true);
     const closed: RouteState = {
@@ -86,7 +86,7 @@ describe("parseRoute / serializeRoute", () => {
 });
 
 describe("stable identity and SDLC state", () => {
-  it("addresses the shared bundle, scopes, and board card by identity (GLASS-NAV-02)", () => {
+  it("addresses the shared bundle, scopes, and board card by identity (FLT-NAV-02)", () => {
     const href = "/sdlc?bundle=sha256%3Aabc&scope=a&scope=b&q=511&card=511";
     const state = parseHref(href);
     expect(state.bundle).toBe("sha256:abc");
@@ -94,14 +94,14 @@ describe("stable identity and SDLC state", () => {
     expect(state.sdlc.card).toBe(511);
   });
 
-  it("addresses a shipped issue with its bundle version by identity (GLASS-NAV-02)", () => {
+  it("addresses a shipped issue with its bundle version by identity (FLT-NAV-02)", () => {
     const state = parseHref("/sdlc?shipped=490&shippedVer=v2026");
     expect(state.sdlc.shipped).toBe(490);
     expect(state.sdlc.shippedVersion).toBe("v2026");
     expect(state.sdlc.card).toBeNull();
   });
 
-  it("orders scopes deterministically and deduplicates (GLASS-NAV-13)", () => {
+  it("orders scopes deterministically and deduplicates (FLT-NAV-13)", () => {
     const a = canonical("/sdlc?scope=zed&scope=amber&scope=amber");
     const b = canonical("/sdlc?scope=amber&scope=zed");
     expect(a).toBe(b);
@@ -115,7 +115,7 @@ describe("stable identity and SDLC state", () => {
   });
 });
 
-describe("canonicalization and equivalence (GLASS-NAV-02)", () => {
+describe("canonicalization and equivalence (FLT-NAV-02)", () => {
   it("omits default-valued state", () => {
     expect(canonical("/e2e?runsort=2-desc")).not.toContain("runsort");
     // Explicitly default exec values are dropped.
@@ -139,7 +139,7 @@ describe("canonicalization and equivalence (GLASS-NAV-02)", () => {
   });
 });
 
-describe("mutually exclusive and incompatible selections (GLASS-NAV-14)", () => {
+describe("mutually exclusive and incompatible selections (FLT-NAV-14)", () => {
   it("prefers node over gate when both are present", () => {
     const state = parseHref("/?node=n1&gate=g1");
     expect(state.map.node).toBe("n1");
@@ -166,7 +166,7 @@ describe("mutually exclusive and incompatible selections (GLASS-NAV-14)", () => 
     expect(state.sdlc.shipped).toBeNull();
     expect(state.sdlc.shippedVersion).toBeNull();
     // The canonical URL carries only the winning selection, so the impossible
-    // combination does not round-trip (GLASS-NAV-14).
+    // combination does not round-trip (FLT-NAV-14).
     expect(routeToHref(state)).toBe("/sdlc?card=5");
   });
 
@@ -179,14 +179,14 @@ describe("mutually exclusive and incompatible selections (GLASS-NAV-14)", () => 
 
   it("keeps an escalation detail card open over the escalations list", () => {
     // A board card reached through the escalations list is a valid combination and
-    // must survive canonicalization (GLASS-NAV-13).
+    // must survive canonicalization (FLT-NAV-13).
     const state = parseHref("/sdlc?card=5&escalations=1");
     expect(state.sdlc.card).toBe(5);
     expect(state.sdlc.escalations).toBe(true);
   });
 });
 
-describe("malformed and unknown parameters degrade safely (GLASS-NAV-14)", () => {
+describe("malformed and unknown parameters degrade safely (FLT-NAV-14)", () => {
   it("rejects an unknown tab segment and falls back to the map", () => {
     expect(parseHref("/bogus").tab).toBe("map");
   });
@@ -217,7 +217,7 @@ describe("malformed and unknown parameters degrade safely (GLASS-NAV-14)", () =>
   });
 });
 
-describe("safe encoding of runtime identifiers (GLASS-NAV-03)", () => {
+describe("safe encoding of runtime identifiers (FLT-NAV-03)", () => {
   it("round-trips reserved and Unicode characters byte-for-byte", () => {
     const id = "tenant/with space:colon?and#hash&amp=é/漢字";
     const state: RouteState = {
@@ -248,7 +248,7 @@ describe("safe encoding of runtime identifiers (GLASS-NAV-03)", () => {
   });
 });
 
-describe("length limits (GLASS-NAV-02)", () => {
+describe("length limits (FLT-NAV-02)", () => {
   it("drops an over-long single value", () => {
     const long = "x".repeat(ROUTE_LIMITS.value + 1);
     expect(parseHref(`/?bundle=${long}`).bundle).toBeNull();

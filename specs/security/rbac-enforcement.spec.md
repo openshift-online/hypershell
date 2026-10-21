@@ -124,7 +124,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 
-`GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (GSE-05).
+`GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
 ### OpenShell Role Bridge
 
@@ -330,7 +330,7 @@ the same RoleBinding records.
 Users with the `platform:admin` role SHALL have global view, delete, and access-management
 permissions across all gateways in the platform, regardless of per-gateway RoleBindings. The
 sandbox-events diagnostic route is the explicit exception: it requires a per-gateway binding
-and returns `404` to a `platform:admin` who lacks one (GSE-05).
+and returns `404` to a `platform:admin` who lacks one (OSG-SEVT-05).
 Access management (grant/change/revoke any tier, including owner, and directory search)
 is owner-equivalent and exercised through the access facade; it creates no gateway-scoped
 binding for the platform admin, so it confers no gateway login
@@ -349,7 +349,7 @@ Platform administrators SHALL NOT be able to:
 - Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
 - Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that endpoint still requires `gateway:owner` or `gateway:admin` on the gateway; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
-- Read sandbox Events through `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a per-gateway binding; the response SHALL be `404` (GSE-05)
+- Read sandbox Events through `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a per-gateway binding; the response SHALL be `404` (OSG-SEVT-05)
 - Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
 
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and

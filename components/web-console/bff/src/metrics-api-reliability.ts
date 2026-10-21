@@ -175,7 +175,7 @@ async function queryOptionalHourlySeries(
 }
 
 /**
- * Hourly P50 uses the rate-based quantile first (same shape as ARM-01). When
+ * Hourly P50 uses the rate-based quantile first (same shape as OBS-REL-01). When
  * that range query fails or yields no finite samples (sparse traffic), fall
  * back to the cumulative histogram series - matching instant latency.
  */

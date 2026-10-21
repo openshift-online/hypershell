@@ -274,12 +274,26 @@ test-openshell-version-policy:
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
 
+.PHONY: test-spec-ids-policy
+test-spec-ids-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_spec_ids.py
+
+.PHONY: check-spec-ids
+# Spec ID rules and test citation markers (specs/standards/platform/spec-identifiers.spec.md).
+check-spec-ids: test-spec-ids-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py
+
+.PHONY: traceability
+# Print which tests cite which spec requirements and scenarios (STD-IDS-08).
+traceability:
+	@PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py --report
+
 .PHONY: check-cli-drift
 check-cli-drift: generate-tui-check
 	scripts/generate-cli.sh --check
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -688,7 +702,7 @@ e2e-performance:
 	# and success rate; compare runs with `benchstat`.
 	@go -C tests/e2e test . -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
 
-# Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
+# Browser-driven end-to-end trace verification (WEB-TRC-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
 # Jaeger is deployed and the web-console BFF exports to it.
 .PHONY: e2e-tracing

@@ -610,7 +610,7 @@ describe("gate execution", () => {
     /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
     expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
   });
-  it("follows the current attempt in explicit live mode (GLASS-NAV-10)", async () => {
+  it("follows the current attempt in explicit live mode (FLT-NAV-10)", async () => {
     const { api } = makeApi(detail());
     const history = createMemoryHistory({
       path: "/",

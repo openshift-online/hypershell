@@ -242,7 +242,7 @@ The BFF validates that the ID token `aud` matches `OIDC_CLIENT_ID` (i.e., `hyper
 
 The `hypershell-frontend` client SHALL NOT use Keycloak's built-in `roles` client scope. That scope's client-roles and audience-resolve mappers copy every client role the user holds, and every such client's ID, into the access token. Each gateway adds its own client roles to its creator and to users granted access, so the token grows with every gateway. The BFF stores the access token in its session cookie, and once that cookie passes the browser's 4096-byte limit the browser drops it and login loops between `/auth/callback` and `/auth/login`. Where the GitHub broker needs `resource_access.broker.roles`, the realm SHALL provide it through a dedicated `broker-roles` client scope whose client-role mapper is restricted to the `broker` client (`usermodel.clientRoleMapping.clientId = broker`) and which has no audience-resolve mapper.
 
-#### Scenario: Console access token does not grow with gateway count
+#### Example: Console access token does not grow with gateway count
 - GIVEN a user who holds `openshell-user` and `openshell-admin` client roles on several gateway clients
 - WHEN the user signs in to the console through `hypershell-frontend`
 - THEN the access token's `aud` SHALL NOT include any gateway client ID

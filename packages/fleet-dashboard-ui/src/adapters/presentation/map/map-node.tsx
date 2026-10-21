@@ -57,7 +57,7 @@ const ICON = 30;
 // which are raw DATA). Their accessible, translated equivalents are the "Version drift"
 // and "Health" rows in the detail drawer.
 const DRIFT_LABEL = "DRIFT";
-// Non-color carrier (brand-color.spec UI-BRAND-03: color is never the sole signal) for
+// Non-color carrier (brand-color.spec UIS-BRND-03: color is never the sole signal) for
 // unavailable Argo health, paired with the dashed red ring. Scoped to health, with the
 // "?" marking uncertainty rather than a confirmed-bad state.
 const HEALTH_UNAVAILABLE_LABEL = "HEALTH?";

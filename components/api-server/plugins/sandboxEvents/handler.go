@@ -58,7 +58,7 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, snapshot := range h.store.List(namespace) {
 			group := groupResponse{SandboxName: snapshot.Sandbox, ObservedAt: snapshot.ObservedAt, Events: make([]eventResponse, 0, len(snapshot.Events))}
-			// The control plane establishes GSE-01 order before it projects source
+			// The control plane establishes OSG-SEVT-01 order before it projects source
 			// Kubernetes events into this REST representation. Preserve that reported
 			// order because EventTime and creation timestamp are not available here.
 			for _, event := range snapshot.Events {

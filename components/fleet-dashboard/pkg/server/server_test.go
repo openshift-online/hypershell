@@ -34,7 +34,7 @@ func get(t *testing.T, h http.Handler, path string) (int, string, string) {
 	return res.StatusCode, res.Header.Get("Content-Type"), string(body)
 }
 
-// GLASS-NAV-19: direct navigation to and reload of a Glass application route must
+// FLT-NAV-19: direct navigation to and reload of a Glass application route must
 // return the SPA document, while API and asset paths keep their own behavior and
 // are never served the SPA document.
 func TestSPAFallbackForGlassRoutes(t *testing.T) {

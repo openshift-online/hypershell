@@ -1,7 +1,7 @@
 # Glass route contract and state matrix
 
 **Spec:** `specs/platform/glass-url-addressable-navigation.spec.md`
-(GLASS-NAV-01, GLASS-NAV-02, GLASS-NAV-06, GLASS-NAV-17)
+(FLT-NAV-01, FLT-NAV-02, FLT-NAV-06, FLT-NAV-17)
 
 This document is the single typed route and query contract for the Glass fleet
 dashboard. It records every URL parameter, its default, its multi-value ordering,
@@ -17,7 +17,7 @@ piece of state.
 The codec lives framework-free in `src/domain/navigation/route.ts` (parse,
 normalize, serialize) and `src/domain/navigation/actions.ts` (typed navigation
 actions and the push/replace policy). The browser History integration lives in the
-single driving adapter `src/adapters/routing/` (GLASS-NAV-04).
+single driving adapter `src/adapters/routing/` (FLT-NAV-04).
 
 ## Path
 
@@ -33,13 +33,13 @@ The active top-level tab is the last path segment. A leading base path is allowe
 
 An unknown segment degrades to the Fleet Map. Everything else is a query
 parameter, so the three tabs retain their own state independently and switching
-tabs never reuses another tab's selected entity (GLASS-NAV-08).
+tabs never reuses another tab's selected entity (FLT-NAV-08).
 
 ## Query parameters
 
 Default-valued state is omitted. Parameters are emitted in the fixed order below.
 Each value is percent-encoded, so slashes, colons, spaces, Unicode, and reserved
-characters round-trip exactly (GLASS-NAV-03). A single value is capped at 512
+characters round-trip exactly (FLT-NAV-03). A single value is capped at 512
 characters, scope lists at 20 entries, and the whole URL at 2048 characters; an
 over-length URL degrades to the tab-only view.
 
@@ -56,7 +56,7 @@ over-length URL degrades to the tab-only view.
 | `node`     | Selected node drawer                                                                                                                                                         | Node id (instance key)                | absent                 | push                |
 | `nodeTab`  | Node drawer sub-tab                                                                                                                                                          | `bundle`, `links` (`details` omitted) | `details`              | push                |
 | `gate`     | Selected gate drawer                                                                                                                                                         | Gate id (`from->to`)                  | absent                 | push                |
-| `gattempt` | Gate attempt mode (GLASS-NAV-10): `live` follows the current attempt; absent auto-pins the current attempt on a fresh open (E2E-LOG-12); any other value is a pinned attempt | `live`, a run address, or absent      | absent                 | push                |
+| `gattempt` | Gate attempt mode (FLT-NAV-10): `live` follows the current attempt; absent auto-pins the current attempt on a fresh open (E2E-LOG-12); any other value is a pinned attempt | `live`, a run address, or absent      | absent                 | push                |
 | `gtab`     | Gate execution sub-tab                                                                                                                                                       | `logs` (`progress` omitted)           | `progress`             | push                |
 | `gstep`    | Selected step scope; absent is whole-run                                                                                                                                     | Step id                               | absent                 | push                |
 | `gssort`   | Gate step-table sort                                                                                                                                                         | `col-dir`, e.g. `1-asc`               | none (execution order) | push                |
@@ -77,7 +77,7 @@ over-length URL degrades to the tab-only view.
 
 With `escalations=1` and `card` both set, the view shows an escalation's issue
 detail; browser Back and the drawer's Back-to-list both return to the still-open
-list (GLASS-NAV-13).
+list (FLT-NAV-13).
 
 ### E2E Runs
 
@@ -94,10 +94,10 @@ list (GLASS-NAV-13).
 | `rlogq`   | Run log search                                                  | text                                            | empty                                     | replace (coalesced) |
 
 The gate drawer (`g*`) and the run detail (`r*`) share one execution-detail codec
-(GLASS-NAV-11): the same sub-tab, step scope, step sort, expanded-viewer, and log
+(FLT-NAV-11): the same sub-tab, step scope, step sort, expanded-viewer, and log
 search, under two parameter prefixes so each tab keeps its own state.
 
-## Push versus replace (GLASS-NAV-06)
+## Push versus replace (FLT-NAV-06)
 
 - Meaningful navigation (tab, entity, drawer, step, sort, filter commit) uses
   `pushState`, so Back and Forward retrace discrete investigation steps.
@@ -105,9 +105,9 @@ search, under two parameter prefixes so each tab keeps its own state.
   not undo one keystroke at a time.
 - Back and Forward are handled from `popstate` by re-parsing the URL as the single
   source of truth; a programmatic push or replace never echoes a new entry, and a
-  no-op navigation creates no duplicate entry (GLASS-NAV-07).
+  no-op navigation creates no duplicate entry (FLT-NAV-07).
 
-## Navigation affordances (GLASS-NAV-08)
+## Navigation affordances (FLT-NAV-08)
 
 The HTML inline-link affordances render real anchors through `NavLinkButton`
 (`hrefFor` + `useNavLink`), so copy-link, open-in-new-tab, and Ctrl/Cmd-click work
@@ -119,14 +119,14 @@ both navigate in place on click, and their destinations remain fully URL-address
 (`node`/`gate`/`nodeTab`, `card`) so reload, Back/Forward, and pasted deep links
 reconstruct them.
 
-## Canonicalization (GLASS-NAV-02)
+## Canonicalization (FLT-NAV-02)
 
 Two navigation sequences that reach the same view serialize to the same URL:
 default-valued state is dropped, scopes are sorted and deduplicated, the runs-table
 default sort collapses to absent, a `node` present drops any `gate`, and execution
 detail is dropped when its drawer is closed or its entity is not selected.
 
-## State matrix (GLASS-NAV-01)
+## State matrix (FLT-NAV-01)
 
 ### Navigation and deliberate view state (URL-represented)
 
@@ -168,9 +168,9 @@ node-detail temporal cursor; escalation-bucket collapse; hover and chart-cursor
 samples; focus location; animation frames; loading and backend-unavailable flags;
 live-stream connection status; relative-time clocks; and fetched snapshots and log
 buffers. These are view ephemera or live or derived data; the URL identifies which
-data to request, never the data itself and never access to it (GLASS-NAV-16).
+data to request, never the data itself and never access to it (FLT-NAV-16).
 
-## Subscriptions (GLASS-NAV-18)
+## Subscriptions (FLT-NAV-18)
 
 The run detail owns exactly one live stream per selected run, keyed by the run
 address. A URL-only change on the same run (sub-tab, step, sort, log search,

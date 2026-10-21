@@ -549,7 +549,7 @@ jobs:
         env:
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
-          # trace verification below has a collector to export to (WEB-TRACE-10).
+          # trace verification below has a collector to export to (WEB-TRC-10).
           KIND_JAEGER: "true"
           # Defer platform seeding until after the image swap below. kind-up
           # deploys the baseline placeholder image first; seeding a request
@@ -752,7 +752,7 @@ jobs:
               "console=E2E_MODE=short bash tests/e2e/e2e-console.sh"
           fi
 
-      # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
+      # Browser-driven distributed-trace verification (WEB-TRC-10): drive a
       # real gateway workflow in the deployed console, then assert one trace in
       # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
       # setup the web-console lint job uses.

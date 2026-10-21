@@ -550,7 +550,7 @@ function AgingCard({
       className={[styles.card, toneClass].filter(Boolean).join(" ")}
       style={{ top: `${String(top)}px`, height: `${String(height)}px` }}
       // Queryable anchor so the flight overlay can measure this card's source/dest rect
-      // and clone it at 1:1 when its phase changes (SDLC-VIS-12b position anchors).
+      // and clone it at 1:1 when its phase changes (SDLC-VIS-21 position anchors).
       data-card-number={card.number}
     >
       {/* Time-anchor tab (Google-calendar style): marks that the card's TOP edge is
@@ -1208,7 +1208,7 @@ function ShippedMatrix({
   expandedSeed,
   onToggleRow,
 }: AgentSdlcViewProps & {
-  /** Expanded row addressed by bundle seed (GLASS-NAV-13). */
+  /** Expanded row addressed by bundle seed (FLT-NAV-13). */
   expandedSeed: string | null;
   onToggleRow: (seed: string) => void;
 }): React.ReactElement {
@@ -1496,9 +1496,9 @@ interface ShippedSelection {
 }
 
 /**
- * Resolve a board/escalation card from its issue number (GLASS-NAV-13): a stable
+ * Resolve a board/escalation card from its issue number (FLT-NAV-13): a stable
  * identity that survives a background board reorder. Returns null when the addressed
- * issue is no longer present (GLASS-NAV-14).
+ * issue is no longer present (FLT-NAV-14).
  */
 function resolveCard(
   data: AgentSdlcData,
@@ -1606,7 +1606,7 @@ function ShippedDetailPanel({
 
 /** A full-card phase-transition flight ready to render: the cloned card node plus the
  *  measured source rect, the arc translate samples, and the landing burst point - all in
- *  viewport coordinates so board/column scroll is handled for free (SDLC-VIS-12a/12b). */
+ *  viewport coordinates so board/column scroll is handled for free (SDLC-VIS-20/SDLC-VIS-21). */
 interface ActiveCardFlight {
   /** Stable React key so a re-render never restarts an in-flight animation. */
   readonly key: string;
@@ -1684,7 +1684,7 @@ const FALLBACK_CARD_H = 84;
  * (the previous commit's rect), the destination slot (the new column slot, or the matrix
  * landing for a ship hop), and the shared arc between them.
  *
- * Rects degrade gracefully through per-card then per-column anchors (SDLC-VIS-12b): the
+ * Rects degrade gracefully through per-card then per-column anchors (SDLC-VIS-21): the
  * freshest card rect wins, then the last capture before the card was held, then the
  * from/to column anchor. This keeps a flight correct even when the card is NOT in the DOM
  * at transition time - a ship hop (card already in the matrix) or a chained transition
@@ -1779,7 +1779,7 @@ function buildCardFlights(
 }
 
 /** Snapshot each board column's track rect, keyed by phase, so a flight can fall back to a
- *  column anchor when the card itself is not in the DOM (SDLC-VIS-12b position anchors). */
+ *  column anchor when the card itself is not in the DOM (SDLC-VIS-21 position anchors). */
 function captureColumns(board: HTMLElement | null): Map<string, DOMRect> {
   const out = new Map<string, DOMRect>();
   if (!board) {
@@ -1795,7 +1795,7 @@ function captureColumns(board: HTMLElement | null): Map<string, DOMRect> {
 }
 
 /**
- * Drives the board's full-card phase-transition flights (SDLC-VIS-12a/12b). On each
+ * Drives the board's full-card phase-transition flights (SDLC-VIS-20/SDLC-VIS-21). On each
  * server snapshot it diffs phases (computeCardFlights - pure, keyed on server phase, so
  * the one-second continuous-aging re-render never triggers it), measures the source slot
  * (captured on the previous commit) and the destination slot, and registers a flight that
@@ -1817,7 +1817,7 @@ function useCardFlights(
   const lastRef = useRef<Map<number, CapturedCard>>(new Map());
   // The most recent capture of EVERY card ever seen (not reset when a card is held), so a
   // transition that lands while the card is held out of the DOM still has a source rect and
-  // a clone to fly (SDLC-VIS-12b).
+  // a clone to fly (SDLC-VIS-21).
   const lastKnownRef = useRef<Map<number, CapturedCard>>(new Map());
   const [flights, setFlights] = useState<readonly ActiveCardFlight[]>([]);
   // Cull timers, held in a ref so they survive re-renders (browser timers are numbers).
@@ -1838,7 +1838,7 @@ function useCardFlights(
 
   // Keyed on the server snapshot [data] ONLY, so the one-second continuous-aging
   // re-render (which changes the aged copy, never `data`) can neither trigger nor restart
-  // a flight (SDLC-VIS-12b). Over a poll interval a card's slot drifts well under a pixel
+  // a flight (SDLC-VIS-21). Over a poll interval a card's slot drifts well under a pixel
   // (aging maps onto an hours-long scale), so the previous commit's source rect is an
   // accurate launch point. useLayoutEffect (not useEffect) commits the hold before paint,
   // so a landing card never flashes in its new column for a frame before the flight hides
@@ -1919,7 +1919,7 @@ function attachClone(clone: HTMLElement): (el: HTMLDivElement | null) => void {
   };
 }
 
-/** The board flight overlay (SDLC-VIS-12a): for each active flight, a 1:1 clone of the
+/** The board flight overlay (SDLC-VIS-20): for each active flight, a 1:1 clone of the
  *  card flies along the shared arc from its old slot to its new one, landing with the
  *  shared impact + dust burst. Rendered into document.body (like the old ship ghost) so a
  *  transformed Drawer ancestor cannot clip or offset the fixed-position copies. */
@@ -2145,9 +2145,9 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const intl = useIntl();
   const boardRef = useRef<HTMLDivElement>(null);
   const matrixRef = useRef<HTMLDivElement>(null);
-  // Navigation, selection, and filter state come from the URL (GLASS-NAV-05,
-  // GLASS-NAV-13); selections are addressed by issue number and resolved back to the
-  // live record so they survive a background board reorder (GLASS-NAV-14).
+  // Navigation, selection, and filter state come from the URL (FLT-NAV-05,
+  // FLT-NAV-13); selections are addressed by issue number and resolved back to the
+  // live record so they survive a background board reorder (FLT-NAV-14).
   const route = useRoute();
   const { navigate } = useRouter();
   const showNotifications = route.sdlc.escalations;
@@ -2162,7 +2162,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   useHorizontalWheel(boardRef);
   // Full-card phase-transition flights: diff the server snapshot, fly the whole card
   // between columns (and into the matrix on ship), and hold the destination until it lands
-  // (SDLC-VIS-12a/12b). Suppressed under prefers-reduced-motion (cards snap).
+  // (SDLC-VIS-20/SDLC-VIS-21). Suppressed under prefers-reduced-motion (cards snap).
   const { flights: cardFlights, heldNumbers } = useCardFlights(
     data,
     boardRef,
@@ -2264,7 +2264,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   };
   // Hold a card out of its destination column while its flight is airborne, so the card
   // is never shown twice (once resting, once flying); it reappears at its current aged slot
-  // when the flight lands (SDLC-VIS-12b).
+  // when the flight lands (SDLC-VIS-21).
   const cards = agedCards.filter(
     (c) => matches(c) && !heldNumbers.has(c.number),
   );
@@ -2279,7 +2279,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
         onBack={
           showNotifications
             ? () => {
-                // Return to the still-open escalation list (GLASS-NAV-13).
+                // Return to the still-open escalation list (FLT-NAV-13).
                 navigate({ type: "sdlcCard", card: null });
               }
             : undefined
@@ -2301,7 +2301,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
         }}
         onSelect={(card) => {
           // Keep the list open so browser Back and the detail's Back-to-list both
-          // return to it (GLASS-NAV-13).
+          // return to it (FLT-NAV-13).
           navigate({ type: "sdlcOpenEscalationCard", card: card.number });
         }}
       />

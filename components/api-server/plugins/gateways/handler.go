@@ -189,7 +189,7 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 // selector so the API server can re-evaluate it, assigns a resolved cluster_id when
 // an eligible cluster matches, and otherwise leaves the gateway unplaced in the
 // Pending phase with an awaiting-placement status so it binds when a matching
-// cluster appears (gateway-provision-placement.spec.md GP-07).
+// cluster appears (gateway-provision-placement.spec.md WEB-PLC-07).
 func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent, model *Gateway) *errors.ServiceError {
 	if placementErr := validatePlacementIntent(intent); placementErr != nil {
 		return placementErr

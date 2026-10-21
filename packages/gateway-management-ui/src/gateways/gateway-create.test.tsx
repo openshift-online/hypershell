@@ -37,7 +37,7 @@ const availablePlacement = placementAvailability([true, true, true, false]);
 // Mocks the batched availability endpoint by echoing every requested selector
 // with availability driven by an explicit allow-list of selector keys. This
 // lets version-bearing selectors (network/provider/gateway-version) be probed
-// alongside the base network/provider pairs (GP-04, GP-11).
+// alongside the base network/provider pairs (WEB-PLC-04, WEB-PLC-11).
 function availabilityFromAllowList(
   availableSelectorKeys: readonly string[],
   localKind = false,
@@ -439,7 +439,7 @@ describe("GatewayCreatePage", () => {
     expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
 
-  it("offers only advertised versions for the selected network and provider (GP-11)", async () => {
+  it("offers only advertised versions for the selected network and provider (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.1-rhaiv.3",
       "v0.1.2-rhaiv.7",
@@ -475,7 +475,7 @@ describe("GatewayCreatePage", () => {
     ]);
   });
 
-  it("hides the preview version when Any version is selected (GP-11)", async () => {
+  it("hides the preview version when Any version is selected (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
       "v0.1.1-rhaiv.3",
@@ -504,7 +504,7 @@ describe("GatewayCreatePage", () => {
     expect(screen.getByText("OpenShell version: v0.1.1-rhaiv.3")).toBeTruthy();
   });
 
-  it("adds the chosen version to the placement selector (GP-11)", async () => {
+  it("adds the chosen version to the placement selector (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
     ]);
@@ -545,7 +545,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
-  it("omits the version label when left at Any version (GP-11)", async () => {
+  it("omits the version label when left at Any version (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
     ]);
@@ -571,7 +571,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
-  it("resets the version choice when it is no longer advertised (GP-11)", async () => {
+  it("resets the version choice when it is no longer advertised (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
     ]);

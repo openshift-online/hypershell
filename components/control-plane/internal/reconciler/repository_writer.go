@@ -588,7 +588,7 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 // gatewayPlacement builds the gRPC GatewayPlacementIntent from a rendered Gateway
 // spec's `placement` block, mapping the declarative late-binding manifest onto the
 // api-server create contract (data-model.spec.md, "Gateway Placement and Late
-// Binding"; gateway-provision-placement.spec.md GP-01). A `selector` list maps to
+// Binding"; gateway-provision-placement.spec.md WEB-PLC-01). A `selector` list maps to
 // CapabilitySelectorPlacement; `mode: local-kind` maps to LocalKindPlacement. It
 // returns (nil, nil) when the spec declares no placement at all (a pinned gateway).
 // When a `placement` block IS present but declares neither a non-empty selector nor

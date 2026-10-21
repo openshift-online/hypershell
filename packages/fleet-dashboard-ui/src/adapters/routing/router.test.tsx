@@ -29,7 +29,7 @@ function fakeHistory(
     },
     port: {
       read: () => current,
-      // Link hrefs carry the base path, matching the production adapter (GLASS-NAV-19).
+      // Link hrefs carry the base path, matching the production adapter (FLT-NAV-19).
       href: (loc) => basePath + toHref(loc),
       push: (loc) => {
         current = loc;
@@ -100,13 +100,13 @@ function renderWithHistory(initial: RouteLocation, basePath = "") {
 }
 
 describe("RouterProvider", () => {
-  it("hydrates route state from the initial URL before anything else (GLASS-NAV-05)", () => {
+  it("hydrates route state from the initial URL before anything else (FLT-NAV-05)", () => {
     renderWithHistory({ path: "/e2e", search: "?run=t%2Fn%2Fr0" });
     expect(screen.getByTestId("tab").textContent).toBe("e2e");
     expect(screen.getByTestId("run").textContent).toBe("t/n/r0");
   });
 
-  it("pushes for meaningful navigation (GLASS-NAV-06)", () => {
+  it("pushes for meaningful navigation (FLT-NAV-06)", () => {
     const h = renderWithHistory({ path: "/", search: "" });
     fireEvent.click(screen.getByTestId("go-sdlc"));
     expect(screen.getByTestId("tab").textContent).toBe("sdlc");
@@ -114,7 +114,7 @@ describe("RouterProvider", () => {
     expect(h.replaces).toEqual([]);
   });
 
-  it("replaces (coalesces) for text input (GLASS-NAV-06)", () => {
+  it("replaces (coalesces) for text input (FLT-NAV-06)", () => {
     const h = renderWithHistory({ path: "/e2e", search: "" });
     fireEvent.click(screen.getByTestId("type"));
     expect(screen.getByTestId("runq").textContent).toBe("abc");
@@ -122,7 +122,7 @@ describe("RouterProvider", () => {
     expect(h.replaces).toEqual(["/e2e?runq=abc"]);
   });
 
-  it("reconciles from the URL on popstate without echoing a new entry (GLASS-NAV-07)", () => {
+  it("reconciles from the URL on popstate without echoing a new entry (FLT-NAV-07)", () => {
     const h = renderWithHistory({ path: "/", search: "" });
     act(() => {
       h.set({ path: "/e2e", search: "?run=t%2Fn%2Fr9" });
@@ -140,7 +140,7 @@ describe("RouterProvider", () => {
     expect(h.pushes).toEqual([]);
   });
 
-  it("builds real hrefs for links and navigates on a plain click (GLASS-NAV-08)", () => {
+  it("builds real hrefs for links and navigates on a plain click (FLT-NAV-08)", () => {
     const h = renderWithHistory({ path: "/", search: "" });
     // Selecting a run keeps the current tab (map here); the path stays "/".
     expect(screen.getByTestId("href").textContent).toBe("/?run=t%2Fn%2Fr2");
@@ -151,7 +151,7 @@ describe("RouterProvider", () => {
     expect(h.pushes).toEqual(["/e2e"]);
   });
 
-  it("includes the reverse-proxy base path in link hrefs (GLASS-NAV-08/19)", () => {
+  it("includes the reverse-proxy base path in link hrefs (FLT-NAV-08/19)", () => {
     // Under a base-path deployment, copy-link/open-in-new-tab/Cmd-click use the shown
     // `<a href>`, so it must carry the base path, not the codec's root-relative path.
     renderWithHistory({ path: "/", search: "" }, "/glass");

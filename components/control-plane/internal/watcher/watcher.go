@@ -726,7 +726,7 @@ var _ roleBindingSeedSink = (*reconcileQueue[*pb.RoleBinding])(nil)
 // surviving bindings, so an absence cannot be distinguished from a binding the
 // list simply did not return, and the stream remains the authority for deletions
 // (and thus for revoking roles a deleted binding no longer backs). The resync only
-// restores missing assignments; the per-event union reconcile (GAM-02) makes every
+// restores missing assignments; the per-event union reconcile (GTW-ACC-02) makes every
 // enqueue idempotent, so re-seeding bindings already reflected in Keycloak is a
 // no-op. See specs/platform/control-plane.spec.md ("Role Binding Resync").
 func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, sink roleBindingSeedSink, clusterID string) error {

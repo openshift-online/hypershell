@@ -82,7 +82,7 @@ class ReleaseBundleTests(unittest.TestCase):
         # A merge that changes only an excluded component (the fleet dashboard)
         # leaves the managed artifact list holding just that component. After
         # exclusion the list is empty, but the bundle is still assembled from the
-        # complete Snapshot digests and publication proceeds unchanged (HSR-06).
+        # complete Snapshot digests and publication proceeds unchanged (CLI-REL-06).
         release, snapshot = fixtures()
         expected = bundle.make_bundle(release, snapshot)
         name = bundle.EXCLUDED_COMPONENTS[0]

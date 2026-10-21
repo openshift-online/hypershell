@@ -70,7 +70,7 @@ func TestHandlerPreservesGSE01ReportedOrder(t *testing.T) {
 
 	first := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	// The control plane received newer-event-time after older-event-time, so it
-	// reported this GSE-01 order to the store. EventTime is not in the REST
+	// reported this OSG-SEVT-01 order to the store. EventTime is not in the REST
 	// representation. Sorting these fields would incorrectly put the older event
 	// first because its series last-observed time is later.
 	newerSeriesLastObserved := first.Add(time.Minute)

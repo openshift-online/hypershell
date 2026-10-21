@@ -36,7 +36,7 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 
 // gatewayImagePinned reports whether the gateway pins an explicit image. A
 // pinned gateway may intentionally run a version unrelated to its cluster's
-// provisioning version, so the console suppresses drift for it (GVV-03).
+// provisioning version, so the console suppresses drift for it (WEB-VER-03).
 func gatewayImagePinned(gateway *Gateway) bool {
 	return gateway.Image != nil && strings.TrimSpace(*gateway.Image) != ""
 }

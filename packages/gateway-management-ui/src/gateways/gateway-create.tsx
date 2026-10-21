@@ -690,7 +690,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   const kata = useWatch({ control, name: "kata" });
   const version = useWatch({ control, name: "version" });
   // Versions advertised by an eligible cluster for the selected network and
-  // provider, confirmed through the batched availability request (GP-11). An
+  // provider, confirmed through the batched availability request (WEB-PLC-11). An
   // option is never offered unless a connected eligible spoke advertises it.
   const offeredVersions = useMemo(() => {
     if (!availability.data || network === null || provider === null) {

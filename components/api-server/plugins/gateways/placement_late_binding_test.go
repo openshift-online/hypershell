@@ -38,7 +38,7 @@ func newGRPCGatewayClient(t *testing.T, h *test.Helper) pb.GatewayServiceClient 
 // A selector that matches no connected cluster late-binds rather than fails: the
 // gateway is created Pending with an awaiting-placement status and its placement
 // persisted, so the declarative .hypershell import never hits "cluster_id is
-// required" (data-model.spec.md, "Gateway Placement and Late Binding"; GP-07).
+// required" (data-model.spec.md, "Gateway Placement and Late Binding"; WEB-PLC-07).
 func TestGRPCCreateGatewayLateBindsWhenNoClusterMatches(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

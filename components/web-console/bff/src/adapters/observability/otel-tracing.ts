@@ -71,7 +71,7 @@ function isIdSegment(segment: string): boolean {
 
 /**
  * Collapses resource ids in a request path to a bounded route template, so the
- * span name and `http.route` stay low-cardinality (WEB-TRACE-07). The API is a
+ * span name and `http.route` stay low-cardinality (WEB-TRC-07). The API is a
  * flat REST surface under `/api/<group>/v<n>/<collection>[/{id}...]`; after the
  * version segment, id segments collapse to `{id}` while collection and action
  * segments stay literal. A path with no version segment collapses every
@@ -391,7 +391,7 @@ const otlpTracePayloadSchema = z.object({
  * ignored, but a wrong-typed or malformed known field is rejected before the
  * payload reaches the collector, rather than accepted and relayed only for the
  * collector to reject it after the browser was told the export succeeded
- * (WEB-TRACE-02).
+ * (WEB-TRC-02).
  */
 function isOtlpTracePayload(payload: unknown): boolean {
   try {

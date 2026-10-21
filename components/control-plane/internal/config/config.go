@@ -66,7 +66,7 @@ type Config struct {
 	NamespaceGCGracePeriod time.Duration
 
 	// DirectoryRefreshInterval is the cadence of the Keycloak realm directory
-	// projection refresh (GAM-09). Bounded staleness equals this interval.
+	// projection refresh (GTW-ACC-09). Bounded staleness equals this interval.
 	DirectoryRefreshInterval time.Duration
 
 	// GatewayReconcileWorkers bounds how many distinct gateways the control

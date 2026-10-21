@@ -437,7 +437,7 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	if resource == "service_accounts" && gatewayID != "" {
 		// Any gateway role can reach the service-accounts API. The handler applies
 		// the finer owner/admin-all vs viewer-own visibility and role-cap rules
-		// (admins are capped like owners -- GAM-11).
+		// (admins are capped like owners -- GTW-ACC-11).
 		for _, binding := range bindings {
 			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
 				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" || binding.RoleName == "gateway:viewer") {
@@ -494,7 +494,7 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 			return true
 		case "gateway:admin":
 			// Granted administrator: read and update, but never delete the
-			// gateway (GAM-01). Delete requires gateway:owner.
+			// gateway (GTW-ACC-01). Delete requires gateway:owner.
 			if method != http.MethodDelete {
 				return true
 			}

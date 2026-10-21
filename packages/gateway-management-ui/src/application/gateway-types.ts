@@ -21,7 +21,7 @@ export interface GatewayRecord {
   /**
    * True when the gateway pins an explicit container image and therefore need
    * not track its cluster's advertised provisioning version. A pinned gateway
-   * never shows the newer-version-available indicator (see GVV-03).
+   * never shows the newer-version-available indicator (see WEB-VER-03).
    */
   imagePinned?: boolean;
   name: string;
@@ -42,7 +42,7 @@ export interface GatewayRecord {
 
 /**
  * Derived verdict for whether a gateway's running version is behind the
- * provisioning version its cluster advertises (GVV-03/GVV-04). `"behind"` fires
+ * provisioning version its cluster advertises (WEB-VER-03/WEB-VER-04). `"behind"` fires
  * the neutral newer-version-available indicator; `"none"` suppresses it. The
  * verdict is computed once in the application layer and consumed, not
  * recomputed, by React components.
@@ -379,7 +379,7 @@ export interface GatewayControlPlane {
   ): Promise<readonly GatewayPlacement[]>;
   /**
    * Distinct `gateway-version/<tag>` tag values advertised by registered
-   * clusters, used to seed the provisioning-version choice (GP-11). Availability
+   * clusters, used to seed the provisioning-version choice (WEB-PLC-11). Availability
    * for a specific network/provider/version is confirmed separately through
    * getGatewayPlacementAvailability.
    */

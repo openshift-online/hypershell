@@ -367,7 +367,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // DirectoryService serves the control-plane-maintained projection of Keycloak
-// realm users (GAM-09) to the API server over the same private in-cluster
+// realm users (GTW-ACC-09) to the API server over the same private in-cluster
 // channel as the provisioner. The API server never reads the Keycloak admin
 // Secret; it reads this projection.
 type DirectoryServiceClient interface {
@@ -408,7 +408,7 @@ func (c *directoryServiceClient) ResolveUser(ctx context.Context, in *ResolveUse
 // for forward compatibility.
 //
 // DirectoryService serves the control-plane-maintained projection of Keycloak
-// realm users (GAM-09) to the API server over the same private in-cluster
+// realm users (GTW-ACC-09) to the API server over the same private in-cluster
 // channel as the provisioner. The API server never reads the Keycloak admin
 // Secret; it reads this projection.
 type DirectoryServiceServer interface {

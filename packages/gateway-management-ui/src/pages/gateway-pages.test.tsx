@@ -1673,7 +1673,7 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
-  it("shows the running version as its own column with a placeholder (GVV-01)", () => {
+  it("shows the running version as its own column with a placeholder (WEB-VER-01)", () => {
     renderPage(() => (
       <GatewaysPage
         gateways={[
@@ -1691,13 +1691,13 @@ describe("gateway shell pages", () => {
     expect(screen.getByRole("columnheader", { name: "Version" })).toBeTruthy();
     const versionCell = screen.getByText("v0.1.2-rhaiv.7").closest("td");
     expect(versionCell?.getAttribute("data-label")).toBe("Version");
-    // No chip on list rows (GVV-01).
+    // No chip on list rows (WEB-VER-01).
     expect(versionCell?.querySelector(".pf-v6-c-label")).toBeNull();
     const placeholderRow = screen.getByText("no-version").closest("tr");
     expect(within(placeholderRow as HTMLElement).getByText("-")).toBeTruthy();
   });
 
-  it("sorts the gateway list by the version column (GVV-01)", async () => {
+  it("sorts the gateway list by the version column (WEB-VER-01)", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();
     const collectionState = {
@@ -1728,7 +1728,7 @@ describe("gateway shell pages", () => {
     );
   });
 
-  it("shows a running-version chip and Details field on the detail page (GVV-02)", async () => {
+  it("shows a running-version chip and Details field on the detail page (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
@@ -1760,7 +1760,7 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
-  it("omits the header chip and shows a Details placeholder without a version (GVV-02)", async () => {
+  it("omits the header chip and shows a Details placeholder without a version (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
@@ -1785,7 +1785,7 @@ describe("gateway shell pages", () => {
     expect(within(detailsList as HTMLElement).getByText("-")).toBeTruthy();
   });
 
-  it("shows the neutral newer-version indicator only when behind (GVV-03)", () => {
+  it("shows the neutral newer-version indicator only when behind (WEB-VER-03)", () => {
     renderPage(() => (
       <GatewayPage
         gatewayId="gateway-1"
@@ -1812,7 +1812,7 @@ describe("gateway shell pages", () => {
     expect(screen.queryByText(/upgrade/i)).toBeNull();
   });
 
-  it("suppresses the newer-version indicator for a pinned-image gateway (GVV-03)", () => {
+  it("suppresses the newer-version indicator for a pinned-image gateway (WEB-VER-03)", () => {
     renderPage(() => (
       <GatewayPage
         gatewayId="gateway-1"

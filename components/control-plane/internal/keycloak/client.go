@@ -84,7 +84,7 @@ type keycloakUser struct {
 }
 
 // RealmUser is a projection of a Keycloak realm user for the gateway access
-// directory (GAM-09). Subject is the Keycloak user id (the OIDC sub).
+// directory (GTW-ACC-09). Subject is the Keycloak user id (the OIDC sub).
 type RealmUser struct {
 	Username string
 	Name     string
@@ -221,7 +221,7 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 }
 
 // ListRealmUsers returns every user in the configured realm as a directory
-// projection (GAM-09), paging the Keycloak Admin users endpoint. The name is the
+// projection (GTW-ACC-09), paging the Keycloak Admin users endpoint. The name is the
 // first+last name when present, else the username.
 func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	const pageSize = 100

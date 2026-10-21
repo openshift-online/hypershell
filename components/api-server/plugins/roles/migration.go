@@ -264,7 +264,7 @@ func migrationSeedManagedClusterRegistrarRole() *gormigrate.Migration {
 }
 
 // migrationAddGatewayAdminRole seeds the gateway:admin built-in role
-// idempotently (GAM-12). gateway:admin is a per-gateway, DB-assigned role (like
+// idempotently (GTW-ACC-12). gateway:admin is a per-gateway, DB-assigned role (like
 // gateway:owner and gateway:viewer); it is NOT JWT-synced. Re-running is safe,
 // and no existing binding is touched.
 func migrationAddGatewayAdminRole() *gormigrate.Migration {

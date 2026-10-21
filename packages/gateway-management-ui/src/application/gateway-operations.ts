@@ -37,7 +37,7 @@ const gatewayVersionPattern =
 /**
  * Parses a gateway version tag like `v0.1.2-rhaiv.7` into comparable parts.
  * Returns undefined when the value is missing or does not match the expected
- * shape, so callers can suppress drift on unparseable versions (GVV-03).
+ * shape, so callers can suppress drift on unparseable versions (WEB-VER-03).
  */
 export function parseGatewayVersion(
   value: string | undefined,
@@ -134,7 +134,7 @@ export function compareGatewayVersions(
 }
 
 /**
- * Derives the newer-version-available verdict for a gateway (GVV-03/GVV-04).
+ * Derives the newer-version-available verdict for a gateway (WEB-VER-03/WEB-VER-04).
  * The indicator fires (`"behind"`) only when the gateway tracks its cluster's
  * default image (not pinned), both the running and provisioning versions are
  * present and parseable, and the running version is strictly older than the

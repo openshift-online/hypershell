@@ -877,7 +877,7 @@ function NodeDetails({
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
-  // The node drawer sub-tab is URL-represented (GLASS-NAV-09); the temporal cursor
+  // The node drawer sub-tab is URL-represented (FLT-NAV-09); the temporal cursor
   // below stays transient.
   const route = useRoute();
   const { navigate } = useRouter();

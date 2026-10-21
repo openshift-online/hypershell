@@ -237,7 +237,7 @@ function replaceProvisionedSandboxes(
 }
 
 /**
- * SSA-11 Storybook / local-dev state: all attention counts present and zero
+ * OBS-SBXA-11 Storybook / local-dev state: all attention counts present and zero
  * (Attention required section hidden; Active and trends still shown).
  */
 export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardMetrics =
@@ -259,7 +259,7 @@ export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardM
   );
 
 /**
- * SSA-11 Storybook / local-dev state: Active present without attention fields
+ * OBS-SBXA-11 Storybook / local-dev state: Active present without attention fields
  * (Attention required shows the unavailable state).
  */
 export const mockOperationalDashboardMetricsAttentionUnavailable: OperationalDashboardMetrics =

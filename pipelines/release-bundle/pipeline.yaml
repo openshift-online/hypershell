@@ -369,7 +369,7 @@ spec:
                   # list is a possibly partial subset of the accepted Snapshot. A merge that
                   # touches only an excluded component leaves it empty after exclusions; the
                   # bundle is still assembled from the complete Snapshot digests. Snapshot
-                  # completeness above is the sole component-coverage gate (HSR-06).
+                  # completeness above is the sole component-coverage gate (CLI-REL-06).
                   images = indexed(release["status"].get("artifacts", {}).get("images", []), require_all=False, allow_empty=True)
                   output = []
                   for name in COMPONENTS:

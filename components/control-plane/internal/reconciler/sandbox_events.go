@@ -222,7 +222,7 @@ func selectSandboxEvents(pods []*corev1.Pod, sandboxes gateway.SandboxLookup, ev
 		// Kubernetes Events retain ordering information that cannot be recovered
 		// after conversion to the bounded protobuf representation. Sort the source
 		// objects before projecting them so EventTime, series observations, and
-		// creation time retain their distinct precedence (GSE-01).
+		// creation time retain their distinct precedence (OSG-SEVT-01).
 		sort.SliceStable(group.sourceEvents, func(i, j int) bool { return sandboxEventNewer(group.sourceEvents[i], group.sourceEvents[j]) })
 		if len(group.sourceEvents) > limit {
 			group.sourceEvents = group.sourceEvents[:limit]
@@ -278,7 +278,7 @@ func sandboxEventLastObservedTime(event *corev1.Event) time.Time {
 	return event.LastTimestamp.Time
 }
 
-// sandboxEventNewer implements the GSE-01 source-object ordering. Do not sort
+// sandboxEventNewer implements the OSG-SEVT-01 source-object ordering. Do not sort
 // protobuf events here: projection loses EventTime and creation time, and would
 // collapse independently meaningful Kubernetes timestamps.
 func sandboxEventNewer(left, right *corev1.Event) bool {

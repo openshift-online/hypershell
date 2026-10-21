@@ -130,7 +130,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		} else {
 			// No eligible cluster yet: create the gateway unplaced (Pending,
 			// awaiting placement) rather than fail, and bind it when a matching
-			// cluster appears (gateway-provision-placement.spec.md GP-07).
+			// cluster appears (gateway-provision-placement.spec.md WEB-PLC-07).
 			clusterID = ""
 			pending := string(gatewayhealth.PhasePending)
 			phase = &pending

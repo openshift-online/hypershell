@@ -317,7 +317,7 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
-		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// The Keycloak realm directory projection (GTW-ACC-09) rides the same private
 		// in-cluster channel. It needs Keycloak, so it is served only when a
 		// Keycloak client is configured; the API server dials this one address for
 		// both the provisioner and the directory.
