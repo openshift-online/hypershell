@@ -4,20 +4,20 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | **string** |  | 
-**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional] 
-**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional] 
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
+**Name** | **string** |  |
+**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
+**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
+**ExternalDns** | Pointer to **string** |  | [optional]
+**TlsMode** | Pointer to **string** |  | [optional]
+**ServiceType** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**Phase** | Pointer to **string** |  | [optional]
+**Image** | Pointer to **string** | Container image for the gateway deployment | [optional]
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional]
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional]
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional]
+**Route** | Pointer to **string** | JSON-encoded route configuration | [optional]
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional]
 
 ## Methods
 
@@ -395,5 +395,3 @@ HasCredentialDriver returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

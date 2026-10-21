@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (WEB-PLC-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider and network choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL select the gateway version for the resolved cluster. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (WEB-PLC-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
 
-The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, `VpnUnavailable`, and `VersionListUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
+The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
 ## Requirements
 
@@ -16,26 +16,24 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 - `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
 - `{ mode: "local-kind" }`
 
-A managed-placement selector MAY additionally carry one `gateway-version/<tag>` label when the user targets a specific OpenShell version, for example `{ selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"] }`. When the user leaves the version choice at its default, the selector SHALL omit the `gateway-version` label, and the backend SHALL place on any eligible cluster regardless of the version it advertises. The selector SHALL carry at most one `gateway-version` label. The `local-kind` mode SHALL NOT carry a version selector.
+The provision form SHALL NOT submit a `gateway-version` label. The placement contract remains compatible with a managed selector that carries at most one `gateway-version/<tag>` label for non-form clients. The `local-kind` mode SHALL NOT carry a version selector.
 
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
-#### Scenario: WEB-PLC-01.01 -- Version choice is added to the selector
+#### Scenario: WEB-PLC-01.01 -- Provision form omits the version label
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
-- AND selects the OpenShell version `v0.1.2-rhaiv.7`
 - WHEN the user submits the form
-- THEN the request SHALL contain `selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"]`
+- THEN the request SHALL contain `selector: ["network/public", "provider/aws"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
-#### Scenario: WEB-PLC-01.02 -- Default version omits the version label
+#### Scenario: WEB-PLC-01.02 -- Version selector remains API-compatible
 
-- GIVEN the user enters a valid gateway name
-- AND selects Public and Amazon Web Services
-- AND leaves the OpenShell version at its default
-- WHEN the user submits the form
-- THEN the request selector SHALL NOT contain a `gateway-version` label
+- GIVEN a non-form client submits a valid managed-placement selector
+- AND that selector contains one `gateway-version/<tag>` label
+- WHEN the backend processes the request
+- THEN the backend SHALL accept the existing selector shape
 
 #### Scenario: WEB-PLC-01.03 -- Public IBM placement is submitted as intent
 
@@ -116,7 +114,7 @@ When Public is the default network, IBM Cloud SHALL be the default provider when
 
 ### Requirement: WEB-PLC-04 -- Placement Availability
 
-The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (WEB-PLC-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
+The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request. The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
 
@@ -293,80 +291,51 @@ The Gateway schema SHALL carry a persisted `placement` field. The placement sele
 - WHEN a gateway detail or list API is read
 - THEN the response SHALL expose the resolved cluster using the existing gateway placement representation
 
-### Requirement: WEB-PLC-11 -- Provisioning Version Selection
+### Requirement: WEB-PLC-11 -- Backend-Selected Provisioning Version
 
-The provision form SHALL present an "OpenShell version" choice under Advanced options for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
-
-The version choice SHALL default to "Any version". Changing the network or provider SHALL re-derive the available versions from availability data and SHALL reset the version choice to "Any version" when the previously selected version is no longer advertised for the new network and provider. The version choice SHALL have no effect on, and SHALL NOT be shown for, `local-kind` placement.
+The provision form SHALL NOT present an OpenShell version choice. The provision form's managed placement requests SHALL NOT include a `gateway-version` selector label. The backend SHALL select the gateway version from the capability advertised by the cluster on which the gateway is placed.
 
 The provision preview card SHALL render only after placement availability has
 loaded and the currently selected network/provider pair is available. It SHALL
 NOT render a default managed recommendation while availability is loading, when
 no managed placement is available, or for local-kind-only development. The card
-SHALL show an OpenShell version row only when a specific version remains offered
-for the selected placement. While "Any version" is selected, or when the
-previously selected version is no longer offered, the preview card SHALL omit
-that row rather than infer, retain, or display a placeholder version.
+SHALL NOT infer, retain, or display an OpenShell version because the version is
+not known until the backend resolves placement.
 
-When no eligible cluster matches the selected network and provider, the form
-SHALL offer only "Any version". A version-bearing selector that matches no
-eligible cluster at submission SHALL NOT be rejected by the backend; the Gateway
-SHALL be created unplaced in the `Pending` phase and late-bound when a cluster
-advertising that version becomes eligible, consistent with WEB-PLC-04 and WEB-PLC-07.
+Users SHALL continue to see the exact running version after provisioning
+through the existing gateway list and detail views. This requirement does not
+change the gateway read model, version-visibility behavior, or the
+newer-version indicator.
 
-When the provisioning-version list cannot be loaded, the form SHALL explain the
-failure. It MAY continue to offer "Any version" because that selector remains
-valid, but it SHALL NOT silently present an empty version list as though no
-specific versions existed.
-
-Because the single batched placement-availability request (WEB-PLC-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
-
-#### Scenario: WEB-PLC-11.01 -- Version options follow advertised capabilities
-
-- GIVEN two connected clusters match Public and Amazon Web Services
-- AND one advertises `gateway-version/v0.1.2-rhaiv.7` and the other `gateway-version/v0.1.1-rhaiv.3`
-- WHEN the user selects Public and Amazon Web Services
-- THEN the version choice SHALL offer "Any version", `v0.1.2-rhaiv.7`, and `v0.1.1-rhaiv.3`
-- AND no other version SHALL be offered
-
-#### Scenario: WEB-PLC-11.02 -- Default selects any advertised version
+#### Scenario: WEB-PLC-11.01 -- Managed form omits version selection
 
 - GIVEN the user selects a network and provider with at least one eligible cluster
-- AND leaves the version choice at "Any version"
+- AND expands Advanced options
 - WHEN the user submits the form
 - THEN the selector SHALL NOT carry a `gateway-version` label
-- AND the backend SHALL place on any eligible cluster for that network and provider
+- AND Advanced options SHALL contain only the Kata choice
 
-#### Scenario: WEB-PLC-11.03 -- Any version omits the preview version row
+#### Scenario: WEB-PLC-11.02 -- Recommendation omits an unknown version
 
 - GIVEN the user selects a network and provider with at least one eligible cluster
-- AND leaves the version choice at "Any version"
 - WHEN the provision preview card renders
 - THEN the card SHALL NOT include an OpenShell version row
 
-#### Scenario: WEB-PLC-11.04 -- Version resets when no longer offered
+#### Scenario: WEB-PLC-11.03 -- Backend selects the placed cluster version
 
-- GIVEN the user selected `v0.1.2-rhaiv.7` for Public and Amazon Web Services
-- AND no eligible IBM Cloud cluster advertises that version for Public
-- WHEN the user changes the provider to IBM Cloud
-- THEN the version choice SHALL reset to "Any version"
-
-#### Scenario: WEB-PLC-11.05 -- Version-list failure is explained
-
-- GIVEN the gateway provisioning-version request fails
-- AND placement availability loads successfully
-- WHEN the provision form renders
-- THEN the form SHALL show a version-list warning
-- AND SHALL offer only "Any version"
+- GIVEN the backend resolves a managed placement to a connected cluster advertising `gateway-version/v0.1.2-rhaiv.7`
+- WHEN the backend provisions that gateway
+- THEN the gateway SHALL use the version selected by the backend for that cluster
+- AND the gateway list and detail views SHALL continue to expose the observed running version
 
 ### Requirement: WEB-PLC-10 -- Accessibility and Localization
 
-The internal-services, provider, Kata, version, availability, disabled-state,
+The internal-services, provider, Kata, availability, disabled-state,
 validation, local-kind, recommendation, and error messages SHALL be localized.
 Yes/no controls SHALL use labels that remain specific outside their visual
 group context. The controls SHALL expose accessible names and selected or
 disabled state through semantic PatternFly form controls. Keyboard users SHALL
-be able to select and change network, provider, Kata, version, and local-kind
+be able to select and change network, provider, Kata, and local-kind
 placement without pointer input.
 
 #### Scenario: WEB-PLC-10.01 -- Disabled provider is announced
@@ -381,9 +350,8 @@ placement without pointer input.
 - Allowing users to choose both VPN and Public.
 - Hard-coding support or rejection for any provider and network combination.
 - Allowing users to select a concrete managed cluster from the provision form.
-- A free-text or unvalidated version field, or offering a version no connected spoke advertises.
-- In-place gateway upgrades: a version choice only targets newly created gateways.
+- User selection of the OpenShell version in the provision form.
+- In-place gateway upgrades.
 - Capacity-aware cluster selection or placement scoring.
-- Offering every distinct advertised version in the provision form when a fleet advertises more than the availability-batch cap allows: the form offers the newest capped set (WEB-PLC-11).
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.

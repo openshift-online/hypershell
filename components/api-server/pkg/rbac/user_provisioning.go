@@ -2,10 +2,9 @@ package rbac
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/golang/glog"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 )
@@ -47,7 +46,7 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 
 			userID, upsertErr := provisioner.UpsertFromJWT(r.Context(), payload)
 			if upsertErr != nil {
-				glog.Warningf("user provisioning failed for %q: %v", payload.Username, upsertErr)
+				slog.WarnContext(r.Context(), "user provisioning failed", "username", payload.Username, "error", upsertErr)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -63,7 +62,7 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 			// no Keycloak realm roles still receive their initial bindings.
 			if syncer != nil {
 				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-					glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
+					slog.WarnContext(ctx, "JWT role sync failed", "username", payload.Username, "error", syncErr)
 				}
 			}
 

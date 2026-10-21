@@ -2,8 +2,8 @@ package providerSpecs
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -137,7 +137,7 @@ func (h *providerSpecGRPCHandler) WatchProviderSpecs(_ *pb.WatchProviderSpecsReq
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchProviderSpecs: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchProviderSpecs subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header once the subscription is live so a client can seed its
 	// state with a LIST without a list-watch gap (see gateways WatchGateways).
@@ -148,7 +148,7 @@ func (h *providerSpecGRPCHandler) WatchProviderSpecs(_ *pb.WatchProviderSpecsReq
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchProviderSpecs: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchProviderSpecs subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -168,13 +168,13 @@ func (h *providerSpecGRPCHandler) WatchProviderSpecs(_ *pb.WatchProviderSpecsReq
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchProviderSpecs: failed to load provider spec %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchProviderSpecs failed to load provider spec", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.ProviderSpec = providerSpecToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchProviderSpecs: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchProviderSpecs send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

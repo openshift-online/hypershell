@@ -154,7 +154,6 @@ flowchart LR
 | Intended use - personal or team | All users with create permission | Proposed; needed only if personal and team ownership become different product concepts |
 | Internal services - No or Yes | All users with create permission | Required; No maps to Public and Yes requires Red Hat VPN |
 | Cloud provider - IBM or AWS | All users with create permission | Required for managed placement; available providers depend on network visibility and placement availability |
-| OpenShell version | All users with create permission | Defaults to Any version; only versions advertised for the selected placement are offered |
 | Local development - Use local-kind | Kind development users with no managed placement available | Replaces network and cloud-provider selection when the connected local-kind cluster is available |
 | Placement availability | All users with create permission | Shows whether a matching cluster is available without exposing the selected cluster ID |
 | Provision preview card | All users with create permission | Shows only a verified available managed placement; omitted while loading, without managed placement, or for local-kind-only development |

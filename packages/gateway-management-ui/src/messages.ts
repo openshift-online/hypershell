@@ -681,13 +681,6 @@ export const messages = defineMessages({
     description:
       "Tooltip on the disabled console button while the console is not yet ready.",
   },
-  provisioningVersionsError: {
-    id: "app.page.gatewayProvision.provisioningVersionsError",
-    defaultMessage:
-      "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
-    description:
-      "Warning shown when the provisioning-version list cannot be retrieved.",
-  },
   refreshGateways: {
     id: "app.gateways.refresh",
     defaultMessage: "Refresh gateways",
@@ -1517,7 +1510,7 @@ export const messages = defineMessages({
       "Error shown when a user's subject cannot be resolved for the workspace command.",
   },
   /* eslint-enable sort-keys */
-  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, drift indicator, and provisioning-version choice as one unit. */
+  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, and drift indicator as one unit. */
   version: {
     id: "app.gateway.column.version",
     defaultMessage: "Version",
@@ -1548,18 +1541,6 @@ export const messages = defineMessages({
       "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
     description:
       "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
-  },
-  provisioningVersion: {
-    id: "app.page.gatewayProvision.version",
-    defaultMessage: "OpenShell version",
-    description:
-      "Label for the provisioning-version choice on the gateway provision form.",
-  },
-  anyVersion: {
-    id: "app.page.gatewayProvision.anyVersion",
-    defaultMessage: "Any version",
-    description:
-      "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises.",
   },
   advancedOptions: {
     id: "app.page.gatewayProvision.advancedOptions",
@@ -1633,16 +1614,6 @@ export const messages = defineMessages({
     id: "app.page.gatewayProvision.ibmProviderAlt",
     defaultMessage: "IBM Cloud",
     description: "Alternative text for the IBM Cloud provider logo.",
-  },
-  openShellVersion: {
-    id: "app.page.gatewayProvision.openShellVersion",
-    defaultMessage: "OpenShell version: {version}",
-    description: "Selected OpenShell version shown in the recommendation card.",
-  },
-  openShellVersionOption: {
-    id: "app.page.gatewayProvision.openShellVersionOption",
-    defaultMessage: "OpenShell version {version}",
-    description: "Option label for a selectable OpenShell version.",
   },
   /* eslint-enable sort-keys */
 });

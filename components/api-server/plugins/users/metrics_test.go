@@ -83,6 +83,7 @@ func (d *testActivityDao) CountRetentionWindows(context.Context, time.Time, time
 }
 func (d *testActivityDao) PruneBefore(context.Context, time.Time) error { return nil }
 
+// Verifies: PLAT-USR-09.01
 func TestRegisteredUsersCollectorActivityFailureDoesNotInvalidateRegistrationSeries(t *testing.T) {
 	collector := newRegisteredUsersCollector(
 		&testUserDao{

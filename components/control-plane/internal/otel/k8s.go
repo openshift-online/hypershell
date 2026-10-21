@@ -19,7 +19,7 @@ import (
 // The transport records only the canonicalized path template and safe
 // attributes (method, status code). It does NOT use otelhttp.NewTransport,
 // which would add url.full with concrete namespace and resource names,
-// violating CP-OBS-05/06.
+// violating OBS-CPL-05/06.
 func InstrumentK8sConfig(cfg *rest.Config) *rest.Config {
 	if !enabled || cfg == nil {
 		return cfg

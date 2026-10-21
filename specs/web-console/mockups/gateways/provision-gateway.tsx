@@ -11,8 +11,6 @@ import {
   Form,
   FormGroup,
   FormSection,
-  FormSelect,
-  FormSelectOption,
   Grid,
   GridItem,
   Label,
@@ -129,7 +127,6 @@ function RecommendationCard({
   recommended,
   specialized,
   title,
-  version,
 }: {
   description: string;
   features: string[];
@@ -137,7 +134,6 @@ function RecommendationCard({
   recommended?: boolean;
   specialized?: boolean;
   title: string;
-  version?: string;
 }) {
   const featureColors = {
     AWS: "orange",
@@ -186,11 +182,6 @@ function RecommendationCard({
           height="40"
           src={provider === "aws" ? awsLogo : ibmCloudLogo}
         />
-        {version ? (
-          <p className="gateway-set-card-version">
-            OpenShell version: {version}
-          </p>
-        ) : null}
         <p className="gateway-set-card-description">{description}</p>
       </CardBody>
     </Card>
@@ -206,7 +197,6 @@ export function ProvisionGatewayForm({
   const [name, setName] = useState("");
   const [needsInternalServices, setNeedsInternalServices] = useState(false);
   const [provider, setProvider] = useState<Provider>("ibm");
-  const [version, setVersion] = useState("any");
 
   const isAws = provider === "aws";
   const isVpn = needsInternalServices;
@@ -227,7 +217,6 @@ export function ProvisionGatewayForm({
     recommended: !isVpn && !isAws && kata === "no",
     specialized: kata === "yes",
     title: `${isVpn ? "VPN" : "Public"}${kata === "yes" ? " Kata" : ""} ${isAws ? "AWS" : "IBM Cloud"}`,
-    version: version === "any" ? undefined : version,
   };
 
   return (
@@ -326,31 +315,6 @@ export function ProvisionGatewayForm({
                   onChange={setKata}
                   value={kata}
                 />
-                <FormGroup
-                  fieldId="chunky-openshell-version"
-                  isRequired
-                  label="OpenShell version"
-                >
-                  <FormSelect
-                    id="chunky-openshell-version"
-                    onChange={(_event, value) => setVersion(value)}
-                    value={version}
-                  >
-                    <FormSelectOption label="Any version" value="any" />
-                    <FormSelectOption
-                      label="OpenShell version 1.2.3"
-                      value="1.2.3"
-                    />
-                    <FormSelectOption
-                      label="OpenShell version 1.2.2"
-                      value="1.2.2"
-                    />
-                    <FormSelectOption
-                      label="OpenShell version 1.1.0"
-                      value="1.1.0"
-                    />
-                  </FormSelect>
-                </FormGroup>
               </FormSection>
             </ExpandableSection>
           ) : null}

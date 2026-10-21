@@ -1,7 +1,8 @@
 package environments
 
 import (
-	"github.com/golang/glog"
+	"log/slog"
+
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db/db_session"
 	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -25,7 +26,7 @@ func (e *DevEnvImpl) OverrideConfig(c *config.ApplicationConfig) error {
 	// surface the contradiction loudly (P2-3) before applying the override. Use
 	// API_ENV=development_oidc for JWT/RBAC enforcement.
 	if warning := devJWTOverrideWarning(c.Auth.EnableJWT); warning != "" {
-		glog.Warning(warning)
+		slog.Warn(warning)
 	}
 	c.Auth.EnableJWT = false
 	c.Server.EnableHTTPS = false
@@ -58,7 +59,7 @@ func (e *DevEnvImpl) OverrideClients(c *pkgenv.Clients) error {
 
 func (e *DevEnvImpl) Flags() map[string]string {
 	return map[string]string{
-		"v":                      "10",
+		"log-level":              "debug",
 		"enable-authz":           "false",
 		"debug":                  "false",
 		"enable-mock":            "true",

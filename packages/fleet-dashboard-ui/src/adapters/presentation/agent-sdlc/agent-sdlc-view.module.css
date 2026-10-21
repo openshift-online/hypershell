@@ -387,7 +387,7 @@
   border-radius: 3px;
 }
 
-/* Phase-transition flight (SDLC-VIS-12a): a full-size clone of the card flies between
+/* Phase-transition flight (SDLC-VIS-20): a full-size clone of the card flies between
    columns (and into the matrix on ship) along the shared arc, landing with the shared
    dust burst. The box is pinned to the card's source rect in viewport coords; the shared
    .flightTravel keyframe (flight-motion.module.css) carries it to the destination. The

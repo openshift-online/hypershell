@@ -235,6 +235,7 @@ func TestRecordGatewayProvisionOutcome(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-CPL-07.06
 func TestRecordSandboxAttentionCounts(t *testing.T) {
 	reader := testMetricsReader(t)
 
@@ -459,7 +460,7 @@ func assertResourceKindAttribute(t *testing.T, attributes attribute.Set, want st
 func TestReconcileOutcomeMetrics(t *testing.T) {
 	reader := testMetricsReader(t)
 
-	// CRM-013 scenarios
+	// OBS-CRM-13 scenarios
 	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeSuccess)
 	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeNoop)
 	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeRetryable)

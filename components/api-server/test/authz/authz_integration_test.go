@@ -108,6 +108,7 @@ func grpcCode(err error) codes.Code { return status.Code(err) }
 // ManagedCluster deletion, REST
 // ---------------------------------------------------------------------------
 
+// Verifies: PLAT-CLUS-03.01, PLAT-CLUS-03.02, PLAT-CLUS-03.03
 func TestRESTDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	victim := registerSpoke(t, h, client)
@@ -174,6 +175,7 @@ func TestRESTManagedClusterWritesRequirePlatformAdmin(t *testing.T) {
 // ManagedCluster deletion, gRPC
 // ---------------------------------------------------------------------------
 
+// Verifies: PLAT-CLUS-03.01, PLAT-CLUS-03.02, PLAT-CLUS-03.03
 func TestGRPCDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	victim := registerSpoke(t, h, client)
@@ -207,6 +209,7 @@ func TestGRPCDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 // a new id either: the control plane would restart under that id, see none of
 // its gateways as live, and its namespace GC would reap them. Registration
 // restores the same record.
+// Verifies: PLAT-CLUS-01.03
 func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	s := registerSpoke(t, h, client)
@@ -276,6 +279,7 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
+// Verifies: PLAT-CLUS-11.02
 func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	a := registerSpoke(t, h, client)
@@ -320,6 +324,7 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 // Users on gRPC get the HTTP rules, not "creator may call anything"
 // ---------------------------------------------------------------------------
 
+// Verifies: SEC-RBAC-09.03, SEC-RBAC-09.04
 func TestGRPCUserCallsFollowHTTPGatewayRules(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	a := registerSpoke(t, h, client)

@@ -425,6 +425,57 @@ func TestDeleteConsoleClient_NotFound(t *testing.T) {
 	}
 }
 
+func TestRemoveClientRole_MissingUserIsNoOp(t *testing.T) {
+	mux := http.NewServeMux()
+
+	tokenPath := fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm)
+	mux.HandleFunc(tokenPath, func(w http.ResponseWriter, r *http.Request) {
+		writeTokenResponse(t, w, "fake-token")
+	})
+
+	// Gateway client resolves to its UUID.
+	clientsPath := fmt.Sprintf("/admin/realms/%s/clients", testRealm)
+	mux.HandleFunc(clientsPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]keycloakClient{
+			{ID: testGatewayUUID, ClientID: testGatewayClientID},
+		})
+	})
+
+	// The role exists on the gateway client.
+	rolePath := fmt.Sprintf("/admin/realms/%s/clients/%s/roles/openshell-user", testRealm, testGatewayUUID)
+	mux.HandleFunc(rolePath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(keycloakRole{ID: "role-user-uuid", Name: "openshell-user"})
+	})
+
+	// The user is absent: getUserUUID returns a UserNotFoundError.
+	usersPath := fmt.Sprintf("/admin/realms/%s/users", testRealm)
+	mux.HandleFunc(usersPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]keycloakUser{})
+	})
+
+	// Removing a role must never issue the DELETE when the user is absent.
+	mappingPath := fmt.Sprintf("/admin/realms/%s/users/", testRealm)
+	mux.HandleFunc(mappingPath, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected role-mapping request for a missing user: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	kc := NewClient(srv.URL, testRealm, testAdminClientID, testAdminSecret)
+
+	// An absent user holds no roles, so removal is a terminal no-op, not a
+	// retryable provisioning race (contrast AssignClientRole, where a missing
+	// user is retryable -- issue #664).
+	if err := kc.RemoveClientRole(t.Context(), testGatewayClientID, "ghost", "openshell-user"); err != nil {
+		t.Fatalf("RemoveClientRole: expected no-op for missing user, got error: %v", err)
+	}
+}
+
 const (
 	deviceTestTokenPath   = "/realms/test-realm/protocol/openid-connect/token"
 	deviceTestClientsPath = "/admin/realms/test-realm/clients"
@@ -493,6 +544,7 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +612,7 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	t.Parallel()
 

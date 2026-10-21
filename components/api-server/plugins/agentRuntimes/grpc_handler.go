@@ -2,8 +2,8 @@ package agentRuntimes
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -376,7 +376,7 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchAgentRuntimes: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchAgentRuntimes subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header after subscribing, then replay the current inventory as
 	// updates. This closes the list-watch gap: the control plane awaits this header
@@ -392,7 +392,7 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchAgentRuntimes: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchAgentRuntimes subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -413,7 +413,7 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 				ar, svcErr = h.service.Get(ctx, evt.SourceID)
 			}
 			if svcErr != nil {
-				glog.Warningf("WatchAgentRuntimes: failed to load agent runtime %s: %v", evt.SourceID, svcErr)
+				slog.WarnContext(ctx, "WatchAgentRuntimes failed to load agent runtime", "resource_id", evt.SourceID, "error", svcErr)
 				continue
 			}
 
@@ -427,13 +427,13 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 					// Ending the stream makes the control plane reconnect, and the
 					// replay on reconnect restores the runtime; dropping it here would
 					// strand it until an unrelated reconnect.
-					glog.Warningf("WatchAgentRuntimes: failed to resolve the effective cluster of agent runtime %s for subscriber %s: %v", ar.ID, sub.ID, lookupErr)
+					slog.WarnContext(ctx, "WatchAgentRuntimes failed to resolve the effective cluster of agent runtime", "agent_runtime_id", ar.ID, "subscriber_id", sub.ID, "error", lookupErr)
 					return status.Errorf(codes.Unavailable, "resolve effective cluster for agent runtime %s: %v", ar.ID, lookupErr)
 				}
 				if !found {
 					// Not attributable to any cluster, so it must not reach a scoped
 					// subscriber.
-					glog.Warningf("WatchAgentRuntimes: effective cluster of agent runtime %s unresolved; not delivering to cluster %s", ar.ID, clusterFilter)
+					slog.WarnContext(ctx, "WatchAgentRuntimes effective cluster of agent runtime unresolved; not delivering", "agent_runtime_id", ar.ID, "cluster_id", clusterFilter)
 					continue
 				}
 				if !included {
@@ -443,12 +443,12 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 
 			sources, srcErr := h.resolveSecretSources(ctx, ar)
 			if srcErr != nil {
-				glog.Warningf("WatchAgentRuntimes: failed to resolve secret sources for agent runtime %s: %v", ar.ID, srcErr)
+				slog.WarnContext(ctx, "WatchAgentRuntimes failed to resolve secret sources for agent runtime", "agent_runtime_id", ar.ID, "error", srcErr)
 				return srcErr
 			}
 			ws, wsErr := h.resolveWorkspace(ctx, ar)
 			if wsErr != nil {
-				glog.Warningf("WatchAgentRuntimes: failed to resolve workspace for agent runtime %s: %v", ar.ID, wsErr)
+				slog.WarnContext(ctx, "WatchAgentRuntimes failed to resolve workspace for agent runtime", "agent_runtime_id", ar.ID, "error", wsErr)
 				return wsErr
 			}
 			watchEvent := &pb.WatchAgentRuntimesResponse{
@@ -457,7 +457,7 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 				AgentRuntime: agentRuntimeToProto(ar, sources, ws),
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchAgentRuntimes: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchAgentRuntimes send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}
@@ -505,6 +505,6 @@ func (h *agentRuntimeGRPCHandler) replayAgentRuntimes(ctx context.Context, strea
 		}
 		replayed++
 	}
-	glog.V(4).Infof("WatchAgentRuntimes: replayed %d agent runtimes", replayed)
+	slog.DebugContext(ctx, "WatchAgentRuntimes replayed agent runtimes", "count", replayed)
 	return nil
 }

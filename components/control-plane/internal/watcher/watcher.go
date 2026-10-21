@@ -726,7 +726,7 @@ var _ roleBindingSeedSink = (*reconcileQueue[*pb.RoleBinding])(nil)
 // surviving bindings, so an absence cannot be distinguished from a binding the
 // list simply did not return, and the stream remains the authority for deletions
 // (and thus for revoking roles a deleted binding no longer backs). The resync only
-// restores missing assignments; the per-event union reconcile (GAM-02) makes every
+// restores missing assignments; the per-event union reconcile (GTW-ACC-02) makes every
 // enqueue idempotent, so re-seeding bindings already reflected in Keycloak is a
 // no-op. See specs/platform/control-plane.spec.md ("Role Binding Resync").
 func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, sink roleBindingSeedSink, clusterID string) error {
@@ -895,6 +895,11 @@ func isMissingKeycloakClient(err error) bool {
 	return errors.As(err, &notFound)
 }
 
+func isMissingKeycloakUser(err error) bool {
+	var notFound *keycloak.UserNotFoundError
+	return errors.As(err, &notFound)
+}
+
 func isMissingGateway(err error) bool {
 	for err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
@@ -919,14 +924,15 @@ func isKeycloakHTTPNotFound(err error) bool {
 }
 
 // isRoleBindingRetryable reports whether a RoleBinding reconcile failure should
-// be retried. Missing client, generic Keycloak 404 (half-provisioned roles),
-// and unresolved username/role are provisioning races. Missing-gateway,
-// auth, and config errors are terminal.
+// be retried. Missing client, missing user, generic Keycloak 404
+// (half-provisioned roles), and unresolved username/role are provisioning
+// races. Missing-gateway, auth, and config errors are terminal.
 func isRoleBindingRetryable(err error) bool {
 	if err == nil || isMissingGateway(err) {
 		return false
 	}
 	return isMissingKeycloakClient(err) ||
+		isMissingKeycloakUser(err) ||
 		isUnresolvedRoleBindingIdentity(err) ||
 		isKeycloakHTTPNotFound(err)
 }

@@ -23,6 +23,7 @@ describe("queryControlPlaneReconciliation", () => {
 
   afterEach(() => server?.close());
 
+  // Verifies: OBS-CRM-04
   it("keeps valid zero counts when an idle lag histogram returns NaN or empty", async () => {
     server = createServer((request, response) => {
       const query = new URL(
@@ -70,6 +71,7 @@ describe("queryControlPlaneReconciliation", () => {
     expect(staleResourceStatusCountPromql).toContain("stale");
   });
 
+  // Verifies: OBS-CRM-03
   it("queries reconciliation trends as rolling 24-hour hourly series", async () => {
     const rangeRequests: {
       end: number;

@@ -161,6 +161,9 @@ func (s *E2ESuite) SetupSuite() {
 	s.Require().NoError(err, "invalid gateway authentication mode")
 
 	s.Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
+	if gatewayTLSInsecure(s.driver.Name()) {
+		s.Logf("WARNING: OPENSHELL_GATEWAY_INSECURE=true - gateway TLS verification is disabled; use only as a local diagnostic override")
+	}
 	if gatewayAuth == gatewayAuthServiceAccount {
 		s.serviceAccounts = newGatewayServiceAccountStore(gatewayOIDCIssuer(), s.runID)
 		s.Logf("gateway auth=%s: gateway service accounts; no token exchange, impersonation, platform:admin, or Keycloak admin credentials", gatewayAuth)
@@ -237,6 +240,7 @@ func (s *E2ESuite) TearDownSuite() {
 	s.runner.SetLogger(s.logger)
 	cleanupStartedAt := time.Now()
 	failedBeforeCleanup := s.T().Failed()
+	diagnosticsCollected := false
 	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		verdict := outcomeFor(s.T())
@@ -249,8 +253,19 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 		s.reporter.StepFinished("cleanup", "suite-teardown", cleanupOutcome, time.Since(cleanupStartedAt))
 	}()
+	defer func() {
+		// A cleanup-only failure did not exist at the pre-cleanup collection point.
+		// Capture what remains so every failed suite still emits diagnostics.
+		if s.T().Failed() && !diagnosticsCollected {
+			s.collectFailureDiagnostics()
+		}
+	}()
 	if s.orphan != nil && s.orphan.cancel != nil {
 		s.orphan.cancel()
+	}
+	if failedBeforeCleanup {
+		s.collectFailureDiagnostics()
+		diagnosticsCollected = true
 	}
 
 	cleanupAPI := s.admin
@@ -611,8 +626,10 @@ func envOrDefault(key, def string) string {
 	return def
 }
 
-// gatewayTLSInsecure honors only an explicit diagnostic override. Both drivers
-// install a trusted CA path, including Kind's local self-signed CA.
+// gatewayTLSInsecure honors only an explicit diagnostic override; SetupSuite
+// logs a warning when it is set. Kind trusts the cluster's cert-manager CA via
+// SSL_CERT_FILE (passed into the CLI container by
+// scripts/kind/openshell-container.sh); OpenShift's endpoint is publicly trusted.
 func gatewayTLSInsecure(_ string) bool {
 	return os.Getenv("OPENSHELL_GATEWAY_INSECURE") == "true"
 }

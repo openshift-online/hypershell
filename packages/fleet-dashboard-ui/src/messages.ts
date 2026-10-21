@@ -1189,6 +1189,12 @@ export const messages = defineMessages({
     defaultMessage: "Unreleased",
     description: "Matrix row for merged work not yet in a released bundle.",
   },
+  sectionCapabilities: {
+    id: "fleet.section.capabilities",
+    defaultMessage: "Capabilities",
+    description:
+      "Heading for the cluster's self-declared capability labels in the detail panel.",
+  },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",
     defaultMessage: "Deployed on",

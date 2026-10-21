@@ -67,6 +67,7 @@ function emptyPrometheusResult() {
 }
 
 describe("queryApiReliability", () => {
+  // Verifies: OBS-REL-01.01
   it("maps Prometheus instant and hourly series into API reliability metrics", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -270,6 +271,7 @@ describe("queryApiReliability", () => {
     }
   });
 
+  // Verifies: OBS-REL-02.02
   it("omits only failed hourly series when instant queries succeed", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

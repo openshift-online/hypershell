@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,6 +16,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
@@ -23,11 +25,12 @@ import (
 
 type gatewayGRPCHandler struct {
 	pb.UnimplementedGatewayServiceServer
-	service    GatewayService
-	generic    services.GenericService
-	brokerFunc func() *pkgserver.EventBroker
-	clusters   RegisteredClusterLookup
-	placement  PlacementResolver
+	service       GatewayService
+	generic       services.GenericService
+	brokerFunc    func() *pkgserver.EventBroker
+	clusters      RegisteredClusterLookup
+	placement     PlacementResolver
+	sandboxEvents sandboxEvents.SandboxEventStore
 }
 
 func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, placement ...PlacementResolver) pb.GatewayServiceServer {
@@ -36,6 +39,14 @@ func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, 
 		h.placement = placement[0]
 	}
 	return h
+}
+
+// SetSandboxEventStore installs the swappable event cache after constructing the
+// handler. It keeps the long-standing constructor compatible with test callers.
+func SetSandboxEventStore(server pb.GatewayServiceServer, store sandboxEvents.SandboxEventStore) {
+	if handler, ok := server.(*gatewayGRPCHandler); ok {
+		handler.sandboxEvents = store
+	}
 }
 
 // validateGatewayPhase rejects a phase outside the canonical vocabulary. An
@@ -119,7 +130,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		} else {
 			// No eligible cluster yet: create the gateway unplaced (Pending,
 			// awaiting placement) rather than fail, and bind it when a matching
-			// cluster appears (gateway-provision-placement.spec.md GP-07).
+			// cluster appears (gateway-provision-placement.spec.md WEB-PLC-07).
 			clusterID = ""
 			pending := string(gatewayhealth.PhasePending)
 			phase = &pending
@@ -319,6 +330,54 @@ func (h *gatewayGRPCHandler) SetActiveSandboxCount(ctx context.Context, req *pb.
 	return &pb.SetActiveSandboxCountResponse{ActiveSandboxCount: int32(count)}, nil
 }
 
+// ReportSandboxEvents atomically replaces one sandbox's bounded event snapshot.
+// A namespace without a live gateway is deliberately a successful no-op so an
+// orphaned namespace can never create a cache entry.
+func (h *gatewayGRPCHandler) ReportSandboxEvents(ctx context.Context, req *pb.ReportSandboxEventsRequest) (*pb.ReportSandboxEventsResponse, error) {
+	if err := grpcutil.ValidateStringField("namespace", req.GetNamespace(), true); err != nil {
+		return nil, err
+	}
+	if err := grpcutil.ValidateStringField("sandbox_name", req.GetSandboxName(), true); err != nil {
+		return nil, err
+	}
+	if h.sandboxEvents == nil {
+		return nil, status.Error(codes.Unavailable, "sandbox event store unavailable")
+	}
+	_, found, svcErr := h.service.ClusterIDByNamespace(ctx, req.GetNamespace())
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if !found {
+		return &pb.ReportSandboxEventsResponse{}, nil
+	}
+	events := make([]sandboxEvents.Event, 0, len(req.GetEvents()))
+	for _, value := range req.GetEvents() {
+		if value == nil {
+			continue
+		}
+		var first, last *time.Time
+		if value.FirstObservedAt != nil {
+			if err := value.FirstObservedAt.CheckValid(); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "first_observed_at: %v", err)
+			}
+			t := value.FirstObservedAt.AsTime().UTC()
+			first = &t
+		}
+		if value.LastObservedAt != nil {
+			if err := value.LastObservedAt.CheckValid(); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "last_observed_at: %v", err)
+			}
+			t := value.LastObservedAt.AsTime().UTC()
+			last = &t
+		}
+		events = append(events, sandboxEvents.Event{Type: value.GetType(), Reason: value.GetReason(), Message: value.GetMessage(), FirstObservedAt: first, LastObservedAt: last, Count: value.GetCount(), InvolvedPodName: value.GetInvolvedPodName(), InvolvedPodUID: value.GetInvolvedPodUid()})
+	}
+	if !h.sandboxEvents.Replace(req.GetNamespace(), req.GetSandboxName(), events) {
+		return nil, status.Error(codes.Internal, "replace sandbox event snapshot")
+	}
+	return &pb.ReportSandboxEventsResponse{}, nil
+}
+
 // SetGatewayVersion stores only the last runtime version that the health
 // reconciler observed. The dedicated write cannot overwrite unrelated fields.
 func (h *gatewayGRPCHandler) SetGatewayVersion(ctx context.Context, req *pb.SetGatewayVersionRequest) (*pb.SetGatewayVersionResponse, error) {
@@ -441,7 +500,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchGateways: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchGateways subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the stream header now that the subscription is live. This turns opening
 	// the stream into a real subscription handshake: a client that blocks on the
@@ -455,7 +514,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchGateways: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchGateways subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -474,7 +533,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			if evt.EventType == api.DeleteEventType {
 				gateway, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchGateways: failed to load soft-deleted gateway %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchGateways failed to load soft-deleted gateway", "resource_id", evt.SourceID, "error", svcErr)
 					// When a cluster filter is set we cannot attribute an
 					// unloadable delete to a cluster, so we must not leak it to a
 					// scoped subscriber. Skip it; the spoke's namespace GC still
@@ -491,7 +550,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			} else {
 				gateway, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchGateways: failed to load gateway %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchGateways failed to load gateway", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				if clusterFilter != "" && gateway.ClusterId != clusterFilter {
@@ -501,7 +560,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			}
 
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchGateways: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchGateways send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

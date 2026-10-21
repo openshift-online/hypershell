@@ -84,7 +84,7 @@ type keycloakUser struct {
 }
 
 // RealmUser is a projection of a Keycloak realm user for the gateway access
-// directory (GAM-09). Subject is the Keycloak user id (the OIDC sub).
+// directory (GTW-ACC-09). Subject is the Keycloak user id (the OIDC sub).
 type RealmUser struct {
 	Username string
 	Name     string
@@ -101,6 +101,18 @@ type ClientNotFoundError struct {
 
 func (e *ClientNotFoundError) Error() string {
 	return fmt.Sprintf("keycloak client %s not found", e.ClientID)
+}
+
+// UserNotFoundError is returned when a Keycloak user lookup finds no matching
+// username. The RoleBindingReconciler uses this to distinguish the expected
+// provisioning race (the user record has not yet propagated to Keycloak) from
+// permanent failures, mirroring ClientNotFoundError.
+type UserNotFoundError struct {
+	Username string
+}
+
+func (e *UserNotFoundError) Error() string {
+	return fmt.Sprintf("keycloak user %s not found", e.Username)
 }
 
 // ProvisionGatewayClient creates a Keycloak OIDC client for a gateway with
@@ -221,7 +233,7 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 }
 
 // ListRealmUsers returns every user in the configured realm as a directory
-// projection (GAM-09), paging the Keycloak Admin users endpoint. The name is the
+// projection (GTW-ACC-09), paging the Keycloak Admin users endpoint. The name is the
 // first+last name when present, else the username.
 func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	const pageSize = 100
@@ -321,6 +333,15 @@ func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, ro
 
 	userUUID, err := c.getUserUUID(ctx, username)
 	if err != nil {
+		var notFound *UserNotFoundError
+		if errors.As(err, &notFound) {
+			// The user holds no roles once absent from Keycloak, so there is
+			// nothing to remove. Mirror the missing-client no-op above and treat
+			// this as a terminal success rather than a retryable provisioning
+			// race (which only applies to the assign path).
+			log.Printf("INFO keycloak: user %s not found, nothing to remove", username)
+			return nil
+		}
 		return fmt.Errorf("get user UUID for %s: %w", username, err)
 	}
 
@@ -945,7 +966,7 @@ func (c *Client) getUserUUID(ctx context.Context, username string) (string, erro
 			return u.ID, nil
 		}
 	}
-	return "", fmt.Errorf("keycloak user %s not found", username)
+	return "", &UserNotFoundError{Username: username}
 }
 
 func (c *Client) deleteClientByUUID(ctx context.Context, clientUUID string) error {

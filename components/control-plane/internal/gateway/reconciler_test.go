@@ -231,6 +231,7 @@ func labeledResource(apiVersion, kind, namespace, name string, managed bool) *un
 // reclaims only this gateway's labeled resources and leaves co-tenant workloads
 // (and the namespace itself) untouched - the same no-collateral guarantee that
 // keeps GC from reaping a shared namespace.
+// Verifies: GTW-DEL-02.01
 func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	const ns = "shared"
 

@@ -166,12 +166,14 @@ function recordingObservability(): {
 }
 
 describe("getSdlc observability", () => {
+  // Verifies: SDLC-VIS-15.01
   it("publishes started then succeeded on a successful load", async () => {
     const { port, outcomes } = recordingObservability();
     await getSdlc(fakeApi(), undefined, port);
     expect(outcomes).toEqual(["started", "succeeded"]);
   });
 
+  // Verifies: SDLC-VIS-15.01
   it("publishes started then failed when the port rejects", async () => {
     const { port, outcomes } = recordingObservability();
     const api = fakeApi({
@@ -181,6 +183,7 @@ describe("getSdlc observability", () => {
     expect(outcomes).toEqual(["started", "failed"]);
   });
 
+  // Verifies: SDLC-VIS-15.01
   it("reports cancelled when the request was aborted", async () => {
     const { port, outcomes } = recordingObservability();
     const controller = new AbortController();

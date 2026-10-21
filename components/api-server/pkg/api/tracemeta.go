@@ -9,7 +9,7 @@ import (
 
 // TraceMeta embeds alongside api.Meta to persist the originating W3C Trace
 // Context on every resource. The json:"-" tag keeps these fields out of REST
-// API responses (RTC-05). The columns are nullable so pre-existing rows and
+// API responses (CTRL-TRC-05). The columns are nullable so pre-existing rows and
 // resources created with telemetry disabled have NULL trace context.
 type TraceMeta struct {
 	Traceparent *string `json:"-" gorm:"column:traceparent"`
@@ -23,7 +23,7 @@ type TraceMeta struct {
 // On an update path this is deliberate: the DAO persists via gorm Save, which
 // writes nil pointers as NULL, so an update performed with telemetry disabled
 // overwrites any previously-stored trace context to NULL. That is the intended
-// overwrite-on-update semantics (RTC-01) - the columns always describe the most
+// overwrite-on-update semantics (CTRL-TRC-01) - the columns always describe the most
 // recent mutation, and a mutation with no active span has no traceable origin.
 func (t *TraceMeta) CaptureTraceContext(ctx context.Context) {
 	sc := trace.SpanFromContext(ctx).SpanContext()

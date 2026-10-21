@@ -360,7 +360,7 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 // horizon: a record whose pull requests fall in no resolved window but which merged at
 // or before the oldest resolved bundle's build date is contained in that bundle (and
 // every newer one), so it is grouped under that oldest bundle row rather than reported
-// in-flight (SDLC-VIS-11a). Only records genuinely merged after the newest resolved
+// in-flight (SDLC-VIS-22). Only records genuinely merged after the newest resolved
 // bundle collect in the single top Unreleased row, which holds only genuinely in-flight
 // tracked work (SDLC-VIS-11).
 func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
@@ -479,7 +479,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		})
 	}
 
-	// SDLC-VIS-11a: decouple the released-vs-unreleased decision from the compare-window
+	// SDLC-VIS-22: decouple the released-vs-unreleased decision from the compare-window
 	// horizon. The resolved bundle set is bounded, so its SHA compare windows span only
 	// from the oldest to the newest resolved bundle; a pull request merged before the
 	// oldest resolved bundle falls inside no window even though it is contained in that
@@ -506,7 +506,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	// appear only under the bundle that shipped them). A window-unplaced record that
 	// merged at or before the oldest resolved bundle's date is pre-horizon: it is already
 	// contained in that bundle, so it is grouped under the oldest resolved bundle row
-	// (SDLC-VIS-11a) rather than dropped or reported in-flight.
+	// (SDLC-VIS-22) rather than dropped or reported in-flight.
 	var unreleased []SDLCShippedIssue
 	var preHorizon []SDLCShippedIssue
 	for _, rec := range shipped {
@@ -527,7 +527,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	}
 
 	// Keep pre-horizon items visible in a released position: group them under the oldest
-	// resolved bundle row (SDLC-VIS-11a). They carry no bundle PRs of their own (no window
+	// resolved bundle row (SDLC-VIS-22). They carry no bundle PRs of their own (no window
 	// placed them), so they simply join that row's tracked issues.
 	if len(preHorizon) > 0 && oldestIdx >= 0 {
 		relRows[oldestIdx].Issues = sortedShipped(append(relRows[oldestIdx].Issues, preHorizon...))

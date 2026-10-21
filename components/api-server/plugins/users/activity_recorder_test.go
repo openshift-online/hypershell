@@ -43,6 +43,7 @@ func (d *countingActivityDao) callCount() int {
 	return d.upsertCalls
 }
 
+// Verifies: PLAT-USR-10.01
 func TestUserActivityRecorderSkipsDuplicateSameDayWrites(t *testing.T) {
 	dao := &countingActivityDao{}
 	recorder := NewUserActivityRecorder(dao)

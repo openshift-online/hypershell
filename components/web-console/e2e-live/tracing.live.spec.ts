@@ -1,6 +1,6 @@
 import { expect, request as playwrightRequest, test } from "@playwright/test";
 
-// End-to-end trace verification against a live cluster (WEB-TRACE-10). Drives a
+// End-to-end trace verification against a live cluster (WEB-TRC-10). Drives a
 // real gateway workflow in the browser, then queries Jaeger and asserts one
 // trace joins the browser and the BFF by the same trace id -- proving the
 // browser OTel SDK, the same-origin telemetry ingest, the BFF server span, and
@@ -16,7 +16,7 @@ const oidcPassword = process.env.E2E_OIDC_PASSWORD ?? "admin";
 const browserService = "hypershell-web-console";
 const bffService = "hypershell-web-console-bff";
 // Span names must come from the bounded workflow/dependency templates, never a
-// raw identifier (WEB-TRACE-07). The workflow and dependency templates are kept
+// raw identifier (WEB-TRC-07). The workflow and dependency templates are kept
 // distinct so the check demands both a workflow span and a dependency span
 // rather than accepting either one alone.
 const workflowSpanName = /^gateway\.workflow\.[a-z-]+$/u;
@@ -59,7 +59,7 @@ function isBrowserSpan(trace: JaegerTrace, span: JaegerSpan): boolean {
 }
 
 // A root span is the origin of the trace: it has no CHILD_OF reference to any
-// parent. The browser workflow span must be a true root (WEB-TRACE-01), so a
+// parent. The browser workflow span must be a true root (WEB-TRC-01), so a
 // decapitated or reparented span never satisfies the check.
 function isRootSpan(span: JaegerSpan): boolean {
   return !(span.references ?? []).some(
@@ -94,6 +94,7 @@ function isCrossServiceTrace(trace: JaegerTrace): boolean {
   return hasBrowserWorkflowRoot && hasBrowserDependency && hasBffSpan;
 }
 
+// Verifies: WEB-TRC-11.01
 test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
   // 1. Log in through Keycloak and land on the gateway list. Loading the list
   //    is a gateway "list" workflow, which drives an /api proxy call through the
@@ -111,7 +112,7 @@ test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
 
   // 2. Exercise an explicit refresh to emit another list workflow, then let the
   //    batch span processor timer flush; closing the page fires the pagehide
-  //    flush as a belt-and-braces last-chance export (WEB-TRACE-09).
+  //    flush as a belt-and-braces last-chance export (WEB-TRC-09).
   const refresh = page.getByRole("button", { name: /refresh gateways/iu });
   if (await refresh.count()) {
     await refresh.first().click();
@@ -170,7 +171,7 @@ test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
   expect(dependencySpans.length).toBeGreaterThan(0);
   expect(bffSpans.length).toBeGreaterThan(0);
   // The workflow span is the origin of the trace, not a child of a synthetic
-  // remote parent (WEB-TRACE-01).
+  // remote parent (WEB-TRC-01).
   expect(workflowSpans.some(isRootSpan)).toBe(true);
   for (const span of [...workflowSpans, ...dependencySpans, ...bffSpans]) {
     expect(span.traceID).toBe(trace.traceID);

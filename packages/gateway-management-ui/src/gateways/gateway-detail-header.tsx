@@ -281,7 +281,7 @@ function GatewayVersionBadges({
   const intl = useIntl();
   const runningVersion = version?.trim();
 
-  // Omit the chip entirely when no running version has been observed (GVV-02).
+  // Omit the chip entirely when no running version has been observed (WEB-VER-02).
   if (!runningVersion) {
     return null;
   }

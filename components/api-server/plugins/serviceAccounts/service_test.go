@@ -90,6 +90,7 @@ func TestGatewayEndpointNormalizesGRPCSchemesForOpenShell(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-06.01, OSG-SACC-06.02, OSG-SACC-06.03
 func TestCreateEnforcesRoleCapAndKeepsCredentialOutOfPersistence(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
@@ -218,6 +219,7 @@ func TestCreateFailureRemovesAProvenAbsentCredentialReservation(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-06.04, OSG-SACC-06.05
 func TestReconcileDowngradesAdminAndRevokesWhenBindingIsRemoved(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Now().UTC()
@@ -249,6 +251,7 @@ func TestReconcileDowngradesAdminAndRevokesWhenBindingIsRemoved(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-07.01
 func TestReconcileExpiresAndContinuesCheckingTerminalAccounts(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)

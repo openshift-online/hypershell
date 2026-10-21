@@ -90,6 +90,7 @@ func newTestSandboxCount(rec *seamRecorder) *SandboxCountReconciler {
 	return r
 }
 
+// Verifies: OSG-SBX-01.01, OSG-SBX-01.04
 func TestOnAdd(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -117,6 +118,7 @@ func TestOnAdd(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SBX-01.02, OSG-SBX-01.03
 func TestOnUpdate(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -143,6 +145,7 @@ func TestOnUpdate(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SBX-01.02, OSG-SBX-01.04
 func TestOnDelete(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -190,6 +193,7 @@ func TestActiveSandboxesByNamespace(t *testing.T) {
 // those with no active sandboxes, so a drifted or stale count converges back to
 // zero. With no incremental events between cache sync and self-heal, this is
 // exactly the post-restart recovery path.
+// Verifies: OSG-SBX-03.01, OSG-SBX-03.02
 func TestSelfHeal_SetsAbsoluteForEveryGatewayNamespace(t *testing.T) {
 	rec := &seamRecorder{nsList: []string{"openshell-a", "openshell-b", "openshell-c"}}
 	r := newTestSandboxCount(rec)

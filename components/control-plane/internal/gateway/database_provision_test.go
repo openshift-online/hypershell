@@ -59,6 +59,7 @@ func TestHostPortFromDockerPortOutput(t *testing.T) {
 // or a leftover backend) fails provisioning with "source database is being
 // accessed by other users" for as long as that session lasts. The production
 // path must succeed anyway.
+// Verifies: OSG-DBS-03.05
 func TestReconcileGatewayDatabaseWhileTemplate1Occupied(t *testing.T) {
 	cli, ok := containerCLI()
 	if !ok {

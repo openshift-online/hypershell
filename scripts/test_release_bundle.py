@@ -48,6 +48,7 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertEqual(item["image"], source["containerImage"].replace(bundle.BUILD_PREFIX, bundle.RELEASE_PREFIX))
         self.assertEqual((tag, result), bundle.make_bundle(release, snapshot))
 
+    # Verifies: CLI-REL-04
     def test_failed_pending_and_skipped_releases_cannot_reach_registry(self):
         for status, reason in (("False", "Failed"), ("Unknown", "Progressing"), ("True", "Skipped")):
             release, snapshot = fixtures()
@@ -78,11 +79,12 @@ class ReleaseBundleTests(unittest.TestCase):
                 "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]})
         self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
+    # Verifies: CLI-REL-06.01
     def test_excluded_only_release_publishes_from_the_snapshot(self):
         # A merge that changes only an excluded component (the fleet dashboard)
         # leaves the managed artifact list holding just that component. After
         # exclusion the list is empty, but the bundle is still assembled from the
-        # complete Snapshot digests and publication proceeds unchanged (HSR-06).
+        # complete Snapshot digests and publication proceeds unchanged (CLI-REL-06).
         release, snapshot = fixtures()
         expected = bundle.make_bundle(release, snapshot)
         name = bundle.EXCLUDED_COMPONENTS[0]
@@ -367,6 +369,7 @@ def github(method, path, data=None, *, binary=False):
         self.assertNotIn("pipelineruns", commands)
         self.assertIn("python3 - --release", commands)
 
+    # Verifies: CLI-REL-04
     def test_retry_reuses_existing_bundle_without_another_push(self):
         result, commands, reference = self.run_bootstrap(repeat=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -374,6 +377,7 @@ def github(method, path, data=None, *, binary=False):
         self.assertEqual(commands.count("oras push "), 1)
         self.assertIn("oras pull ", commands)
 
+    # Verifies: CLI-REL-04
     def test_retry_rejects_conflicting_existing_bundle(self):
         result, commands, reference = self.run_bootstrap(repeat=True, conflict=True)
         self.assertNotEqual(result.returncode, 0)
@@ -397,6 +401,7 @@ def github(method, path, data=None, *, binary=False):
         self.assertNotIn("oras push", commands)
         self.assertNotIn("select-oci-auth", commands)
 
+    # Verifies: CLI-REL-06.01
     def test_empty_release_checks_all_required_released_images(self):
         # A merge that changes only an excluded component mirrors no bundle images,
         # so status.artifacts.images is empty. Publication still resolves every
@@ -488,6 +493,7 @@ class GitHubPublicationTests(unittest.TestCase):
     def publish(self):
         bundle.publish_github(self.tag, self.record, self.reference, [self.path])
 
+    # Verifies: CLI-REL-04
     def test_completed_release_retry_performs_no_writes(self):
         self.publish()
         self.assertFalse(self.release['draft'])
@@ -496,6 +502,7 @@ class GitHubPublicationTests(unittest.TestCase):
         self.assertEqual(self.writes, [])
         self.assertEqual(len(self.assets), 1)
 
+    # Verifies: CLI-REL-04
     def test_lost_upload_response_resumes_same_draft_without_reupload(self):
         self.fail_upload = True
         with self.assertRaises(TimeoutError):
@@ -506,6 +513,7 @@ class GitHubPublicationTests(unittest.TestCase):
         self.assertEqual(self.writes, [('PATCH', '/releases/1')])
         self.assertFalse(self.release['draft'])
 
+    # Verifies: CLI-REL-04
     def test_conflicting_existing_asset_fails_without_mutation(self):
         self.publish()
         self.path.write_bytes(b'different build')
@@ -514,12 +522,14 @@ class GitHubPublicationTests(unittest.TestCase):
             self.publish()
         self.assertEqual(self.writes, [])
 
+    # Verifies: CLI-REL-04
     def test_conflicting_git_tag_fails_before_release_creation(self):
         self.ref = {'object': {'type': 'commit', 'sha': 'f' * 40}}
         with self.assertRaisesRegex(ValueError, 'different commit'):
             self.publish()
         self.assertEqual(self.writes, [])
 
+    # Verifies: CLI-REL-04
     def test_conflicting_bundle_notes_fail_without_mutation(self):
         self.publish()
         self.reference = bundle.BUNDLE_REPOSITORY + '@sha256:' + 'b' * 64
@@ -528,6 +538,7 @@ class GitHubPublicationTests(unittest.TestCase):
             self.publish()
         self.assertEqual(self.writes, [])
 
+    # Verifies: CLI-REL-04
     def test_failed_starter_upload_can_be_replaced_only_in_draft(self):
         self.fail_upload = True
         with self.assertRaises(TimeoutError):
@@ -573,6 +584,7 @@ class CliExtractionTests(unittest.TestCase):
     def test_extracts_exact_binaries(self):
         self.check_layer()
 
+    # Verifies: CLI-REL-01
     def test_rejects_missing_target_symlink_and_corrupted_layer(self):
         for case in ('missing', 'symlink', 'tamper'):
             with self.subTest(case=case), self.assertRaises(ValueError):
@@ -580,6 +592,7 @@ class CliExtractionTests(unittest.TestCase):
 
 
 class GitHubAppTests(unittest.TestCase):
+    # Verifies: CLI-REL-05
     def test_mints_scoped_token_with_valid_signed_jwt(self):
         with tempfile.TemporaryDirectory() as directory:
             key = Path(directory) / "app.pem"

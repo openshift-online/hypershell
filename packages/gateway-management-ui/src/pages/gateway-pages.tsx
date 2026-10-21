@@ -395,7 +395,7 @@ export function GatewaysPage({
     },
     {
       // Running version, ordered server-side by the `version` sort field. No
-      // chip on list rows (GVV-01); the version appears here only as text.
+      // chip on list rows (WEB-VER-01); the version appears here only as text.
       id: "version",
       label: intl.formatMessage(messages.version),
       render: ({ gatewayVersion }) =>
@@ -630,7 +630,7 @@ export function GatewayPage({
 
   const connection = toGatewayConnection(visibleGateway);
   // Derive the newer-version-available verdict once in the application layer so
-  // the header consumes a single authoritative result (GVV-03/GVV-04).
+  // the header consumes a single authoritative result (WEB-VER-03/WEB-VER-04).
   const versionDrift = deriveGatewayVersionDrift(visibleGateway);
   // Anchor the console-ready deadline the detail header shows to when the UI
   // first observed this gateway awaiting its console, matching the polling clock

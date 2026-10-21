@@ -58,6 +58,7 @@ describe("mapControlPlaneReconciliationResponse", () => {
 });
 
 describe("adoption metrics adapter", () => {
+  // Verifies: ADO-DASH-10.01
   it("maps the adoption response and propagates a 30-day range", async () => {
     fetchMock.mockImplementation((url: string) => {
       expect(url).toBe("/api/metrics/adoption?range=30");
@@ -441,6 +442,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(metrics.failedSources).toBeUndefined();
   });
 
+  // Verifies: OBS-RLSD-01.01, OBS-RLSD-04.01
   it("aggregates gateway versions into gateway-releases metrics", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
@@ -464,6 +466,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
   });
 
+  // Verifies: OBS-RLSD-05.02
   it("omits gateway-releases when the gateway list fails", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     gatewayListMock.mockRejectedValue(new Error("gateway list failed"));
@@ -479,6 +482,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     ).toBeDefined();
   });
 
+  // Verifies: OBS-CPU-08.01, OBS-MEM-08.01, OBS-POD-08.01, WEB-OPS-23.01
   it("aggregates Prometheus dashboard metrics into operational metrics", async () => {
     mockClusterMetricsResponses(
       254468212736,
@@ -623,6 +627,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: WEB-OPS-23.01
   it("maps Prometheus gateway phase counts into display-status buckets", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, {
       Running: 1,
@@ -644,6 +649,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: WEB-OPS-06.01
   it("loads sandbox totals from Prometheus", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
@@ -662,6 +668,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(sandboxesMetric?.value).toBe("5");
   });
 
+  // Verifies: OBS-GPT-01.01, OBS-GPT-08.01
   it("maps gateway provision duration histogram into average, P50, and P95 seconds", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
@@ -682,6 +689,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-GPO-05.01, OBS-GPO-08.01, WEB-OPS-23.03
   it("maps gateway provision outcomes into provision reliability", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
@@ -734,6 +742,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     ).toBeDefined();
   });
 
+  // Verifies: OBS-GPO-06.02
   it("omits provision time when the BFF provision duration route is unavailable", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
@@ -767,6 +776,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     ).toBeDefined();
   });
 
+  // Verifies: OBS-GPO-06.01, WEB-OPS-23.04
   it("omits provision reliability when the BFF provision outcomes route is unavailable", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
@@ -1201,6 +1211,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
   });
 
+  // Verifies: PLAT-INV-02.01, PLAT-INV-09.01
   it("aggregates managed cluster inventory into operational metrics", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
@@ -1267,6 +1278,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: PLAT-INV-02.02
   it("omits platform inventory metrics when the platform-inventory route fails", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     fetchMock.mockImplementation((url: string) => {
@@ -1351,6 +1363,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: PLAT-USR-05.01
   it("maps registered user adoption fields into operational metrics", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
       registeredUsers: {
@@ -1387,6 +1400,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-GFT-05.01
   it("maps gateway daily_fleet_totals into provisioned-gateways trend", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
@@ -1425,6 +1439,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-GFT-05.02
   it("omits provisioned-gateways trend when daily_fleet_totals is absent", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
@@ -1447,6 +1462,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(gatewayMetric?.trend).toBeUndefined();
   });
 
+  // Verifies: OBS-SBXT-06.01
   it("maps sandbox hourly and daily trends onto provisioned-sandboxes", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
@@ -1482,6 +1498,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-SBXA-08.01
   it("maps sandbox attention counts onto provisioned-sandboxes", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
@@ -1515,6 +1532,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-SBXA-08.02
   it("omits absent sandbox attention fields without inventing zeros", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
@@ -1542,6 +1560,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(sandboxMetric).not.toHaveProperty("idleSandboxes");
   });
 
+  // Verifies: OBS-HCUT-07.01, OBS-HCUT-10.01
   it("maps cluster daily_used into memory, cpu, and pods trends", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();
@@ -1602,6 +1621,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: OBS-HCUT-07.02, OBS-HCUT-10.01
   it("omits memory, cpu, and pods trends when daily_used is absent", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
@@ -1624,6 +1644,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  // Verifies: PLAT-USR-14.01
   it("omits optional registered user adoption fields when degraded", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
       registeredUsers: {
@@ -1658,6 +1679,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       { hour: "2026-09-15T13:00", value: 0.085 },
     ];
 
+    // Verifies: OBS-REL-04.01
     it("maps a full API reliability payload into three metrics with hourly trends", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -1715,6 +1737,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       ]);
     });
 
+    // Verifies: OBS-REL-04.02
     it("omits only the missing hourly trend when a historical series is absent", async () => {
       fetchMock.mockResolvedValue({
         ok: true,

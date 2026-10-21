@@ -6,7 +6,7 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-describe("createBrowserHistory base-path handling (GLASS-NAV-19)", () => {
+describe("createBrowserHistory base-path handling (FLT-NAV-19)", () => {
   it("round-trips a reverse-proxy base path across read and push", () => {
     // Simulate the document being served under a base path, deep-linked to a tab.
     window.history.replaceState(null, "", "/glass/e2e?run=t%2Fn%2Fr");

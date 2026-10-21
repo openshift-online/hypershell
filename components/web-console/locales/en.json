@@ -2247,10 +2247,6 @@
     "defaultMessage": "Advanced options",
     "description": "Expandable section containing advanced gateway settings."
   },
-  "app.page.gatewayProvision.anyVersion": {
-    "defaultMessage": "Any version",
-    "description": "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises."
-  },
   "app.page.gatewayProvision.awsProvider": {
     "defaultMessage": "Amazon Web Services",
     "description": "AWS cloud provider option."
@@ -2371,14 +2367,6 @@
     "defaultMessage": "No managed placement is currently available.",
     "description": "Warning shown when no provider or local development placement can be selected."
   },
-  "app.page.gatewayProvision.openShellVersion": {
-    "defaultMessage": "OpenShell version: {version}",
-    "description": "Selected OpenShell version shown in the recommendation card."
-  },
-  "app.page.gatewayProvision.openShellVersionOption": {
-    "defaultMessage": "OpenShell version {version}",
-    "description": "Option label for a selectable OpenShell version."
-  },
   "app.page.gatewayProvision.pending": {
     "defaultMessage": "Provisioning gateway",
     "description": "Accessible progress text while a gateway is provisioning."
@@ -2390,10 +2378,6 @@
   "app.page.gatewayProvision.placementHelp": {
     "defaultMessage": "A matching managed cluster is selected at random for the chosen network and provider.",
     "description": "Explanation of automatic gateway placement."
-  },
-  "app.page.gatewayProvision.provisioningVersionsError": {
-    "defaultMessage": "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
-    "description": "Warning shown when the provisioning-version list cannot be retrieved."
   },
   "app.page.gatewayProvision.publicNetwork": {
     "defaultMessage": "Public",
@@ -2430,10 +2414,6 @@
   "app.page.gatewayProvision.unavailableProvider": {
     "defaultMessage": "{provider} is unavailable: {reason}",
     "description": "Explanation shown when a provider cannot currently accept placement."
-  },
-  "app.page.gatewayProvision.version": {
-    "defaultMessage": "OpenShell version",
-    "description": "Label for the provisioning-version choice on the gateway provision form."
   },
   "app.page.gatewayProvision.vpnNetwork": {
     "defaultMessage": "VPN",

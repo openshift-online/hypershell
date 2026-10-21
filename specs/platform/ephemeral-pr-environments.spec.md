@@ -533,9 +533,11 @@ every later e2e-relevant deployment for that pull request, using the same
 commit is validated against a live environment the same way Kind validates it.
 An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
 OpenShift and SHALL skip `Deploy OpenShift Environment`, using the same
-`plan-images` / `should_run` gate. On failure
-the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
-environment is torn down. The environment SHALL survive the run only when the
+`plan-images` / `should_run` gate. On failure the Go suite SHALL collect the
+environment-independent diagnostics `e2e-testing.spec.md` defines before its
+cleanup runs, and the job SHALL upload the suite-produced files before the
+environment is torn down. The workflow SHALL NOT run a separate `oc` diagnostic
+command list. The environment SHALL survive the run only when the
 pull request is marked retained (see Extend and Destroy Controls); otherwise the
 ephemeral cycle SHALL destroy it after the suite concludes, including on
 failure or cancel. A
@@ -564,7 +566,8 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - GIVEN the e2e suite fails
 - AND the pull request is marked retained
 - WHEN Tests / E2E / OpenShift finishes
-- THEN it SHALL collect the failure diagnostics
+- THEN the Go suite SHALL collect the failure diagnostics and the job SHALL
+  upload the suite-produced files
 - AND the environment SHALL remain deployed for developer inspection
 
 #### Scenario: CICD-PREN-05.03 -- Unretained failing run is torn down
@@ -572,7 +575,8 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - GIVEN the e2e suite fails
 - AND the pull request is not marked retained
 - WHEN Tests / E2E / OpenShift finishes
-- THEN it SHALL collect the failure diagnostics
+- THEN the Go suite SHALL collect the failure diagnostics and the job SHALL
+  upload the suite-produced files
 - AND the ephemeral cycle SHALL destroy the environment
 - AND a developer SHALL `/pr-extend` to redeploy for inspection
 

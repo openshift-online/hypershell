@@ -118,6 +118,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 }
 
+// Verifies: PLAT-DATA-02.02, PLAT-CLUS-06.01, PLAT-CLUS-06.03, PLAT-CLUS-07.02
 func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -291,6 +292,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
+// Verifies: CTRL-WDEL-01.01
 func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -400,6 +402,7 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 // down reaches it only through the ListGateways call it makes once the watch
 // subscription is live. On each fresh connection, that list must return every
 // pre-existing gateway of the caller's cluster and none of another cluster.
+// Verifies: CTRL-CORE-02.03
 func TestGRPCWatchThenListReturnsPreExistingGateways(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

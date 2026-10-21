@@ -140,7 +140,7 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		}
 
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
-			if resource == "service_accounts" || resource == "access" || (r.Method == http.MethodGet && resourceID != "") {
+			if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -280,6 +280,9 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/service_accounts") {
 		return "service_accounts", mux.Vars(r)["service_account_id"]
 	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/sandbox_events") {
+		return "sandbox_events", ""
+	}
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/access") {
 		// Collection, item (/access/{user_id}), and directory (/access/directory)
 		// all resolve to the "access" resource; user_id is empty for the
@@ -330,6 +333,9 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 			}
 		}
 	}
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/sandbox_events") {
+		return "sandbox_events", ""
+	}
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/access") {
 		for i, part := range parts {
 			if part == "access" {
@@ -349,7 +355,7 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
-	if resource == "service_accounts" || resource == "access" {
+	if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" {
 		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
 			return gatewayID
 		}
@@ -431,7 +437,7 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	if resource == "service_accounts" && gatewayID != "" {
 		// Any gateway role can reach the service-accounts API. The handler applies
 		// the finer owner/admin-all vs viewer-own visibility and role-cap rules
-		// (admins are capped like owners -- GAM-11).
+		// (admins are capped like owners -- GTW-ACC-11).
 		for _, binding := range bindings {
 			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
 				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" || binding.RoleName == "gateway:viewer") {
@@ -443,6 +449,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "access" && gatewayID != "" {
 		return isAccessFacadeAuthorized(gatewayID, bindings)
+	}
+
+	if resource == "sandbox_events" && gatewayID != "" {
+		return hasSandboxEventsAccess(gatewayID, bindings)
 	}
 
 	if resource == "role_bindings" {
@@ -484,7 +494,7 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 			return true
 		case "gateway:admin":
 			// Granted administrator: read and update, but never delete the
-			// gateway (GAM-01). Delete requires gateway:owner.
+			// gateway (GTW-ACC-01). Delete requires gateway:owner.
 			if method != http.MethodDelete {
 				return true
 			}
@@ -504,6 +514,21 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 // rules -- owner/admin-only management, owner-tier gating, and last-owner
 // protection -- are enforced in the access facade service (403/409), which can
 // return descriptive messages the middleware cannot.
+// hasSandboxEventsAccess deliberately omits platform:admin. This diagnostic
+// facade is visible only through an explicit gateway binding, so it cannot leak
+// a gateway's existence or sandbox failures to a platform-only administrator.
+func hasSandboxEventsAccess(gatewayID string, bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil && *b.GatewayID == gatewayID {
+			switch b.RoleName {
+			case "gateway:owner", "gateway:admin", "gateway:viewer":
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isAccessFacadeAuthorized(gatewayID string, bindings []BindingSummary) bool {
 	if hasPlatformAdmin(bindings) {
 		return true

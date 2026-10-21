@@ -8,7 +8,7 @@ import (
 )
 
 // DirectoryUser is a candidate from the Keycloak realm directory projection
-// (GAM-09). Subject is the Keycloak user's `sub` (its user UUID).
+// (GTW-ACC-09). Subject is the Keycloak user's `sub` (its user UUID).
 type DirectoryUser struct {
 	Username string
 	Name     string
@@ -17,9 +17,9 @@ type DirectoryUser struct {
 }
 
 // DirectoryResolver serves the Keycloak realm directory projection maintained by
-// the control plane (GAM-09). The API server never reads the Keycloak admin
+// the control plane (GTW-ACC-09). The API server never reads the Keycloak admin
 // Secret; it reads this projection. Search backs the console "Add users" picker;
-// Resolve re-validates a chosen identity against the realm at grant time (GAM-04).
+// Resolve re-validates a chosen identity against the realm at grant time (GTW-ACC-04).
 type DirectoryResolver interface {
 	// Search returns realm candidates whose username or name match query
 	// (case-insensitive substring), bounded by limit.

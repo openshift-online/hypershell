@@ -38,6 +38,7 @@ func clusterCount(client *openapi.APIClient, ctx context.Context) int32 {
 }
 
 // Idempotent Registration and Name change rejected.
+// Verifies: PLAT-CLUS-01.01, PLAT-CLUS-01.02, PLAT-CLUS-01.04
 func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	subject := uniqueName("cp")
@@ -64,6 +65,7 @@ func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 // mixed-version rolling upgrade from disconnecting the cluster or dropping its
 // placement data. See managed-cluster-registration.spec.md, "Capability
 // Deployment Convergence".
+// Verifies: PLAT-CLUS-07.01
 func TestManagedClusterRegistrationAcceptsCapabilityLessHeartbeat(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
@@ -95,6 +97,7 @@ func TestManagedClusterRegistrationAcceptsCapabilityLessHeartbeat(t *testing.T) 
 	Expect(cluster.LastSeenAt).NotTo(BeNil())
 }
 
+// Verifies: PLAT-CLUS-01.03
 func TestManagedClusterRegistrationRestoreRefreshesCapabilities(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
@@ -157,6 +160,7 @@ func TestManagedClusterRegistrationRestorePreservesCapabilitiesOnCapabilityLessH
 // Name Collision Is a Conflict: a name held by a manually created record (empty
 // oidc_subject) is a 409 naming the record, nothing is created or adopted, and
 // deleting the record lets the control plane register (201, new id).
+// Verifies: PLAT-CLUS-02.01, PLAT-CLUS-02.03
 func TestManagedClusterRegistrationNameHeldByManualRecord(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
@@ -193,6 +197,7 @@ func TestManagedClusterRegistrationNameHeldByManualRecord(t *testing.T) {
 
 // Name Collision Is a Conflict: a name registered by another OIDC subject is a
 // 409 and nothing is created or modified.
+// Verifies: PLAT-CLUS-02.02
 func TestManagedClusterRegistrationNameHeldByAnotherControlPlane(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	name := uniqueName("hyp0-mc1")

@@ -92,6 +92,44 @@ describe("mapPromotion", () => {
     expect(data.releases).toEqual([]);
   });
 
+  it("threads capabilities through unchanged, empty when absent", () => {
+    // FLT-CAP-01.01 / 01.02: the wire set is carried verbatim and in order; an
+    // environment that omits it carries an empty set rather than erroring.
+    const data = mapPromotion({
+      order: ["withCaps", "noCaps"],
+      environments: {
+        withCaps: {
+          active: { version: "v1" },
+          capabilities: [
+            "provider/aws",
+            "runtime/kata",
+            "gateway-version/v0.1.2-rhaiv.7",
+          ],
+        },
+        noCaps: { active: { version: "v1" } },
+      },
+    });
+    expect(data.environments.withCaps?.capabilities).toEqual([
+      "provider/aws",
+      "runtime/kata",
+      "gateway-version/v0.1.2-rhaiv.7",
+    ]);
+    expect(data.environments.noCaps?.capabilities).toEqual([]);
+  });
+
+  it("drops empty/non-string capability entries", () => {
+    const data = mapPromotion({
+      order: ["x"],
+      environments: {
+        x: {
+          active: { version: "v1" },
+          capabilities: ["runtime/kata", "", 7, null],
+        },
+      },
+    });
+    expect(data.environments.x?.capabilities).toEqual(["runtime/kata"]);
+  });
+
   it("prefers the bundle digest over the gitops SHA for release identity", () => {
     const data = mapPromotion({
       order: ["delta"],

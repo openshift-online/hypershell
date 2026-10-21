@@ -127,6 +127,7 @@ func TestUpsertGateway_UpdatesWhenChanged(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-14.04
 func TestUpsertGateway_CreatesPinnedWithoutPlacement(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
@@ -147,6 +148,7 @@ func TestUpsertGateway_CreatesPinnedWithoutPlacement(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-14.02
 func TestUpsertGateway_CreatesLateBoundWithCapabilitySelector(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
@@ -176,6 +178,7 @@ func TestUpsertGateway_CreatesLateBoundWithCapabilitySelector(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-14.03
 func TestUpsertGateway_CreatesLateBoundWithLocalKind(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
@@ -198,6 +201,7 @@ func TestUpsertGateway_CreatesLateBoundWithLocalKind(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-14.05
 func TestUpsertGateway_LateBoundNoOpAfterServerAssignsCluster(t *testing.T) {
 	// The server resolved the late-bound gateway to cluster c9 after the first
 	// import. On re-import the rendered manifest still declares only a placement and
@@ -219,6 +223,7 @@ func TestUpsertGateway_LateBoundNoOpAfterServerAssignsCluster(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-14.01
 func TestUpsertGateway_MalformedPlacementReportsError(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}

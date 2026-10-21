@@ -1238,6 +1238,7 @@ gateway-side provisioning failure.
 |--------|------|-----------|
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
+| GET | `/gateways/{gateway_id}/sandbox_events` | Read recent sandbox Events for one gateway (REST only; see `gateway-sandbox-events.spec.md`) |
 | GET/POST | `/gateways/{gateway_id}/service_accounts` | List/Create gateway OpenShellGatewayServiceAccounts |
 | GET/DELETE | `/gateways/{gateway_id}/service_accounts/{service_account_id}` | Get/Delete an OpenShellGatewayServiceAccount |
 | POST | `/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently revoke an OpenShellGatewayServiceAccount |
@@ -1266,7 +1267,7 @@ gateway-side provisioning failure.
 
 ## CLI Reference (`hsctl`)
 
-The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresponding command.
+The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly defines a REST-only endpoint. Gateway sandbox Events are REST only in version 1 (`gateway-sandbox-events.spec.md`); they have no `hsctl` command.
 
 ### API ↔ CLI Mapping
 
@@ -1279,6 +1280,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
 
 #### OpenShellGatewayServiceAccounts
 

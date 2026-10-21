@@ -58,6 +58,7 @@ func singlePageGatewayClient(gws []*pb.Gateway) *fakeGatewayClient {
 func TestBackfillInstanceLabels(t *testing.T) {
 	ctx := context.Background()
 
+	// Verifies: OSG-NSGC-04.01, OSG-NSGC-04.02
 	t.Run("labels legacy namespaces of live gateways and spares foreign ones", func(t *testing.T) {
 		client := fake.NewSimpleClientset(
 			legacyGatewayNamespace("openshell-a"),

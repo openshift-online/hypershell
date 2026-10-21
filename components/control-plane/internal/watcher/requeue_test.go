@@ -178,6 +178,7 @@ func TestReconcileQueue_RecordsOneWaitForCoalescedKey(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-CPL-07.08
 func TestReconcileQueue_ExcludesRetryBackoffFromWait(t *testing.T) {
 	const backoff = 50 * time.Millisecond
 	waits := &durationRecorder{}
@@ -639,6 +640,7 @@ func TestReconcileQueue_PreservedRetryDefersForcedRecoveryUntilSuccess(t *testin
 
 // The queue must never run two reconciles for the same resource concurrently, so a
 // retry can never race a live event for that resource.
+// Verifies: GTW-CONC-02.01
 func TestReconcileQueue_SerializesPerResource(t *testing.T) {
 	h := &recordingHandler{
 		enter:   make(chan struct{}),
@@ -970,6 +972,7 @@ func waitForTombstone(t *testing.T, q *reconcileQueue[string], id string) {
 // must be fully rejected: it cannot resurrect the gateway, replace the tombstone,
 // or set the forced recovery bit. Without the tombstone, removing the key would
 // let this seed find no pending delete and re-provision a gateway that is gone.
+// Verifies: GTW-DEL-05.02
 func TestReconcileQueue_TombstoneBlocksStaleForcedSeedAfterDelete(t *testing.T) {
 	h := &recordingHandler{}
 	transform := func(ev Event[string]) Event[string] {
@@ -1051,7 +1054,7 @@ func TestReconcileQueue_DuplicateDeleteRetainsPayload(t *testing.T) {
 	}
 }
 
-// WithRetryableReason attaches a CRM-007 reason code that retryableReasonFromErr
+// WithRetryableReason attaches a OBS-CRM-07 reason code that retryableReasonFromErr
 // can extract; both wrappers must compose transparently with PreservePayloadForRetry.
 func TestWithRetryableReason(t *testing.T) {
 	base := errors.New("base")
@@ -1104,8 +1107,8 @@ func TestWithRetryableReason(t *testing.T) {
 }
 
 // gatewayWorkerCount clamps a non-positive configured count to the default so the
-// gateway reconcile pool always has at least one worker (CP-CONC-03), and honors
-// any positive value (CP-CONC-01).
+// gateway reconcile pool always has at least one worker (GTW-CONC-03), and honors
+// any positive value (GTW-CONC-01).
 func TestGatewayWorkerCount(t *testing.T) {
 	tests := []struct {
 		name       string

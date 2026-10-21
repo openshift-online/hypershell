@@ -27,6 +27,7 @@ func TestNewGitHubSDLCDisabled(t *testing.T) {
 // time-in-phase start, and rework count are derived from it. This covers the
 // SDLC-VIS-14 scenarios: time-in-phase from the latest phase label event, and a
 // rework count that survives reject-label removal on retry.
+// Verifies: SDLC-VIS-14.01, SDLC-VIS-14.02
 func TestGitHubSDLCRecords(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -129,6 +130,7 @@ func TestGitHubSDLCRecordsListFailure(t *testing.T) {
 // reads the REST issue timeline, collects only cross-referenced events whose source
 // is a pull request, dedupes, caches a non-empty result (no second call), and does
 // NOT cache an empty result (so an as-yet-unlinked record is retried).
+// Verifies: SDLC-VIS-03.05
 func TestGitHubWorkItemPRsTimeline(t *testing.T) {
 	calls := map[int]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

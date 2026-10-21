@@ -159,7 +159,7 @@ describe("TopologyMap details drawer", () => {
     expect(screen.queryByRole("button", { name: "Close details" })).toBeNull();
   });
 
-  it("leaves the drawer open when Escape targets a nested dialog (GLASS-NAV-15)", async () => {
+  it("leaves the drawer open when Escape targets a nested dialog (FLT-NAV-15)", async () => {
     renderApp();
 
     const [node] = await screen.findAllByRole("button", { name: "staging" });

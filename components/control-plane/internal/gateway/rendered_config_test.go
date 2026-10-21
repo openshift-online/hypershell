@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// Verifies: GTW-CFG-01.01, GTW-CFG-01.02, GTW-CFG-01.03
 func TestValidateRenderedGatewayConfig(t *testing.T) {
 	const base = `
 [openshell]

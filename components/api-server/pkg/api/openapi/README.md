@@ -126,6 +126,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListAgentRuntimes**](docs/DefaultAPI.md#listagentruntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
 *DefaultAPI* | [**ListAgentWorkspaces**](docs/DefaultAPI.md#listagentworkspaces) | **Get** /api/hypershell/ext/agent_workspaces | Returns a list of agent workspaces
 *DefaultAPI* | [**ListGatewayAccess**](docs/DefaultAPI.md#listgatewayaccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
+*DefaultAPI* | [**ListGatewaySandboxEvents**](docs/DefaultAPI.md#listgatewaysandboxevents) | **Get** /api/hypershell/v1/gateways/{gateway_id}/sandbox_events | List recent sandbox Kubernetes events for a gateway
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 *DefaultAPI* | [**ListInferenceRoutes**](docs/DefaultAPI.md#listinferenceroutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
@@ -182,6 +183,9 @@ Class | Method | HTTP request | Description
  - [GatewayPlacementAvailabilityItem](docs/GatewayPlacementAvailabilityItem.md)
  - [GatewayPlacementAvailabilityRequest](docs/GatewayPlacementAvailabilityRequest.md)
  - [GatewayPlacementIntent](docs/GatewayPlacementIntent.md)
+ - [GatewaySandboxEvent](docs/GatewaySandboxEvent.md)
+ - [GatewaySandboxEventGroup](docs/GatewaySandboxEventGroup.md)
+ - [GatewaySandboxEventList](docs/GatewaySandboxEventList.md)
  - [InferenceRoute](docs/InferenceRoute.md)
  - [InferenceRouteList](docs/InferenceRouteList.md)
  - [List](docs/List.md)

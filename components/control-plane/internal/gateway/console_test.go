@@ -296,6 +296,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 	ctx := context.Background()
 	const ns = "openshell-abc"
 
+	// Verifies: OSG-CON-05.02
 	t.Run("admitted route is ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
 			routeCondition("Admitted", "True", "RouteAdmitted"),
@@ -382,6 +383,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-CON-05.03
 	t.Run("route without router status is not ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
 		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
@@ -614,6 +616,7 @@ func TestReconcileConsoleSecret_CreatesWhenAbsent(t *testing.T) {
 // be preserved (so live browser sessions survive) while the client-secret is
 // refreshed from Keycloak. Seed the existing secret's Data as a real API server
 // would expose it (StringData is server-converted to Data on write).
+// Verifies: OSG-CON-03.01
 func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 	ctx := context.Background()
 	existing := &corev1.Secret{

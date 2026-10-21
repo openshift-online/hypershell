@@ -62,6 +62,7 @@ function rangePayload(value: string): string {
 }
 
 describe("usage metrics queries", () => {
+  // Verifies: WEB-USE-06.01
   it("scopes gateway usage and preserves daily gaps", async () => {
     const queries: string[] = [];
     const prometheus = await startPrometheusStub((request, response) => {

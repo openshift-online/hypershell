@@ -2,11 +2,10 @@ package authz_test
 
 import (
 	"flag"
+	"log/slog"
 	"os"
 	"runtime"
 	"testing"
-
-	"github.com/golang/glog"
 
 	// Link every plugin the real server links (cmd/hypershell/main.go) so REST
 	// routes, gRPC services, and the RBAC middleware and interceptors all run.
@@ -33,7 +32,7 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("RBAC_ENFORCE", "true")
 	_ = os.Unsetenv("RBAC_DEFAULT_ROLES")
 	_ = os.Setenv("RBAC_SERVICE_ACCOUNTS", allowlistedAccount)
-	glog.Infof("Starting authz integration test using go version %s", runtime.Version())
+	slog.Info("Starting authz integration test", "go_version", runtime.Version())
 	helper := test.NewHelper(&testing.T{})
 	exitCode := m.Run()
 	helper.Teardown()

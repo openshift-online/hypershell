@@ -104,6 +104,7 @@ describe("gateway trace sink", () => {
     });
   });
 
+  // Verifies: WEB-TRC-01.01
   it("adopts the probe trace id and nests the dependency under the workflow", () => {
     sink.sink.publish(probe("gateway.workflow.started"));
     sink.sink.publish(probe("gateway.dependency.attempted"));
@@ -232,6 +233,7 @@ describe("gateway trace sink", () => {
     expect(harness.exporter.getFinishedSpans()).toHaveLength(0);
   });
 
+  // Verifies: WEB-TRC-07
   it("keeps high-cardinality and sensitive values out of every exported span", () => {
     // A correlation identifier is opaque and high-cardinality; treat it as a
     // stand-in for any secret that must never reach the collector.
@@ -302,6 +304,7 @@ describe("createGatewayTracing flush on page hide", () => {
     setVisibility("visible");
   });
 
+  // Verifies: WEB-TRC-09
   it("flushes buffered spans on hidden visibilitychange and on pagehide", async () => {
     const flush = vi
       .spyOn(BasicTracerProvider.prototype, "forceFlush")
@@ -414,6 +417,7 @@ describe("createGatewayTracing delivery health", () => {
     await tracing.shutdown();
   });
 
+  // Verifies: WEB-TRC-09
   it("reports every span dropped by an overflowing queue", () => {
     // A queue that holds one span plus an exporter that never drains it forces
     // the batch processor to drop every subsequent span. Those drops never
@@ -461,6 +465,7 @@ describe("createGatewayTracing delivery health", () => {
     }
   });
 
+  // Verifies: WEB-TRC-09
   it("reports a wedged exporter that never acknowledges a batch", async () => {
     // The exporter accepts the batch and never calls back. The processor's own
     // export timeout would reject the flush without accounting the loss; the

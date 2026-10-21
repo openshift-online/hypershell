@@ -142,6 +142,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.03
 	t.Run("skips an unmanaged namespace", func(t *testing.T) {
 		unmanaged := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "shared"}}
 		client := fake.NewSimpleClientset(unmanaged)
@@ -157,6 +158,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.02
 	t.Run("absent namespace is a no-op success", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		deleted, err := DeleteManagedNamespace(ctx, client, "gone", "hypershell")
@@ -168,6 +170,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.04
 	t.Run("skips a foreign instance namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "stage", nil))
 		deleted, err := DeleteManagedNamespace(ctx, client, "openshell-gw", "hypershell")
@@ -197,6 +200,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 func TestEnsureManagedNamespace(t *testing.T) {
 	ctx := context.Background()
 
+	// Verifies: OSG-NSGC-03.01
 	t.Run("creates with instance label", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		if err := EnsureManagedNamespace(ctx, client, "openshell-gw", "hypershell"); err != nil {
@@ -228,6 +232,7 @@ func TestEnsureManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-03.03
 	t.Run("refuses a foreign instance namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "stage", nil))
 		if err := EnsureManagedNamespace(ctx, client, "openshell-gw", "hypershell"); err == nil {
@@ -253,6 +258,7 @@ func TestEnsureManagedNamespace(t *testing.T) {
 func TestBackfillInstanceLabel(t *testing.T) {
 	ctx := context.Background()
 
+	// Verifies: OSG-NSGC-04.01
 	t.Run("stamps instance on legacy managed namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "", nil))
 		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
@@ -322,6 +328,7 @@ func TestBackfillInstanceLabel(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-04.03
 	t.Run("never creates an absent namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gone", "hypershell")

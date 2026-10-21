@@ -60,7 +60,7 @@ const configSchema = z.object({
     .default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
   // Tracing is optional: when the collector endpoint is absent the BFF starts
-  // normally with tracing disabled and readiness unaffected (WEB-TRACE-06).
+  // normally with tracing disabled and readiness unaffected (WEB-TRC-06).
   OTEL_EXPORTER_OTLP_ENDPOINT: httpUrl.optional(),
   OTEL_SERVICE_NAME: z
     .string()

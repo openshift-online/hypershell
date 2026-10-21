@@ -230,7 +230,7 @@ export function bundlePRCount(row: AgentSdlcBundleRow): number {
 }
 
 /**
- * One card phase-transition flight (SDLC-VIS-12a/12b): the board analogue of the map's
+ * One card phase-transition flight (SDLC-VIS-20/SDLC-VIS-21): the board analogue of the map's
  * Flight. The whole card flies from its old column slot to its new one.
  */
 export interface CardFlight {
@@ -259,7 +259,7 @@ function shippedNumbers(data: AgentSdlcData): Set<number> {
 /**
  * Phase-transition flights for the transition prev -> next, derived PURELY by diffing
  * the two already-fetched SDLC snapshots (the board analogue of the map's computeFlights,
- * SDLC-VIS-12b). A flight is emitted when a card's server `phase` changes between the
+ * SDLC-VIS-21). A flight is emitted when a card's server `phase` changes between the
  * snapshots, when a card newly appears on the board (intake entry), or when a board card
  * leaves into the Shipped matrix. Detection keys off the server `phase` ONLY (never the
  * continuously aged copy), so the one-second continuous-aging re-render does not spuriously

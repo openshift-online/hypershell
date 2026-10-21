@@ -2,8 +2,8 @@ package gateways
 
 import (
 	"encoding/json"
+	"log/slog"
 
-	"github.com/golang/glog"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -70,7 +70,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*d.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", d.ID, err)
+			slog.Warn("failed to unmarshal provisioning_conditions", "gateway_id", d.ID, "error", err)
 		} else {
 			for _, c := range conditions {
 				gw.ProvisioningConditions = append(gw.ProvisioningConditions, &pb.ProvisioningCondition{
@@ -111,7 +111,7 @@ func conditionStatusFromProto(s pb.ProvisioningConditionStatus) string {
 	case pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED:
 		return "Failed"
 	default:
-		glog.Warningf("unknown ProvisioningConditionStatus enum value: %d", int32(s))
+		slog.Warn("unknown ProvisioningConditionStatus enum value", "status", int32(s))
 		return "Pending"
 	}
 }

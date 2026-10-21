@@ -80,11 +80,8 @@ const getGatewayPlacementAvailability = (
     })),
   });
 
-const getGatewayProvisioningVersions = () => Promise.resolve(["1.2.3"]);
-
 const gatewayOperations = {
   getGatewayPlacementAvailability,
-  getGatewayProvisioningVersions,
   provisionGateway: () => Promise.resolve(previewGateway),
 } as unknown as GatewayOperations;
 
@@ -97,10 +94,8 @@ const navigation: GatewayUiNavigation = {
 
 function GatewayCreatePreview({
   availability = placementAvailability,
-  versionListError = false,
 }: {
   availability?: GatewayPlacementAvailability;
-  versionListError?: boolean;
 }) {
   const operationsForStory = {
     ...gatewayOperations,
@@ -108,9 +103,6 @@ function GatewayCreatePreview({
       availability === placementAvailability
         ? getGatewayPlacementAvailability
         : () => Promise.resolve(availability),
-    getGatewayProvisioningVersions: versionListError
-      ? () => Promise.reject(new Error("Versions unavailable"))
-      : getGatewayProvisioningVersions,
   } as GatewayOperations;
   return (
     <GatewayUiProvider gateways={operationsForStory} navigation={navigation}>
@@ -202,25 +194,5 @@ export const VpnUnavailable: Story = {
       "VPN is unavailable: no eligible managed cluster is connected.",
     );
     await expect(vpnReason.className).toContain("visuallyHidden");
-  },
-};
-
-export const VersionListUnavailable: Story = {
-  render: () => <GatewayCreatePreview versionListError />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await userEvent.click(canvas.getByRole("radio", { name: "No" }));
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Advanced options" }),
-    );
-    await expect(
-      canvas.getByText(
-        "Provisioning versions could not be loaded. Only Any version is available until they can be verified.",
-      ),
-    ).toBeVisible();
-    await expect(
-      canvas.getByRole("combobox", { name: "OpenShell version" }),
-    ).toHaveValue("");
   },
 };

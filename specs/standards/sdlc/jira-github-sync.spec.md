@@ -801,7 +801,7 @@ the Closed-record Done path; no manual Jira edit is required.
   epic for the Closed record `#524`) reaches `Done`. An open record with no merged
   pull request stays `In Progress`. Re-running changes nothing.
 
-#### Scenario: GitHub-first item converges on merge
+#### Example: GitHub-first item converges on merge
 
 - GIVEN an in-scope GitHub-first execution record with no Jira counterpart
 - WHEN the funnel runs
@@ -810,7 +810,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND on merge the execution record is closed and the Jira item is projected to
   the `Done` category
 
-#### Scenario: Scope run self-heals the stranded GitHub-origin record
+#### Example: Scope run self-heals the stranded GitHub-origin record
 
 - GIVEN `#537`, a GitHub-origin execution record whose pull request `#538` is
   merged but which is still Open and has no Jira counterpart
@@ -820,7 +820,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND `#537` is closed
 - AND re-running makes no further change
 
-#### Scenario: Jira epic drives a full run
+#### Example: Jira epic drives a full run
 
 - GIVEN the Jira epic `HYPERSHELL-374` in a configured Jira source
 - WHEN `execute-sdlc` runs with scope `agent/scope/mturansk`
@@ -829,7 +829,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND the Jira item ends with the mapped status, the pull request as a remote
   link, attributed phase comments, and an unchanged assignee
 
-#### Scenario: Two origins converge
+#### Example: Two origins converge
 
 - GIVEN one GitHub-origin issue and one Jira-origin story of equal intent
 - WHEN each is run through the funnel

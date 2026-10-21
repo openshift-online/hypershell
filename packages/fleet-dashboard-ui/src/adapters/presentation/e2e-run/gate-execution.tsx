@@ -28,7 +28,7 @@ export interface GateExecutionProps {
   readonly showHistoryLink?: boolean;
 }
 
-/** Build the gate execution controls from the route (GLASS-NAV-11). */
+/** Build the gate execution controls from the route (FLT-NAV-11). */
 function useGateExecControls(): ExecControls {
   const route = useRoute();
   const { navigate } = useRouter();
@@ -56,7 +56,7 @@ function useGateExecControls(): ExecControls {
   );
 }
 
-// The gate's pinned attempt lives in the route (GLASS-NAV-10): the explicit
+// The gate's pinned attempt lives in the route (FLT-NAV-10): the explicit
 // live/latest mode (attempt null) follows the current attempt, while a pinned
 // attempt keeps addressing that attempt even after a retry arrives.
 export function GateExecution({
@@ -71,7 +71,7 @@ export function GateExecution({
   const route = useRoute();
   const { navigate } = useRouter();
   const controls = useGateExecControls();
-  // GLASS-NAV-10: three attempt modes. `null` is a fresh open that auto-pins the
+  // FLT-NAV-10: three attempt modes. `null` is a fresh open that auto-pins the
   // current attempt so a later retry does not drift it (E2E-LOG-12). The explicit
   // live sentinel follows the current attempt and never auto-pins. Any other value
   // is a pinned run address.
@@ -85,7 +85,7 @@ export function GateExecution({
   const pinAttempt = useCallback(
     (id: string) => {
       // Pinning the auto-selected attempt establishes canonical state; it replaces
-      // rather than adding a Back step (GLASS-NAV-10).
+      // rather than adding a Back step (FLT-NAV-10).
       navigate({ type: "gatePin", attempt: id }, { replace: true });
     },
     [navigate],
@@ -157,7 +157,7 @@ export function GateExecution({
             key={runId}
             runId={runId}
             // Auto-pin only on a fresh open (no attempt in the URL); live mode and an
-            // already-pinned attempt keep their explicit state (GLASS-NAV-10).
+            // already-pinned attempt keep their explicit state (FLT-NAV-10).
             onPin={attempt === null ? pinAttempt : undefined}
             promotion={promotion}
             controls={controls}
@@ -169,7 +169,7 @@ export function GateExecution({
 }
 
 // A real link into E2E history for the current attempt, so copy-link, open-in-new-tab,
-// and Ctrl/Cmd-click work while a plain click navigates in place (GLASS-NAV-08).
+// and Ctrl/Cmd-click work while a plain click navigates in place (FLT-NAV-08).
 function GateHistoryLink({ runId }: { runId: string }): React.ReactElement {
   const intl = useIntl();
   const link = useNavLink({ type: "openHistory", run: runId });

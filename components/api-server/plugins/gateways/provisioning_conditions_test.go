@@ -270,6 +270,7 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 	Expect(got.Gateway.ProvisioningConditions[1].Message).To(Equal(failureMessage))
 }
 
+// Verifies: GTW-PROG-01.03
 func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()

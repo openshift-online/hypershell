@@ -326,7 +326,7 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
-		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// The Keycloak realm directory projection (GTW-ACC-09) rides the same private
 		// in-cluster channel. It needs Keycloak, so it is served only when a
 		// Keycloak client is configured; the API server dials this one address for
 		// both the provisioner and the directory.
@@ -574,8 +574,12 @@ func main() {
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")
+
+			sandboxEventsReconciler := reconciler.NewSandboxEventsReconciler(clientset, dynamicClient, conn, 0, clusterID, 0)
+			supervise("sandbox events reconciler", sandboxEventsReconciler.Run)
+			log.Printf("INFO sandbox events reconciler launched")
 		} else {
-			log.Printf("WARN no dynamic client available, sandbox attention reconciliation disabled")
+			log.Printf("WARN no dynamic client available, sandbox attention and events reconciliation disabled")
 		}
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")

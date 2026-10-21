@@ -15,7 +15,7 @@ import (
 const directoryCallTimeout = 30 * time.Second
 
 // grpcDirectoryResolver reads the control-plane Keycloak directory projection
-// over the private in-cluster gRPC channel (GAM-09). It mirrors the
+// over the private in-cluster gRPC channel (GTW-ACC-09). It mirrors the
 // service-account provisioner client's plaintext in-cluster dial.
 type grpcDirectoryResolver struct {
 	client provisionerpb.DirectoryServiceClient

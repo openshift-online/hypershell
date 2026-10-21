@@ -129,10 +129,10 @@ export function TopologyMap({
     recenter,
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
-  // The node/gate selection lives in the URL (GLASS-NAV-09); the shared bundle
+  // The node/gate selection lives in the URL (FLT-NAV-09); the shared bundle
   // selection arrives as a prop (route.bundle). The drawer's selection is derived:
   // a node/gate takes the drawer, otherwise the shared bundle fills it. One source of
-  // truth per concern (the URL), no mirrored local state (GLASS-NAV-05).
+  // truth per concern (the URL), no mirrored local state (FLT-NAV-05).
   const route = useRoute();
   const { navigate } = useRouter();
   const selection: MapSelection | null = useMemo(() => {
@@ -149,7 +149,7 @@ export function TopologyMap({
   }, [route.map.node, route.map.gate, selectedBundleSeed]);
 
   // Close the drawer, clearing the node/gate selection and the shared bundle that
-  // otherwise fills it (GLASS-NAV-09).
+  // otherwise fills it (FLT-NAV-09).
   const closeSelection = () => {
     navigate({ type: "mapClose" });
   };
@@ -203,7 +203,7 @@ export function TopologyMap({
     return new Set(deployedFor(bundle, model.nodes).map((n) => n.id));
   }, [promotion.releaseByDigest, model.nodes, selectedBundleSeed]);
 
-  // Selecting a node/gate is a discrete navigation step (GLASS-NAV-09). The pan guard
+  // Selecting a node/gate is a discrete navigation step (FLT-NAV-09). The pan guard
   // keeps a drag from registering as a click; the reducer handles toggle-off and the
   // node/gate mutual exclusion. The shared bundle stays selected but a node/gate wins
   // the drawer (see the `selection` derivation above), so one thing shows at a time.

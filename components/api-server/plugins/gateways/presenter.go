@@ -2,9 +2,9 @@ package gateways
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
@@ -36,7 +36,7 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 
 // gatewayImagePinned reports whether the gateway pins an explicit image. A
 // pinned gateway may intentionally run a version unrelated to its cluster's
-// provisioning version, so the console suppresses drift for it (GVV-03).
+// provisioning version, so the console suppresses drift for it (WEB-VER-03).
 func gatewayImagePinned(gateway *Gateway) bool {
 	return gateway.Image != nil && strings.TrimSpace(*gateway.Image) != ""
 }
@@ -107,7 +107,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.ID, err)
+			slog.Warn("failed to unmarshal provisioning_conditions", "gateway_id", gateway.ID, "error", err)
 		} else {
 			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
 			for _, c := range conditions {

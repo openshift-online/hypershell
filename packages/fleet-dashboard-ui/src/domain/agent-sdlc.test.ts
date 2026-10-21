@@ -74,6 +74,7 @@ describe("agingScaleSeconds / agingRatio", () => {
 });
 
 describe("reworkRatio / reworkSeverity", () => {
+  // Verifies: SDLC-VIS-09.01
   it("fills proportionally to its own threshold", () => {
     expect(reworkRatio({ count: 2, threshold: 3 })).toBeCloseTo(2 / 3);
     expect(reworkRatio({ count: 7, threshold: 10 })).toBeCloseTo(0.7);
@@ -248,9 +249,10 @@ describe("computeCardFlights", () => {
     ]);
   });
 
+  // Verifies: SDLC-VIS-21.01
   it("does NOT emit a flight when only the aged time-in-phase changes (same phase)", () => {
     // The continuous-aging re-render advances timeInPhaseSeconds but never the server
-    // phase, so diffing on phase alone emits nothing (SDLC-VIS-12b).
+    // phase, so diffing on phase alone emits nothing (SDLC-VIS-21).
     const prev = data([
       card({ number: 1, phase: "spec", timeInPhaseSeconds: 10 }),
     ]);

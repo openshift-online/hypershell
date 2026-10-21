@@ -94,7 +94,7 @@ fi
 
 # Keycloak --import-realm does not update existing users when keycloak.yaml
 # gains new realm roles. Reconcile before minting tokens so admin/admin carries
-# platform:admin for dashboard access (OP-DASH-04).
+# platform:admin for dashboard access (WEB-OPS-04).
 reconcile_keycloak_seed_users
 
 # Obtain a Bearer token from Keycloak for API calls.

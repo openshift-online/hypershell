@@ -426,6 +426,7 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 // the resolved coordinates land under server.credentialDrivers.vault.*, the CA
 // ConfigMap is referenced only when HasVaultCA, and a projected ServiceAccount
 // token scoped to the `vault` audience is injected via the extraVolumes hooks.
+// Verifies: OSG-CRED-06.01
 func TestBuild_VaultCredentialDriver(t *testing.T) {
 	newVault := func() *VaultValues {
 		return &VaultValues{

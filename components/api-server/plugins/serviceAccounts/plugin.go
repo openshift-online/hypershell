@@ -2,13 +2,13 @@ package serviceAccounts
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -28,7 +28,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 		once.Do(func() {
 			provisioner, err := newControlPlaneProvisionerFromEnvironment()
 			if err != nil {
-				glog.Warningf("OpenShell gateway service-account provisioner is not configured: %v", err)
+				slog.Warn("OpenShell gateway service-account provisioner is not configured", "error", err)
 			}
 			service = NewService(
 				NewServiceAccountDao(&env.Database.SessionFactory),
@@ -98,7 +98,7 @@ func runReconciler(service Service, interval time.Duration) {
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), interval)
 		if err := service.ReconcileOnce(ctx); err != nil {
-			glog.Warning("OpenShell gateway service-account reconciliation failed")
+			slog.WarnContext(ctx, "OpenShell gateway service-account reconciliation failed", "error", err)
 		}
 		cancel()
 		<-ticker.C

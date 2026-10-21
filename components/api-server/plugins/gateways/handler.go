@@ -3,12 +3,12 @@ package gateways
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -94,7 +94,7 @@ func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []s
 	}
 	versions, svcErr := h.clusterVersions(ctx, clusterIDs)
 	if svcErr != nil {
-		h.logProvisioningVersionLookupFailure(svcErr)
+		h.logProvisioningVersionLookupFailure(ctx, svcErr)
 		return map[string]string{}
 	}
 	return versions
@@ -103,9 +103,9 @@ func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []s
 // logProvisioningVersionLookupFailure records a provisioning-version lookup
 // failure at most once per provisioningVersionLogInterval. It logs only the
 // error, which carries no secret material.
-func (h gatewayHandler) logProvisioningVersionLookupFailure(err error) {
+func (h gatewayHandler) logProvisioningVersionLookupFailure(ctx context.Context, err error) {
 	if h.versionLogThrottle.allow() {
-		glog.Warningf("gateway provisioning-version enrichment failed; gateway versions degraded to absent: %v", err)
+		slog.WarnContext(ctx, "gateway provisioning-version enrichment failed; gateway versions degraded to absent", "error", err)
 	}
 }
 
@@ -189,7 +189,7 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 // selector so the API server can re-evaluate it, assigns a resolved cluster_id when
 // an eligible cluster matches, and otherwise leaves the gateway unplaced in the
 // Pending phase with an awaiting-placement status so it binds when a matching
-// cluster appears (gateway-provision-placement.spec.md GP-07).
+// cluster appears (gateway-provision-placement.spec.md WEB-PLC-07).
 func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent, model *Gateway) *errors.ServiceError {
 	if placementErr := validatePlacementIntent(intent); placementErr != nil {
 		return placementErr
@@ -510,8 +510,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 			userID := rbac.GetUserIDFromContext(ctx)
 			if rbac.HasPlatformAdminRole(ctx, userID) {
 				username := auth.GetUsernameFromContext(ctx)
-				glog.Infof("platform:admin action=view gateway_id=%s gateway_name=%s user=%s user_id=%s",
-					gateway.ID, gateway.Name, username, userID)
+				slog.InfoContext(ctx, "platform:admin action", "action", "view", "gateway_id", gateway.ID, "gateway_name", gateway.Name, "user", username, "user_id", userID)
 			}
 
 			bindings := h.callerBindings(ctx)
@@ -547,8 +546,7 @@ func (h gatewayHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 			if isPlatformAdmin {
 				username := auth.GetUsernameFromContext(ctx)
-				glog.Infof("platform:admin action=delete gateway_id=%s gateway_name=%s user=%s user_id=%s",
-					id, gatewayName, username, userID)
+				slog.InfoContext(ctx, "platform:admin action", "action", "delete", "gateway_id", id, "gateway_name", gatewayName, "user", username, "user_id", userID)
 			}
 
 			return nil, nil
@@ -565,6 +563,6 @@ func (h gatewayHandler) MetricsGateways(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"counts": counts}); err != nil {
-		glog.Errorf("Failed to encode gateway metrics response: %v", err)
+		slog.ErrorContext(r.Context(), "Failed to encode gateway metrics response", "error", err)
 	}
 }

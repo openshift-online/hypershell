@@ -604,16 +604,14 @@ mirroring), unset `GATEWAY_INGRESS_MODE` (or set it to `gateway-api`) and comple
 the shared-Gateway bootstrap; the control plane then emits `GRPCRoute`s and cleans
 up the Routes. The AWS reference (`gateway-api` mode) is unchanged.
 
-### Requirement: PLAT-ARCH-01 -- s
-
-#### Requirement: Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
+### Requirement: PLAT-ARCH-05 -- Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
 
 In `gateway-api` mode, tenant gateway traffic SHALL be routed through the
 Kubernetes Gateway API using a single shared `Gateway` (`openshell-grpc-gateway`)
 in the `openshift-ingress` namespace. In this mode tenant gateways SHALL NOT use
 OpenShift `Route` objects for data-plane gRPC traffic.
 
-##### Scenario: Gateway provisioning creates a GRPCRoute
+#### Scenario: PLAT-ARCH-05.01 -- Gateway provisioning creates a GRPCRoute
 
 - GIVEN a cluster in `gateway-api` mode with the `openshift-default` GatewayClass and the shared `openshell-grpc-gateway`
 - WHEN the control plane provisions a new tenant gateway
@@ -621,7 +619,7 @@ OpenShift `Route` objects for data-plane gRPC traffic.
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
 
-#### Requirement: Tenant Gateway Ingress via OpenShift Route (`route` mode)
+### Requirement: PLAT-ARCH-06 -- Tenant Gateway Ingress via OpenShift Route (`route` mode)
 
 In `route` mode, tenant gateway traffic SHALL be exposed through an OpenShift
 `Route`. The TLS termination of that `Route` SHALL be selectable via the
@@ -649,7 +647,7 @@ OIDC remains the sole client authentication. gRPC over a `reencrypt` `Route`
 therefore requires the router to negotiate HTTP/2 to the backend, so the cluster
 `IngressController` SHALL have HTTP/2 enabled (see § Route Reencrypt Prerequisites).
 
-##### Scenario: Gateway provisioning creates a passthrough Route
+#### Scenario: PLAT-ARCH-06.01 -- Gateway provisioning creates a passthrough Route
 
 - GIVEN a cluster in `route` mode (`GATEWAY_INGRESS_MODE=route`) with `GATEWAY_ROUTE_TERMINATION` unset or `passthrough`
 - WHEN the control plane provisions a new tenant gateway with ingress enabled
@@ -658,7 +656,7 @@ therefore requires the router to negotiate HTTP/2 to the backend, so the cluster
 - AND it SHALL publish `grpcs://<host>:443` as the gateway's route address
 - AND it SHALL NOT create a `GRPCRoute`, shared `Gateway`, or `BackendTLSPolicy`
 
-##### Scenario: Gateway provisioning creates a reencrypt Route
+#### Scenario: PLAT-ARCH-06.02 -- Gateway provisioning creates a reencrypt Route
 
 - GIVEN a cluster in `route` mode with `GATEWAY_ROUTE_TERMINATION=reencrypt` and a per-namespace `openshell-server-tls` secret carrying `ca.crt`
 - WHEN the control plane provisions a new tenant gateway with ingress enabled
@@ -666,20 +664,20 @@ therefore requires the router to negotiate HTTP/2 to the backend, so the cluster
 - AND it SHALL set `spec.tls.destinationCACertificate` to the `ca.crt` of `openshell-server-tls`
 - AND it SHALL NOT set `spec.tls.certificate` or `spec.tls.key` (the router serves its default trusted wildcard)
 
-##### Scenario: Reencrypt without the server CA fails closed
+#### Scenario: PLAT-ARCH-06.03 -- Reencrypt without the server CA fails closed
 
 - GIVEN a cluster in `route` mode with `GATEWAY_ROUTE_TERMINATION=reencrypt` where the `openshell-server-tls` secret has no `ca.crt` yet
 - WHEN the control plane reconciles the tenant gateway
 - THEN it SHALL return an error and SHALL NOT create the `Route` (a reencrypt `Route` without a `destinationCACertificate` would let the router skip backend validation)
 
-##### Scenario: Disabling ingress removes the mode's routing objects
+#### Scenario: PLAT-ARCH-06.04 -- Disabling ingress removes the mode's routing objects
 
 - GIVEN a provisioned tenant gateway with a routing object for the active mode
 - WHEN ingress is disabled (`route.enabled=false`) or the gateway is deleted
 - THEN the control plane SHALL delete the tenant's `Route` (route mode) or `GRPCRoute`/`BackendTLSPolicy` (gateway-api mode) and the `openshell-gateway-allow-router` NetworkPolicy
 - AND it SHALL clear the gateway's route address
 
-#### Requirement: Cloud-Agnostic Gateway Manifests
+### Requirement: PLAT-ARCH-07 -- Cloud-Agnostic Gateway Manifests
 
 The `Gateway`, `GRPCRoute`, `Certificate`, and `ClusterIssuer` manifests SHALL be
 identical across clouds except for the per-environment base domain and TLS secret
@@ -687,20 +685,20 @@ name. The external load balancer SHALL be provisioned automatically by the cloud
 CCM from the operator-created `Service type: LoadBalancer`; no per-cloud load
 balancer manifest SHALL be required.
 
-##### Scenario: IBM Cloud provisions a VPC LB from the same Gateway
+#### Scenario: PLAT-ARCH-07.01 -- IBM Cloud provisions a VPC LB from the same Gateway
 
 - GIVEN the shared `Gateway` manifest applied on a ROKS VPC Gen2 cluster
 - WHEN the Cluster Ingress Operator reconciles it
 - THEN IBM Cloud CCM SHALL provision a VPC Load Balancer (`*.lb.appdomain.cloud`)
 - AND the `Gateway` status SHALL report `Programmed=True` with the LB hostname as its address
 
-#### Requirement: Wildcard TLS via Central Route53 DNS-01
+### Requirement: PLAT-ARCH-08 -- Wildcard TLS via Central Route53 DNS-01
 
 Wildcard certificates for the `example.com` base domain SHALL be issued by
 cert-manager using the ACME DNS-01 challenge against the central Route53
 `example.com` hosted zone, independent of the cluster's cloud provider.
 
-#### Requirement: Control Plane Ingress Mode
+### Requirement: PLAT-ARCH-09 -- Control Plane Ingress Mode
 
 The control plane's ingress mode (`gateway-api` vs `route`) SHALL be
 configuration-driven, not cloud-hardcoded, so the same binary produces `GRPCRoute`s
@@ -709,19 +707,19 @@ selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
 `none`), overridable per environment through a kustomize overlay
 (`deploy/openshift` defaults to `gateway-api`; `deploy/ibm` sets `route`).
 
-##### Scenario: Explicit mode overrides auto-detection
+#### Scenario: PLAT-ARCH-09.01 -- Explicit mode overrides auto-detection
 
 - GIVEN a cluster where the Gateway API CRDs are present but non-functional (ROKS)
 - WHEN `GATEWAY_INGRESS_MODE=route` is set
 - THEN the control plane SHALL provision OpenShift `Route`s and SHALL NOT attempt Gateway API resources
 
-##### Scenario: Auto-detection when no mode is set
+#### Scenario: PLAT-ARCH-09.02 -- Auto-detection when no mode is set
 
 - GIVEN `GATEWAY_INGRESS_MODE` is unset
 - WHEN the control plane reconciles a gateway
 - THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise `route` on OpenShift, otherwise skip managed ingress
 
-#### Requirement: Route Reencrypt Prerequisites
+### Requirement: PLAT-ARCH-10 -- Route Reencrypt Prerequisites
 
 The `reencrypt` Route termination (`GATEWAY_ROUTE_TERMINATION=reencrypt`) SHALL be
 configuration-driven and SHALL default off (`passthrough`), so existing `route`-mode
@@ -747,19 +745,19 @@ certificate), so it fixes `UnknownIssuer` but still cannot serve gRPC. Serving
 client HTTP/2 additionally requires a per-gateway Route certificate (see
 § Per-Gateway Route Certificate for Client-Facing HTTP/2).
 
-##### Scenario: Termination defaults to passthrough on existing clusters
+#### Scenario: PLAT-ARCH-10.01 -- Termination defaults to passthrough on existing clusters
 
 - GIVEN a `route`-mode cluster where `GATEWAY_ROUTE_TERMINATION` is unset
 - WHEN the control plane provisions a tenant gateway
 - THEN it SHALL create a `passthrough` Route, preserving the prior ROKS behavior
 
-##### Scenario: Reencrypt requires no additional RBAC
+#### Scenario: PLAT-ARCH-10.02 -- Reencrypt requires no additional RBAC
 
 - GIVEN a `route`-mode cluster switched to `GATEWAY_ROUTE_TERMINATION=reencrypt`
 - WHEN the control plane reads `ca.crt` from the `openshell-server-tls` secret to populate `destinationCACertificate`
 - THEN it SHALL use the existing secret-read permission (the same one the `BackendTLSPolicy` path uses) and SHALL NOT require a new Role or ClusterRole rule
 
-#### Requirement: Per-Gateway Route Certificate for Client-Facing HTTP/2
+### Requirement: PLAT-ARCH-11 -- Per-Gateway Route Certificate for Client-Facing HTTP/2
 
 To serve gRPC to external clients over a `reencrypt` Route, the control plane
 SHALL support a `GATEWAY_ROUTE_TLS_ISSUER` env var naming a cert-manager
@@ -783,33 +781,33 @@ the other's fields (which would otherwise flap ALPN `h2`, and hence gRPC, on eve
 reconcile). This introduces no new control-plane RBAC: issuance is performed by
 the openshift-routes controller, not the control plane.
 
-##### Scenario: Issuer set annotates the Route for cert-manager
+#### Scenario: PLAT-ARCH-11.01 -- Issuer set annotates the Route for cert-manager
 
 - GIVEN a `route`-mode cluster with `GATEWAY_ROUTE_TERMINATION=reencrypt` and `GATEWAY_ROUTE_TLS_ISSUER=letsencrypt-http01`
 - WHEN the control plane provisions a tenant gateway
 - THEN the `openshell-gateway` Route SHALL carry annotations `cert-manager.io/issuer-name: letsencrypt-http01` and `cert-manager.io/issuer-kind: ClusterIssuer`
 - AND the control plane SHALL still own `spec.tls.termination: reencrypt` and `destinationCACertificate`
 
-##### Scenario: Issuer unset keeps the shared wildcard
+#### Scenario: PLAT-ARCH-11.02 -- Issuer unset keeps the shared wildcard
 
 - GIVEN a `route`-mode reencrypt cluster where `GATEWAY_ROUTE_TLS_ISSUER` is unset
 - WHEN the control plane provisions a tenant gateway
 - THEN the Route SHALL carry no `cert-manager.io/*` annotation and SHALL rely on the router's default `*.apps` wildcard (trusted TLS, but the router will not advertise ALPN `h2` to clients)
 
-##### Scenario: Reconcile preserves an injected edge certificate
+#### Scenario: PLAT-ARCH-11.03 -- Reconcile preserves an injected edge certificate
 
 - GIVEN a `reencrypt` Route whose `spec.tls.certificate`/`key` were injected by the openshift-routes controller
 - WHEN the control plane reconciles the tenant gateway again
 - THEN it SHALL carry the injected `certificate` and `key` forward unchanged
 - AND it SHALL continue to own `termination` and `destinationCACertificate`
 
-##### Scenario: Issuer is ignored without reencrypt
+#### Scenario: PLAT-ARCH-11.04 -- Issuer is ignored without reencrypt
 
 - GIVEN a `route`-mode cluster with `GATEWAY_ROUTE_TLS_ISSUER` set but `GATEWAY_ROUTE_TERMINATION` unset or `passthrough`
 - WHEN the control plane provisions a tenant gateway
 - THEN the Route SHALL NOT carry the cert-manager annotations
 
-#### Requirement: cert-manager Is a Mode-Independent Prerequisite
+### Requirement: PLAT-ARCH-12 -- cert-manager Is a Mode-Independent Prerequisite
 
 Every tenant gateway SHALL depend on cert-manager for its per-tenant PKI: a
 namespaced `Issuer` (`openshell-ca`) and `Certificate`s minting the gateway's own
@@ -818,13 +816,13 @@ mode removes only the ingress-layer wildcard certificate/`ClusterIssuer`/Route53
 not the pod-TLS layer. The control plane SHALL fail closed when cert-manager is
 absent.
 
-##### Scenario: Reconcile blocks without cert-manager
+#### Scenario: PLAT-ARCH-12.01 -- Reconcile blocks without cert-manager
 
 - GIVEN a cluster without cert-manager installed (any ingress mode)
 - WHEN the control plane reconciles a tenant gateway
 - THEN it SHALL return an error and SHALL NOT deploy the gateway workload
 
-#### Requirement: Public Ingress Uses a Trusted External Certificate
+### Requirement: PLAT-ARCH-13 -- Public Ingress Uses a Trusted External Certificate
 
 Per [NVIDIA/OpenShell#2468](https://github.com/NVIDIA/OpenShell/pull/2468), the
 certificate served on the **public** ingress hostname (`gw-<tenant>.<base-domain>`)
@@ -842,7 +840,7 @@ issuable; the gateway SHALL fall back to serving the internal `openshell-ca` and
 the CLI SHALL pin it. Wiring the external `Issuer` (`serverIssuerRef` /
 `external_server_names`) end-to-end is tracked follow-up work.
 
-##### Scenario: CLI connects to a trusted public endpoint without a custom CA
+#### Scenario: PLAT-ARCH-13.01 -- CLI connects to a trusted public endpoint without a custom CA
 
 - GIVEN an operator-configured external `Issuer` for a zone the operator controls
 - AND a tenant gateway provisioned with a public SAN under that zone
@@ -850,7 +848,7 @@ the CLI SHALL pin it. Wiring the external `Issuer` (`serverIssuerRef` /
 - THEN the served certificate SHALL chain to a publicly trusted root
 - AND the CLI SHALL verify it using only the system trust store
 
-#### Requirement: Gateway Server Certificate Covers the Ingress Hostname
+### Requirement: PLAT-ARCH-14 -- Gateway Server Certificate Covers the Ingress Hostname
 
 Because both ingress modes carry the gateway pod's TLS through unmodified (Route
 passthrough / Gateway API `BackendTLSPolicy`), the gateway server certificate
@@ -860,7 +858,7 @@ SHALL inject it into the certificate SANs itself, before cert-manager mints the
 certificate - operators SHALL NOT be required to set `external_dns`/
 `server_dns_names` by hand for the ingress hostname to be covered.
 
-##### Scenario: Derived hostname appears in the served certificate
+#### Scenario: PLAT-ARCH-14.01 -- Derived hostname appears in the served certificate
 
 - GIVEN a tenant gateway with ingress enabled and `GATEWAY_API_BASE_DOMAIN` set
 - WHEN the control plane provisions it
@@ -870,7 +868,7 @@ certificate - operators SHALL NOT be required to set `external_dns`/
   where one is available for the zone, otherwise to the per-tenant `openshell-ca`
   (which the CLI must then pin)
 
-#### Requirement: Image References Support an In-Cluster Registry
+### Requirement: PLAT-ARCH-15 -- Image References Support an In-Cluster Registry
 
 Gateway image references (gateway, supervisor) SHALL accept a registry host that
 carries an explicit port, as standard Docker references permit
@@ -880,7 +878,7 @@ source on ROKS - pass validation. The gateway's
 `supervisor_image` SHALL be settable through the API (`PATCH`) so sandboxes pull
 from a node-reachable registry.
 
-#### Requirement: Agent Sandbox CRD Is a Sandbox Prerequisite
+### Requirement: PLAT-ARCH-16 -- Agent Sandbox CRD Is a Sandbox Prerequisite
 
 Tenant sandbox operations (`openshell sandbox list/create`) depend on the Agent
 Sandbox CRD + controller (`sandboxes.agents.x-k8s.io`, the upstream
@@ -894,7 +892,7 @@ supported Agent Sandbox API version is available`. The version installed SHALL
 serve the API version the gateway requires (`v1beta1` for gateway 0.1.2-rhaiv.0; upstream
 `v0.5.x`).
 
-#### Requirement: Sandbox Base Image Supports an In-Cluster Registry
+### Requirement: PLAT-ARCH-17 -- Sandbox Base Image Supports an In-Cluster Registry
 
 Sandbox creation SHALL support selecting a node-reachable workload image through
 OpenShell's `sandbox create --from <image>` interface. On clusters without public
@@ -902,7 +900,7 @@ registry access (e.g. ROKS), callers SHALL select a mirrored image in the
 cluster-internal registry. When no image is selected, the vendored chart supplies
 the gateway's default workload image through `sandbox.image`.
 
-##### Scenario: Sandbox launch on a cluster without public egress
+#### Scenario: PLAT-ARCH-17.01 -- Sandbox launch on a cluster without public egress
 
 - GIVEN a cluster whose worker nodes cannot pull from `ghcr.io` or `registry.k8s.io`
 - AND the Agent Sandbox CRD + controller and the sandbox base image have been mirrored into the internal registry
@@ -957,9 +955,7 @@ There is a single provisioning model with no provider selection. See
 Cloud-managed servers supply the backup, point-in-time recovery, and HA properties the
 platform relies on, so HyperShell does not reimplement them.
 
-### Requirement: PLAT-ARCH-02 -- s
-
-#### Requirement: Externally Provisioned Gateway Database Servers
+### Requirement: PLAT-ARCH-18 -- Externally Provisioned Gateway Database Servers
 
 Gateway database servers SHALL be provisioned outside the clusters and their admin
 credentials supplied to the control plane as a mounted Secret. The control plane SHALL
@@ -967,7 +963,7 @@ provision each gateway's database and role on that server with in-process DDL, a
 SHALL write only the `openshell-gateway-db-credentials` Secret into the gateway
 namespace.
 
-##### Scenario: Gateway Database Provisioning
+#### Scenario: PLAT-ARCH-18.01 -- Gateway Database Provisioning
 
 - GIVEN a Gateway resource and a control plane with valid mounted admin credentials
 - WHEN the control plane reconciles the Gateway
@@ -975,7 +971,7 @@ namespace.
 - AND it SHALL create no PostgreSQL workload in any cluster
 - AND it SHALL write the `openshell-gateway-db-credentials` Secret into the gateway namespace
 
-#### Requirement: Database Server Lifecycle Independence
+### Requirement: PLAT-ARCH-19 -- Database Server Lifecycle Independence
 
 The gateway database server SHALL have an independent lifecycle from Gateways: HyperShell never creates or deletes it, and a single server serves every gateway of the installation, each via its own database and role.
 
@@ -1046,13 +1042,11 @@ This namespace-per-gateway strategy provides:
 
 Tekton pipelines provide a reproducible installer for HyperShell deployments. The pipeline replaces manual bash scripts with deterministic, auditable steps.
 
-### Requirement: PLAT-ARCH-03 -- s
-
-#### Requirement: Deterministic Installation
+### Requirement: PLAT-ARCH-20 -- Deterministic Installation
 
 HyperShell installation SHALL be performed via Tekton pipelines that execute idempotent steps. Manual `oc apply` or `kubectl` scripts SHALL NOT be the primary installation method in production.
 
-##### Scenario: Fresh Cluster Installation
+#### Scenario: PLAT-ARCH-20.01 -- Fresh Cluster Installation
 
 - GIVEN a bare OpenShift cluster with Tekton installed
 - WHEN the HyperShell installer pipeline runs
@@ -1061,7 +1055,7 @@ HyperShell installation SHALL be performed via Tekton pipelines that execute ide
 - AND it SHALL configure the connection Secrets for the externally provisioned PostgreSQL servers
 - AND the installation SHALL be idempotent (safe to re-run)
 
-#### Requirement: Cattle Not Pets
+### Requirement: PLAT-ARCH-21 -- Cattle Not Pets
 
 Infrastructure SHALL be treated as disposable. Any cluster can be torn down and rebuilt from the pipeline without manual intervention or state recovery.
 
@@ -1134,13 +1128,11 @@ graph TB
     style Global fill:#e1f5ff
 ```
 
-### Requirement: PLAT-ARCH-04 -- s
-
-#### Requirement: Managed Cluster Metrics
+### Requirement: PLAT-ARCH-22 -- Managed Cluster Metrics
 
 Every managed cluster SHALL run a Prometheus instance that scrapes gateway and node metrics. Metrics SHALL be forwarded to the regional or global hub.
 
-#### Requirement: Hub Dashboards
+### Requirement: PLAT-ARCH-23 -- Hub Dashboards
 
 The hub cluster SHALL run Grafana with dashboards for fleet-wide gateway health, resource utilization, and provisioning status across all managed clusters.
 
@@ -1244,3 +1236,10 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
+
+## Retired IDs
+
+- `PLAT-ARCH-01`, `PLAT-ARCH-02`, `PLAT-ARCH-03`, `PLAT-ARCH-04`: never named a
+  requirement. The ID migration stamped them on four plain `### Requirements`
+  sub-headings by mistake. The requirements under those headings now start
+  at PLAT-ARCH-05.

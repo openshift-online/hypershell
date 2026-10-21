@@ -76,11 +76,13 @@ function renderGate(syncRetries: number | null): void {
 }
 
 describe("MapDetails - gate sync attempts", () => {
+  // Verifies: FLT-SYNC-04.01
   it("shows the Sync attempts row with the count when known", () => {
     renderGate(9);
     expect(screen.getByText("Sync attempts: 9")).toBeTruthy();
   });
 
+  // Verifies: FLT-SYNC-04.02
   it("omits the Sync attempts row when the count is unknown", () => {
     renderGate(null);
     expect(screen.queryByText("Sync attempts")).toBeNull();

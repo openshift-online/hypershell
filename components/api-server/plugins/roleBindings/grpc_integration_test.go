@@ -161,6 +161,7 @@ func globalBindingID(userID string) string {
 // live, only bindings whose gateway is assigned to X. Bindings for gateways on
 // another cluster and global bindings are never delivered, and a binding delete
 // that follows its gateway's soft delete still reaches X.
+// Verifies: PLAT-CLUS-10.03
 func TestGRPCWatchRoleBindingsScopedToCluster(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()

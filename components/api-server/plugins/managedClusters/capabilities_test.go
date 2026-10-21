@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Verifies: PLAT-CLUS-06
 func TestNormalizeCapabilities(t *testing.T) {
 	got, svcErr := NormalizeCapabilities([]string{"runtime/kata", "provider/aws", "network/vpn"}, true)
 	if svcErr != nil {
@@ -28,6 +29,7 @@ func TestNormalizeCapabilities(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-CLUS-06.02
 func TestNormalizeCapabilitiesGatewayVersion(t *testing.T) {
 	got, svcErr := NormalizeCapabilities([]string{"provider/aws", "gateway-version/v0.1.2-rhaiv.7"}, true)
 	if svcErr != nil {

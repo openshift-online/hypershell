@@ -4,16 +4,16 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**SandboxTemplateId** | Pointer to **string** |  | [optional] 
-**RepositoryId** | Pointer to **string** |  | [optional] 
-**Selector** | Pointer to **[]string** |  | [optional] 
-**Description** | Pointer to **string** |  | [optional] 
-**Cron** | Pointer to **string** |  | [optional] 
-**CoordinatorImage** | Pointer to **string** |  | [optional] 
-**ConcurrencyPolicy** | Pointer to **string** |  | [optional] 
-**LoginRefreshSeconds** | Pointer to **int32** |  | [optional] 
-**Parameters** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**SandboxTemplateId** | Pointer to **string** |  | [optional]
+**RepositoryId** | Pointer to **string** |  | [optional]
+**Selector** | Pointer to **[]string** |  | [optional]
+**Description** | Pointer to **string** |  | [optional]
+**Cron** | Pointer to **string** |  | [optional]
+**CoordinatorImage** | Pointer to **string** |  | [optional]
+**ConcurrencyPolicy** | Pointer to **string** |  | [optional]
+**LoginRefreshSeconds** | Pointer to **int32** |  | [optional]
+**Parameters** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -286,5 +286,3 @@ HasParameters returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

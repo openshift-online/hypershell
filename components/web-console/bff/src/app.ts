@@ -193,7 +193,7 @@ interface ApiMetadata {
  * config. Called once at startup and then periodically to pick up api-server
  * rollouts without a BFF restart. Version display must never gate BFF readiness,
  * so this never throws; an indeterminate result (unreachable, non-OK, or no
- * version field) resolves to `null` (WEB-TRACE-06 best-effort precedent) and the
+ * version field) resolves to `null` (WEB-TRC-06 best-effort precedent) and the
  * caller decides how to represent it -- "unknown" at startup, or keeping the
  * last known value on a refresh so a transient blip cannot clobber a good
  * display. The probe gets its own short timeout rather than the proxy timeout.
@@ -412,7 +412,7 @@ export async function buildApp(
     // when the Origin header is absent or the literal string "null" -- Firefox
     // sends Origin: null on same-origin beacons under the no-referrer policy
     // this app sets, which the Origin/Host comparison alone would reject and so
-    // silently drop legitimate same-origin browser telemetry (WEB-TRACE-02).
+    // silently drop legitimate same-origin browser telemetry (WEB-TRC-02).
     // For non-browser clients that omit Fetch Metadata (such as curl), fall
     // back to comparing the Origin host to the Host header; a missing Origin is
     // allowed through.
@@ -498,7 +498,7 @@ export async function buildApp(
   app.get("/health/ready", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
     // Readiness stays "ready" regardless of telemetry delivery -- tracing is
-    // best-effort and must never gate serving (WEB-TRACE-06) -- but the bounded
+    // best-effort and must never gate serving (WEB-TRC-06) -- but the bounded
     // delivery-health snapshot rides along so span-export and relay losses are
     // observable rather than silently swallowed.
     return { status: "ready", tracing: tracing.deliveryHealth() };
@@ -580,7 +580,7 @@ export async function buildApp(
   // Same-origin browser telemetry ingest. The browser exporter posts OTLP/HTTP
   // JSON here; the BFF validates it and relays it to the configured collector,
   // keeping the collector origin out of the browser and reusing the session and
-  // CSRF controls the other state-changing routes rely on (WEB-TRACE-02). The
+  // CSRF controls the other state-changing routes rely on (WEB-TRC-02). The
   // global 1 MiB body limit bounds the payload.
   app.post("/telemetry/v1/traces", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
@@ -1046,8 +1046,8 @@ export async function buildApp(
   app.all("/api/*", async (request, reply) => {
     // Start one BFF server span per proxied request. It continues a valid
     // inbound W3C context and yields the validated upstream context to set on
-    // the API request, so browser, BFF, and API join one trace (WEB-TRACE-04,
-    // WEB-TRACE-05). A malformed inbound value is never forwarded: only the
+    // the API request, so browser, BFF, and API join one trace (WEB-TRC-04,
+    // WEB-TRC-05). A malformed inbound value is never forwarded: only the
     // span-derived context reaches upstream.
     const span = tracing.startProxySpan({
       correlationId: request.correlationId,
@@ -1059,7 +1059,7 @@ export async function buildApp(
       tracestate: singleHeaderValue(request.headers.tracestate),
     });
     // The span ends in the finally block with the outcome recorded here, so a
-    // tracing failure never changes the proxy result (WEB-TRACE-09).
+    // tracing failure never changes the proxy result (WEB-TRC-09).
     let spanOutcome: ProxyOutcome = "server_error";
     let spanStatusCode = 500;
     const recordOutcome = (statusCode: number) => {

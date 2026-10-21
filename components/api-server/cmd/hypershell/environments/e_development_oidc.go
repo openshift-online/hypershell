@@ -36,7 +36,7 @@ func (e *DevOidcEnvImpl) OverrideClients(c *pkgenv.Clients) error {
 
 func (e *DevOidcEnvImpl) Flags() map[string]string {
 	return map[string]string{
-		"v":                    "10",
+		"log-level":            "debug",
 		"enable-jwt":           "true",
 		"enable-authz":         "false",
 		"debug":                "false",

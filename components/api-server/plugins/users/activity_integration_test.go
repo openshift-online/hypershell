@@ -12,6 +12,7 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
+// Verifies: PLAT-USR-10.01
 func TestUserDailyActivityUpsertIsIdempotent(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 
@@ -36,6 +37,7 @@ func TestUserDailyActivityUpsertIsIdempotent(t *testing.T) {
 	Expect(counts["2026-09-11"]).To(Equal(int64(1)))
 }
 
+// Verifies: PLAT-USR-10.02
 func TestUserDailyActivityDistinctUsersAcrossDays(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 
@@ -60,6 +62,7 @@ func TestUserDailyActivityDistinctUsersAcrossDays(t *testing.T) {
 	Expect(distinctCount).To(Equal(int64(1)))
 }
 
+// Verifies: PLAT-USR-15.01
 func TestUserDailyActivityPruneRemovesExpiredRows(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 

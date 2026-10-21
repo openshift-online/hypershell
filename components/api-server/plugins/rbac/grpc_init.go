@@ -3,10 +3,10 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -166,7 +166,7 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		l.gateways = newGatewayClusterResolver(envServices)
 		l.imports = newRepositoryImportResolver(envServices)
 		if l.controlPlanes == nil {
-			glog.Warning("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
+			slog.Warn("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
 		}
 
 		l.config = pkgrbac.AuthzConfig{

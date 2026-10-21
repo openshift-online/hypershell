@@ -68,6 +68,7 @@ describe("createHttpFleetApi", () => {
     );
   });
 
+  // Verifies: SDLC-VIS-06.02
   it("requests the SDLC plane at /sdlc and maps the envelope", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       okResponse({
@@ -222,6 +223,7 @@ describe("createHttpFleetApi streamE2eRun", () => {
     expect(statuses).toEqual(["disconnected"]);
   });
 
+  // Verifies: E2E-LOG-11.01
   it("closes the stream when the provided abort signal fires", () => {
     FakeEventSource.instances = [];
     const api = createHttpFleetApi({

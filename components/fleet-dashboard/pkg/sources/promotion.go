@@ -176,7 +176,12 @@ type Environment struct {
 	Provider    string `json:"provider,omitempty"`
 	Env         string `json:"env,omitempty"`
 	Cluster     string `json:"cluster,omitempty"`
-	ConsoleURL  string `json:"consoleUrl,omitempty"`
+	// Capabilities are the instance's self-declared capability labels
+	// (namespace/value, see PLAT-CLUS-06), assembled from the already-resolved Argo
+	// Application delivery labels (no new query, no api-server call) and surfaced
+	// for the map card and node drawer (FLT-CAP-01). Omitted when empty.
+	Capabilities []string `json:"capabilities,omitempty"`
+	ConsoleURL   string   `json:"consoleUrl,omitempty"`
 	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
 	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
 	// stays authoritative for the host (no hostname pattern is baked in here).
@@ -261,6 +266,7 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Provider = a.provider
 			env.Env = a.env
 			env.Cluster = a.cluster
+			env.Capabilities = a.capabilities
 			if activeHydrated != "" && a.cluster != "" && a.workloadNamespace != "" {
 				env.Verification = &VerificationTarget{Revision: activeHydrated, Cluster: a.cluster, Namespace: a.workloadNamespace}
 			}
@@ -436,9 +442,45 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 type argoInfo struct {
 	workloadNamespace                                                           string
 	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
+	// capabilities are the instance's self-declared capability labels
+	// (namespace/value), assembled from its delivery labels; empty when none.
+	capabilities []string
 	// syncRetries is status.operationState.retryCount, nil when no operation state
 	// is recorded (unknown) so it stays distinct from a genuine 0.
 	syncRetries *int
+}
+
+// capabilityNamespaces are the delivery-label suffixes read as capabilities, in a
+// stable emit order. These are PUBLIC, product-level namespace names (PLAT-CLUS-06),
+// not fleet identity: the BFF already reads `provider` the same way. The UI treats
+// the result as opaque data and bakes in no vocabulary of its own (FLT-CAP-01).
+var capabilityNamespaces = []string{
+	"provider",
+	"runtime",
+	"gateway-version",
+	"network",
+	"region",
+	// The `environment` capability namespace is distinct from the `env` delivery
+	// label that drives the promotion COLUMN grouping (Environment.Env above); do not
+	// collapse them to read `env` here. Nothing emits a delivery.hypershell.app/
+	// environment label today, so this namespace is forward-looking.
+	"environment",
+}
+
+// capabilitiesFromLabels assembles the "namespace/value" capability set from an
+// Application's delivery labels: for each recognized capability namespace carried as
+// a "delivery.hypershell.app/<namespace>" label with a non-empty value, it emits
+// "<namespace>/<value>". No new Kubernetes query or cluster credential is used - the
+// labels are already on the resolved object - so sourcing stays low-privilege
+// (FLT-CAP-01). Returns nil (an empty set) when the instance declares none.
+func capabilitiesFromLabels(labels map[string]string) []string {
+	var caps []string
+	for _, ns := range capabilityNamespaces {
+		if v := labels[deliveryLabelPrefix+ns]; v != "" {
+			caps = append(caps, ns+"/"+v)
+		}
+	}
+	return caps
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -498,6 +540,7 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 			provider:          labels[deliveryLabelPrefix+"provider"],
 			env:               labels[deliveryLabelPrefix+"env"],
 			cluster:           labels[deliveryLabelPrefix+"cluster"],
+			capabilities:      capabilitiesFromLabels(labels),
 			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
 			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
 		}

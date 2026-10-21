@@ -289,6 +289,7 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
+// Verifies: WEB-UIEX-04.03
 test("keeps connection methods on gateway details", async ({
   browserName,
   context,
@@ -414,6 +415,7 @@ test("renames a gateway from its details", async ({ page }) => {
   await expect(page.getByText("Gateway renamed to team-gateway")).toBeVisible();
 });
 
+// Verifies: WEB-UIEX-06.03
 test("deletes a gateway from its row after confirmation", async ({ page }) => {
   await page.goto("/");
   await page
@@ -484,6 +486,7 @@ test("does not preserve removed administration routes", async ({ page }) => {
   }
 });
 
+// Verifies: WEB-UIEX-04.01, WEB-PLC-01.02, WEB-PLC-06.02
 test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {
@@ -597,6 +600,7 @@ test("provisions a gateway on an existing managed cluster", async ({
   });
 });
 
+// Verifies: SEC-OIDC-06.01
 test("shows the signed-in user and a full sign-out link", async ({ page }) => {
   await page.route("**/auth/session", async (route) => {
     await route.fulfill({

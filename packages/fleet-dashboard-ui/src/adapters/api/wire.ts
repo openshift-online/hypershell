@@ -102,6 +102,10 @@ interface WirePromotionEnvironment {
   readonly provider?: string;
   readonly env?: string;
   readonly cluster?: string;
+  // Self-declared capability labels (`namespace/value`), sourced by the BFF from
+  // the instance's Argo delivery labels. Absent/null on servers that predate the
+  // field; treated as an empty set.
+  readonly capabilities?: readonly string[] | null;
   readonly argoHealth?: string;
   readonly argoSync?: string;
   // Argo CD sync-operation retry count. Omitted by the BFF when no operation
@@ -163,6 +167,11 @@ function mapEnvironment(
     provider: nullableString(env.provider),
     envLabel: nullableString(env.env),
     cluster: nullableString(env.cluster),
+    // Carry capabilities verbatim, dropping any empty/non-string entry; absent ->
+    // empty set. Each stays an opaque `namespace/value` string (FLT-CAP-01).
+    capabilities: (env.capabilities ?? []).filter(
+      (c): c is string => typeof c === "string" && c !== "",
+    ),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
     // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.

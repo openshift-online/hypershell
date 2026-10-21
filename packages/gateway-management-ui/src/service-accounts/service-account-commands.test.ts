@@ -20,6 +20,7 @@ const connection: OpenShellGatewayServiceAccountConnection = {
 };
 
 describe("service-account command builders", () => {
+  // Verifies: OSG-SACC-11.05
   it("uses a distinct alias and never embeds a client secret", () => {
     const script = buildOpenShellServiceAccountScript("deploy bot", connection);
 

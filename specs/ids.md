@@ -73,6 +73,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 6 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -126,13 +127,14 @@ or group is added here before any requirement uses it.
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 17 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
+| `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
 | `OSG-TLS` | `platform/openshell-gateway-tls.spec.md` | 5 |
 
 ### PLAT
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `PLAT-ARCH` | `platform/global-architecture.spec.md` | 4 |
+| `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 22 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
@@ -149,7 +151,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 21 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 22 |
 
 ### SEC
 
@@ -163,7 +165,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 6 |
+| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
 
 ### UIS
 

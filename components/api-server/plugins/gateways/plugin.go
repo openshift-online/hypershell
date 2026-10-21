@@ -3,12 +3,12 @@ package gateways
 import (
 	"context"
 	stderrors "errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
@@ -17,6 +17,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -204,10 +205,10 @@ func managedPlacementAvailable(snapshot placementSnapshot, selector []string) bo
 }
 
 // Resolve implements PlacementResolver. A local-kind intent that cannot be
-// satisfied is a hard error (GP-08), while a capability-label selector that
+// satisfied is a hard error (WEB-PLC-08), while a capability-label selector that
 // matches no eligible cluster yields resolved=false with a nil error so the
 // gateway is late-bound (created Pending, awaiting placement) rather than rejected
-// (GP-07).
+// (WEB-PLC-07).
 func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *errors.ServiceError) {
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {
@@ -235,7 +236,7 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 			// assigns a cluster when a matching ManagedCluster becomes available.
 			return "", false, nil
 		}
-		glog.Errorf("failed to resolve managed cluster placement selector=%v: %v", selector, err)
+		slog.Error("failed to resolve managed cluster placement", "selector", selector, "error", err)
 		return "", false, errors.GeneralError("failed to resolve managed cluster placement")
 	}
 	return selected, true, nil
@@ -296,7 +297,20 @@ func init() {
 		}
 		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		placement := newRegisteredPlacementService(envServices)
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayService := Service(envServices)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+
+		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
+			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)
+			if serviceErr != nil || gateway == nil || gateway.Namespace == "" {
+				return "", false
+			}
+			return gateway.Namespace, true
+		})
+		sandboxEventsRouter := apiV1Router.PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
+		sandboxEventsRouter.HandleFunc("", sandboxEventsHandler.List).Methods(http.MethodGet)
+		sandboxEventsRouter.Use(authMiddleware.AuthenticateAccountJWT)
+		sandboxEventsRouter.Use(authzMiddleware.AuthorizeApi)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
@@ -362,7 +376,9 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve))
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve)
+		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
+		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})
 
 	presenters.RegisterPath(Gateway{}, "gateways")

@@ -4,20 +4,20 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**ClusterId** | Pointer to **string** |  | [optional] 
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** |  | [optional] 
-**SupervisorImage** | Pointer to **string** |  | [optional] 
-**ServerDnsNames** | Pointer to **[]string** |  | [optional] 
-**RouteAddress** | Pointer to **string** |  | [optional] 
-**Oidc** | Pointer to **string** |  | [optional] 
-**Route** | Pointer to **string** |  | [optional] 
-**CredentialDriver** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**ClusterId** | Pointer to **string** |  | [optional]
+**ExternalDns** | Pointer to **string** |  | [optional]
+**TlsMode** | Pointer to **string** |  | [optional]
+**ServiceType** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**Phase** | Pointer to **string** |  | [optional]
+**Image** | Pointer to **string** |  | [optional]
+**SupervisorImage** | Pointer to **string** |  | [optional]
+**ServerDnsNames** | Pointer to **[]string** |  | [optional]
+**RouteAddress** | Pointer to **string** |  | [optional]
+**Oidc** | Pointer to **string** |  | [optional]
+**Route** | Pointer to **string** |  | [optional]
+**CredentialDriver** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -390,5 +390,3 @@ HasCredentialDriver returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

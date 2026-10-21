@@ -69,6 +69,7 @@ func TestServeEncodeErrorIsVisible(t *testing.T) {
 // TestServeSDLCColdIs503 confirms the SDLC route returns 503 before its first
 // successful refresh (never-refreshed), distinguishing cold-start from stale
 // (SDLC-VIS-01).
+// Verifies: SDLC-VIS-01.02
 func TestServeSDLCColdIs503(t *testing.T) {
 	cold := cache.NewSource("sdlc", time.Hour, func(context.Context) (any, error) {
 		return nil, context.DeadlineExceeded
@@ -103,6 +104,7 @@ func TestSDLCRouteNotMountedWhenNil(t *testing.T) {
 
 // TestE2ERunsFeatureOff confirms the always-mounted recent-runs route reports
 // the feature off (not an error) when the plane is unconfigured (E2E-LOG-01/02).
+// Verifies: E2E-LOG-01.03
 func TestE2ERunsFeatureOff(t *testing.T) {
 	h := &Handlers{} // E2ERuns + E2E nil
 	mux := http.NewServeMux()

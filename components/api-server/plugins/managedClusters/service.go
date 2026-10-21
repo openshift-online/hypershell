@@ -3,6 +3,7 @@ package managedClusters
 import (
 	"context"
 	stderrors "errors"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
@@ -65,21 +65,18 @@ type sqlManagedClusterService struct {
 }
 
 func (s *sqlManagedClusterService) OnUpsert(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-
 	managedCluster, err := s.managedClusterDao.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	logger.Infof("Do idempotent somethings with this managedCluster: %s", managedCluster.ID)
+	slog.InfoContext(ctx, "Do idempotent somethings with this managedCluster", "managed_cluster_id", managedCluster.ID)
 
 	return nil
 }
 
 func (s *sqlManagedClusterService) OnDelete(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-	logger.Infof("This managedCluster has been deleted: %s", id)
+	slog.InfoContext(ctx, "This managedCluster has been deleted", "managed_cluster_id", id)
 	return nil
 }
 

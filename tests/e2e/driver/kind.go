@@ -200,30 +200,7 @@ func (d *kindDriver) DiscoverGatewayEndpoint(ctx context.Context, gw GatewayRef)
 
 func (d *kindDriver) WaitForGatewayRoute(ctx context.Context, gw GatewayRef) error {
 	timeout := durationEnv("E2E_PROVISION_TIMEOUT", 180*time.Second)
-	return harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
-		route, err := d.clients.Gateway.GatewayV1().GRPCRoutes(gw.Namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
-		if err != nil {
-			return false, nil // route may not exist yet
-		}
-		if !grpcRouteAccepted(route) {
-			return false, nil
-		}
-		// Confirm the parent Gateway is Programmed.
-		for _, pr := range route.Spec.ParentRefs {
-			ns := gw.Namespace
-			if pr.Namespace != nil {
-				ns = string(*pr.Namespace)
-			}
-			parent, err := d.clients.Gateway.GatewayV1().Gateways(ns).Get(ctx, string(pr.Name), metav1.GetOptions{})
-			if err != nil {
-				return false, nil
-			}
-			if gatewayProgrammed(parent) {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
+	return waitForGatewayRoute(ctx, d.clients.Gateway, gw, timeout)
 }
 
 func (d *kindDriver) APIClient(ctx context.Context, tok Token) (*apiclient.Client, error) {

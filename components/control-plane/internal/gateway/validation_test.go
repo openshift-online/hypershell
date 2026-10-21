@@ -4,6 +4,7 @@ import (
 	"testing"
 )
 
+// Verifies: OSG-CORE-07.02
 func TestValidateImageReference(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -35,6 +36,7 @@ func TestValidateImageReference(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-ROUT-03.02
 func TestValidateGatewayConfigRouteHost(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -120,6 +122,7 @@ func TestValidateOIDCConfig(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-CRED-02.01, OSG-CRED-02.02, OSG-CRED-02.03
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string

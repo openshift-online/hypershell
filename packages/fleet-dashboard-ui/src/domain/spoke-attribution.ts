@@ -64,7 +64,7 @@ function mergeRows(
   sandboxes: readonly SandboxClusterCount[],
 ): SpokeRow[] {
   // Both sides accumulate: if a managed cluster somehow appears more than once in
-  // either series (GMCA-05 guarantees it will not, but a malformed payload could),
+  // either series (GTW-ATTR-05 guarantees it will not, but a malformed payload could),
   // the phase counts, totals and sandboxes all sum rather than the last-write
   // winning - so a duplicated row never silently undercounts.
   interface Acc {

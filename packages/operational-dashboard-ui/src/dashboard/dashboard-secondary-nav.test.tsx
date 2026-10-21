@@ -67,6 +67,7 @@ describe("DashboardSecondaryNav", () => {
     expect(reliability.getAttribute("aria-current")).toBeNull();
   });
 
+  // Verifies: REL-DASH-06.03
   it("marks Reliability as active on the reliability route", () => {
     renderNav("reliability");
 

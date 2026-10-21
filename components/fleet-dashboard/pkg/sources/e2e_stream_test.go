@@ -75,6 +75,7 @@ func startStream(t *testing.T, e *E2E, id string) (<-chan streamFrame, func()) {
 	return frames, cleanup
 }
 
+// Verifies: E2E-LOG-06.01
 func TestStreamBackfillThenLiveWithDedup(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{
 		"hub-00": {{Line: viaQLine(t, ev(e2eEventStepStarted, 2, map[string]any{"stepId": "P1.1", "name": "provisioning"}))}},
@@ -113,6 +114,7 @@ func TestStreamBackfillThenLiveWithDedup(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-06.02
 func TestStreamSurfacesDroppedEntries(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}
 	e := testE2E(loki)
@@ -150,6 +152,7 @@ func TestStreamDisconnectWhenUpstreamCloses(t *testing.T) {
 	})
 }
 
+// Verifies: E2E-LOG-05.03
 func TestStreamSharesUpstreamWithinReplica(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}
 	e := testE2E(loki)

@@ -5,6 +5,7 @@ package hypershell.v1;
 option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
+import "google/protobuf/timestamp.proto";
 
 enum ProvisioningConditionStatus {
   PROVISIONING_CONDITION_STATUS_UNSPECIFIED = 0;
@@ -155,6 +156,30 @@ message SetActiveSandboxCountResponse {
   int32 active_sandbox_count = 1;
 }
 
+// SandboxEvent is the bounded diagnostic event representation reported by a
+// managed-cluster control plane. It intentionally excludes arbitrary Kubernetes
+// object payloads and credentials.
+message SandboxEvent {
+  string type = 1;
+  string reason = 2;
+  string message = 3;
+  google.protobuf.Timestamp first_observed_at = 4;
+  google.protobuf.Timestamp last_observed_at = 5;
+  int32 count = 6;
+  string involved_pod_name = 7;
+  string involved_pod_uid = 8;
+}
+
+// ReportSandboxEventsRequest replaces the complete recent event snapshot for a
+// sandbox identified by its live gateway namespace and sandbox name.
+message ReportSandboxEventsRequest {
+  string namespace = 1;
+  string sandbox_name = 2;
+  repeated SandboxEvent events = 3;
+}
+
+message ReportSandboxEventsResponse {}
+
 // SetGatewayVersionRequest sets the last observed runtime version. The health
 // reconciler is the only writer for this field.
 message SetGatewayVersionRequest {
@@ -218,5 +243,6 @@ service GatewayService {
   rpc WatchGateways(WatchGatewaysRequest) returns (stream WatchGatewaysResponse);
   rpc AdjustActiveSandboxCount(AdjustActiveSandboxCountRequest) returns (AdjustActiveSandboxCountResponse);
   rpc SetActiveSandboxCount(SetActiveSandboxCountRequest) returns (SetActiveSandboxCountResponse);
+  rpc ReportSandboxEvents(ReportSandboxEventsRequest) returns (ReportSandboxEventsResponse);
   rpc SetGatewayVersion(SetGatewayVersionRequest) returns (SetGatewayVersionResponse);
 }

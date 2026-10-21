@@ -48,6 +48,7 @@ func gatewaySvc(method string) string { return "/hypershell.v1.GatewayService/" 
 // "gRPC Authorization"): a global gateway:creator binding no longer authorizes
 // every method, per-gateway methods need a binding on that gateway, and the
 // unfiltered list/watch and the control-plane-only writes are not user methods.
+// Verifies: SEC-RBAC-09.01, SEC-RBAC-09.02, SEC-RBAC-09.03, SEC-RBAC-09.04
 func TestAuthorizeUserGRPC(t *testing.T) {
 	get := &pb.GetGatewayRequest{Id: "gw-1"}
 	update := &pb.UpdateGatewayRequest{Id: "gw-1"}
@@ -80,6 +81,7 @@ func TestAuthorizeUserGRPC(t *testing.T) {
 		{"creator cannot watch every gateway", gatewaySvc("WatchGateways"), nil, []BindingSummary{creatorBinding}, codes.PermissionDenied},
 		{"owner cannot adjust sandbox counts", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
 		{"owner cannot set sandbox counts", gatewaySvc("SetActiveSandboxCount"), &pb.SetActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
+		{"owner cannot report sandbox events", gatewaySvc("ReportSandboxEvents"), &pb.ReportSandboxEventsRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
 		{"owner cannot set the gateway version", gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-1"}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
 		{"creator reads clusters", "/hypershell.v1.ManagedClusterService/ListManagedClusters", &pb.ListManagedClustersRequest{}, []BindingSummary{creatorBinding}, codes.OK},
 		{"creator cannot delete a cluster", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, []BindingSummary{creatorBinding}, codes.PermissionDenied},

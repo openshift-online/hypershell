@@ -112,6 +112,7 @@ func TestIsAuthorized_GatewayViewerCanReadOwnGateway(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-05.02
 func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 	gwID := "gw-aaa"
 	bindings := []BindingSummary{
@@ -131,6 +132,7 @@ func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 // including the case from the bug report: an owner who demotes their own access
 // to the "user" tier (gateway:viewer) can no longer delete, while a platform
 // admin retains the delete override.
+// Verifies: GTW-ACC-01.03
 func TestCanDeleteGateway(t *testing.T) {
 	gwID := "gw-aaa"
 	otherID := "gw-bbb"
@@ -186,6 +188,7 @@ func TestCanDeleteGateway(t *testing.T) {
 // Owners and granted admins may edit; viewers ("plain users") may not, and a
 // platform admin without a per-gateway binding may not (PATCH is not in the
 // platform-admin override).
+// Verifies: GTW-ACC-01.04
 func TestCanEditGateway(t *testing.T) {
 	gwID := "gw-aaa"
 	otherID := "gw-bbb"
@@ -237,6 +240,7 @@ func TestCanEditGateway(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-04.02
 func TestIsAuthorized_NonCreatorCannotCreateGateways(t *testing.T) {
 	gwID := "gw-aaa"
 	bindings := []BindingSummary{
@@ -307,6 +311,7 @@ func TestIsAuthorized_PlatformAdminCanListAllGateways(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-07.02
 func TestIsAuthorized_PlatformAdminCanReadAnyGateway(t *testing.T) {
 	gwID := "gw-xyz"
 	bindings := []BindingSummary{
@@ -318,6 +323,7 @@ func TestIsAuthorized_PlatformAdminCanReadAnyGateway(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-07.03
 func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
 	gwID := "gw-xyz"
 	bindings := []BindingSummary{
@@ -329,6 +335,7 @@ func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-07.05
 func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
 	gwID := "gw-xyz"
 	bindings := []BindingSummary{
@@ -340,6 +347,7 @@ func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-07.06
 func TestIsAuthorized_PlatformAdminCannotCreateGateways(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "platform:admin", Scope: "global"},
@@ -403,6 +411,7 @@ func TestServiceAccountAuthorizationRequiresExactGatewayBinding(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-USR-03.01, PLAT-USR-03.02, PLAT-USR-03.03
 func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 	creatorOnly := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
 	if isAuthorized(http.MethodGet, "users", "", "", creatorOnly, nil) {
@@ -423,6 +432,7 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-INV-03.01, PLAT-INV-03.02, PLAT-INV-03.03
 func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *testing.T) {
 	ownerOnly := []BindingSummary{
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
@@ -468,6 +478,7 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 	}
 }
 
+// Verifies: PLAT-INV-03.01
 func TestAuthorizeApi_ManagedClustersListRequiresDashboardOperator(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -640,6 +651,7 @@ func TestAuthorizeApiAllowsGatewayCreatorPlacementAvailability(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-10.01
 func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
 	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
@@ -665,6 +677,7 @@ func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-USR-03.01
 func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
 	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
@@ -686,6 +699,7 @@ func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-16.01
 func TestIsAuthorized_RegistrarRoleAllowsRegistration(t *testing.T) {
 	jwtRoles := []string{roleManagedClusterRegistrar}
 	if !isAuthorized(http.MethodPost, "registration", "", "", nil, jwtRoles) {
@@ -693,6 +707,7 @@ func TestIsAuthorized_RegistrarRoleAllowsRegistration(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-16.02, PLAT-CLUS-04.01
 func TestIsAuthorized_RegistrationDeniedWithoutRole(t *testing.T) {
 	if isAuthorized(http.MethodPost, "registration", "", "", nil, nil) {
 		t.Error("POST /managed_clusters/registration must be denied without managed-cluster-registrar role")
@@ -711,6 +726,7 @@ func TestIsAuthorized_RegistrationOnlyForPost(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-16.01
 func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
 	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
@@ -740,6 +756,7 @@ func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-16.02, PLAT-CLUS-04.01
 func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
 	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
@@ -766,6 +783,7 @@ func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-USR-03.04
 func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
 	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
@@ -784,5 +802,56 @@ func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+}
+
+// Verifies: OSG-SEVT-05.01, OSG-SEVT-05.02
+func TestAuthorizeApiSandboxEventsRouteHidesUnboundCallerAndAllowsViewer(t *testing.T) {
+	gatewayID := "gw-events"
+	for _, test := range []struct {
+		name     string
+		bindings []BindingSummary
+		wantCode int
+		wantHit  bool
+	}{
+		{name: "unbound caller receives not found", wantCode: http.StatusNotFound},
+		{name: "gateway viewer reaches handler", bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: &gatewayID}}, wantCode: http.StatusOK, wantHit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			middleware := NewRBACAuthzMiddleware(authorizationLookup{bindings: test.bindings}, AuthzConfig{EnforceRBAC: true}, nil, nil)
+			hit := false
+			router := mux.NewRouter()
+			router.Handle("/api/hypershell/v1/gateways/{gateway_id}/sandbox_events", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hit = true
+				w.WriteHeader(http.StatusOK)
+			}))).Methods(http.MethodGet)
+			request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways/"+gatewayID+"/sandbox_events", nil)
+			token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "viewer"}}
+			ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+			ctx = context.WithValue(ctx, ContextUserIDKey, "viewer-id")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request.WithContext(ctx))
+			if response.Code != test.wantCode || hit != test.wantHit {
+				t.Fatalf("status=%d hit=%t, want %d/%t", response.Code, hit, test.wantCode, test.wantHit)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-SEVT-05.01
+func TestSandboxEventsAuthorizationRequiresGatewayBinding(t *testing.T) {
+	gatewayID := "gw-events"
+	for _, role := range []string{"gateway:viewer", "gateway:admin", "gateway:owner"} {
+		if !isAuthorized(http.MethodGet, "sandbox_events", "", gatewayID, []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: &gatewayID}}, nil) {
+			t.Fatalf("%s must read sandbox events", role)
+		}
+	}
+	if isAuthorized(http.MethodGet, "sandbox_events", "", gatewayID, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, nil) {
+		t.Fatal("platform admin without a gateway binding must not read sandbox events")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways/gw-events/sandbox_events", nil)
+	resource, resourceID := extractResourceInfo(request)
+	if resource != "sandbox_events" || resourceID != "" || extractGatewayID(request, resource) != "gw-events" {
+		t.Fatalf("route extraction = %q, %q, %q", resource, resourceID, extractGatewayID(request, resource))
 	}
 }

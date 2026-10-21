@@ -565,3 +565,19 @@
   align-items: center;
   gap: var(--pf-t--global--spacer--sm);
 }
+
+/* One capability label (FLT-CAP-06): a muted namespace, a decorative "/" separator
+ * drawn in CSS (never an untranslated text node), then an emphasised value - the
+ * value carries the weight because it is the part that varies. */
+.capNamespace {
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+.capNamespace::after {
+  content: "/";
+  margin: 0 0.25ch;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+.capValue {
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}

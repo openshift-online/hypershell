@@ -166,7 +166,7 @@ on any issue-tracker specifics.
 
 A tracked work item SHALL be treated as released when any of its pull requests appears
 in a resolved bundle's SHA compare window, OR when it merged at or before the oldest
-resolved bundle's build date (SDLC-VIS-11a); a pre-horizon item is contained in that
+resolved bundle's build date (SDLC-VIS-22); a pre-horizon item is contained in that
 oldest bundle and every newer one even though no compare window reaches back to it. Only
 a tracked work item that is neither window-placed nor pre-horizon -- genuinely merged
 after the newest resolved bundle -- SHALL collect in the Unreleased row (SDLC-VIS-11),
@@ -421,7 +421,7 @@ in the bundle (for example "2 issues, 4 PRs").
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
 execution-record issues merged after the newest resolved bundle's build boundary, whose
 pull requests are therefore absent from every resolved bundle's compare window and which
-did not merge at or before the oldest resolved bundle's build date (SDLC-VIS-11a). A
+did not merge at or before the oldest resolved bundle's build date (SDLC-VIS-22). A
 shipped issue whose delivering pull requests are already contained in a bundle -- whether
 a recent bundle's compare window placed them or the issue merged before the oldest
 resolved bundle -- SHALL NOT appear in the Unreleased row. A one-off pull request SHALL
@@ -477,7 +477,7 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
 
-### Requirement: SDLC-VIS-11a -- Released Decision Independent of the Compare-Window Horizon
+### Requirement: SDLC-VIS-22 -- Released Decision Independent of the Compare-Window Horizon
 
 Whether a tracked execution-record issue is **released** or **Unreleased** SHALL be
 decided by whether its delivering pull requests are actually contained in a shipped
@@ -521,7 +521,7 @@ linkage, a pre-horizon item SHALL be reported released even when its association
 cross-reference (SDLC-VIS-03) is momentarily unrecoverable; this also mitigates the
 missing-association contributor for deep-tail work.
 
-#### Scenario: Pre-horizon item is released, not Unreleased
+#### Scenario: SDLC-VIS-22.01 -- Pre-horizon item is released, not Unreleased
 
 - GIVEN a tracked execution-record issue whose delivering pull request merged at or before
   the oldest resolved bundle's build date
@@ -529,7 +529,7 @@ missing-association contributor for deep-tail work.
 - WHEN the matrix renders
 - THEN the issue SHALL appear in a released position, not in the Unreleased row
 
-#### Scenario: Pre-horizon released item stays visible
+#### Scenario: SDLC-VIS-22.02 -- Pre-horizon released item stays visible
 
 - GIVEN a tracked issue released only by the build-date boundary
 - WHEN the matrix renders
@@ -537,14 +537,14 @@ missing-association contributor for deep-tail work.
   collapsed "Earlier releases" row
 - AND it SHALL NOT be silently dropped from the matrix
 
-#### Scenario: Recent per-bundle grouping is unchanged
+#### Scenario: SDLC-VIS-22.03 -- Recent per-bundle grouping is unchanged
 
 - GIVEN a pull request that falls inside a resolved bundle's SHA compare window
 - WHEN the matrix groups bundle contents
 - THEN that pull request SHALL be grouped under the bundle whose window contains it,
   exactly as before the fix
 
-#### Scenario: Decision adds no GitHub calls
+#### Scenario: SDLC-VIS-22.04 -- Decision adds no GitHub calls
 
 - GIVEN the SDLC plane recomputes the matrix on refresh
 - WHEN it decides released versus Unreleased for every tracked record
@@ -797,7 +797,7 @@ issues and other pull requests, a tracked issue delivered by multiple PRs in one
 bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
 resolved bundle, a shipped record whose merge time precedes the oldest resolved bundle's
 build date landing in a released row rather than Unreleased with no additional GitHub call
-(the compare-window horizon regression, SDLC-VIS-11a), rework-from-timeline counting) and
+(the compare-window horizon regression, SDLC-VIS-22), rework-from-timeline counting) and
 for the `SdlcStateProvider` port
 with its GitHub adapter; UI tests for the wire mapper, the tab shell and shared
 freight-bar coupling, the aging-board position and SLE line, the rework meter encoding,

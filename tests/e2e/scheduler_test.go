@@ -61,6 +61,7 @@ func TestRunParallelSubtestsHonorsConcurrencyLimit(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-11.01
 func TestRunParallelSubtestsRunsSeriallyAtOne(t *testing.T) {
 	var mu sync.Mutex
 	order := make([]string, 0, 3)

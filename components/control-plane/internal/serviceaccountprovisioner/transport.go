@@ -31,7 +31,7 @@ func ListenAndServe(ctx context.Context, config TransportConfig, handler *Server
 	}
 	grpcServer := grpc.NewServer()
 	pb.RegisterOpenShellGatewayServiceAccountProvisionerServiceServer(grpcServer, handler)
-	// The Keycloak realm directory projection (GAM-09) rides the same private
+	// The Keycloak realm directory projection (GTW-ACC-09) rides the same private
 	// in-cluster channel; the API server dials this one address for both.
 	if directory != nil {
 		pb.RegisterDirectoryServiceServer(grpcServer, directory)

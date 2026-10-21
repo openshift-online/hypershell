@@ -3,8 +3,7 @@ package gateways
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/golang/glog"
+	"log/slog"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 )
@@ -48,7 +47,7 @@ func storedPlacementToIntent(stored *string) (openapi.GatewayPlacementIntent, bo
 	}
 	var parsed storedPlacement
 	if err := json.Unmarshal([]byte(*stored), &parsed); err != nil {
-		glog.Warningf("failed to unmarshal gateway placement %q: %v", *stored, err)
+		slog.Warn("failed to unmarshal gateway placement", "placement", *stored, "error", err)
 		return openapi.GatewayPlacementIntent{}, false
 	}
 	if len(parsed.Selector) == 0 && parsed.Mode == nil {

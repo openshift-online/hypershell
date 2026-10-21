@@ -57,6 +57,7 @@ func TestUnionKcRoles_OverlapKeepsSharedRole(t *testing.T) {
 
 // With no surviving bindings, every role the deleted binding granted becomes
 // revocable.
+// Verifies: OSG-KCLK-05.05
 func TestUnionKcRoles_NoRemainingBindingsRevokesAll(t *testing.T) {
 	const deletedID = "rb-owner"
 	stillDesired := unionKcRoles([]*pb.RoleBinding{roleBinding(deletedID, "gateway:owner")}, deletedID)
@@ -70,6 +71,7 @@ func TestUnionKcRoles_NoRemainingBindingsRevokesAll(t *testing.T) {
 // independently (admin does not imply user), so an owner missing openshell-user
 // can read gateway info but is refused "list workspaces" with
 // "role 'openshell-user' required". A viewer receives only openshell-user.
+// Verifies: OSG-KCLK-05.01, OSG-KCLK-05.02, OSG-KCLK-05.03
 func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 	cases := []struct {
 		roleBinding string
@@ -97,7 +99,8 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 
 // After an in-place demotion from gateway:admin to gateway:viewer (a single
 // UPDATED event, one surviving binding), union reconcile must assign
-// openshell-user and remove openshell-admin (GAM-02).
+// openshell-user and remove openshell-admin (GTW-ACC-02).
+// Verifies: OSG-KCLK-05.04
 func TestUnionReconcile_DemotionToViewerStripsAdminKeepsUser(t *testing.T) {
 	surviving := []*pb.RoleBinding{roleBinding("rb-1", "gateway:viewer")}
 	desired := unionKcRoles(surviving, "")
@@ -119,6 +122,7 @@ func TestUnionReconcile_DemotionToViewerStripsAdminKeepsUser(t *testing.T) {
 }
 
 // A granted admin (gateway:admin) must receive both client roles, like an owner.
+// Verifies: OSG-KCLK-05.02
 func TestUnionReconcile_AdminGetsBothRoles(t *testing.T) {
 	desired := unionKcRoles([]*pb.RoleBinding{roleBinding("rb-1", "gateway:admin")}, "")
 	if !desired["openshell-admin"] || !desired["openshell-user"] {
@@ -171,6 +175,7 @@ func TestHandle_EmptyRoleNameIsError(t *testing.T) {
 // one; should one arrive anyway (defense in depth), the event is dropped
 // without touching Keycloak and without an error, so the queue does not retry
 // it.
+// Verifies: CTRL-CORE-01.07
 func TestHandle_SkipsGatewayOfAnotherCluster(t *testing.T) {
 	conn, recorder := newRecordingGatewayConn(t)
 	recorder.setGateway(&pb.Gateway{

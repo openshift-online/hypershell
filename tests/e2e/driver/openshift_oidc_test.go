@@ -11,6 +11,7 @@ import (
 	"testing"
 )
 
+// Verifies: E2E-CORE-02.07
 func TestOpenShiftGatewayTokenUsesExchangeForClientCredentials(t *testing.T) {
 	var calls []url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +48,7 @@ func TestOpenShiftGatewayTokenUsesExchangeForClientCredentials(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-02.07
 func TestOpenShiftAPITokenImpersonatesNamedUserForClientCredentials(t *testing.T) {
 	var calls []url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

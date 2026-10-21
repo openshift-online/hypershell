@@ -278,6 +278,7 @@ spec:
 	})
 }
 
+// Verifies: CTRL-CORE-06.02, CTRL-CORE-06.01
 func TestReconcileRepository_UpsertThenPrune(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeFetcher{fsys: twoResourceFS(t), root: "/"}
@@ -386,6 +387,7 @@ func (f *fakeConditionalFetcher) HeadRevision(ctx context.Context, repo *pb.Repo
 	return f.revision, f.revErr
 }
 
+// Verifies: CTRL-CORE-06.03, CTRL-CORE-06.10
 func TestReconcileRepository_ConditionalSkipsUnchanged(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
@@ -413,6 +415,7 @@ func TestReconcileRepository_ConditionalSkipsUnchanged(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-06.11
 func TestReconcileRepository_ConditionalReadsOnChange(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}
@@ -432,6 +435,7 @@ func TestReconcileRepository_ConditionalReadsOnChange(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-06.09
 func TestHandle_WatchEventForcesImport(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeConditionalFetcher{fsys: twoResourceFS(t), root: "/", revision: "sha-1"}

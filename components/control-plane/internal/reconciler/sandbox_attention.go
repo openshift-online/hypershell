@@ -128,9 +128,9 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 		return
 	}
 
-	// Sandbox CR list failure must not block orphaned publication (SSA-01 /
+	// Sandbox CR list failure must not block orphaned publication (OBS-SBXA-01 /
 	// SC-003): orphaned counts need only pods + live gateway namespaces.
-	// SSA-05: on CR failure, treat expiring-soon and idle as zero for that tick
+	// OBS-SBXA-05: on CR failure, treat expiring-soon and idle as zero for that tick
 	// (do not apply the never-used idle heuristic from pod CreationTime alone).
 	sandboxes, err := r.listSandboxes(listCtx)
 	crListFailed := err != nil
@@ -261,7 +261,7 @@ func (r *SandboxAttentionReconciler) exportCounts(ctx context.Context, counts ga
 }
 
 // publishZero clears attention gauges so a failed tick cannot leave stale
-// non-zero values exporting until the process stops (SSA-06 freshness).
+// non-zero values exporting until the process stops (OBS-SBXA-06 freshness).
 func (r *SandboxAttentionReconciler) publishZero(ctx context.Context) {
 	r.publish(ctx, gateway.AttentionCounts{})
 }

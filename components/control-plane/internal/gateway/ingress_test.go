@@ -4,6 +4,7 @@ import (
 	"testing"
 )
 
+// Verifies: PLAT-ARCH-09.01, PLAT-ARCH-09.02
 func TestGatewayIngressMode(t *testing.T) {
 	tests := []struct {
 		name     string

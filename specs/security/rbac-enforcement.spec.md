@@ -110,7 +110,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Gateway owner; one or more; grantable and removable (but a gateway always keeps at least one owner). Full CRUD including delete; can grant/change/revoke any role including `gateway:owner`. The creator is the first owner |
 | `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Read/update the gateway (no delete); can grant/change/revoke `gateway:admin` and `gateway:viewer` only (not `gateway:owner`) |
-| `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
+| `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
 ### Permission Matrix
@@ -123,6 +123,8 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
+
+`GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
 ### OpenShell Role Bridge
 
@@ -205,8 +207,31 @@ The middleware SHALL automatically create a User record when a JWT-authenticated
 is seen for the first time. The User record SHALL be populated from standard OIDC claims
 (`preferred_username`, `email`, `given_name`, `family_name`).
 
-Auto-provisioning SHALL use upsert semantics (keyed on `username`) to handle concurrent
-first-time requests and profile updates.
+Auto-provisioning SHALL use insert-or-update semantics keyed on `username` to handle
+concurrent first-time requests without a race: when no row exists yet, two concurrent
+first requests for the same username SHALL both resolve to the single row that gets
+created, instead of one failing on a unique-constraint error.
+
+When a User row already exists, auto-provisioning SHALL write to a stored profile field
+(`email`, `name`) only when the JWT carries a claim for that field and the claim's value
+differs from the stored one. It SHALL NOT write to the row, and SHALL NOT take a row
+lock on it, on a request whose claims already match what is stored. A JWT that omits a
+profile claim (for example, a service-account token with no `email` or `name`) SHALL
+leave the corresponding stored field unchanged; auto-provisioning SHALL NEVER overwrite
+a stored non-empty profile field with an empty or absent claim.
+
+This conditional-write behavior keeps a caller's own row from being locked on every
+request the caller makes -- including the control plane's gRPC write-backs -- so a slow
+downstream call inside one request cannot stall that caller's other concurrent requests.
+
+When a request DOES need to write a changed profile field, it SHALL serialize that write
+through one shared advisory lock rather than relying on the row lock's acquisition order.
+This prevents a lock-ordering deadlock when two callers concurrently provision each
+other's row, such as two users granting each other gateway access at the same time (see
+`platform/gateway-access-management.spec.md` GTW-ACC-04): with a single shared lock in play,
+the two requests can only ever queue behind it, never each hold a different row lock
+while waiting on the other's -- so the guarantee holds even when both callers' directory
+profiles changed at the same moment.
 
 The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator` and
 `platform:admin`) from the JWT on every request, creating or removing bindings as
@@ -219,6 +244,33 @@ needed to match the JWT claims.
 - THEN a User record is created from the JWT claims
 - AND RoleBindings are created to match the JWT's role claims
 - AND the request proceeds to authorization evaluation
+
+#### Scenario: SEC-RBAC-03.02 -- Concurrent first-time requests resolve to one row
+
+- GIVEN no User record exists for username `newuser`
+- WHEN two authenticated requests for `newuser` are processed at the same time
+- THEN exactly one User record is created for `newuser`
+- AND both requests resolve to that record's `user_id`
+
+#### Scenario: SEC-RBAC-03.03 -- Unchanged profile issues no write
+
+- GIVEN an existing User record whose `email` and `name` already match the caller's JWT claims
+- WHEN an authenticated request from that caller is processed
+- THEN auto-provisioning SHALL NOT update the User record
+- AND SHALL NOT take a row lock on it
+
+#### Scenario: SEC-RBAC-03.04 -- Missing claim does not clear a stored profile field
+
+- GIVEN an existing User record with `email` set from a prior request
+- WHEN an authenticated request carries a JWT with no `email` claim
+- THEN the stored `email` SHALL remain unchanged
+
+#### Scenario: SEC-RBAC-03.05 -- Mutual access grant does not deadlock
+
+- GIVEN user A and user B each already have a User record
+- AND each caller's JWT carries a directory profile claim that differs from what is stored, so each request's auto-provisioning self-upsert and Grant's target pre-provisioning both write
+- WHEN user A grants user B gateway access and user B grants user A gateway access at the same time
+- THEN both grants SHALL complete without a database deadlock error
 
 ### Requirement: SEC-RBAC-04 -- Gateway Creation Bootstrap
 
@@ -326,7 +378,9 @@ the same RoleBinding records.
 ### Requirement: SEC-RBAC-07 -- Platform Admin Global Access
 
 Users with the `platform:admin` role SHALL have global view, delete, and access-management
-permissions across all gateways in the platform, regardless of per-gateway RoleBindings.
+permissions across all gateways in the platform, regardless of per-gateway RoleBindings. The
+sandbox-events diagnostic route is the explicit exception: it requires a per-gateway binding
+and returns `404` to a `platform:admin` who lacks one (OSG-SEVT-05).
 Access management (grant/change/revoke any tier, including owner, and directory search)
 is owner-equivalent and exercised through the access facade; it creates no gateway-scoped
 binding for the platform admin, so it confers no gateway login
@@ -345,6 +399,7 @@ Platform administrators SHALL NOT be able to:
 - Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
 - Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that endpoint still requires `gateway:owner` or `gateway:admin` on the gateway; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
+- Read sandbox Events through `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a per-gateway binding; the response SHALL be `404` (OSG-SEVT-05)
 - Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
 
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
@@ -454,7 +509,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - `ListGateways` and `WatchGateways`: `platform:admin` only. The HTTP list is filtered
   to the caller's gateways; the gRPC list and watch are not, so no other role may use
   them.
-- `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `SetGatewayVersion`: denied
+- `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `SetGatewayVersion`, `ReportSandboxEvents`: denied
   whatever the caller's bindings. Only a control-plane identity writes these fields.
 - `ManagedClusterService`: reads for `gateway:creator` or `platform:admin`; writes for
   `platform:admin` (`platform/managed-cluster-registration.spec.md`, "Record Writes and

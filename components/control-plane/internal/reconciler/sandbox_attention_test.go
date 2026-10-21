@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -123,6 +124,7 @@ func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -156,7 +158,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
-	// Live-namespace pod older than IdleNeverUsedAge: without SSA-05 zeroing,
+	// Live-namespace pod older than IdleNeverUsedAge: without OBS-SBXA-05 zeroing,
 	// ClassifyAttentionCounts would count this as idle from pod CreationTime.
 	wouldBeIdlePod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -204,6 +206,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-SBXA-06.04
 func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	var gotCounts gateway.AttentionCounts
 	published := false

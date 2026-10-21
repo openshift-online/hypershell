@@ -19,7 +19,7 @@ type ServiceLocator func() UserService
 type ActivityRecorderLocator func() UserActivityRecorder
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	dao := NewUserDao(&env.Database.SessionFactory)
+	dao := NewUserDao(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
 	activityDao := NewUserActivityDao(&env.Database.SessionFactory)
 	RegisterUserMetrics(dao, activityDao)
 
