@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // installScriptURL is the public URL the UI's buildOpenShellInstallCommand
@@ -99,6 +100,16 @@ func openshellCLIMatchesVersion(reportedVersion, gatewayVersion string) bool {
 // gateway_version rather than a pinned constant (E2E-COV-05).
 func (s *E2ESuite) p2_11CLIUIParity(t *testing.T) {
 	ctx := t.Context()
+	// gateway_version is written back asynchronously by the health reconciler once
+	// the live gateway reports its runtime version (api-server SetGatewayVersion),
+	// so poll for it rather than reading once: a freshly provisioned gateway can
+	// still have an empty gateway_version when this parallel phase first runs.
+	waitErr := pollNoCtx(durationSecondsEnv("E2E_GATEWAY_VERSION_TIMEOUT", 120*time.Second), 5*time.Second, func() bool {
+		gw, err := s.admin.Gateways().Get(ctx, s.primary.ID)
+		return err == nil && gw.GatewayVersion != ""
+	})
+	s.Require().NoError(waitErr, "primary gateway did not report a reconciled gateway_version")
+
 	running, err := s.admin.Gateways().Get(ctx, s.primary.ID)
 	s.Require().NoError(err, "get primary gateway for its live reconciled gateway_version")
 	s.Require().NotEmpty(running.GatewayVersion, "primary gateway has a reconciled gateway_version")
