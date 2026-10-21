@@ -1228,6 +1228,39 @@ gateway-side provisioning failure.
 - AND the status message SHALL identify the failing `SecretSource` by name
 - AND the `CronJob` SHALL continue to run but its scheduled executions SHALL fail at gateway login
 
+### Requirement: PLAT-DATA-23 -- `hsctl apply` Supports Extension Kinds
+
+`hsctl apply` SHALL support every ADLC extension Kind (`AgentRuntime`,
+`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
+`SecretSource`) and `Repository` through both the `-f` (file/directory/stdin)
+and `-k` (Kustomize directory) inputs, using the same create-or-update
+reconciliation semantics it applies to the core Kinds. Each extension Kind SHALL
+be dispatched to its `/api/hypershell/ext/` collection path; core Kinds SHALL
+continue to use `/api/hypershell/v1/`. A document whose `kind` is not a
+recognized core or extension Kind SHALL be skipped with a warning and SHALL NOT
+fail the command.
+
+#### Scenario: PLAT-DATA-23.01 -- Apply an AgentRuntime from a file
+
+- GIVEN a YAML document with `kind: AgentRuntime` and a `metadata.name` that does not yet exist
+- WHEN `hsctl apply -f agent-runtime.yaml` runs
+- THEN `hsctl` SHALL POST the resource to `/api/hypershell/ext/agent_runtimes`
+- AND report status `created`
+
+#### Scenario: PLAT-DATA-23.02 -- Apply all extension Kinds from a Kustomize directory
+
+- GIVEN a Kustomize directory whose build output contains `SandboxTemplate`, `ProviderSpec`, `SecretSource`, `AgentRuntime`, `ProviderBinding`, `InferenceRoute`, and `Repository` documents
+- WHEN `hsctl apply -k ./overlays/agents/` runs
+- THEN each resource SHALL be dispatched to its `/api/hypershell/ext/` path
+- AND existing resources SHALL be PATCHed (`configured`) while new resources SHALL be POSTed (`created`)
+
+#### Scenario: PLAT-DATA-23.03 -- Unknown kind is skipped, not fatal
+
+- GIVEN an input stream containing one `AgentRuntime` document and one document with an unrecognized `kind`
+- WHEN `hsctl apply -f -` runs
+- THEN the `AgentRuntime` SHALL be applied
+- AND the unrecognized document SHALL be skipped with a warning without failing the command
+
 ---
 
 ## API Reference
@@ -1367,10 +1400,22 @@ their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-comman
 |---|---|---|
 | `Gateway` | `name`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector) | ✅ implemented |
 | `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
-| `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
-| `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
-| `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
-| `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | 🔲 planned |
+| `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | ✅ implemented (ext) |
+| `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | ✅ implemented (ext) |
+| `ProviderSpec` | `name`, `category`, `capability`, `profile` | ✅ implemented (ext) |
+| `ProviderBinding` | all fields in the ProviderBinding data model (see "Requirement: ProviderBinding") | ✅ implemented (ext) |
+| `InferenceRoute` | all fields in the InferenceRoute data model (see "Requirement: InferenceRoute") | ✅ implemented (ext) |
+| `SecretSource` | all fields in the SecretSource data model (see "Requirement: SecretSource") | ✅ implemented (ext) |
+| `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | ✅ implemented (ext) |
+
+ADLC extension Kinds and `Repository` are applied against the
+`/api/hypershell/ext/` API prefix (see "ADLC extension kinds -
+`/api/hypershell/ext/`" above); the core Kinds use `/api/hypershell/v1/`.
+`hsctl apply` SHALL dispatch each Kind to the correct prefix. The CLI groups
+`/ext/` commands as "Extensions (hypershell/ext/) - experimental, unsupported,
+subject to change"; the `✅ implemented (ext)` status above reflects working CLI
+support, not a stability or GA guarantee for the extension surface. See
+"Requirement: PLAT-DATA-23 -- `hsctl apply` Supports Extension Kinds".
 
 #### `-f` - File or Directory
 
