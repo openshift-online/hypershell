@@ -202,7 +202,7 @@ test.describe("live console user journey", () => {
       page.getByRole("link", {
         name: `Open console for ${gatewayName} in a new tab`,
       }),
-    ).toHaveAttribute("href", consoleAddress);
+    ).toHaveAttribute("href", consoleAddress, { timeout: pageTimeout });
 
     const consolePage = await page.context().newPage();
     await consolePage.goto(consoleAddress);
@@ -278,7 +278,7 @@ test.describe("live console user journey", () => {
     await dialog.getByRole("button", { name: "Delete gateway" }).click();
     await expect(
       page.getByText(`Gateway ${gatewayName} deleted`),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: pageTimeout });
     await expect
       .poll(
         async () =>

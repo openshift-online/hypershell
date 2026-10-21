@@ -10,6 +10,7 @@ import (
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/driver"
+	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
 // p2_8GatewaySharingRoleBindings validates the role_bindings REST contract
@@ -37,13 +38,17 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 	ownerLocal := s.registerGateway(t, ref, endpoint, ownerTok.AccessToken)
 	clientID := fmt.Sprintf("%s-%s", gw.Name, gw.ID)
 
-	// The second user must have a /users record before it can be resolved.
-	_, err = s.driver.AcquireOIDCToken(ctx, s.devCreds())
-	s.Require().NoError(err, "acquire developer token so the user record exists")
+	// The second user must have a /users record before it can be resolved. The
+	// record is auto-provisioned on the user's first authenticated platform
+	// request (the api-server provisions on every authenticated request), not by
+	// minting a Keycloak token, so make one authenticated call as the developer
+	// before resolving the record. Even a 403 passes through the provisioning
+	// middleware, so the status is irrelevant here.
+	devAPI := s.apiClientForCreds(t, s.devCreds())
+	_, _, err = devAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
+	s.Require().NoError(err, "developer authenticated request triggers user auto-provisioning")
 	devUserID := s.findUserIDByUsername(t, s.devCreds().Username)
 	viewerRoleID := s.findRoleIDByName(t, "gateway:viewer")
-
-	devAPI := s.apiClientForCreds(t, s.devCreds())
 
 	// E2E-COV-02.03 (first half): a non-owner cannot grant gateway access.
 	status, body, err := devAPI.RawJSON(ctx, http.MethodPost, "/role_bindings", sdktypes.RoleBinding{
@@ -117,15 +122,24 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 
 // findUserIDByUsername resolves username's id through the admin /users inventory.
 func (s *E2ESuite) findUserIDByUsername(t *testing.T, username string) string {
-	list, err := s.admin.Users().List(t.Context(), &sdktypes.ListOptions{Size: 200})
-	s.Require().NoErrorf(err, "list users to resolve %s", username)
-	for _, u := range list.Items {
-		if u.Username == username {
-			return u.ID
+	// Auto-provisioning is conditional and can lag behind the request that
+	// triggers it (HYPERSHELL-415), so poll /users rather than reading once.
+	var id string
+	err := harness.Poll(t.Context(), 2*time.Second, durationSecondsEnv("E2E_USER_PROVISION_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
+		list, listErr := s.admin.Users().List(ctx, &sdktypes.ListOptions{Size: 200})
+		if listErr != nil {
+			return false, nil
 		}
-	}
-	s.Require().Failf("user not found", "username %q not present in /users", username)
-	return ""
+		for _, u := range list.Items {
+			if u.Username == username {
+				id = u.ID
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	s.Require().NoErrorf(err, "username %q not present in /users", username)
+	return id
 }
 
 // findRoleIDByName resolves name's id through Roles().List, since role_bindings
