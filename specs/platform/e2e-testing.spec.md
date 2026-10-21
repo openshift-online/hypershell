@@ -208,7 +208,7 @@ deploy/
 
 ## Requirements
 
-### Requirement: E2E-CORE-47 -- Stand-in Gateway-Provider Vault
+### Requirement: E2E-CORE-48 -- Stand-in Gateway-Provider Vault
 
 Because the OpenShell gateway's default credential driver is `vault`
 (`openshell-gateway-credentials.spec.md`), a gateway created without a `credential_driver`
@@ -227,7 +227,7 @@ rather than by the suite reaching into Vault. How the remaining coverage is spli
 for the real resolve, and the API-driven fail-closed check) lives in
 `openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
 
-#### Scenario: E2E-CORE-47.01 -- Vault stood up on bring-up
+#### Scenario: E2E-CORE-48.01 -- Vault stood up on bring-up
 
 - GIVEN a freshly brought-up Kind or OpenShift e2e environment
 - WHEN the suite provisions a gateway with no `credential_driver`
