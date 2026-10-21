@@ -82,8 +82,9 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
 | `platform/openshell-branch-build.spec.md` | platform | OpenShell branch builds, dev gateway provisioning | ALL | local-development, openshell-gateway |
 | `platform/oidc-integration.spec.md` | platform | API JWT validation, BFF OIDC session, IdP client config, Kind opt-in | API, WEB, CP | local-development, openshell-gateway-oidc, web-console/architecture |
-| `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
-| `platform/ephemeral-pr-environments.spec.md` | platform | Per-PR OpenShift namespaces, GitHub-brokered Keycloak, origin-only CI, timebox/reaper | CI, ALL | e2e-testing, openshift-development |
+| `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing, merge-queue-parallel-scopes |
+| `platform/merge-queue-parallel-scopes.spec.md` | platform | Mergify parallel mode, file-based scopes, barrier files, E2E gate separation, post-merge concurrency, coverage audit | CI | e2e-testing, ephemeral-pr-environments |
+| `platform/ephemeral-pr-environments.spec.md` | platform | Per-PR OpenShift namespaces, GitHub-brokered Keycloak, origin-only CI, timebox/reaper | CI, ALL | e2e-testing, openshift-development, merge-queue-parallel-scopes |
 | `platform/ephemeral-test-credentials.spec.md` | platform | Test-tier Keycloak passwords, AWS SM, ESO, seed for env lifetime | CI, ALL | ephemeral-pr-environments, ephemeral-ci-secrets, e2e-testing, security |
 | `platform/ephemeral-ci-secrets.spec.md` | platform | Standing GHA secrets in AWS SM, GitHub OIDC, ESO OAuth alignment | CI | ephemeral-pr-environments, security |
 | `platform/openshell-image-auto-update.spec.md` | platform | Renovate customManager, OpenShell image bumps, merge policy | CI | e2e-testing, control-plane |
