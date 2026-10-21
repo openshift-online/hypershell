@@ -92,20 +92,21 @@ type ghTimelineEvent struct {
 	} `json:"source"`
 }
 
-// Records implements SdlcStateProvider. It lists the in-scope execution records
-// (issues carrying the execution-record marker, any state) and reconstructs each
-// record's label history from the timeline. A failure to list the in-scope set is
-// returned as an error so the cache can flag the plane stale (SDLC-VIS-01); a
-// per-record timeline failure degrades only that record (empty history).
+// Records implements SdlcStateProvider. It lists the in-scope work items
+// (issues carrying the agent/allowed authorization gate, any state) and
+// reconstructs each record's label history from the timeline. A failure to list
+// the in-scope set is returned as an error so the cache can flag the plane stale
+// (SDLC-VIS-01); a per-record timeline failure degrades only that record (empty
+// history).
 func (g *GitHubSDLC) Records(ctx context.Context) ([]SdlcRecord, error) {
 	issues, ok := g.listIssues(ctx)
 	if !ok {
-		return nil, fmt.Errorf("github sdlc: list execution records from %q failed", g.repo)
+		return nil, fmt.Errorf("github sdlc: list allowed work items from %q failed", g.repo)
 	}
 	out := make([]SdlcRecord, 0, len(issues))
 	for _, iss := range issues {
 		if iss.PullRequest != nil {
-			continue // the issues endpoint also returns PRs; execution records are issues
+			continue // the issues endpoint also returns PRs; work items are issues
 		}
 		out = append(out, g.record(ctx, iss))
 	}
@@ -165,14 +166,14 @@ func (g *GitHubSDLC) issueURL(iss ghIssue) string {
 	return fmt.Sprintf("%s/%s/issues/%d", g.htmlBase, g.repo, iss.Number)
 }
 
-// listIssues fetches every execution-record issue (any state), following pages.
+// listIssues fetches every allowed work item (any state), following pages.
 // Returns false only when the first page fails, so the plane can distinguish a
-// hard failure from an empty funnel.
+// hard failure from an empty funnel (SDLC-VIS-23).
 func (g *GitHubSDLC) listIssues(ctx context.Context) ([]ghIssue, bool) {
 	var all []ghIssue
 	for page := 1; page <= g.maxPages; page++ {
 		u := fmt.Sprintf("%s/repos/%s/issues?labels=%s&state=all&per_page=100&page=%d",
-			g.base, g.repo, labelExecutionRecord, page)
+			g.base, g.repo, labelAllowed, page)
 		var batch []ghIssue
 		if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &batch) {
 			if page == 1 {
@@ -323,7 +324,7 @@ func phaseLabels(phase string) map[string]bool {
 	case PhaseWorkable:
 		return labelSet(labelWorkable)
 	case PhaseIntake:
-		return labelSet(labelExecutionRecord)
+		return labelSet(labelAllowed)
 	default:
 		return map[string]bool{}
 	}

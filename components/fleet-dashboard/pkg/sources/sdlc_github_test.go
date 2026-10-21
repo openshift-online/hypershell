@@ -22,8 +22,8 @@ func TestNewGitHubSDLCDisabled(t *testing.T) {
 }
 
 // TestGitHubSDLCRecords exercises the full adapter path against a fake GitHub API:
-// the execution-record issues are listed (pull requests skipped), each issue's
-// label history is reconstructed from the timeline, and the current phase,
+// the allowed work items are listed (pull requests skipped), each issue's label
+// history is reconstructed from the timeline, and the current phase,
 // time-in-phase start, and rework count are derived from it. This covers the
 // SDLC-VIS-14 scenarios: time-in-phase from the latest phase label event, and a
 // rework count that survives reject-label removal on retry.
@@ -36,13 +36,13 @@ func TestGitHubSDLCRecords(t *testing.T) {
 				_, _ = w.Write([]byte(`[]`))
 				return
 			}
-			// A code-phase execution record (#10), a spec-phase record with a
+			// A code-phase work item (#10), a spec-phase record with a
 			// removed-then-reapplied reject label (#20), and a pull request that the
 			// issues endpoint also returns (#99) which must be skipped.
 			_, _ = w.Write([]byte(`[
-				{"number":10,"title":"Add SDLC tab","html_url":"https://github.com/acme/hypershell/issues/10","state":"open","labels":[{"name":"agent/execution-record"},{"name":"agent/reviewable-code"}]},
-				{"number":20,"title":"Spec rework","html_url":"https://github.com/acme/hypershell/issues/20","state":"open","labels":[{"name":"agent/execution-record"},{"name":"agent/review-spec-rejected"}]},
-				{"number":99,"title":"a pull request","state":"open","pull_request":{"url":"x"},"labels":[{"name":"agent/execution-record"}]}
+				{"number":10,"title":"Add SDLC tab","html_url":"https://github.com/acme/hypershell/issues/10","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/reviewable-code"}]},
+				{"number":20,"title":"Spec rework","html_url":"https://github.com/acme/hypershell/issues/20","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/review-spec-rejected"}]},
+				{"number":99,"title":"a pull request","state":"open","pull_request":{"url":"x"},"labels":[{"name":"agent/allowed"}]}
 			]`))
 		case "/repos/acme/hypershell/issues/10/timeline":
 			if r.URL.Query().Get("page") != "1" {
@@ -122,7 +122,114 @@ func TestGitHubSDLCRecordsListFailure(t *testing.T) {
 
 	g := NewGitHubSDLC(&config.Config{UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
 	if _, err := g.Records(context.Background()); err == nil {
-		t.Fatal("expected an error when the execution-record listing fails")
+		t.Fatal("expected an error when the allowed work-item listing fails")
+	}
+}
+
+// TestGitHubSDLCAllowedOnlyIntake confirms that an issue carrying agent/allowed
+// with no agent/execution-record or further funnel label lands in Intake with
+// PhaseSince from the agent/allowed labeled event.
+// Verifies: SDLC-VIS-23.01, SDLC-VIS-23.02
+func TestGitHubSDLCAllowedOnlyIntake(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/hypershell/issues":
+			if r.URL.Query().Get("page") != "1" {
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			if r.URL.Query().Get("labels") != "agent/allowed" {
+				t.Errorf("listing must filter by agent/allowed, got labels=%q", r.URL.Query().Get("labels"))
+			}
+			_, _ = w.Write([]byte(`[
+				{"number":42,"title":"Allowed only","html_url":"https://github.com/acme/hypershell/issues/42","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/scope/hyp0"}]},
+				{"number":43,"title":"With execution record","html_url":"https://github.com/acme/hypershell/issues/43","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/execution-record"},{"name":"agent/reviewable-spec"}]}
+			]`))
+		case "/repos/acme/hypershell/issues/42/timeline":
+			if r.URL.Query().Get("page") != "1" {
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[
+				{"event":"labeled","created_at":"2026-10-10T12:00:00Z","label":{"name":"agent/allowed"}}
+			]`))
+		case "/repos/acme/hypershell/issues/43/timeline":
+			if r.URL.Query().Get("page") != "1" {
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[
+				{"event":"labeled","created_at":"2026-10-08T00:00:00Z","label":{"name":"agent/allowed"}},
+				{"event":"labeled","created_at":"2026-10-09T00:00:00Z","label":{"name":"agent/execution-record"}},
+				{"event":"labeled","created_at":"2026-10-11T00:00:00Z","label":{"name":"agent/reviewable-spec"}}
+			]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubSDLC(&config.Config{UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	records, err := g.Records(context.Background())
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("want 2 records, got %d", len(records))
+	}
+
+	byNum := map[int]SdlcRecord{}
+	for _, r := range records {
+		byNum[r.Number] = r
+	}
+
+	// SDLC-VIS-23.01: allowed-only issue lands in Intake
+	rec42 := byNum[42]
+	if rec42.Phase != PhaseIntake {
+		t.Errorf("#42 phase = %q, want %q (allowed-only must land in Intake)", rec42.Phase, PhaseIntake)
+	}
+	// SDLC-VIS-23.02: PhaseSince from the agent/allowed labeled event
+	if rec42.PhaseSince != "2026-10-10T12:00:00Z" {
+		t.Errorf("#42 PhaseSince = %q, want 2026-10-10T12:00:00Z (from agent/allowed event)", rec42.PhaseSince)
+	}
+	if rec42.Scope != "agent/scope/hyp0" {
+		t.Errorf("#42 Scope = %q, want agent/scope/hyp0", rec42.Scope)
+	}
+
+	// SDLC-VIS-23.03: issue with execution record + funnel label resolves to its phase
+	rec43 := byNum[43]
+	if rec43.Phase != PhaseSpec {
+		t.Errorf("#43 phase = %q, want %q (existing record must resolve to its current phase)", rec43.Phase, PhaseSpec)
+	}
+	if rec43.PhaseSince != "2026-10-11T00:00:00Z" {
+		t.Errorf("#43 PhaseSince = %q, want 2026-10-11T00:00:00Z", rec43.PhaseSince)
+	}
+}
+
+// TestGitHubSDLCInertRecordExcluded confirms that an issue carrying
+// agent/execution-record but NOT agent/allowed is excluded from the listing,
+// because the listing filters by agent/allowed (SDLC-VIS-23.05).
+func TestGitHubSDLCInertRecordExcluded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/hypershell/issues":
+			if r.URL.Query().Get("labels") != "agent/allowed" {
+				t.Errorf("listing must filter by agent/allowed, got labels=%q", r.URL.Query().Get("labels"))
+			}
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubSDLC(&config.Config{UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	records, err := g.Records(context.Background())
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("want 0 records (inert records excluded by agent/allowed filter), got %d", len(records))
 	}
 }
 
