@@ -240,6 +240,7 @@ func (s *E2ESuite) TearDownSuite() {
 	s.runner.SetLogger(s.logger)
 	cleanupStartedAt := time.Now()
 	failedBeforeCleanup := s.T().Failed()
+	diagnosticsCollected := false
 	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		verdict := outcomeFor(s.T())
@@ -252,8 +253,19 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 		s.reporter.StepFinished("cleanup", "suite-teardown", cleanupOutcome, time.Since(cleanupStartedAt))
 	}()
+	defer func() {
+		// A cleanup-only failure did not exist at the pre-cleanup collection point.
+		// Capture what remains so every failed suite still emits diagnostics.
+		if s.T().Failed() && !diagnosticsCollected {
+			s.collectFailureDiagnostics()
+		}
+	}()
 	if s.orphan != nil && s.orphan.cancel != nil {
 		s.orphan.cancel()
+	}
+	if failedBeforeCleanup {
+		s.collectFailureDiagnostics()
+		diagnosticsCollected = true
 	}
 
 	cleanupAPI := s.admin
@@ -302,7 +314,7 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
+	if s.gcTimingLease != nil && (!s.T().Failed() || s.driver.Name() != "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
 			reportingTest{T: s.T(), logger: s.logger}.Errorf("restore namespace GC timing: %v", err)
 		}

@@ -650,7 +650,8 @@ generate-tui-check:
 # The functional e2e suite is the Go testify suite (TestE2E). It auto-detects the
 # infra driver from the current KUBECONFIG context (override with E2E_INFRA_DRIVER).
 # -failfast aborts on the first failing step (see the Three-Outcome Reporting
-# requirement in specs/platform/e2e-testing.spec.md).
+# requirement in specs/platform/e2e-testing.spec.md). TearDownSuite collects
+# failure diagnostics before cleanup for both direct and matrix/promotion runs.
 E2E_GO_TIMEOUT ?= 35m
 .PHONY: e2e
 e2e:

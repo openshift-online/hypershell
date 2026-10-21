@@ -733,6 +733,9 @@ jobs:
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           E2E_CONSOLE_READY_TIMEOUT: "300"
+          # The Go tests own cluster diagnostics so promotion runs and Actions
+          # emit the same evidence; Actions only invokes tests and uploads files.
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
           E2E_PARALLEL_LOG_DIR: ${{ github.workspace }}/e2e-suite-logs
           # show_cmd sleeps E2E_PAUSE seconds (default 1, demo pacing) after every
           # command it echoes: about 70 of them in the bash suite, ~70s of idle.
@@ -772,88 +775,16 @@ jobs:
         if: github.event_name != 'merge_group'
         run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:tracing:live
 
-      - name: Collect diagnostics
-        if: failure()
-        run: |
-          mkdir -p e2e-diagnostics
-
-          echo "::group::All pods"
-          kubectl get pods -A -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Pod descriptions (hypershell-system)"
-          kubectl describe pods -n hypershell-system 2>&1 | tee e2e-diagnostics/pod-describes.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Pod logs (hypershell-system)"
-          {
-            for label in app.kubernetes.io/name=hypershell app=hypershell-api-server app=hypershell-controller app=hypershell-web-console; do
-              kubectl logs --all-containers --prefix --tail=200 -l "${label}" -n hypershell-system 2>&1 || true
-            done
-          } | tee e2e-diagnostics/pod-logs.txt
-          echo "::endgroup::"
-
-          echo "::group::Stand-in postgres logs"
-          kubectl logs --all-containers --prefix --tail=200 -l app=postgres -n external-cloud-db 2>&1 | tee e2e-diagnostics/postgres.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Keycloak logs"
-          kubectl logs --all-containers --prefix --tail=100 -l app=keycloak -n keycloak 2>&1 | tee e2e-diagnostics/keycloak-logs.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Tracing (Jaeger) diagnostics"
-          {
-            kubectl get pods,svc,httproutes -l app=jaeger -n hypershell-system -o wide 2>&1 || true
-            kubectl logs --all-containers --prefix --tail=100 -l app=jaeger -n hypershell-system 2>&1 || true
-            echo "--- web-console OTEL env ---"
-            kubectl get deployment/hypershell-web-console -n hypershell-system \
-              -o jsonpath='{range .spec.template.spec.containers[*].env[*]}{.name}={.value}{"\n"}{end}' 2>&1 | grep -i otel || true
-          } | tee e2e-diagnostics/tracing.txt
-          echo "::endgroup::"
-
-          echo "::group::Events (hypershell-system)"
-          kubectl get events --sort-by=.lastTimestamp -n hypershell-system 2>&1 | tee e2e-diagnostics/events.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Gateway API resources"
-          {
-            kubectl get gateways,grpcroutes,httproutes -A -o wide 2>&1 || true
-            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
-              ns_name="${ns##*/}"
-              echo "--- $ns ---"
-              kubectl get pods,svc,deployments -n "${ns_name}" 2>&1 || true
-              echo "--- pod descriptions ($ns_name) ---"
-              kubectl describe pods -n "${ns_name}" 2>&1 || true
-              echo "--- events ($ns_name) ---"
-              kubectl get events --sort-by=.lastTimestamp -n "${ns_name}" 2>&1 || true
-              for pod in $(kubectl get pods -n "${ns_name}" -o name 2>/dev/null); do
-                echo "--- logs ${pod} ($ns_name) ---"
-                kubectl logs "${pod}" --all-containers --tail=80 -n "${ns_name}" 2>&1 || true
-                echo "--- previous logs ${pod} ($ns_name) ---"
-                kubectl logs "${pod}" --all-containers --previous --tail=80 -n "${ns_name}" 2>&1 || true
-              done
-            done
-          } | tee e2e-diagnostics/gateway-api.txt
-          echo "::endgroup::"
-
-          echo "::group::OpenShell console (gateway namespaces)"
-          {
-            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
-              ns_name="${ns##*/}"
-              echo "--- deployment/openshell-console ($ns_name) ---"
-              kubectl get deployment openshell-console -n "${ns_name}" -o wide 2>&1 || true
-              kubectl get deployment openshell-console -n "${ns_name}" -o jsonpath='{.status.conditions}' 2>&1 || true
-              echo ""
-              echo "--- httproute/openshell-console status ($ns_name) ---"
-              kubectl get httproute openshell-console -n "${ns_name}" -o jsonpath='{.spec.hostnames}{"\n"}{.status.parents}' 2>&1 || true
-              echo ""
-              for container in oauth2-proxy dashboard; do
-                echo "--- logs openshell-console/${container} ($ns_name) ---"
-                kubectl logs deployment/openshell-console -c "${container}" --tail=150 -n "${ns_name}" 2>&1 || true
-              done
-            done
-          } | tee e2e-diagnostics/openshell-console.txt
-          echo "::endgroup::"
+      # TestE2E collects on its own failure. A later console/tracing failure
+      # uses the same test-owned collector rather than duplicating kubectl
+      # commands in Actions.
+      - name: Collect diagnostics for non-suite failure
+        if: failure() && hashFiles('e2e-diagnostics/**') == ''
+        env:
+          E2E_COLLECT_DIAGNOSTICS: "1"
+          E2E_INFRA_DRIVER: kind
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
+        run: go -C tests/e2e test . -run '^TestFailureDiagnostics$' -count=1 -v -timeout 2m
 
       - name: Upload diagnostics
         if: failure()
@@ -862,6 +793,7 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload e2e suite logs
         if: failure() && hashFiles('e2e-suite-logs/**') != ''
@@ -1042,6 +974,7 @@ jobs:
           E2E_INFRA_DRIVER: openshift
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "300"
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
           TERM: dumb
           NO_COLOR: "1"
         # The Go E2ESuite (TestE2E) is the functional gate; it auto-detects the
@@ -1057,14 +990,15 @@ jobs:
           fi
           make e2e
 
-      - name: Collect diagnostics
-        if: steps.e2e-suite.outcome == 'failure'
-        run: |
-          mkdir -p e2e-diagnostics
-          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
-          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
-          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
-          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+      # Setup can fail before TestE2E constructs E2ESuite. Keep that rare path
+      # on the same test-owned collector as suite and promotion failures.
+      - name: Collect diagnostics after early suite failure
+        if: steps.e2e-suite.outcome == 'failure' && hashFiles('e2e-diagnostics/**') == ''
+        env:
+          E2E_COLLECT_DIAGNOSTICS: "1"
+          E2E_INFRA_DRIVER: openshift
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
+        run: go -C tests/e2e test . -run '^TestFailureDiagnostics$' -count=1 -v -timeout 2m
 
       - name: Upload diagnostics
         if: steps.e2e-suite.outcome == 'failure'
@@ -1078,6 +1012,7 @@ jobs:
             }}
           path: e2e-diagnostics/
           retention-days: 7
+          if-no-files-found: ignore
 
       # Skip ONLY when the environment is retained. Runs on success, failure,
       # and cancel so an unretained namespace is not left behind.

@@ -367,7 +367,7 @@ func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping route and CLI registration")
 	}
-	s.Require().NoError(s.driver.WaitForGatewayRoute(t.Context(), s.primary), "wait for gateway route")
+	s.requireGatewayRoute(t, s.primary, "wait for gateway route")
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), s.primary)
 	s.Require().NoError(err, "discover gateway endpoint")
 	s.Logf("gateway endpoint: %s", endpoint)
@@ -401,7 +401,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
 	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
-	s.Require().NoError(s.driver.WaitForGatewayRoute(ctx, ref), "wait for sandbox gateway route")
+	s.requireGatewayRoute(t, ref, "wait for sandbox gateway route")
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
 	s.Require().NoError(err, "discover sandbox gateway endpoint")
 
@@ -769,7 +769,6 @@ func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	ctx := t.Context()
 
-	privilegedAPI := s.admin
 	privilegedLabel := "platform-admin"
 	// The primary gateway's creator owns it. Its owner binding authorizes PATCH,
 	// while platform:admin is intentionally inventory-only for gateway mutation.
@@ -777,7 +776,7 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	unprivilegedLabel := "developer"
 	unprivilegedAPI := s.apiClientForCreds(t, s.devCreds())
 	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
-	privilegedAPI = s.apiClientForCreds(t, s.platformAdminCreds())
+	privilegedAPI := s.apiClientForCreds(t, s.platformAdminCreds())
 
 	s.runner.Show("GET /users  # as %s, expect 403", unprivilegedLabel)
 	st, body, err := unprivilegedAPI.RawJSON(ctx, http.MethodGet, "/users", nil)
@@ -942,6 +941,22 @@ func (s *E2ESuite) waitGatewayRunning(t *testing.T, id string) *sdktypes.Gateway
 		s.Require().NoError(err, "gateway %s never reached Running (last phase %s)", id, phase)
 	}
 	return last
+}
+
+// requireGatewayRoute preserves both sides of a route-readiness failure: the
+// driver error reports the last GRPCRoute or parent Gateway observation, while
+// the suite diagnostic captures the management API state and controller log.
+func (s *E2ESuite) requireGatewayRoute(t *testing.T, ref driver.GatewayRef, message string) {
+	t.Helper()
+	err := s.driver.WaitForGatewayRoute(t.Context(), ref)
+	if err != nil {
+		gw, getErr := s.admin.Gateways().Get(t.Context(), ref.ID)
+		if getErr != nil {
+			s.Logf("DIAG gateway %s could not be read after route readiness failure: %v", ref.ID, getErr)
+		}
+		s.dumpGatewayDiagnostics(t, ref.ID, gw)
+	}
+	s.Require().NoError(err, message)
 }
 
 // waitGatewayNamespace waits only until reconciliation has assigned and created

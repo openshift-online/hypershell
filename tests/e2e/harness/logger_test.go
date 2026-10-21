@@ -75,6 +75,22 @@ func TestLoggerStreamHasNoDuplicatesAndRedactsDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRedactDiagnosticProtectsHumanLogsAndArtifacts(t *testing.T) {
+	raw := "Authorization: Bearer secret-value\n" +
+		"database=postgres://user:password@db.example.test/app\n" +
+		"-----BEGIN PRIVATE KEY-----\nprivate-data\n-----END PRIVATE KEY-----\n" +
+		"access_token=eyJheader.payload.signature"
+	safe := RedactDiagnostic(raw)
+	for _, secret := range []string{"secret-value", ":password@", "private-data", "eyJheader"} {
+		if strings.Contains(safe, secret) {
+			t.Errorf("redacted diagnostic leaks %q: %s", secret, safe)
+		}
+	}
+	if !strings.Contains(safe, "[REDACTED PRIVATE KEY]") {
+		t.Fatalf("redacted diagnostic lost private-key placeholder: %s", safe)
+	}
+}
+
 func TestLoggerConcurrentScopes(t *testing.T) {
 	var structured bytes.Buffer
 	base := NewLogger(nil, ReporterSink(NewReporter(&structured, testIdentity())))

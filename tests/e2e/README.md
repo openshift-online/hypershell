@@ -65,6 +65,21 @@ of mode selection, the credential lifecycle, renewal, and claim checks. The
 retired Bash suite's helpers (`gateway_service_account.sh` and `.py`) and their
 tests remain for `make ci-test`; the Go suite does not use them.
 
+## Failure diagnostics
+
+Every failed Go E2E suite collects cluster diagnostics before teardown, whether
+it runs locally, in GitHub Actions, or as a managed-cluster promotion gate. The
+test log includes pod readiness and descriptions, platform and gateway workload
+logs, events, Gateway API and OpenShift Route status, tracing state, and
+OpenShell console state. Credential-shaped values and private keys are redacted
+before emission.
+
+Set `E2E_DIAGNOSTICS_DIR` to also write the redacted sections as `0600` files
+under a per-run directory. GitHub Actions sets this variable and only uploads
+the files; diagnostic collection itself remains part of the test. Collection is
+best-effort and bounded to 45 seconds by default. Override that bound with
+`E2E_DIAGNOSTICS_TIMEOUT` when a slow remote cluster needs more time.
+
 The controller also has an opt-in test against a disposable Keycloak realm:
 
 ```sh

@@ -157,7 +157,8 @@ PR opened/updated
     ├── bash tests/e2e/run-parallel.sh: E2E_INFRA_DRIVER=kind go -C tests/e2e test . -run TestE2E
     │     -v -timeout 20m and, outside merge_group, e2e-console.sh (E2E_MODE=short) concurrently
     │
-    ├── [on failure: collect diagnostic artifacts]
+    ├── [on suite failure: TestE2E collects diagnostics before cleanup]
+    ├── [Actions uploads the suite-produced diagnostic artifacts]
     │
     └── report CI status
 ```
@@ -601,7 +602,7 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 **Driver behavior needed for parity.** For the shared suite to pass on OpenShift, the OpenShift driver SHALL use the current `oc` project when `OPENSHIFT_NAMESPACE` is unset (and fail clearly when neither is available), matching `make openshift-up`; derive the OIDC issuer from the Keycloak Route in `${OPENSHIFT_NAMESPACE}-keycloak` (not the Kind default `keycloak.hypershell.localhost`); return `ClusterDomain` from the same shared-Gateway listener hostname `make openshift-up` used; and provide the same Keycloak admin and role-assignment helpers the Kind driver provides, so the RBAC checks (developer and platform-admin) run unchanged. The OpenShift deployment SHALL enforce RBAC (`RBAC_ENFORCE=true`) and SHALL keep the OpenShift SCC posture (per-namespace privileged SCC for sandbox pods), so the sandbox and RBAC checks behave the same as on Kind. These behaviors are specified in `openshift-development.spec.md`; this spec only depends on them.
 
-**Namespace GC timing.** Step P2.3 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are restored. Kind SHALL restore on every exit, including failure. A failed run SHALL dump the live controller logs (and the stand-in postgres logs, when that namespace exists) from the cleanup trap _before_ restore, because restore rolls a new controller ReplicaSet and otherwise the SQL/TLS error behind a `DatabaseReady` failure is lost. A failed OpenShift run SHALL skip restore and proceed to teardown: the environment is destroyed next, so a controller rollout wait has no effect. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
+**Namespace GC timing.** Step P2.3 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are restored. Kind SHALL restore on every exit, including failure. A failed run SHALL use the environment-independent suite diagnostic path to dump the live controller logs (and the stand-in postgres logs, when that namespace exists) before restore, because restore rolls a new controller ReplicaSet and otherwise the SQL/TLS error behind a `DatabaseReady` failure is lost. A failed OpenShift run SHALL skip restore and proceed to teardown: the environment is destroyed next, so a controller rollout wait has no effect. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
 
 **Not in this spec's CI.** OpenShift performance runs SHALL NOT be wired into CI. Kind e2e, including the merge-queue gate, SHALL remain the CI job this spec defines. Origin-repository OpenShift pull-request environments are specified in `ephemeral-pr-environments.spec.md` and SHALL NOT be restated here.
 
@@ -1413,21 +1414,20 @@ The CI workflow SHALL NOT build component images itself. Images are built by Kon
 
 ### Requirement: E2E-CORE-27 -- CI Artifact Collection
 
-On test failure, the CI workflow SHALL collect diagnostic artifacts to aid debugging. On success, no artifacts SHALL be uploaded.
+On `TestE2E` failure, the Go suite SHALL collect diagnostic artifacts as
+[Environment-Independent Failure Diagnostics](#requirement-environment-independent-failure-diagnostics)
+defines. The CI workflow SHALL upload those suite-produced files to aid
+debugging. On success, no artifacts SHALL be uploaded.
 
 #### Scenario: E2E-CORE-27.01 -- Failure Diagnostics
 
 - GIVEN an e2e test failure
-- WHEN the workflow reaches its post-test phase
-- THEN it SHALL collect diagnostics inside collapsible `::group::` sections for readable CI output:
-  - All pods across all namespaces (`kubectl get pods -A -o wide`)
-  - Pod descriptions from the HyperShell namespace (`kubectl describe pods`)
-  - Pod logs from all HyperShell components (`kubectl logs --all-containers --prefix --tail=200`)
-  - Keycloak logs (`kubectl logs -l app=keycloak -n keycloak`)
-  - Cluster events sorted by timestamp (`kubectl get events --sort-by=.lastTimestamp`)
-  - Gateway API resources (Gateways, GRPCRoutes, HTTPRoutes) and managed namespace resources
-- AND each section SHALL be written to both stdout (via `tee`) and a file in `e2e-diagnostics/`
-- AND upload them as a GitHub Actions artifact named `e2e-diagnostics`
+- WHEN the suite reaches `TearDownSuite`
+- THEN the suite SHALL write every redacted section to the test log and to its
+  per-run directory under `e2e-diagnostics/`
+- AND the workflow SHALL upload that directory as the GitHub Actions artifact
+  named `e2e-diagnostics`
+- AND the workflow SHALL NOT duplicate the collector as inline shell commands
 
 #### Scenario: E2E-CORE-27.02 -- Success -- No Artifacts
 
@@ -1794,7 +1794,10 @@ The CI e2e workflow SHALL verify web console distributed tracing end to end, sat
 
 - GIVEN the trace verification fails
 - WHEN the workflow reaches its post-test phase
-- THEN it SHALL collect Jaeger workload status and logs and the web-console tracing configuration alongside the existing diagnostics
+- THEN it SHALL invoke the test-owned `TestFailureDiagnostics` fallback when the
+  suite did not already produce artifacts
+- AND the resulting sections SHALL include Jaeger workload status and logs and
+  the web-console tracing configuration alongside the existing diagnostics
 
 ## Performance Testing
 
@@ -2384,6 +2387,63 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 - WHEN the harness reaches its diagnostics phase
 - THEN it SHALL print plain, labeled diagnostic sections
 - AND it SHALL NOT emit `::group::` markers
+
+### Requirement: E2E-CORE-47 -- Environment-Independent Failure Diagnostics
+
+The Go `E2ESuite` SHALL own failure-diagnostic collection so the same evidence
+is emitted by direct runs, GitHub Actions, and managed-cluster promotion/matrix
+runs. `TearDownSuite` SHALL collect before gateway deletion, namespace-GC timing
+restore, or environment teardown whenever a phase or setup has already failed.
+If cleanup itself introduces the only failure, the suite SHALL collect at the
+end of cleanup from the resources that remain. Diagnostic collection SHALL use
+the suite's typed Kubernetes, Gateway API, and dynamic clients; it SHALL NOT
+shell out to `kubectl` or `oc`.
+
+The collection SHALL include all-cluster pod readiness, detailed platform pod
+state, platform workload logs, stand-in PostgreSQL and Keycloak logs when those
+workloads exist, Jaeger and web-console OTEL state, platform events, Gateway /
+GRPCRoute / HTTPRoute status, OpenShift Route status on OpenShift, and managed
+gateway namespace workloads, events, current/previous pod logs, and OpenShell
+console state. Route-readiness failures SHALL also retain the last observed
+GRPCRoute or parent Gateway condition in the assertion error, and suite-level
+route failures SHALL include management API state and controller logs.
+
+Every diagnostic section SHALL be written to the human test log. When
+`E2E_DIAGNOSTICS_DIR` is set, the same redacted sections SHALL also be written as
+mode `0600` files under a per-run directory for an external artifact uploader.
+Credential-shaped values, authorization headers, connection-string passwords,
+JWTs, and private keys SHALL be redacted before either sink receives them.
+Collection SHALL be best-effort, SHALL continue when one source is unavailable,
+and SHALL be bounded by `E2E_DIAGNOSTICS_TIMEOUT` (45 seconds by default). A
+diagnostic-source or artifact-write failure SHALL be reported but SHALL NOT hide
+or replace the original test verdict.
+
+GitHub Actions SHALL set `E2E_DIAGNOSTICS_DIR` and upload the resulting directory
+on failure. For a later browser or tracing failure after `TestE2E` has passed, or
+for an early failure before `E2ESuite` exists, Actions MAY invoke the opt-in
+`TestFailureDiagnostics` entry point; that entry point SHALL reuse the same Go
+collector. Actions SHALL NOT maintain a separate `kubectl`/`oc` diagnostic
+command list, because that would make Actions failures richer than promotion
+failures and allow the two paths to drift.
+
+#### Scenario: E2E-CORE-47.01 -- Promotion Failure Gets CI-Equivalent Diagnostics
+
+- GIVEN `TestMatrix` runs a promotion suite against a managed-cluster context
+- WHEN that per-cluster `E2ESuite` fails
+- THEN it SHALL collect the same diagnostic sections before cleanup that
+  `TestE2E` collects in GitHub Actions
+- AND the evidence SHALL appear in the test log even when no artifact directory
+  is configured
+
+#### Scenario: E2E-CORE-47.02 -- Actions Uses the Test-Owned Collector
+
+- GIVEN GitHub Actions runs `TestE2E` with `E2E_DIAGNOSTICS_DIR` set
+- WHEN the suite fails
+- THEN the suite SHALL log and persist the redacted diagnostic sections
+- AND the workflow SHALL upload those files without running a workflow-specific
+  cluster diagnostic script
+- AND if a later browser or tracing test fails after the suite passes, the
+  workflow MAY invoke `TestFailureDiagnostics` to produce the same sections
 
 ### Performance Environment Variables
 
