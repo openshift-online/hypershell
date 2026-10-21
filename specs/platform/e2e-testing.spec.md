@@ -220,12 +220,14 @@ convention address, configured to the GitOps Contract - so the suite exercises t
 production credential path. The setup SHALL be idempotent (safe to re-run against an
 already-initialized Vault, so it holds on a shared cluster across pull-request
 environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
-pod UID/fsGroup). The bring-up SHALL **self-verify** the capability-scoped policy as a
-gateway identity (round-trip under `provider-credentials/*`, `list` denied, out-of-prefix
-denied, and - access revocation - the gateway denied once the policy is removed, then the
-policy restored) and fail if it drifts, so the GitOps Contract is checked in the fixture
-rather than by the suite reaching into Vault. How the remaining coverage is split (the sandbox lifecycle
-for the real resolve, and the API-driven fail-closed check) lives in
+pod UID/fsGroup). The bring-up SHALL **self-verify** both isolation layers as a gateway
+identity against its own per-tenant mount (`openshell-gw/<namespace>`): a round-trip under
+its own `provider-credentials/*`, `list` denied, metadata `delete` denied, another tenant's
+mount denied, a ServiceAccount in an **unlabeled** namespace denied at login (the namespace
+selector), and - access revocation - the gateway denied once the policy is removed, then the
+policy restored. It SHALL fail if any of these drift, so the GitOps Contract is checked in
+the fixture rather than by the suite reaching into Vault. How the remaining coverage is split
+(the sandbox lifecycle for the real resolve, and the API-driven fail-closed check) lives in
 `openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
 
 #### Scenario: E2E-CORE-48.01 -- Vault stood up on bring-up
@@ -234,8 +236,9 @@ for the real resolve, and the API-driven fail-closed check) lives in
 - WHEN the suite provisions a gateway with no `credential_driver`
 - THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
   Vault
-- AND the bring-up SHALL have self-verified the capability policy, including that removing the
-  `openshell-gateway-provider` policy denies the gateway and restoring it recovers access (failing otherwise)
+- AND the bring-up SHALL have self-verified both isolation layers (per-tenant mount round-trip;
+  `list`, metadata `delete`, and cross-tenant mount denied; an unlabeled namespace denied at
+  login; and policy-removal revocation then restore), failing otherwise
 - AND re-running bring-up SHALL leave the already-initialized Vault unchanged
 
 ### Requirement: E2E-CORE-01 -- Infra Driver Abstraction
