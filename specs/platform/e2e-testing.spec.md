@@ -22,7 +22,7 @@ The functional suite, the performance harness, and the managed-cluster matrix ru
 
 The browser/console suite is TypeScript Playwright (`components/web-console/e2e-live/console.live.spec.ts`). Its thin Bash launcher only discovers the Kind or OpenShift route. A separate **Bash smoke script** (`tests/e2e/smoke.sh`, `make e2e-smoke`) narrates the command-line user story. The Go suite remains the authoritative non-browser gate.
 
-This spec defines the driver abstraction, test framework, CI workflow, and deploy restructuring required to run the same tests across Kind and OpenShift. The functional suite validates the full provisioning path -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- plus the extended areas (ManagedCluster registration and admin inventory) defined below.
+This spec defines the driver abstraction, test framework, CI workflow, and deploy restructuring required to run the same tests across Kind and OpenShift. The functional suite validates the full provisioning path -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- plus the extended areas (ManagedCluster registration, gateway access management, gateway service accounts, admin inventory) defined below.
 
 HyperShell also needs a **performance test**. The performance test measures how the platform behaves under scale. It provisions a large fleet of gateways on the target cluster. It then runs the functional e2e suite to confirm the platform still works correctly under that load. The performance test reuses the same driver abstraction, so it runs against Kind for local checks and against any OpenShift cluster for on-demand load tests (see [Performance Testing](#performance-testing)).
 
@@ -335,8 +335,6 @@ The suite SHALL call `DeSeedTestUsers` from `TearDownSuite` alongside `RestoreNa
 - AND the OpenShift driver SHALL no-op on both CI-owned `pr-*` environments and developer-owned environments
 - AND the seeded `admin`, `developer`, and `platform-admin` users SHALL still exist
 
-The OpenShift driver implements the same interface methods with OpenShift constructs (Route host for `DiscoverAPIHost`, GRPCRoute hostname via the shared Gateway with `Programmed=True` for `DiscoverGatewayEndpoint`, the gateway base domain `make openshift-up` derived from the shared Gateway listener hostname for `ClusterDomain`, `OPENSHIFT_NAMESPACE` for `PlatformNamespace`, Gateway `Programmed=True` plus GRPCRoute parent `Accepted=True` for `WaitForGatewayRoute`, the HyperShell Keycloak reached at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace for `AcquireOIDCToken` and `APIClient`, that same Keycloak's admin API for the `AssignGatewayClientRole`, `AssignRealmRole`, and `AcquireGatewayTokenWithRole` role helpers, and a no-op `DeSeedTestUsers`), as the interface table above shows. `openshift-development.spec.md` owns bring-up (`make openshift-up`, the overlay, cluster bootstrap); this spec owns the driver the suite calls after that environment exists. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). Test-tier seed behavior is specified in `ephemeral-test-credentials.spec.md`.
-
 ### Requirement: E2E-CORE-03 -- Test Framework and Suite Structure
 
 The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testify/suite`, invoked by a single `go test` entry point `TestE2E` that constructs the resolved `E2EInfraDriver` and runs `E2ESuite` via `suite.Run`. The phase steps P0--P3 (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) SHALL be realized as named subtests of this one suite, not as independent top-level `Test*` functions, because they share setup state (acquired tokens, discovered endpoints, seeded ids). The suite SHALL establish that shared state in `SetupSuite` (resolve driver, discover API host, acquire the admin token, seed the cluster id, and -- in long mode -- call `ConfigureNamespaceGCTiming`) and SHALL tear it down in `TearDownSuite` (restore GC timing, delete the suite's gateways, `DeSeedTestUsers`), on every exit path.
@@ -554,7 +552,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 2. **The serial preflight + bring-up gate (P0, P1).** The cheap preconditions (P0) and the one unavoidable gate -- the primary gateway's bring-up chain, provision (P1.1) -> infra verify (P1.2) -> token + CA (P1.3) -> route + CLI registration (P1.4) -> connectivity (P1.5) -- SHALL run sequentially with `Require`, because each step depends on the one before and a failure here invalidates everything downstream. This gate runs first precisely so a broken environment fails within seconds-to-minutes rather than after cheap checks pass.
 
-3. **Parallel hard behaviors on their own gateways (P2).** The highest-value lever: the integration-heavy P2 steps -- sandbox lifecycle + count (P2.1), RBAC (P2.2), deletion + GC (P2.3), ManagedCluster + control-plane lifecycle (P2.4) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`. A step that mutates per-gateway state (notably `active_sandbox_count`) or destroys a gateway SHALL own its own uniquely named gateway so it is isolated; at most one P2 step may reuse the P1 primary gateway. Because provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the steps toward the slowest step. The scheduler SHALL start the longest steps first (provisioning-heavy P2.4), and each step SHALL tear its own gateway down on every exit path.
+3. **Parallel hard behaviors on their own gateways (P2).** The highest-value lever: the integration-heavy P2 steps -- sandbox lifecycle + count (P2.1), RBAC (P2.2), deletion + GC (P2.3), ManagedCluster + control-plane lifecycle (P2.4), gateway access management (P2.5), gateway service accounts (P2.6) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`. A step that destroys a gateway or leaves per-gateway state changed (notably `active_sandbox_count`) SHALL own its own uniquely named gateway so it is isolated. P2.5 and P2.6 act on the P1 primary gateway: they do not delete it, and they remove every grant, sandbox, and service account they create. Because provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the steps toward the slowest step. The scheduler SHALL queue the P2 steps in canonical order, by step number; at `E2E_CONCURRENCY=1` they run sequentially in that order. Each step SHALL tear its own gateway down on every exit path.
 
 4. **Parallel read-only verification (P3).** The P3 read-only steps (admin inventory + API validation) SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`; they never mutate shared state and never gate the run.
 
@@ -576,8 +574,8 @@ The performance harness and the matrix runner are the two widest fan-outs (see [
 #### Scenario: E2E-CORE-11.02 -- Hard Behaviors Fan Out on Their Own Gateways
 
 - GIVEN the P0/P1 gate has passed, with `E2E_CONCURRENCY=4` in long mode
-- WHEN the P2 steps run (sandbox, RBAC, deletion+GC, ManagedCluster)
-- THEN they SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`, longest-first
+- WHEN the P2 steps run (sandbox, RBAC, deletion+GC, ManagedCluster, gateway access management, gateway service accounts)
+- THEN they SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`, queued in canonical order
 - AND each step that mutates `active_sandbox_count` or destroys a gateway SHALL own its own uniquely named gateway
 - AND no step SHALL mutate or delete another step's gateway
 
@@ -652,7 +650,7 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 The e2e test suite SHALL validate the coverage below, organized into four **phases** ordered for fail-fast feedback rather than by feature-build order. The phases SHALL run in order `P0 -> P1 -> P2 -> P3`; steps within a phase run per the [Concurrency Model](#requirement-concurrency-model) (sequential where state-dependent, parallel where independent). Every step SHALL be a named subtest of `E2ESuite` (see [Test Framework and Suite Structure](#requirement-test-framework-and-suite-structure)) with a stable step id (`P1.1`, `P2.3`, ...) and slug, so `go test -run` can target it. All steps SHALL be infrastructure-agnostic -- they call `E2EInfraDriver` methods for infra-specific operations and use the Kubernetes API (via `client-go`) for resource inspection.
 
-The ordering principle is: cheap preconditions that gate everything run first and abort the run immediately on failure; the single unavoidable gate (gateway provisioning) runs next; then the hardest, most integration-heavy behaviors run in parallel on their own gateways (scheduled longest-first), so a real defect surfaces as early as possible; cheap read-only verifications run last and never gate. This supersedes the former "Feature A, Section A, Feature B, Section B" numbering; the old area numbers are retired.
+The ordering principle is: cheap preconditions that gate everything run first and abort the run immediately on failure; the single unavoidable gate (gateway provisioning) runs next; then the hardest, most integration-heavy behaviors run in parallel on their own gateways, so a real defect surfaces as early as possible; cheap read-only verifications run last and never gate. This supersedes the former "Feature A, Section A, Feature B, Section B" numbering; the old area numbers are retired.
 
 **Phase P0 -- Preflight gate** (sequential, `Require`, fails in seconds on a broken environment):
 
@@ -667,14 +665,14 @@ The ordering principle is: cheap preconditions that gate everything run first an
 - **P1.4 Route discovery + CLI registration** -- discover the gateway endpoint via the driver and register it with the openshell CLI.
 - **P1.5 Connectivity** -- verify the openshell CLI connects and reports status over the trusted TLS established in P1.3.
 
-**Phase P2 -- Hard behaviors** (parallel, each on its own gateway, bounded by `E2E_CONCURRENCY`, scheduled longest-first so provisioning-heavy work starts first):
+**Phase P2 -- Hard behaviors** (parallel, each on its own gateway, bounded by `E2E_CONCURRENCY`, queued in canonical order):
 
 - **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
 - **P2.3 Gateway deletion + namespace GC** -- long-mode qualification of both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout long-mode P2; see Gateway Deletion and Namespace GC).
-- **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage). Also under `E2E_MULTICLUSTER=1`, deleting that second cluster's record orphans its gateway until the control plane's next `/registration` restores the same `cluster_id` and the gateway re-attaches (see `e2e-feature-coverage.spec.md` E2E-COV-06).
-- **P2.5 Gateway access management** -- owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment, acting as several secondary user identities.
-- **P2.6 Gateway service accounts** -- create, use, revoke, and delete a gateway service account.
+- **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage).
+- **P2.5 Gateway access management** -- on the primary gateway, the owner lists access and searches the gateway user directory (including a user created during the run), grants the developer and a runtime user the `user` role, and checks each role's capabilities: a gateway `user` cannot grant access, a gateway `admin` can manage access but cannot grant `owner`, and the owner can grant and remove another owner. The developer creates and deletes a sandbox as a workspace user. A `platform:admin` grants and revokes access on a gateway it does not own. The owner finally revokes the developer. Runs only on Kind with the password grant, because it signs in as several secondary users; elsewhere it skips.
+- **P2.6 Gateway service accounts** -- on the primary gateway, create an `openshell-admin` service account with a `client_secret` credential, check the returned credential (grant type, audience, issuer, token endpoint), mint client-credentials tokens and validate their claims, revoke the account and confirm new tokens are refused, then delete it and confirm `GET` returns `404`.
 - **P2.7 Provider credential drivers** -- validate the Kubernetes Secrets and explicit KEK credential-storage drivers unconditionally, the Vault driver under `E2E_QUALIFY_VAULT=1`, the deployment-resolved omitted-driver default, and the two rejection paths (see `e2e-feature-coverage.spec.md` E2E-COV-01).
 - **P2.8 Gateway sharing via `role_bindings`** -- an owner grants and revokes `gateway:viewer` access to a second user on a dedicated gateway through the `role_bindings` API, and non-owner and Keycloak-only-role requests are refused (see `e2e-feature-coverage.spec.md` E2E-COV-02).
 - **P2.9 Kata runtime sandboxes** -- a sandbox honors a configured Kata RuntimeClass, gated on `E2E_QUALIFY_KATA=1` (see `e2e-feature-coverage.spec.md` E2E-COV-03).
@@ -702,6 +700,8 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 | 9 Developer RBAC + 10 platform-admin RBAC   | P2.2     |
 | 11 Deletion + namespace GC (both paths)     | P2.3     |
 | 12 ManagedCluster + control-plane lifecycle | P2.4     |
+| (new) Gateway access management             | P2.5     |
+| (new) Gateway service accounts              | P2.6     |
 | 14 Admin inventory + API validation         | P3.1     |
 
 #### Scenario: E2E-CORE-13.01 -- Full Suite Execution
@@ -743,47 +743,50 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 ### Requirement: E2E-CORE-14 -- Active Sandbox Count Accounting
 
 The e2e test suite SHALL validate that a gateway's read-only `active_sandbox_count`
-field, reported by the HyperShell API, tracks sandbox creation and deletion. The
-suite SHALL create two to three sandboxes on a `Running` gateway, poll the API
-until `active_sandbox_count` reflects the created sandboxes, then delete one or
-more and poll until the count decrements accordingly. The suite SHALL reuse the
-existing sandbox create/delete steps and the API-polling helper. Because the
-count is an advisory recent value that may lag real time (see
-`openshell-gateway-sandbox-count.spec.md`), assertions SHALL poll up to
-`E2E_SANDBOX_TIMEOUT` seconds for the expected value rather than checking once.
+field, reported by the HyperShell API, tracks sandbox creation and deletion. This
+is part of P2.1, on the step's own newly created gateway, so no other step changes
+its count.
+
+The suite SHALL create N sandboxes at the same time. N SHALL be 1 in `short` and
+`perf` runs and 2 in `long` runs; the long run proves that concurrent increments
+are not lost. After every sandbox pod is `Running`, the suite SHALL poll the API
+until `active_sandbox_count` equals N. It SHALL then delete all N sandboxes at
+the same time and poll until the count is 0.
+
+The count is an advisory recent value that may lag real time (see
+`openshell-gateway-sandbox-count.spec.md`). Every count assertion SHALL therefore
+poll for up to `E2E_SANDBOX_TIMEOUT` seconds rather than check once. A timeout
+without the expected count SHALL fail the step.
 
 #### Scenario: E2E-CORE-14.01 -- Count increments as sandboxes are created
 
-- GIVEN a `Running` gateway with `active_sandbox_count` of 0
-- WHEN two to three sandboxes are created on that gateway and their pods reach
-  `Running` state
+- GIVEN P2.1's own newly created `Running` gateway
+- WHEN N sandboxes are created on it concurrently (N is 1 in short and perf, 2 in long)
+- AND every sandbox pod reaches `Running`
 - THEN polling `GET /api/hypershell/v1/gateways/<id>` SHALL report an
-  `active_sandbox_count` equal to the number of sandboxes created, within
+  `active_sandbox_count` of exactly N within `E2E_SANDBOX_TIMEOUT` seconds
+
+#### Scenario: E2E-CORE-14.02 -- Count returns to zero as sandboxes are deleted
+
+- GIVEN the gateway reports an `active_sandbox_count` of N
+- WHEN all N sandboxes are deleted concurrently
+- THEN polling the API SHALL report an `active_sandbox_count` of 0 within
   `E2E_SANDBOX_TIMEOUT` seconds
-- AND a timeout without the expected count SHALL be reported as a test failure
-
-#### Scenario: E2E-CORE-14.02 -- Count decrements as sandboxes are deleted
-
-- GIVEN a `Running` gateway whose `active_sandbox_count` reflects the created
-  sandboxes
-- WHEN one or more of those sandboxes are deleted and their pods terminate
-- THEN polling the API SHALL report an `active_sandbox_count` reduced by the
-  number of sandboxes deleted, within `E2E_SANDBOX_TIMEOUT` seconds
-- AND the suite SHALL delete any remaining sandboxes to leave a clean state
 
 ### Requirement: E2E-CORE-15 -- Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The sandbox half SHALL succeed in both postures.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
 
-#### Scenario: E2E-CORE-15.01 -- Openshell User May Create a Sandbox
+#### Scenario: E2E-CORE-15.01 -- Developer Can Create a Sandbox on a Gateway Shared With It
 
-- GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND the openshell CLI is registered against the gateway with that token
-- WHEN `sandbox create` is invoked
-- THEN a sandbox pod matching `default--<name>` SHALL be created within `E2E_SANDBOX_TIMEOUT` seconds
-- AND the test SHALL record a pass and delete the sandbox to leave a clean state
+- GIVEN the gateway owner has granted the `developer` user the gateway `user` role
+- AND the admin has added the developer to the gateway's `default` workspace
+- AND a per-gateway token carrying `openshell-user` has been acquired for the developer, and the openshell CLI is registered with it
+- WHEN the developer runs `sandbox create`
+- THEN the pod `default--<name>` SHALL reach `Running` within `E2E_SANDBOX_TIMEOUT` seconds
+- AND the suite SHALL delete the sandbox and poll until the gateway's `active_sandbox_count` returns to 0
 
-#### Scenario: E2E-CORE-15.02 -- Openshell User May Not Create a Gateway
+#### Scenario: E2E-CORE-15.02 -- Developer Cannot Create a Gateway Without `gateway:creator`
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
 - AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator` (OpenShift sets the env to empty; production isolation)
@@ -791,14 +794,12 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
 
-#### Scenario: E2E-CORE-15.03 -- Openshell User May List Gateways
+#### Scenario: E2E-CORE-15.03 -- Developer Can List Gateways
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
-- AND the developer has no per-gateway RoleBinding
+- AND either `RBAC_DEFAULT_ROLES` posture
 - WHEN the developer calls `GET /api/hypershell/v1/gateways`
-- THEN the API SHALL return 200 with a `GatewayList` body
-- AND the console SHALL NOT show "Gateways could not be loaded"
+- THEN the API SHALL return 200 with a body whose `kind` is `GatewayList`
 
 #### Scenario: E2E-CORE-15.04 -- Default Creator Binding Allows Gateway Create
 
@@ -937,21 +938,35 @@ mistaken for full finalization. Long-only.
 
 ### Requirement: E2E-CORE-17 -- Gateway TLS Trust (No Insecure Bypass)
 
-The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT disable certificate verification. The `OPENSHELL_GATEWAY_INSECURE=true` bypass SHALL NOT be used. Instead, the suite SHALL trust the cluster's self-signed CA: it extracts the CA certificate issued by cert-manager (the same CA that signs the gateway's serving certificate and the `*.gw.localhost` wildcard listener cert) and points the openshell CLI at it via `SSL_CERT_FILE`. This ensures the e2e path exercises the same TLS trust chain a real client uses, rather than skipping validation.
+The e2e suite SHALL connect to gateways over trusted TLS, with certificate verification on. It SHALL NOT turn on the `OPENSHELL_GATEWAY_INSECURE` bypass itself, and CI SHALL NOT set it. How the CLI trusts the gateway depends on the driver:
+
+- **Kind:** the gateway certificate is signed by the cluster's self-signed cert-manager CA (the same CA that signs the `*.gw.localhost` wildcard listener certificate). The Go suite reads that CA from the `hypershell-ca-secret` Secret and points the openshell CLI at it with `SSL_CERT_FILE`. The Bash Kind driver (`tests/e2e/drivers/kind.sh`) exports `SSL_CERT_FILE` as a bundle of the system root certificates plus that CA, so public endpoints still verify, and fails fast when it cannot read the CA. When the CLI runs through `scripts/kind/openshell-container.sh`, the wrapper SHALL mount the caller's `SSL_CERT_FILE` into the container, set `SSL_CERT_FILE` there, and keep verification on. Without a caller-supplied CA, the wrapper falls back to skipping verification; that fallback serves interactive developer use, and no e2e path relies on it.
+- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. For an environment with a private CA, the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) reads `ca.crt` from the Secret named by `E2E_OPENSHIFT_CA_SECRET` (in `E2E_OPENSHIFT_CA_NAMESPACE`, default `OPENSHIFT_NAMESPACE`) and exports it as `SSL_CERT_FILE`. One known exception: in route ingress mode (`GATEWAY_INGRESS_MODE=route`, for example IBM Cloud ROKS) the passthrough Route exposes the gateway's own CA, which no public trust store knows, and the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) turns the bypass on for that case. Trusting that CA instead is open work.
+
+This keeps the e2e path on the same TLS trust chain a real client uses. The same rules apply to the Bash smoke script (`tests/e2e/smoke.sh`).
+
+A person MAY set `OPENSHELL_GATEWAY_INSECURE=true` in their own environment as a local diagnostic override. The suite then writes `gateway_insecure: true` into the CLI gateway settings and passes the variable to the CLI, and it SHALL log a warning that gateway TLS verification is disabled.
 
 #### Scenario: E2E-CORE-17.01 -- CLI Trusts the Cluster CA
 
-- GIVEN the cluster CA certificate has been extracted from the cert-manager-issued secret
-- AND `SSL_CERT_FILE` points the openshell CLI at that CA
-- WHEN the CLI connects to the gateway gRPC endpoint over TLS
-- THEN the connection SHALL succeed with certificate verification enabled
-- AND `OPENSHELL_GATEWAY_INSECURE` SHALL NOT be set
+- GIVEN a Kind environment, and `OPENSHELL_GATEWAY_INSECURE` is not set
+- AND the suite has read the cluster CA from `hypershell-ca-secret` and set `SSL_CERT_FILE` to it
+- WHEN the CLI (native, or through the container wrapper) connects to the gateway gRPC endpoint over TLS
+- THEN the connection SHALL succeed with certificate verification on
+- AND a CLI given a different CA SHALL fail with an unknown-issuer certificate error
 
-#### Scenario: E2E-CORE-17.02 -- Insecure Bypass Removed
+#### Scenario: E2E-CORE-17.02 -- Suite Never Enables the Insecure Bypass
 
-- GIVEN the e2e test script (`tests/e2e/e2e-openshell.sh`)
-- WHEN they establish a gateway connection
-- THEN they SHALL NOT set `OPENSHELL_GATEWAY_INSECURE=true`
+- GIVEN the Go e2e suite (`tests/e2e`) or the smoke script, and `OPENSHELL_GATEWAY_INSECURE` is not set in the caller's environment
+- WHEN it registers or runs the openshell CLI against a gateway
+- THEN it SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`, and SHALL write `gateway_insecure: false` into the CLI gateway settings
+- AND, given a caller-supplied `SSL_CERT_FILE`, the container wrapper SHALL pass `OPENSHELL_GATEWAY_INSECURE=false` to the CLI
+
+#### Scenario: E2E-CORE-17.03 -- Diagnostic Override Is Visible
+
+- GIVEN `OPENSHELL_GATEWAY_INSECURE=true` in the caller's environment
+- WHEN the Go suite starts
+- THEN it SHALL log a warning that gateway TLS verification is disabled
 
 ### Requirement: E2E-CORE-18 -- ManagedCluster Registration Coverage
 
@@ -1647,7 +1662,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
 | `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each phase, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
-| `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
+| `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
@@ -1942,7 +1957,7 @@ When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2
 
 `perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4 through P2.11 and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.3 through P2.11 and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
 
 | Step | Short (essential checks) | Long-only (deep / slow checks) |
 |------|--------------------------|--------------------------------|
@@ -1957,7 +1972,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
-| P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
+| P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner, admin, and user access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
 | P2.7-P2.11 Feature-coverage phases (credential drivers, gateway sharing, Kata runtime, alerting signal, CLI/UI parity) | skipped | see `e2e-feature-coverage.spec.md` E2E-COV-01 through E2E-COV-05 for each phase's long-mode checks |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
