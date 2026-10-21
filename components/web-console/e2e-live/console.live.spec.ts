@@ -38,11 +38,11 @@ interface Gateway {
 async function logIn(page: Page) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const usernameInput = page.getByLabel(/username/iu);
-  const gatewaysHeading = page.getByRole("heading", {
-    level: 1,
-    name: "OpenShell Gateways",
+  const homepageHeading = page.getByRole("heading", {
+    level: 2,
+    name: "Pick a gateway. Ship your sandboxes.",
   });
-  await expect(usernameInput.or(gatewaysHeading)).toBeVisible({
+  await expect(usernameInput.or(homepageHeading)).toBeVisible({
     timeout: pageTimeout,
   });
   if (await usernameInput.isVisible()) {
@@ -50,7 +50,7 @@ async function logIn(page: Page) {
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: /sign in|log in/iu }).click();
   }
-  await expect(gatewaysHeading).toBeVisible({ timeout: pageTimeout });
+  await expect(homepageHeading).toBeVisible({ timeout: pageTimeout });
 }
 
 async function readGateway(api: APIRequestContext, id: string) {
