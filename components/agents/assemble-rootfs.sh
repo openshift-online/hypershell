@@ -13,8 +13,12 @@ rm -rf /rootfs/var/cache/* /rootfs/var/log/* /rpms
 # No system package manager in either final image. RPM inventory remains for scanners.
 install -d -m 0755 /rootfs/usr/local/bin /rootfs/usr/share/hypershell/agent-runtime
 cp /inputs/locks/*.json /rootfs/usr/share/hypershell/agent-runtime/
-# OpenShift arbitrary UIDs use group 0 for writable application directories.
-install -d -m 0770 /rootfs/home/agent /rootfs/sandbox
+# The OpenShell sandbox runs this image with runAsUser=runAsGroup=<arbitrary uid>
+# (supplementalGroupsPolicy: Strict), so the pod belongs to neither the image
+# owner (10001) nor group 0. Group-0 writable dirs therefore never apply. Make
+# HOME and the workspace world-writable with the sticky bit (the /tmp pattern) so
+# seed-workspace and the agent can write regardless of the injected uid/gid.
+install -d -m 1777 /rootfs/home/agent /rootfs/sandbox
 chown 10001:0 /rootfs/home/agent /rootfs/sandbox
 printf "agent:x:10001:0:HyperShell agent:/home/agent:/bin/bash\n" >> /rootfs/etc/passwd
 # Remove setuid/setgid modes inherited from OS packages.
