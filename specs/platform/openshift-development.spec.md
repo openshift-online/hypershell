@@ -984,12 +984,12 @@ Kind e2e stays in `e2e-testing.spec.md`. The OpenShift pull-request job (this
 ephemeral-environment lifecycle, with GitHub-brokered OAuth, the access
 comment, and `/pr-extend`/`/pr-destroy`) SHALL run for origin `pull_request`
 events that trigger Kind e2e, and for changes under `deploy/openshift/` or the
-OpenShift lifecycle scripts. It SHALL NOT run on `merge_group`: a
-merge-queue entry has no pull-request number to key the namespace, comment,
-or retainment label on. `e2e-testing.spec.md` separately runs the same
-`make openshift-up`/`make openshift-down` lifecycle for a merge-queue entry,
-without any of those pull-request-only features, as its own CI E2E Workflow
-requirement defines.
+OpenShift lifecycle scripts. It SHALL NOT run on `merge_group` or Mergify
+temporary queue PRs: a queue entry has no pull-request number to key the
+namespace, comment, or retainment label on, and E2E is suppressed on queue
+entries (`merge-queue-parallel-scopes.spec.md` CICD-MRG-06). E2E coverage
+for queued changes comes from the ordinary PR run and the post-merge E2E
+run on `main`.
 
 #### Scenario: DEV-OCP-10.01 -- CI reuses the local-dev lifecycle
 
@@ -1000,12 +1000,16 @@ requirement defines.
 - AND the Go e2e suite SHALL run against it with the OpenShift `E2EInfraDriver` (`e2e-testing.spec.md`)
 - AND it SHALL NOT use a second OpenShift bring-up path
 
-#### Scenario: DEV-OCP-10.02 -- Merge-queue stays on Kind
+#### Scenario: DEV-OCP-10.02 -- Queue entries suppress E2E
 
-- GIVEN a pull request enters the GitHub merge queue
+- GIVEN a pull request enters the merge queue (either GitHub native
+  `merge_group` or Mergify temporary PR)
 - WHEN CI evaluates which jobs to run
-- THEN the Kind e2e job SHALL run as `e2e-testing.spec.md` defines
+- THEN the E2E stage SHALL be suppressed (`merge-queue-parallel-scopes.spec.md`
+  CICD-MRG-06)
 - AND the OpenShift pull-request environment workflow SHALL NOT run
+- AND E2E coverage SHALL come from the ordinary PR run and the post-merge
+  run on `main`
 
 ### Requirement: DEV-OCP-11 -- Cluster Infrastructure Prerequisites
 

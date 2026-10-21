@@ -8,8 +8,9 @@
              isolation, cluster-scoped RBAC, and the OpenShift e2e driver
              (this spec owns pull-request CI on top of that lifecycle);
              `e2e-testing.spec.md` (HYPERSHELL-18) -- the infra-agnostic e2e suite,
-             the grant-agnostic driver interface contract, Kind CI and the
-             merge-queue gate, and Konflux image consumption;
+             the grant-agnostic driver interface contract, Kind CI, and
+             Konflux image consumption (E2E is suppressed on queue entries
+             per `merge-queue-parallel-scopes.spec.md` CICD-MRG-06);
              `local-development.spec.md` -- the Keycloak realm/client model this
              spec builds on;
              `oidc-integration.spec.md` -- platform OIDC and RBAC role mapping;
@@ -65,8 +66,9 @@ across commits rather than accumulating environments.
 This spec owns the automated OpenShift pull-request CI workflow. The
 per-namespace deployment, reconcile, image swap-by-digest, teardown, and
 OpenShift e2e driver remain defined in `openshift-development.spec.md`; the
-infra-agnostic e2e suite, Kind CI (including the merge-queue gate), and Konflux
-image gating remain defined in `e2e-testing.spec.md`. This spec adds the
+infra-agnostic e2e suite, Kind CI, and Konflux
+image gating remain defined in `e2e-testing.spec.md` (E2E is suppressed on
+merge queue entries per `merge-queue-parallel-scopes.spec.md` CICD-MRG-06). This spec adds the
 pull-request-scoped concerns those specs leave open: the deterministic per-PR
 namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
 `/pr-extend` and `/pr-destroy` slash-command controls and their authorization, the
@@ -105,7 +107,8 @@ the ephemeral-namespace isolation rules, the cluster-scoped RBAC handling, or
 the Konflux build pipeline. It depends on all of them. It amends the OpenShift
 `acquire_oidc_token` / `acquire_gateway_token_with_role` grant in
 `e2e-testing.spec.md` so those functions are grant-agnostic; it does not change
-their signatures or the suite's call sites. Kind merge-queue e2e stays in
+their signatures or the suite's call sites. Kind e2e (suppressed on queue
+entries per `merge-queue-parallel-scopes.spec.md` CICD-MRG-06) stays in
 `e2e-testing.spec.md` and is not this workflow. It is a behavior contract, not
 the CI YAML or the Keycloak realm export.
 
@@ -208,9 +211,10 @@ these jobs SHALL run on `merge_group`: this ephemeral-environment lifecycle
 (GitHub-brokered OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is
 pull-request-only, and this environment does not share a namespace with a
 merge-queue SHA.
-`e2e-testing.spec.md` separately runs Kind and OpenShift as the merge-queue
-gate, the latter through the same `Deploy OpenShift Environment`/`OpenShift`
-jobs this spec's pull-request path uses, but without any of this spec's
+E2E is suppressed on queue entries (`merge-queue-parallel-scopes.spec.md`
+CICD-MRG-06). On ordinary pull requests, `e2e-testing.spec.md` runs Kind
+and OpenShift through the `Deploy OpenShift Environment`/`OpenShift` jobs
+this spec's pull-request path uses, but without any of this spec's
 pull-request-only features.
 
 Deploy and OpenShift SHALL run only for pull requests targeting the origin
@@ -324,15 +328,15 @@ SHALL preserve any active per-namespace component swap the same way
 
 #### Scenario: CICD-PREN-02.07 -- Merge-queue does not use this environment
 
-- GIVEN a pull request enters the GitHub merge queue
+- GIVEN a pull request enters the merge queue (either GitHub native
+  `merge_group` or Mergify temporary PR)
 - WHEN CI evaluates which jobs to run
 - THEN this pull-request-only ephemeral-environment lifecycle (this spec)
   SHALL NOT run: no GitHub-brokered OAuth, no access comment, no
   `/pr-extend`/`/pr-destroy`
-- AND the Kind and OpenShift e2e jobs SHALL still gate the merge queue as
-  `e2e-testing.spec.md` defines, OpenShift using a distinct
-  `hypershell-ci-mq-<short-sha>` namespace that never collides with a
-  pull-request or push-to-main namespace
+- AND the E2E stage SHALL be suppressed on queue entries
+  (`merge-queue-parallel-scopes.spec.md` CICD-MRG-06); E2E coverage
+  comes from the ordinary PR run and the post-merge run on `main`
 
 ### Requirement: CICD-PREN-03 -- Extend and Destroy Controls
 
@@ -662,10 +666,10 @@ labeled for a different instance, including `hyp4`, `hyp5`, and local
 On pull-request `closed` (merge or close) or `enqueued` (the pull request enters
 the merge queue), CI SHALL destroy the environment as the primary path by
 running the same teardown as `make openshift-down`, whether or not the pull
-request was retained. `enqueued` destroys early because `e2e-testing.spec.md`'s
-mq-<sha> environment takes over validation once the pull request is queued, so
-this pull request's own namespace would otherwise sit idle on the cluster for
-the whole queue wait. That destroy SHALL live in a `closed`/`enqueued`-only
+request was retained. `enqueued` destroys early because E2E is suppressed
+on queue entries (`merge-queue-parallel-scopes.spec.md` CICD-MRG-06) and
+the post-merge E2E run on `main` provides coverage, so this pull request's
+own namespace would otherwise sit idle on the cluster for the whole queue wait. That destroy SHALL live in a `closed`/`enqueued`-only
 workflow so open and synchronize runs do not list a skipped Destroy check. The
 timebox SHALL remain the backstop for the case where neither event fires or its
 destroy cannot be confirmed; when the destroy step cannot confirm the destroy,

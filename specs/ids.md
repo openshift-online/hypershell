@@ -34,6 +34,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
 | `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-MRG` | `platform/merge-queue-parallel-scopes.spec.md` | 11 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
 
