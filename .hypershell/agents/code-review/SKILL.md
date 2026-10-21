@@ -36,16 +36,36 @@ Read the issue title and body and identify the linked PR.
 
 Output: (`$LINKED_PR`, `$ISSUE_CONTENTS`)
 
-### Step 2: Review the Implementation
+### Step 2: Review the Implementation (SDLC-REM-01)
+
+Determine pull-request health **deterministically from the GitHub API** before
+running the code review:
+
+1. Query the pull request resource for `mergeable` and `mergeable_state` to
+   determine conflict and rebase status.
+2. Query the check-runs endpoint (`GET /repos/{owner}/{repo}/commits/{sha}/check-runs`)
+   for each check's name, conclusion, status, and details URL (logs URL).
+3. Query the commit status endpoint for any status contexts.
+
+Record:
+
+| Field | Source |
+|-------|--------|
+| `$MERGEABLE` | `mergeable` field from the pull request |
+| `$MERGE_STATE` | `mergeable_state` field |
+| `$CHECK_RUNS` | Array of `{name, status, conclusion, details_url}` from the check-runs endpoint |
+| `$FAILING_CHECKS` | Subset of `$CHECK_RUNS` where `conclusion` is not `success`, `skipped`, or `neutral` |
+
+Do NOT infer CI or conflict state from the diff, PR body, or any heuristic.
 
 Execute [amber-review](../../../skills/review/amber-review/SKILL.md) against `$LINKED_PR`. Review in the
 context of `$ISSUE_CONTENTS`.
 
 Review must be rejected for any of the following reasons:
 - Implementation review has findings
-- Failing CI
-- Merge conflicts
-- Needs rebase
+- Failing CI (based on `$FAILING_CHECKS`)
+- Merge conflicts (based on `$MERGE_STATE` == `dirty`)
+- Needs rebase (based on `$MERGE_STATE` == `behind`)
 
 Verdict must be one of:
 - `agent/review-code-rejected`
@@ -54,7 +74,7 @@ Verdict must be one of:
 Output: (`$VERDICT`, `$REJECTION_RATIONALE` (NULL or string))
 
 
-### Step 3: Communicate Outcome
+### Step 3: Communicate Outcome (SDLC-REM-01)
 
 _Note: If a label does not exist, create it._
 
@@ -70,6 +90,15 @@ The comment MUST state:
   intent in `$ISSUE_CONTENTS`, and any non-blocking observations.
 - For a rejected verdict, the blocking reasons (`$REJECTION_RATIONALE`), with
   inline code review comments where they apply.
+
+**For a rejection due to CI failure, conflict, or rebase state**, the rejection
+comment SHALL include structured diagnostic targets for the implementer:
+- The specific failing check names and their conclusions (from `$FAILING_CHECKS`).
+- The logs URL (`details_url`) for each failing check.
+- The conflict or rebase state (from `$MERGE_STATE`).
+
+This ensures code-implementation receives concrete targets for remediation
+rather than a generic "failing CI" or "needs rebase" message.
 
 IF `$VERDICT` == `agent/review-code-approved`:
 - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
