@@ -21,6 +21,12 @@ vi.mock("../shell/use-session", () => ({
 }));
 
 const summary: HomepageSummary = {
+  quickCreate: {
+    placement: {
+      excludedSelector: ["runtime/kata"],
+      selector: ["network/public", "provider/ibm"],
+    },
+  },
   gatewayHealth: {
     attention: [
       {
@@ -66,12 +72,16 @@ function renderSurface({
   sessionIsLoading = false,
   summaryIsLoading = false,
   summaryValue = summary,
+  quickCreatePlacement = summary.quickCreate,
+  quickCreateUnavailable = false,
 }: {
   isAdmin?: boolean;
   platformOverview?: HomepagePlatformOverview;
   sessionIsLoading?: boolean;
   summaryValue?: HomepageSummary;
   summaryIsLoading?: boolean;
+  quickCreatePlacement?: HomepageSummary["quickCreate"];
+  quickCreateUnavailable?: boolean;
 } = {}) {
   return render(
     <IntlProvider locale="en" messages={englishMessages}>
@@ -80,6 +90,9 @@ function renderSurface({
           isAdmin={isAdmin}
           platformOverview={platformOverview}
           platformOverviewIsLoading={false}
+          quickCreatePlacement={
+            quickCreateUnavailable ? undefined : quickCreatePlacement
+          }
           quickCreate={() => undefined}
           quickCreateError={false}
           quickCreateIsPending={false}
@@ -120,6 +133,13 @@ describe("HomepagePageSurface", () => {
     expect(screen.queryByText("Platform overview")).toBeNull();
   });
 
+  it("hides Quick Create when no placement is available", () => {
+    renderSurface({ quickCreateUnavailable: true });
+
+    expect(screen.queryByText("Quick create")).toBeNull();
+    expect(screen.getByText("Create a gateway")).toBeTruthy();
+  });
+
   it("keeps the role card neutral while the session loads", () => {
     renderSurface({ sessionIsLoading: true });
 
@@ -141,6 +161,34 @@ describe("HomepagePageSurface", () => {
     expect(
       screen.getAllByText("Platform overview is unavailable").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("omits zero-value statuses and legends for empty donuts", () => {
+    const { container } = renderSurface({
+      platformOverview: {
+        ...overview,
+        gatewayStatuses: {
+          available: true,
+          counts: { Pending: 0, Provisioning: 0, Running: 0 },
+          total: 0,
+        },
+        sandboxStatuses: {
+          available: true,
+          counts: { active: 0, expiring: 0 },
+          total: 0,
+        },
+      },
+    });
+
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Pending:0")).toBeNull();
+    expect(screen.queryByText("Provisioning:0")).toBeNull();
+    expect(screen.queryByText("Running:0")).toBeNull();
+    expect(screen.queryByText("active:0")).toBeNull();
+    expect(screen.queryByText("expiring:0")).toBeNull();
+    expect(
+      container.querySelectorAll("div[style*='width: 300px']").length,
+    ).toBe(2);
   });
 
   it("shows the support link when summary data is unavailable", () => {

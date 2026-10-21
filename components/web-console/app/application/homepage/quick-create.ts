@@ -15,10 +15,17 @@ export interface QuickCreateDependencies {
   provisionGateway: (name: string) => Promise<GatewayRecord>;
 }
 
-export const quickCreatePlacement = {
+export const publicQuickCreatePlacement = {
   excludedSelector: [kataRuntimeSelector],
   selector: ["network/public", "provider/ibm"],
 };
+
+export const localQuickCreatePlacement = {
+  mode: "local-kind",
+} as const;
+
+export type QuickCreatePlacement =
+  typeof localQuickCreatePlacement | typeof publicQuickCreatePlacement;
 
 export const quickCreateMaximumAttempts = 5;
 

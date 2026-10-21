@@ -113,7 +113,7 @@ The browser SHALL obtain every dynamic homepage value from authorized same-origi
 
 The BFF SHALL expose:
 
-- `GET /api/homepage/summary` for authenticated users, returning gateway health and attention entries.
+- `GET /api/homepage/summary` for authenticated users, returning gateway health, attention entries, and Quick Create placement availability.
 - `GET /api/homepage/platform-overview` only for users with `platform:admin`, returning gateway status counts, active-sandbox status counts, and cluster availability.
 
 Both routes SHALL return aggregate JSON, preserve the signed-in user's authorized resource scope, and expose independent failure facts when a source fails. The platform-overview route SHALL reject a non-admin with HTTP `403`. The implementation MAY derive the aggregates from the existing gateway operations, operational-dashboard, metrics, or platform-inventory adapters when those adapters already provide the required facts.
@@ -165,6 +165,8 @@ When no gateway needs attention, the card SHALL show an all-healthy state and om
 
 Platform overview SHALL show a gateway status donut and an active-sandbox status donut. Each donut SHALL show the total in its center, status labels and counts in its legend, and colors aligned with the approved status treatment. The BFF SHALL derive gateway and sandbox counts from authorized aggregate sources; the browser SHALL NOT combine paginated list pages to synthesize platform totals.
 
+Each donut SHALL omit legend entries whose count is zero. When a donut total is zero, it SHALL show only the zero total and no legend. Legend text SHALL remain normal body-text size and SHALL NOT scale as the card or window grows.
+
 When one platform-overview source fails, the affected chart or cluster section SHALL show a localized unavailable state while unaffected sections remain visible.
 
 #### Scenario: WEB-HOME-07.01 -- Donut totals and legends match the response
@@ -181,6 +183,13 @@ When one platform-overview source fails, the affected chart or cluster section S
 - WHEN an administrator opens the homepage
 - THEN the sandbox chart SHALL show an unavailable state
 - AND the gateway and cluster sections SHALL render their API-supplied values
+
+#### Scenario: WEB-HOME-07.03 -- Zero counts are omitted
+
+- GIVEN the platform-overview response reports a total of zero gateways and active sandboxes
+- WHEN an administrator opens the homepage
+- THEN both donuts SHALL show zero in their centers
+- AND no gateway or active-sandbox status legend SHALL be rendered
 
 ### Requirement: WEB-HOME-08 -- Cluster Availability
 
@@ -203,7 +212,6 @@ The support-channel card SHALL render static localized channel content. The prod
 - WHEN the homepage renders
 - THEN the support card SHALL show the localized HyperShell support copy
 - AND the action SHALL open the shared Slack channel URL from the external-link registry
-
 
 ### Requirement: WEB-HOME-10 -- Loading and Failure States
 
@@ -228,11 +236,19 @@ Create a gateway SHALL navigate to `/gateways/new`. View gateways and View my ga
 
 ### Requirement: WEB-HOME-12 -- Quick Create Gateway
 
-Quick create SHALL create a real Gateway through the existing gateway operations application port. It SHALL use IBM Cloud public placement and SHALL exclude Kata capability. The submitted placement intent SHALL require both `network/public` and `provider/ibm` and SHALL exclude `runtime/kata`.
+Quick create SHALL create a real Gateway through the existing gateway operations application port. The BFF SHALL derive placement availability from connected registered clusters. A connected `local-kind` cluster SHALL take precedence and Quick Create SHALL submit `mode: local-kind`. Otherwise, Quick Create SHALL submit IBM Cloud public placement that requires both `network/public` and `provider/ibm` and excludes `runtime/kata`.
+
+Quick Create SHALL be hidden while placement availability is loading or unavailable. It SHALL NOT submit the public IBM intent merely as a silent fallback.
 
 On success, the workflow SHALL invalidate gateway queries and navigate to the created gateway detail route. On failure, the modal SHALL remain open, show a useful localized error, and allow retry or cancel. A name-conflict response SHALL generate a new unique candidate and retry a bounded number of times.
 
-#### Scenario: WEB-HOME-12.01 -- Quick create submits the intended placement
+#### Scenario: WEB-HOME-12.01 -- Quick create submits local-kind placement
+
+- GIVEN the BFF reports a connected `local-kind` cluster
+- WHEN the user activates Create gateway in Quick create
+- THEN the placement intent SHALL use `mode: local-kind`
+
+#### Scenario: WEB-HOME-12.02 -- Quick create submits the intended public placement
 
 - GIVEN the user activates Create gateway in Quick create
 - WHEN the provision request is inspected
@@ -240,14 +256,20 @@ On success, the workflow SHALL invalidate gateway queries and navigate to the cr
 - AND the intent SHALL exclude `runtime/kata`
 - AND the request SHALL be sent through the gateway operations port
 
-#### Scenario: WEB-HOME-12.02 -- Success navigates to the created gateway
+#### Scenario: WEB-HOME-12.03 -- Quick create is hidden without an eligible cluster
+
+- GIVEN the BFF reports no connected `local-kind` cluster and no connected public IBM cluster without Kata
+- WHEN the homepage renders
+- THEN the Quick Create action SHALL NOT be shown
+
+#### Scenario: WEB-HOME-12.04 -- Success navigates to the created gateway
 
 - GIVEN Quick create receives a created gateway with id `gateway-17`
 - WHEN the mutation succeeds
 - THEN gateway queries SHALL be invalidated
 - AND the SPA SHALL navigate to the gateway detail route for `gateway-17`
 
-#### Scenario: WEB-HOME-12.03 -- Failure keeps the modal usable
+#### Scenario: WEB-HOME-12.05 -- Failure keeps the modal usable
 
 - GIVEN the provision request fails
 - WHEN the mutation settles

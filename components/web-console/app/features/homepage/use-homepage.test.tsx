@@ -60,9 +60,17 @@ function PlatformOverviewHarness() {
   return <div>{overview.fetchStatus}</div>;
 }
 
-function QuickCreateHarness() {
+function QuickCreateHarness({
+  placement,
+}: {
+  placement: Parameters<typeof useQuickCreateGateway>[2];
+}) {
   const [createdGatewayId, setCreatedGatewayId] = useState<string>();
-  const quickCreate = useQuickCreateGateway(setCreatedGatewayId, true);
+  const quickCreate = useQuickCreateGateway(
+    setCreatedGatewayId,
+    true,
+    placement,
+  );
 
   const create = useCallback(() => {
     void quickCreate.mutateAsync();
@@ -131,7 +139,12 @@ describe("homepage browser hooks", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <QuickCreateHarness />
+        <QuickCreateHarness
+          placement={{
+            excludedSelector: ["runtime/kata"],
+            selector: ["network/public", "provider/ibm"],
+          }}
+        />
       </QueryClientProvider>,
     );
     await waitFor(() => {
@@ -156,6 +169,33 @@ describe("homepage browser hooks", () => {
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: gatewayListQueryRoot,
+    });
+  });
+
+  it("uses local-kind placement when the summary selects the local cluster", async () => {
+    sessionMock.mockReturnValue({
+      data: { authenticated: true, roles: ["viewer"] },
+      isSuccess: true,
+    });
+    gatewayOperationsMock.listGateways.mockResolvedValue({ items: [] });
+    gatewayOperationsMock.provisionGateway.mockResolvedValue({
+      id: "gateway-local",
+    });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <QuickCreateHarness placement={{ mode: "local-kind" }} />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Create gateway" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("gateway-local")).toBeTruthy();
+    });
+    expect(gatewayOperationsMock.provisionGateway).toHaveBeenCalledWith({
+      name: "amber-beacon-0000",
+      placement: { mode: "local-kind" },
     });
   });
 });

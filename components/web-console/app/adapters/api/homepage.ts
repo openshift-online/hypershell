@@ -14,6 +14,11 @@ export interface HomepageSummary {
         total: number;
       }
     | { available: false };
+  quickCreate?: {
+    placement:
+      | { mode: "local-kind" }
+      | { excludedSelector: string[]; selector: string[] };
+  };
 }
 
 export interface HomepagePlatformOverview {

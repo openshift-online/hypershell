@@ -9,6 +9,12 @@ import type {
 import { HomepagePageSurface } from "./homepage";
 
 const summary: HomepageSummary = {
+  quickCreate: {
+    placement: {
+      excludedSelector: ["runtime/kata"],
+      selector: ["network/public", "provider/ibm"],
+    },
+  },
   gatewayHealth: {
     attention: [
       {

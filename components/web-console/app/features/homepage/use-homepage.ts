@@ -10,7 +10,7 @@ import { createBrowserRandomSource } from "../../adapters/security/browser-rando
 import {
   createQuickCreateGateway,
   createQuickCreateNameGenerator,
-  quickCreatePlacement,
+  type QuickCreatePlacement,
 } from "../../application/homepage/quick-create";
 import { gatewayOperations } from "../../composition/gateway-composition";
 import { hasDashboardAdminRole } from "../../lib/session-roles";
@@ -51,6 +51,7 @@ export function useHomepagePlatformOverview() {
 export function useQuickCreateGateway(
   onCreated: (gatewayId: string) => void,
   enabled: boolean,
+  placement: QuickCreatePlacement | undefined,
 ) {
   const queryClient = useQueryClient();
   const knownGateways = useQuery({
@@ -62,17 +63,19 @@ export function useQuickCreateGateway(
 
   return useMutation({
     mutationFn: () =>
-      createQuickCreateGateway({
-        generateName: generateQuickCreateName,
-        knownNames: new Set(
-          (knownGateways.data?.items ?? []).map((gateway) => gateway.name),
-        ),
-        provisionGateway: (name) =>
-          gatewayOperations.provisionGateway({
-            name,
-            placement: { ...quickCreatePlacement },
+      placement === undefined
+        ? Promise.reject(new Error("Quick create placement is unavailable"))
+        : createQuickCreateGateway({
+            generateName: generateQuickCreateName,
+            knownNames: new Set(
+              (knownGateways.data?.items ?? []).map((gateway) => gateway.name),
+            ),
+            provisionGateway: (name) =>
+              gatewayOperations.provisionGateway({
+                name,
+                placement: { ...placement },
+              }),
           }),
-      }),
     onSuccess: async (gateway) => {
       await queryClient.invalidateQueries({ queryKey: gatewayListQueryRoot });
       onCreated(gateway.id);

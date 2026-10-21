@@ -79,6 +79,133 @@ describe("homepage aggregation", () => {
     );
   });
 
+  it("uses local-kind placement for a connected local Kind cluster", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: "gateway-1", name: "gateway", phase: "Running" }],
+          page: 1,
+          total: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [
+            {
+              capabilities: ["provider/kind", "network/public"],
+              id: "cluster-local",
+              last_seen_at: now,
+              name: "local-kind",
+              oidc_subject: "control-plane",
+            },
+          ],
+          page: 1,
+          total: 1,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      queryHomepageSummary("http://api.example.test", "access-token", 100),
+    ).resolves.toEqual({
+      gatewayHealth: {
+        attention: [],
+        attentionCount: 0,
+        healthy: 1,
+        total: 1,
+      },
+      quickCreate: { placement: { mode: "local-kind" } },
+    });
+  });
+
+  it("uses public IBM placement only when a non-Kata candidate is connected", async () => {
+    const now = new Date().toISOString();
+    const gatewayPage = jsonResponse({
+      items: [],
+      page: 1,
+      total: 0,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(gatewayPage)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [
+            {
+              capabilities: ["provider/ibm", "network/public", "runtime/kata"],
+              id: "cluster-kata",
+              last_seen_at: now,
+              name: "ibm-kata",
+              oidc_subject: "control-plane",
+            },
+            {
+              capabilities: ["provider/ibm", "network/public"],
+              id: "cluster-ibm",
+              last_seen_at: now,
+              name: "ibm-public",
+              oidc_subject: "control-plane",
+            },
+          ],
+          page: 1,
+          total: 2,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      queryHomepageSummary("http://api.example.test", "access-token", 100),
+    ).resolves.toEqual({
+      gatewayHealth: {
+        attention: [],
+        attentionCount: 0,
+        healthy: 0,
+        total: 0,
+      },
+      quickCreate: {
+        placement: {
+          excludedSelector: ["runtime/kata"],
+          selector: ["network/public", "provider/ibm"],
+        },
+      },
+    });
+  });
+
+  it("omits Quick Create when no eligible cluster is connected", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, total: 0 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [
+            {
+              capabilities: ["provider/ibm", "network/public", "runtime/kata"],
+              id: "cluster-kata",
+              last_seen_at: now,
+              name: "ibm-kata",
+              oidc_subject: "control-plane",
+            },
+          ],
+          page: 1,
+          total: 1,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      queryHomepageSummary("http://api.example.test", "access-token", 100),
+    ).resolves.toEqual({
+      gatewayHealth: {
+        attention: [],
+        attentionCount: 0,
+        healthy: 0,
+        total: 0,
+      },
+    });
+  });
+
   it("reports gateway health unavailable when the source fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 503));
     vi.stubGlobal("fetch", fetchMock);

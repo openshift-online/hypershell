@@ -20,6 +20,11 @@ export interface HomepageGatewayHealth {
 
 export interface HomepageSummary {
   gatewayHealth: HomepageGatewayHealth | { available: false };
+  quickCreate?: {
+    placement:
+      | { mode: "local-kind" }
+      | { excludedSelector: string[]; selector: string[] };
+  };
 }
 
 export interface HomepageClusterAvailability {
@@ -50,9 +55,11 @@ interface GatewayListItem {
 }
 
 interface ManagedClusterItem {
+  capabilities?: string[];
   id?: string;
   last_seen_at?: string;
   name?: string;
+  oidc_subject?: string;
   status?: string;
 }
 
@@ -200,24 +207,77 @@ async function queryClusterAvailability(
   return { healthy, total: clusters.length, unhealthyClusters };
 }
 
+function clusterIsConnected(cluster: ManagedClusterItem, now: number): boolean {
+  const lastSeen = cluster.last_seen_at
+    ? Date.parse(cluster.last_seen_at)
+    : NaN;
+  const age = now - lastSeen;
+  return (
+    Boolean(cluster.oidc_subject) &&
+    Number.isFinite(age) &&
+    age >= 0 &&
+    age < clusterHeartbeatMaxAgeMs
+  );
+}
+
+async function queryQuickCreatePlacement(
+  apiOrigin: string,
+  accessToken: string | undefined,
+  timeoutMs: number,
+): Promise<
+  { mode: "local-kind" } | { excludedSelector: string[]; selector: string[] }
+> {
+  const clusters = await listAll<ManagedClusterItem>(
+    apiOrigin,
+    "/api/hypershell/v1/managed_clusters",
+    accessToken,
+    timeoutMs,
+  );
+  const now = Date.now();
+  const connected = clusters.filter((cluster) =>
+    clusterIsConnected(cluster, now),
+  );
+
+  if (connected.some((cluster) => cluster.name === "local-kind")) {
+    return { mode: "local-kind" };
+  }
+
+  const publicIbmWithoutKata = connected.some((cluster) => {
+    const capabilities = new Set(cluster.capabilities ?? []);
+    return (
+      capabilities.has("network/public") &&
+      capabilities.has("provider/ibm") &&
+      !capabilities.has("runtime/kata")
+    );
+  });
+  if (publicIbmWithoutKata) {
+    return {
+      excludedSelector: ["runtime/kata"],
+      selector: ["network/public", "provider/ibm"],
+    };
+  }
+  throw new Error("Quick create placement is unavailable");
+}
+
 export async function queryHomepageSummary(
   apiOrigin: string,
   accessToken: string | undefined,
   timeoutMs: number,
 ): Promise<HomepageSummary> {
-  try {
-    return {
-      gatewayHealth: await queryGatewayHealth(
-        apiOrigin,
-        accessToken,
-        timeoutMs,
-      ),
-    };
-  } catch {
-    return {
-      gatewayHealth: { available: false },
-    };
-  }
+  const [gatewayHealth, quickCreatePlacement] = await Promise.allSettled([
+    queryGatewayHealth(apiOrigin, accessToken, timeoutMs),
+    queryQuickCreatePlacement(apiOrigin, accessToken, timeoutMs),
+  ]);
+
+  return {
+    gatewayHealth:
+      gatewayHealth.status === "fulfilled"
+        ? gatewayHealth.value
+        : { available: false },
+    ...(quickCreatePlacement.status === "fulfilled"
+      ? { quickCreate: { placement: quickCreatePlacement.value } }
+      : {}),
+  };
 }
 
 export async function queryHomepagePlatformOverview(

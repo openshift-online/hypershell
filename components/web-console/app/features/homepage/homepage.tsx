@@ -181,12 +181,14 @@ function UnavailableContent({ title }: { title: string }) {
 }
 
 function WelcomeCard({
+  isQuickCreateAvailable,
   onQuickCreate,
   quickCreateError,
   quickCreateIsPending,
   quickCreateOpen,
   setQuickCreateOpen,
 }: Readonly<{
+  isQuickCreateAvailable: boolean;
   onQuickCreate: () => void;
   quickCreateError: boolean;
   quickCreateIsPending: boolean;
@@ -231,17 +233,19 @@ function WelcomeCard({
                     <FormattedMessage {...messages.homepageViewGateways} />
                   </Button>
                 </FlexItem>
-                <FlexItem>
-                  <Button
-                    icon={<BoltIcon />}
-                    onClick={() => {
-                      setQuickCreateOpen(true);
-                    }}
-                    variant="link"
-                  >
-                    <FormattedMessage {...messages.homepageQuickCreate} />
-                  </Button>
-                </FlexItem>
+                {isQuickCreateAvailable ? (
+                  <FlexItem>
+                    <Button
+                      icon={<BoltIcon />}
+                      onClick={() => {
+                        setQuickCreateOpen(true);
+                      }}
+                      variant="link"
+                    >
+                      <FormattedMessage {...messages.homepageQuickCreate} />
+                    </Button>
+                  </FlexItem>
+                ) : null}
               </Flex>
             </SplitItem>
             <SplitItem>
@@ -479,18 +483,28 @@ function StatusDonut({
     label,
     value,
   }));
+  const visibleData = data.filter((status) => status.value > 0);
   return (
-    <div style={statusDonutTextStyle}>
+    <div
+      style={{
+        ...statusDonutTextStyle,
+        height: 120,
+        width: 300,
+      }}
+    >
       <ChartDonut
         ariaDesc={`${ariaTitle} by status`}
         ariaTitle={ariaTitle}
-        colorScale={data.map((status) => status.color)}
-        data={data.map((status) => ({ x: status.label, y: status.value }))}
+        colorScale={visibleData.map((status) => status.color)}
+        data={visibleData.map((status) => ({
+          x: status.label,
+          y: status.value,
+        }))}
         height={120}
         labels={({ datum }: { datum: { x?: string | number; y?: number } }) =>
           `${String(datum.x ?? "")}:${String(datum.y ?? 0)}`
         }
-        legendData={data.map((status) => ({
+        legendData={visibleData.map((status) => ({
           name: `${status.label}:${String(status.value)}`,
         }))}
         legendOrientation="vertical"
@@ -793,6 +807,7 @@ export function HomepagePageSurface({
   isAdmin,
   platformOverview,
   platformOverviewIsLoading,
+  quickCreatePlacement,
   quickCreate,
   quickCreateError,
   quickCreateIsPending,
@@ -805,6 +820,7 @@ export function HomepagePageSurface({
   isAdmin: boolean;
   platformOverview?: HomepagePlatformOverview;
   platformOverviewIsLoading: boolean;
+  quickCreatePlacement?: HomepageSummary["quickCreate"];
   quickCreate: () => void;
   quickCreateError: boolean;
   quickCreateIsPending: boolean;
@@ -829,6 +845,7 @@ export function HomepagePageSurface({
           <Stack hasGutter>
             <StackItem>
               <WelcomeCard
+                isQuickCreateAvailable={quickCreatePlacement !== undefined}
                 onQuickCreate={quickCreate}
                 quickCreateError={quickCreateError}
                 quickCreateIsPending={quickCreateIsPending}
@@ -882,18 +899,24 @@ export function HomepagePage() {
   const navigate = useNavigate();
   const sessionQuery = useSession();
   const summaryQuery = useHomepageSummary();
+  const quickCreatePlacement = summaryQuery.data?.quickCreate;
   const platformOverviewQuery = useHomepagePlatformOverview();
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
-  const quickCreate = useQuickCreateGateway((gatewayId) => {
-    setQuickCreateOpen(false);
-    void navigate(gatewayDetailPath(gatewayId));
-  }, quickCreateOpen);
+  const quickCreate = useQuickCreateGateway(
+    (gatewayId) => {
+      setQuickCreateOpen(false);
+      void navigate(gatewayDetailPath(gatewayId));
+    },
+    quickCreateOpen,
+    quickCreatePlacement?.placement,
+  );
 
   return (
     <HomepagePageSurface
       isAdmin={hasDashboardAdminRole(sessionQuery.data?.roles ?? [])}
       platformOverview={platformOverviewQuery.data}
       platformOverviewIsLoading={platformOverviewQuery.isPending}
+      quickCreatePlacement={quickCreatePlacement}
       quickCreate={() => {
         quickCreate.mutate();
       }}

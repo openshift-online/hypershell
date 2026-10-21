@@ -5,7 +5,7 @@ import {
   createQuickCreateGateway,
   createQuickCreateNameGenerator,
   isValidGatewayName,
-  quickCreatePlacement,
+  publicQuickCreatePlacement,
 } from "../../application/homepage/quick-create";
 
 describe("quick create gateway", () => {
@@ -67,10 +67,12 @@ describe("quick create gateway", () => {
   });
 
   it("keeps the intended placement selectors", () => {
-    expect(quickCreatePlacement.selector).toEqual([
+    expect(publicQuickCreatePlacement.selector).toEqual([
       "network/public",
       "provider/ibm",
     ]);
-    expect(quickCreatePlacement.excludedSelector).toEqual(["runtime/kata"]);
+    expect(publicQuickCreatePlacement.excludedSelector).toEqual([
+      "runtime/kata",
+    ]);
   });
 });
