@@ -86,11 +86,36 @@ phase) and through the agent SDLC visibility dashboard
 - THEN the issue SHALL remain in the `agent/workable` phase
 - AND the failure SHALL be reported, not silently swallowed
 
+#### Scenario: SDLC-VAL-02.03 -- GitHub API failure keeps the issue in phase
+
+- GIVEN a test issue in the `agent/workable` phase
+- AND the agent runtime cannot read or apply labels via the GitHub API
+- WHEN the SDLC funnel runs
+- THEN the issue SHALL remain in its current phase
+- AND the failure SHALL be reported, not silently swallowed
+
+#### Scenario: SDLC-VAL-02.04 -- Pull-request creation failure keeps the issue in phase
+
+- GIVEN a test issue whose specification has been committed and pushed
+- AND the agent runtime cannot create a pull request (a GitHub API failure)
+- WHEN the spec-implementation agent runs
+- THEN the issue SHALL remain in the `agent/workable` phase
+- AND the failure SHALL be reported, not silently swallowed
+
+#### Scenario: SDLC-VAL-02.05 -- Spec skill failure keeps the issue in phase
+
+- GIVEN a test issue in the `agent/workable` phase
+- AND the spec skill cannot write specification files (a file-system or
+  validation failure)
+- WHEN the spec-implementation agent runs
+- THEN the issue SHALL remain in the `agent/workable` phase
+- AND the failure SHALL be reported, not silently swallowed
+
 ### Requirement: SDLC-VAL-03 -- Idempotent Re-Validation
 
 Re-running the funnel against a test issue that has already been processed
 SHALL be safe and idempotent, matching the funnel's general idempotency
-contract (`specs/standards/sdlc/jira-github-sync.spec.md`, SDLC-JIRA-12). A
+contract (`specs/standards/sdlc/jira-github-sync.spec.md`, SDLC-JIRA-11). A
 re-run SHALL NOT create duplicate branches, duplicate pull requests, or
 duplicate specification files. If the issue has already reached a terminal or
 paused phase, the funnel SHALL exit without error.
@@ -112,13 +137,17 @@ paused phase, the funnel SHALL exit without error.
 
 ### Requirement: SDLC-VAL-04 -- Validation Scope Isolation
 
-A test issue SHALL be scoped to its own `agent/scope/*` label so that
-validation runs do not interfere with production work items. The scope label
-ensures the funnel processes only the test issue when run with that scope, and
-production scope runs do not pick up the test issue unless it shares a
-production scope label.
+A test issue SHALL carry an `agent/scope/*` label. The existing scope
+mechanism determines which funnel runs include the test issue: a funnel run
+scoped to `agent/scope/X` processes every item carrying that label, whether
+the item is a test issue or a production work item. No scope bypass or
+special-case filtering SHALL exist for test issues.
 
-#### Scenario: SDLC-VAL-04.01 -- Test scope does not include production work
+When a test issue shares a scope label with production work items, the funnel
+SHALL process all items in that scope together. The test issue SHALL follow
+the same rules as every other item in scope.
+
+#### Scenario: SDLC-VAL-04.01 -- Test issue in a shared scope is processed alongside production items
 
 - GIVEN a test issue carrying `agent/scope/hyp0`
 - AND production work items carrying `agent/scope/hyp0`
