@@ -44,7 +44,17 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - AND selects IBM Cloud
 - WHEN the user submits the form
 - THEN the request SHALL contain `selector: ["network/public", "provider/ibm"]`
+- AND, when the user selects the default runtime instead of Kata, the request SHALL contain `excludedSelector: ["runtime/kata"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
+
+#### Scenario: WEB-PLC-01.06 -- Kata is submitted as an explicit requirement
+
+- GIVEN the user enters a valid gateway name
+- AND selects Public and IBM Cloud
+- AND selects Yes, use Kata
+- WHEN the user submits the form
+- THEN the request SHALL contain `selector: ["network/public", "provider/ibm", "runtime/kata"]`
+- AND the request SHALL NOT contain `excludedSelector`
 
 #### Scenario: WEB-PLC-01.04 -- VPN placement is submitted as AWS intent
 

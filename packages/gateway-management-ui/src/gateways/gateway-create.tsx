@@ -698,12 +698,12 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       `network/${values.network}`,
       `provider/${values.provider}`,
     ];
-    if (values.kata && kataAvailable) {
-      selector.push("runtime/kata");
-    }
+    const placement = values.kata
+      ? { selector: [...selector, "runtime/kata"] }
+      : { excludedSelector: ["runtime/kata"], selector };
     createGateway.mutate({
       name: values.name.trim(),
-      placement: { selector },
+      placement,
     });
   });
   useEffect(() => {
