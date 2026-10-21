@@ -439,10 +439,10 @@ For each RoleBinding DELETED event with `scope=gateway`, the control plane SHALL
 
 #### Scenario: OSG-KCLK-05.06 -- User in RoleBinding not found in Keycloak
 
-- GIVEN a RoleBinding references a User whose Keycloak identity cannot be resolved
+- GIVEN a RoleBinding references a User whose Keycloak identity cannot yet be resolved (a provisioning race)
 - WHEN the control plane attempts to assign the Keycloak client role
 - THEN it SHALL log an error identifying the unresolvable user
-- AND it SHALL retry on the next reconciliation cycle
+- AND it SHALL treat the failure as transient and retry with the fast capped exponential backoff (OSG-KCLK-10), not defer recovery to the periodic RoleBinding resync
 
 ---
 
@@ -567,7 +567,8 @@ The retry policy SHALL be:
 - Backoff multiplier: 2x per attempt
 - Maximum backoff: 30 seconds
 - Permanent failures (the RoleBinding's Gateway no longer exists) SHALL NOT be retried
-- Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, and a watch event whose username or role name has not been enriched yet
+- Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, a watch event whose username or role name has not been enriched yet, and a bound user whose Keycloak identity cannot yet be resolved (the user record has not yet propagated to Keycloak -- a provisioning race between user creation and binding reconciliation)
+- An unresolvable bound user SHALL be classified as a transient failure and retried on the fast capped-backoff schedule above. It SHALL NOT be classified as a permanent failure, because doing so drops the binding from the retry schedule and defers recovery to the periodic RoleBinding resync (`control-plane.spec.md`, "Requirement: Role Binding Resync"), delaying the user's role assignment by up to the resync interval instead of resolving it within seconds
 
 Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level. A permanent missing-gateway failure SHALL be logged at ERROR level and SHALL NOT be retried.
 
@@ -595,6 +596,16 @@ Each retry attempt SHALL be logged at WARN level with the delay, target client, 
 - WHEN the RoleBindingReconciler attempts to assign a Keycloak role
 - THEN it SHALL log the failure at ERROR level
 - AND it SHALL NOT retry that binding
+
+#### Scenario: OSG-KCLK-10.04 -- Owner binding arrives before the owner's Keycloak user is resolvable
+
+- GIVEN user-a creates Gateway `gw-new` (id=`xyz789`) and the API server auto-provisions a `gateway:owner` RoleBinding for user-a
+- AND the RoleBindingReconciler processes the owner binding before user-a's record is resolvable in Keycloak
+- WHEN the RoleBindingReconciler attempts to assign `openshell-admin` and `openshell-user` to user-a on `gw-new-xyz789`
+- AND the Keycloak user lookup for user-a returns no match
+- THEN the RoleBindingReconciler SHALL treat the unresolvable user as a transient failure and retry with the fast capped exponential backoff
+- AND it SHALL succeed within seconds once user-a becomes resolvable, bounded by the 30-second backoff cap rather than the periodic resync interval
+- AND user-a SHALL hold `openshell-admin` and `openshell-user` on the `gw-new-xyz789` client
 
 ---
 

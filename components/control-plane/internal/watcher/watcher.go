@@ -895,6 +895,11 @@ func isMissingKeycloakClient(err error) bool {
 	return errors.As(err, &notFound)
 }
 
+func isMissingKeycloakUser(err error) bool {
+	var notFound *keycloak.UserNotFoundError
+	return errors.As(err, &notFound)
+}
+
 func isMissingGateway(err error) bool {
 	for err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
@@ -919,14 +924,15 @@ func isKeycloakHTTPNotFound(err error) bool {
 }
 
 // isRoleBindingRetryable reports whether a RoleBinding reconcile failure should
-// be retried. Missing client, generic Keycloak 404 (half-provisioned roles),
-// and unresolved username/role are provisioning races. Missing-gateway,
-// auth, and config errors are terminal.
+// be retried. Missing client, missing user, generic Keycloak 404
+// (half-provisioned roles), and unresolved username/role are provisioning
+// races. Missing-gateway, auth, and config errors are terminal.
 func isRoleBindingRetryable(err error) bool {
 	if err == nil || isMissingGateway(err) {
 		return false
 	}
 	return isMissingKeycloakClient(err) ||
+		isMissingKeycloakUser(err) ||
 		isUnresolvedRoleBindingIdentity(err) ||
 		isKeycloakHTTPNotFound(err)
 }
