@@ -105,13 +105,6 @@ to also fetch every routable registry URL with `HEAD`, a `GET` fallback,
 bounded concurrency, and a timeout. Loopback and `.local` command endpoints are
 validated but intentionally not fetched.
 
-The optional homepage support-channel card is configured by setting all four
-`HYPERSHELL_SUPPORT_CHANNEL_*` environment variables together:
-`HYPERSHELL_SUPPORT_CHANNEL_LABEL`, `HYPERSHELL_SUPPORT_CHANNEL_URL`,
-`HYPERSHELL_SUPPORT_CHANNEL_TITLE`, and
-`HYPERSHELL_SUPPORT_CHANNEL_DESCRIPTION`. When any field is omitted, the card
-shows an unavailable state instead of a production fallback channel.
-
 ## Dashboard metrics
 
 The BFF queries Prometheus from the server. The browser does not receive metrics

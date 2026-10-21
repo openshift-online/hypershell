@@ -28,13 +28,6 @@ const summary: HomepageSummary = {
     healthy: 3,
     total: 5,
   },
-  supportChannel: {
-    channelLabel: "#forum-hypershell",
-    description:
-      "Onboarding, access to a gateway, questions, or something broken. We answer in the channel.",
-    title: "Talk to the team in #forum-hypershell",
-    url: "https://app.slack.com/client/E030G10V24F/C0BR5DM47Q9",
-  },
 };
 
 const platformOverview: HomepagePlatformOverview = {

@@ -34,12 +34,6 @@ const summary: HomepageSummary = {
     healthy: 4,
     total: 5,
   },
-  supportChannel: {
-    channelLabel: "#forum-hypershell",
-    description: "Support description",
-    title: "Support title",
-    url: "https://example.com/support",
-  },
 };
 
 const overview: HomepagePlatformOverview = {
@@ -70,12 +64,14 @@ function renderSurface({
   isAdmin = true,
   platformOverview = overview,
   sessionIsLoading = false,
+  summaryIsLoading = false,
   summaryValue = summary,
 }: {
   isAdmin?: boolean;
   platformOverview?: HomepagePlatformOverview;
   sessionIsLoading?: boolean;
   summaryValue?: HomepageSummary;
+  summaryIsLoading?: boolean;
 } = {}) {
   return render(
     <IntlProvider locale="en" messages={englishMessages}>
@@ -91,7 +87,7 @@ function renderSurface({
           sessionIsLoading={sessionIsLoading}
           setQuickCreateOpen={() => undefined}
           summary={summaryValue}
-          summaryIsLoading={false}
+          summaryIsLoading={summaryIsLoading}
         />
       </MemoryRouter>
     </IntlProvider>,
@@ -109,7 +105,9 @@ describe("HomepagePageSurface", () => {
         .getByRole("link", { name: "research-gateway" })
         .getAttribute("href"),
     ).toBe("/gateways/gateway-17");
-    expect(screen.getByText("Support title")).toBeTruthy();
+    expect(
+      screen.getByText("Talk to the team in #forum-hypershell"),
+    ).toBeTruthy();
     expect(screen.getByText("Cluster heartbeat is stale")).toBeTruthy();
     expect(screen.getByText("42")).toBeTruthy();
     expect(screen.getByText("128")).toBeTruthy();
@@ -145,12 +143,38 @@ describe("HomepagePageSurface", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("shows unavailable states for summary and support data", () => {
+  it("shows the support link when summary data is unavailable", () => {
     renderSurface({
       summaryValue: { gatewayHealth: { available: false } },
     });
 
     expect(screen.getByText("Gateway status is unavailable")).toBeTruthy();
-    expect(screen.getByText("Support channel is unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("Talk to the team in #forum-hypershell"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Open in Slack" }).getAttribute("href"),
+    ).toBe("https://app.slack.com/client/E030G10V24F/C0BR5DM47Q9");
+  });
+
+  it("renders a healthy gateway summary", () => {
+    renderSurface({
+      summaryValue: {
+        gatewayHealth: {
+          attention: [],
+          attentionCount: 0,
+          healthy: 3,
+          total: 3,
+        },
+      },
+    });
+
+    expect(screen.getByText("All 3 gateways are healthy")).toBeTruthy();
+  });
+
+  it("renders a stable gateway-summary loading state", () => {
+    renderSurface({ summaryIsLoading: true });
+
+    expect(screen.getByLabelText("Loading")).toBeTruthy();
   });
 });

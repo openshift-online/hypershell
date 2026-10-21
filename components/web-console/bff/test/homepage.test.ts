@@ -18,13 +18,6 @@ vi.mock("../src/metrics-gateway-sandboxes.js", () => ({
   queryGatewaySandboxes: gatewaySandboxesMock,
 }));
 
-const supportChannel = {
-  channelLabel: "#forum-hypershell",
-  description: "Ask questions in the community forum.",
-  title: "Support",
-  url: "https://example.com/support",
-};
-
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },
@@ -38,7 +31,7 @@ describe("homepage aggregation", () => {
     vi.clearAllMocks();
   });
 
-  it("aggregates gateway health and preserves the support channel", async () => {
+  it("aggregates gateway health", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         items: [
@@ -57,12 +50,7 @@ describe("homepage aggregation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      queryHomepageSummary(
-        "http://api.example.test",
-        "access-token",
-        100,
-        supportChannel,
-      ),
+      queryHomepageSummary("http://api.example.test", "access-token", 100),
     ).resolves.toEqual({
       gatewayHealth: {
         attention: [
@@ -77,7 +65,6 @@ describe("homepage aggregation", () => {
         healthy: 1,
         total: 2,
       },
-      supportChannel,
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -92,20 +79,14 @@ describe("homepage aggregation", () => {
     );
   });
 
-  it("keeps support-channel data available when gateway health fails", async () => {
+  it("reports gateway health unavailable when the source fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 503));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      queryHomepageSummary(
-        "http://api.example.test",
-        undefined,
-        100,
-        supportChannel,
-      ),
+      queryHomepageSummary("http://api.example.test", undefined, 100),
     ).resolves.toEqual({
       gatewayHealth: { available: false },
-      supportChannel,
     });
   });
 
@@ -126,15 +107,9 @@ describe("homepage aggregation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      queryHomepageSummary(
-        "http://api.example.test",
-        "access-token",
-        100,
-        supportChannel,
-      ),
+      queryHomepageSummary("http://api.example.test", "access-token", 100),
     ).resolves.toEqual({
       gatewayHealth: { available: false },
-      supportChannel,
     });
   });
 

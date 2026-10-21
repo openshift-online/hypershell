@@ -110,10 +110,6 @@ const configSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{64}$/iu, "must be a 64-character hex string (32 bytes)")
     .optional(),
-  HYPERSHELL_SUPPORT_CHANNEL_DESCRIPTION: z.string().trim().min(1).optional(),
-  HYPERSHELL_SUPPORT_CHANNEL_LABEL: z.string().trim().min(1).optional(),
-  HYPERSHELL_SUPPORT_CHANNEL_TITLE: z.string().trim().min(1).optional(),
-  HYPERSHELL_SUPPORT_CHANNEL_URL: httpUrl.optional(),
   SESSION_TTL_SECONDS: z.coerce
     .number()
     .int()
@@ -164,17 +160,9 @@ export interface ServerConfig {
   sessionSecret?: Buffer;
   sessionTtlSeconds: number;
   staticRoot: string;
-  supportChannel?: SupportChannelConfig;
   tracing?: TracingConfig;
   /** Console build version stamped into the image at build time. */
   webVersion: string;
-}
-
-export interface SupportChannelConfig {
-  channelLabel: string;
-  description: string;
-  title: string;
-  url: string;
 }
 
 /**
@@ -264,24 +252,6 @@ export function loadConfig(
     }
   }
 
-  const supportChannelConfig = {
-    description: result.data.HYPERSHELL_SUPPORT_CHANNEL_DESCRIPTION,
-    channelLabel: result.data.HYPERSHELL_SUPPORT_CHANNEL_LABEL,
-    title: result.data.HYPERSHELL_SUPPORT_CHANNEL_TITLE,
-    url: result.data.HYPERSHELL_SUPPORT_CHANNEL_URL,
-  };
-  if (
-    Object.values(supportChannelConfig).some((field) => field !== undefined)
-  ) {
-    if (
-      Object.values(supportChannelConfig).some((field) => field === undefined)
-    ) {
-      throw new Error(
-        "All HYPERSHELL_SUPPORT_CHANNEL_* fields must be set together",
-      );
-    }
-  }
-
   return {
     apiOrigin: result.data.HYPERSHELL_API_ORIGIN,
     apiTimeoutMs: result.data.HYPERSHELL_API_TIMEOUT_MS,
@@ -309,15 +279,6 @@ export function loadConfig(
       : undefined,
     sessionTtlSeconds: result.data.SESSION_TTL_SECONDS,
     staticRoot: path.resolve(result.data.STATIC_ROOT),
-    supportChannel:
-      supportChannelConfig.url === undefined
-        ? undefined
-        : {
-            channelLabel: supportChannelConfig.channelLabel ?? "",
-            description: supportChannelConfig.description ?? "",
-            title: supportChannelConfig.title ?? "",
-            url: supportChannelConfig.url,
-          },
     tracing: result.data.OTEL_EXPORTER_OTLP_ENDPOINT
       ? {
           collectorEndpoint: result.data.OTEL_EXPORTER_OTLP_ENDPOINT,

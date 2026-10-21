@@ -2303,17 +2303,17 @@
     "defaultMessage": "Dashboard",
     "description": "Neutral title shown while the session role is loading."
   },
+  "app.homepage.support.description": {
+    "defaultMessage": "Onboarding, access to a gateway, questions, or something broken. We answer in the channel.",
+    "description": "Description for the homepage support channel card."
+  },
   "app.homepage.support.open": {
     "defaultMessage": "Open in Slack",
-    "description": "Action that opens the configured support channel."
+    "description": "Action that opens the HyperShell Slack channel."
   },
-  "app.homepage.support.unavailable.body": {
-    "defaultMessage": "Ask your HyperShell administrator to configure the support channel.",
-    "description": "Guidance shown when no support channel is configured."
-  },
-  "app.homepage.support.unavailable.title": {
-    "defaultMessage": "Support channel is unavailable",
-    "description": "Title shown when no support channel is configured."
+  "app.homepage.support.title": {
+    "defaultMessage": "Talk to the team in #forum-hypershell",
+    "description": "Title for the homepage support channel card."
   },
   "app.homepage.welcome.body": {
     "defaultMessage": "HyperShell runs OpenShell gateways across clusters and clouds for you. Choose where your workload belongs and get to a running gateway in just a few steps.",

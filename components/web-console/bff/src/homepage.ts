@@ -1,6 +1,5 @@
 import { queryAuthorizedGatewayInventory } from "./authorized-gateway-metrics.js";
 import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
-import type { SupportChannelConfig } from "./config.js";
 
 const homepageListPageSize = 100;
 const clusterHeartbeatMaxAgeMs = 5 * 60 * 1000;
@@ -21,7 +20,6 @@ export interface HomepageGatewayHealth {
 
 export interface HomepageSummary {
   gatewayHealth: HomepageGatewayHealth | { available: false };
-  supportChannel?: SupportChannelConfig;
 }
 
 export interface HomepageClusterAvailability {
@@ -206,7 +204,6 @@ export async function queryHomepageSummary(
   apiOrigin: string,
   accessToken: string | undefined,
   timeoutMs: number,
-  supportChannel?: SupportChannelConfig,
 ): Promise<HomepageSummary> {
   try {
     return {
@@ -215,12 +212,10 @@ export async function queryHomepageSummary(
         accessToken,
         timeoutMs,
       ),
-      ...(supportChannel ? { supportChannel } : {}),
     };
   } catch {
     return {
       gatewayHealth: { available: false },
-      ...(supportChannel ? { supportChannel } : {}),
     };
   }
 }

@@ -310,21 +310,21 @@ export const messages = defineMessages({
     defaultMessage: "Install and start using the CLI.",
     description: "Description for the OpenShell CLI installation link.",
   },
-  homepageSupportFallbackTitle: {
-    id: "app.homepage.support.unavailable.title",
-    defaultMessage: "Support channel is unavailable",
-    description: "Title shown when no support channel is configured.",
+  homepageSupportTitle: {
+    id: "app.homepage.support.title",
+    defaultMessage: "Talk to the team in #forum-hypershell",
+    description: "Title for the homepage support channel card.",
   },
-  homepageSupportFallbackBody: {
-    id: "app.homepage.support.unavailable.body",
+  homepageSupportDescription: {
+    id: "app.homepage.support.description",
     defaultMessage:
-      "Ask your HyperShell administrator to configure the support channel.",
-    description: "Guidance shown when no support channel is configured.",
+      "Onboarding, access to a gateway, questions, or something broken. We answer in the channel.",
+    description: "Description for the homepage support channel card.",
   },
   homepageSupportOpenAction: {
     id: "app.homepage.support.open",
     defaultMessage: "Open in Slack",
-    description: "Action that opens the configured support channel.",
+    description: "Action that opens the HyperShell Slack channel.",
   },
   logout: {
     id: "app.logout",

@@ -752,8 +752,7 @@ function LearnCard() {
   );
 }
 
-function SupportCard({ summary }: Readonly<{ summary?: HomepageSummary }>) {
-  const support = summary?.supportChannel;
+function SupportCard() {
   return (
     <Card>
       <CardBody>
@@ -766,40 +765,24 @@ function SupportCard({ summary }: Readonly<{ summary?: HomepageSummary }>) {
             <HashtagIcon />
           </FlexItem>
           <FlexItem flex={{ default: "flex_1" }}>
-            {support ? (
-              <>
-                <Title headingLevel="h2" size="lg">
-                  {support.title}
-                </Title>
-                <Content>{support.description}</Content>
-              </>
-            ) : (
-              <Alert
-                isInline
-                title={
-                  <FormattedMessage
-                    {...messages.homepageSupportFallbackTitle}
-                  />
-                }
-                variant="warning"
-              >
-                <FormattedMessage {...messages.homepageSupportFallbackBody} />
-              </Alert>
-            )}
+            <Title headingLevel="h2" size="lg">
+              <FormattedMessage {...messages.homepageSupportTitle} />
+            </Title>
+            <Content>
+              <FormattedMessage {...messages.homepageSupportDescription} />
+            </Content>
           </FlexItem>
-          {support ? (
-            <FlexItem>
-              <Button
-                component="a"
-                href={support.url}
-                target="_blank"
-                rel="noreferrer"
-                variant="primary"
-              >
-                <FormattedMessage {...messages.homepageSupportOpenAction} />
-              </Button>
-            </FlexItem>
-          ) : null}
+          <FlexItem>
+            <Button
+              component="a"
+              href={externalLinkUrls.supportSlackChannel}
+              target="_blank"
+              rel="noreferrer"
+              variant="primary"
+            >
+              <FormattedMessage {...messages.homepageSupportOpenAction} />
+            </Button>
+          </FlexItem>
         </Flex>
       </CardBody>
     </Card>
@@ -860,7 +843,7 @@ export function HomepagePageSurface({
               />
             </StackItem>
             <StackItem>
-              <SupportCard summary={summary} />
+              <SupportCard />
             </StackItem>
           </Stack>
         </GridItem>

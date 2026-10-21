@@ -113,7 +113,7 @@ The browser SHALL obtain every dynamic homepage value from authorized same-origi
 
 The BFF SHALL expose:
 
-- `GET /api/homepage/summary` for authenticated users, returning gateway health, attention entries, and the configured support channel.
+- `GET /api/homepage/summary` for authenticated users, returning gateway health and attention entries.
 - `GET /api/homepage/platform-overview` only for users with `platform:admin`, returning gateway status counts, active-sandbox status counts, and cluster availability.
 
 Both routes SHALL return aggregate JSON, preserve the signed-in user's authorized resource scope, and expose independent failure facts when a source fails. The platform-overview route SHALL reject a non-admin with HTTP `403`. The implementation MAY derive the aggregates from the existing gateway operations, operational-dashboard, metrics, or platform-inventory adapters when those adapters already provide the required facts.
@@ -122,7 +122,7 @@ Queries SHALL use TanStack Query keys that invalidate with the gateway and dashb
 
 #### Scenario: WEB-HOME-05.01 -- Values come from API responses
 
-- GIVEN the homepage test harness supplies distinct gateway, sandbox, cluster, and support-channel API responses
+- GIVEN the homepage test harness supplies distinct gateway, sandbox, and cluster API responses
 - WHEN the homepage renders
 - THEN every visible dynamic value SHALL match the supplied response
 - AND no mockup fixture value SHALL be used as a production fallback
@@ -195,22 +195,15 @@ Platform overview SHALL show cluster availability as a healthy-cluster count, pr
 
 ### Requirement: WEB-HOME-09 -- Support Channel
 
-The support-channel card SHALL receive its channel label, URL, title, and description from the homepage summary response. The BFF SHALL read those values from deployment configuration. The browser SHALL NOT embed the production support URL, channel name, or support copy.
+The support-channel card SHALL render static localized channel content. The production Slack URL SHALL come from the shared external-link registry. The card SHALL NOT depend on BFF configuration or the homepage summary response.
 
-When the support-channel configuration is absent or invalid, the card SHALL show a localized unavailable state rather than a hard-coded channel.
+#### Scenario: WEB-HOME-09.01 -- Support channel is always available
 
-#### Scenario: WEB-HOME-09.01 -- Support channel follows configuration
-
-- GIVEN the BFF is configured with support channel `#forum-hypershell` and a support URL
+- GIVEN the homepage renders with or without gateway-summary data
 - WHEN the homepage renders
-- THEN the card SHALL use the configured label and URL
+- THEN the support card SHALL show the localized HyperShell support copy
+- AND the action SHALL open the shared Slack channel URL from the external-link registry
 
-#### Scenario: WEB-HOME-09.02 -- Missing support configuration is explicit
-
-- GIVEN the BFF has no valid support-channel configuration
-- WHEN the homepage renders
-- THEN the support card SHALL show a localized unavailable state
-- AND it SHALL NOT render a production hard-coded support URL
 
 ### Requirement: WEB-HOME-10 -- Loading and Failure States
 

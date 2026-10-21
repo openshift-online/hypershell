@@ -14,12 +14,6 @@ export interface HomepageSummary {
         total: number;
       }
     | { available: false };
-  supportChannel?: {
-    channelLabel: string;
-    description: string;
-    title: string;
-    url: string;
-  };
 }
 
 export interface HomepagePlatformOverview {

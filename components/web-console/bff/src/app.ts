@@ -611,7 +611,6 @@ export async function buildApp(
         config.apiOrigin,
         config.oidcIssuer ? request.session.get("accessToken") : undefined,
         config.apiTimeoutMs,
-        config.supportChannel,
       );
     },
   );

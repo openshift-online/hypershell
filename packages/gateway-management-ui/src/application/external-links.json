@@ -4,5 +4,6 @@
   "openShellDocs": "https://docs.nvidia.com/openshell/about/overview",
   "openShellInstallerScript": "https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh",
   "openShellCliInstallation": "https://docs.nvidia.com/openshell/about/installation",
-  "sandboxConnectDocs": "https://docs.nvidia.com/openshell/how-it-works/sandboxes/overview#connect-to-a-sandbox"
+  "sandboxConnectDocs": "https://docs.nvidia.com/openshell/how-it-works/sandboxes/overview#connect-to-a-sandbox",
+  "supportSlackChannel": "https://app.slack.com/client/E030G10V24F/C0BR5DM47Q9"
 }
