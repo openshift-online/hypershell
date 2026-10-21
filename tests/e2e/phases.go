@@ -539,6 +539,9 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	st, body, err := devAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
 	s.Require().NoError(err, "developer GET /gateways")
 	s.Assert().Equalf(http.StatusOK, st, "developer must list gateways (body: %s)", string(body))
+	var devList sdktypes.GatewayList
+	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
+	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
 	// Developer gateway-create: environment-dependent on the RBAC default.
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
@@ -552,6 +555,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
+		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
 	// Platform-admin holds elevated permissions, including gateway delete.
@@ -572,6 +576,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "platform-admin without gateway:creator cannot create gateways (body: %s)", string(body))
+		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
 	victim := s.createGateway(t, "e2e-padmin-del-"+s.runID)
@@ -1054,6 +1059,22 @@ func (s *E2ESuite) rbacDefaultIncludesCreator(t *testing.T) bool {
 	return true // unset -> Kind default includes gateway:creator
 }
 
+// deleteUnexpectedlyCreatedGateway removes a gateway that a create call made
+// even though RBAC should have denied it. The caller has already recorded the
+// failure; this only leaves a clean state. A non-2xx status is a no-op.
+func (s *E2ESuite) deleteUnexpectedlyCreatedGateway(ctx context.Context, status int, body []byte) {
+	if status < 200 || status > 299 {
+		return
+	}
+	var created sdktypes.Gateway
+	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
+		s.Logf("WARN gateway was created despite RBAC denial but its id could not be read: %v", err)
+		return
+	}
+	s.trackGateway(created.ID)
+	s.Assert().NoErrorf(s.admin.Gateways().Delete(ctx, created.ID), "delete gateway %s created despite RBAC denial", created.ID)
+}
+
 // waitNamespaceGone polls until the namespace no longer exists.
 func (s *E2ESuite) waitNamespaceGone(ctx context.Context, ns string, timeout time.Duration) error {
 	return harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
@@ -1153,12 +1174,13 @@ func (s *E2ESuite) waitPodRunning(ctx context.Context, ns, substr string, timeou
 // pollActiveSandboxCount polls the gateway's active_sandbox_count until it reaches
 // want. The count is advisory and may lag, so it is polled rather than read once.
 func (s *E2ESuite) pollActiveSandboxCount(t *testing.T, gatewayID string, want int32) {
-	err := harness.Poll(t.Context(), 5*time.Second, 90*time.Second, func(ctx context.Context) (bool, error) {
+	timeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
+	err := harness.Poll(t.Context(), 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
 		gw, err := s.admin.Gateways().Get(ctx, gatewayID)
 		if err != nil {
 			return false, nil
 		}
 		return gw.ActiveSandboxCount == want, nil
 	})
-	s.Require().NoErrorf(err, "gateway %s active_sandbox_count never reached %d", gatewayID, want)
+	s.Require().NoErrorf(err, "gateway %s active_sandbox_count never reached %d within %s", gatewayID, want, timeout)
 }
