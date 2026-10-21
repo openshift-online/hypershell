@@ -127,7 +127,7 @@ intents, and generated SDKs correctly model array and object response fields.
 
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
-| Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
+| Platform - Data Model | 1 | 13 | 12 | 1 | 0 | 0 | 96% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 12 | 10 | 2 | 0 | 0 | 83% |
@@ -166,8 +166,8 @@ intents, and generated SDKs correctly model array and object response fields.
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **43** | **374** | **320** | **22** | **27** | **5** | **86%** |
-| **TOTAL (all 49 groups)** | **49** | **~434** | **?** | **?** | **?** | **?** | **Pending** |
+| **TOTAL (analyzed rows)** | **43** | **375** | **321** | **22** | **27** | **5** | **86%** |
+| **TOTAL (all 49 groups)** | **49** | **~435** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
 
@@ -413,6 +413,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | DM-3i | Gateway field: `dev_build_metadata` | Missing | Spec added by `630a5ed1` (#148); JSON metadata (sha, branch, repo) for branch-built gateways | - | Future |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
 | DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
+| PLAT-DATA-23 | `hsctl apply` supports extension Kinds (AgentRuntime, SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource, Repository) through `-f` and `-k` inputs, dispatched to `/api/hypershell/ext/`; unknown kinds skipped with warning | Present | CLI `isSupportedKind`, `applyResource` dispatch, URL paths; all three scenarios (file, kustomize, unknown-kind) covered | `components/cli/cmd/hsctl/apply/cmd.go`, `components/cli/pkg/urls/ext.go` | - |
 
 ### control-plane.spec.md
 

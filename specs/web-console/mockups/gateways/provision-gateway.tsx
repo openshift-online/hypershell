@@ -328,7 +328,6 @@ export function ProvisionGatewayForm({
                 />
                 <FormGroup
                   fieldId="chunky-openshell-version"
-                  isRequired
                   label="OpenShell version"
                 >
                   <FormSelect
