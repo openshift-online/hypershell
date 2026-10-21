@@ -276,9 +276,9 @@ test.describe("live console user journey", () => {
       name: `Delete ${gatewayName}?`,
     });
     await dialog.getByRole("button", { name: "Delete gateway" }).click();
-    await expect(
-      page.getByText(`Gateway ${gatewayName} deleted`),
-    ).toBeVisible({ timeout: pageTimeout });
+    await expect(page.getByText(`Gateway ${gatewayName} deleted`)).toBeVisible({
+      timeout: pageTimeout,
+    });
     await expect
       .poll(
         async () =>
