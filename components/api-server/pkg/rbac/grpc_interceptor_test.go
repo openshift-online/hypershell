@@ -48,6 +48,7 @@ func gatewaySvc(method string) string { return "/hypershell.v1.GatewayService/" 
 // "gRPC Authorization"): a global gateway:creator binding no longer authorizes
 // every method, per-gateway methods need a binding on that gateway, and the
 // unfiltered list/watch and the control-plane-only writes are not user methods.
+// Verifies: SEC-RBAC-09.01, SEC-RBAC-09.02, SEC-RBAC-09.03, SEC-RBAC-09.04
 func TestAuthorizeUserGRPC(t *testing.T) {
 	get := &pb.GetGatewayRequest{Id: "gw-1"}
 	update := &pb.UpdateGatewayRequest{Id: "gw-1"}

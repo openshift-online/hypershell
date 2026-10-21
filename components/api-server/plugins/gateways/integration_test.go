@@ -44,6 +44,7 @@ func TestGatewayGet(t *testing.T) {
 	Expect(gatewayOutput.GetGatewayVersion()).To(Equal("0.0.109"))
 }
 
+// Verifies: PLAT-DATA-02.02
 func TestGatewayPost(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -78,6 +79,7 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+// Verifies: PLAT-DATA-02.02
 func TestGatewayPostMinimalFields(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 

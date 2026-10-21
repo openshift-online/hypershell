@@ -65,6 +65,7 @@ func nsExists(t *testing.T, client kubernetes.Interface, name string) bool {
 	return false
 }
 
+// Verifies: OSG-NSGC-05.01
 func TestReconcileNamespace_OrphanWithinGraceIsStampedNotDeleted(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -88,6 +89,7 @@ func TestReconcileNamespace_OrphanWithinGraceIsStampedNotDeleted(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-02.01, OSG-NSGC-07.01
 func TestReconcileNamespace_OrphanPastGraceIsReaped(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -158,6 +160,7 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	}
 }
 
+// Verifies: OSG-NSGC-05.02
 func TestReconcileNamespace_LiveGatewayClearsGraceAndRetains(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -185,6 +188,7 @@ func TestReconcileNamespace_LiveGatewayClearsGraceAndRetains(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-06.03
 func TestReconcileNamespace_StaleLivenessRecheckSparesRevivedGateway(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -227,6 +231,7 @@ func TestReconcileNamespace_StaleLivenessRecheckSparesRevivedGateway(t *testing.
 	}
 }
 
+// Verifies: OSG-NSGC-06.04
 func TestReconcileNamespace_RecheckErrorDefersReap(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -280,6 +285,7 @@ func TestReconcileNamespace_UnmanagedIsUntouched(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-02.02
 func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -318,6 +324,7 @@ func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 // the sweep until labeled manually: the reconciler must never touch them
 // itself, regardless of how long they have existed or whether they carry a
 // stale gc-eligible-since annotation from before labeling.
+// Verifies: OSG-NSGC-02.03
 func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)

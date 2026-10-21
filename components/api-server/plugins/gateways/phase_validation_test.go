@@ -19,6 +19,7 @@ import (
 // canonical phase vocabulary (see specs/platform/gateway-phase-vocabulary.spec.md):
 // a create or update with a phase outside the canonical set is rejected with
 // InvalidArgument and never persisted, while a canonical phase is accepted.
+// Verifies: GTW-PHS-02.01, GTW-PHS-02.02, GTW-PHS-02.03
 func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

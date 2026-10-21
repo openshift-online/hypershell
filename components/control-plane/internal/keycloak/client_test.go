@@ -493,6 +493,7 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +561,7 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	t.Parallel()
 

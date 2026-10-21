@@ -208,6 +208,7 @@ func TestCredentialResolver_DefaultPlatformToken(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-06.04
 func TestCredentialResolver_PerRepositoryPrecedence(t *testing.T) {
 	sources := &fakeSecretSourceClient{source: &pb.SecretSource{Path: "secret/data/git", Metadata: &pb.ObjectReference{Id: "ss1"}}}
 	reader := &fakeSecretReader{values: map[string]string{"secret/data/git": "repo-specific-token"}}
@@ -260,6 +261,7 @@ func newTestAppPrivateKeyPEM(t *testing.T) string {
 // TestCredentialResolver_GitHubAppMintsInstallationToken verifies that App material
 // is exchanged for an installation token (an RS256 App JWT is presented to the
 // access-tokens endpoint) and that the minted token is cached across resolves.
+// Verifies: AGT-SEC-09.02
 func TestCredentialResolver_GitHubAppMintsInstallationToken(t *testing.T) {
 	pemKey := newTestAppPrivateKeyPEM(t)
 	calls := 0

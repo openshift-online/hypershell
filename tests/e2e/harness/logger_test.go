@@ -34,6 +34,7 @@ func TestLoggerFanout(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-09.02
 func TestLoggerDisabledRetainsHumanOutput(t *testing.T) {
 	var messages []string
 	logger := NewLogger(func(f string, args ...any) { messages = append(messages, fmt.Sprintf(f, args...)) }, ReporterSink(nil))
@@ -48,6 +49,7 @@ func TestLoggerDisabledRetainsHumanOutput(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-08.01
 func TestLoggerStreamHasNoDuplicatesAndRedactsDiagnostics(t *testing.T) {
 	var structured bytes.Buffer
 	var human []string

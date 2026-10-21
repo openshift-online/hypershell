@@ -37,6 +37,7 @@ func get(t *testing.T, h http.Handler, path string) (int, string, string) {
 // FLT-NAV-19: direct navigation to and reload of a Glass application route must
 // return the SPA document, while API and asset paths keep their own behavior and
 // are never served the SPA document.
+// Verifies: FLT-NAV-19.01
 func TestSPAFallbackForGlassRoutes(t *testing.T) {
 	// Auth disabled (dev mode) so the /api path exercises the handler, not a 401.
 	authn := auth.New(&config.Config{AuthEnabled: false}, nil)

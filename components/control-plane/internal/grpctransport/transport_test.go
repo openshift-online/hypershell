@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// Verifies: CTRL-CORE-09.01, CTRL-CORE-09.02, CTRL-CORE-09.03, CTRL-CORE-09.04
 func TestClassify(t *testing.T) {
 	cases := []struct {
 		addr string
@@ -55,6 +56,7 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// Verifies: CTRL-CORE-09.03, CTRL-CORE-09.04
 func TestCredentials(t *testing.T) {
 	plain := Credentials("hypershell-api-server:9000")
 	if plain.Info().SecurityProtocol != insecure.NewCredentials().Info().SecurityProtocol {
@@ -70,6 +72,7 @@ func TestCredentials(t *testing.T) {
 // standard verification: a handshake against a server whose certificate does not
 // chain to the system trust store fails (it is never InsecureSkipVerify). The
 // watchers treat that failure as an ordinary disconnect and retry with backoff.
+// Verifies: CTRL-CORE-09.04
 func TestCredentialsTLSVerifiesServerCertificate(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()

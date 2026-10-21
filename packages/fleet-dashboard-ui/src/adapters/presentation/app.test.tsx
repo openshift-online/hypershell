@@ -164,6 +164,7 @@ describe("App", () => {
     expect(await screen.findByText("gov-from-data")).toBeDefined();
   });
 
+  // Verifies: SDLC-VIS-07.02, SDLC-VIS-10.04
   it("offers Fleet Map and Agent SDLC as peer tabs in the shared chrome", async () => {
     const promotion: PromotionData = {
       order: [],
@@ -335,6 +336,7 @@ describe("App", () => {
     expect(parsed.search).toContain("run=tenant-1");
   });
 
+  // Verifies: FLT-NAV-07.01
   it("retraces a cross-tab investigation with Back and Forward (FLT-NAV-07)", async () => {
     const history = renderApp(baseApi());
     fireEvent.click(await screen.findByRole("tab", { name: "Agent SDLC" }));

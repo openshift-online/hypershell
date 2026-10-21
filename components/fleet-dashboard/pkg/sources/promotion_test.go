@@ -134,6 +134,7 @@ func TestPromotionDerivation(t *testing.T) {
 // Application that recorded an operation with retryCount 0 (synced first try)
 // surfaces a genuine 0, while one with no operationState surfaces nil (so the UI
 // omits the row rather than showing a misleading "0").
+// Verifies: FLT-SYNC-02.01, FLT-SYNC-02.02
 func TestPromotionSyncRetriesNullable(t *testing.T) {
 	psGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "promotionstrategies"}
 	ctpGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "changetransferpolicies"}

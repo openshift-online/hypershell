@@ -101,6 +101,7 @@ class CheckTest(unittest.TestCase):
         self.assertError(run_tree(tree), "tls.spec.md:")
         self.assertError(run_tree(tree), "malformed heading")
 
+    # Verifies: STD-IDS-02.01
     def test_rule1_missing_separator(self):
         tree = base_tree()
         tree["specs/platform/obs.spec.md"] += "\n### Requirement: OBS-GFT-02 Name\n"
@@ -128,6 +129,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual([], messages(run_tree(tree)))
 
     # Rule 2
+    # Verifies: STD-IDS-06.01
     def test_rule2_duplicate_ids_name_every_location(self):
         tree = base_tree()
         tree["specs/platform/obs.spec.md"] += "\n### Requirement: OSG-TLS-01 -- Dup\n"
@@ -135,6 +137,7 @@ class CheckTest(unittest.TestCase):
         self.assertError(analysis, "duplicate ID OSG-TLS-01 (specs/platform/obs.spec.md:7, specs/platform/tls.spec.md:5)")
 
     # Rule 3
+    # Verifies: STD-IDS-03.01
     def test_rule3_unregistered_prefix(self):
         tree = base_tree()
         tree["specs/platform/obs.spec.md"] += "\n### Requirement: OBS-NEW-01 -- X\n"
@@ -152,6 +155,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual([], [m for m in messages(run_tree(tree)) if "obs.spec.md" in m and "OSG-TLS-09" in m])
 
     # Rule 4
+    # Verifies: STD-IDS-04.02
     def test_rule4_retired_id_reused(self):
         tree = base_tree()
         tree["specs/platform/tls.spec.md"] += "\n## Retired IDs\n\n- `OSG-TLS-07` replaced by none\n"
@@ -199,6 +203,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual([], messages(run_tree(tree)))
 
     # Rule 6
+    # Verifies: STD-IDS-06.02
     def test_rule6_old_id_in_code(self):
         tree = base_tree()
         tree["pkg/a_test.go"] = "// see GFT-01 for details\n"
@@ -244,6 +249,7 @@ class CheckTest(unittest.TestCase):
         found = [m for m in messages(run_tree(tree)) if "malformed marker" in m]
         self.assertEqual(3, len(found))
 
+    # Verifies: STD-IDS-07.02
     def test_rule7_unknown_id_even_with_unregistered_prefix(self):
         tree = base_tree()
         tree["a.py"] = "# Verifies: ZZZ-YYY-01\n# Verifies: OSG-TLS-77\n"
@@ -265,6 +271,7 @@ class ReportTest(unittest.TestCase):
         )
         return CHECKER.build_report(run_tree(tree))
 
+    # Verifies: STD-IDS-08.01
     def test_totals(self):
         totals = self.report()["totals"]
         self.assertEqual(5, totals["requirements"])
@@ -276,6 +283,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(1, totals["scenarios_non_test"])
         self.assertEqual(1, totals["scenarios_uncovered"])
 
+    # Verifies: STD-IDS-07.01
     def test_requirement_covered_via_scenario(self):
         tls = self.report()["files"][1]
         req = tls["requirements"][0]
@@ -283,6 +291,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual([], req["citations"])
         self.assertEqual(2, len(req["scenarios"][0]["citations"]))
 
+    # Verifies: STD-IDS-07.01
     def test_citation_and_test_names(self):
         sc = self.report()["files"][1]["requirements"][0]["scenarios"][0]
         self.assertEqual(

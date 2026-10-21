@@ -33,7 +33,8 @@ IDENTIFIER_SPEC_PATH = "specs/standards/platform/spec-identifiers.spec.md"
 # IDs and nothing in them is human-authored. Keep this list small.
 SKIPPED_PATHS = frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "go.sum"})
 SKIPPED_PREFIXES = ("components/agents/locks/",)
-# The checker and its tests hold fake and old IDs as fixtures.
+# The checker and its tests hold fake and old IDs as fixtures: rules 5 and 6
+# skip them, but their Verifies markers still count.
 SELF_PATHS = frozenset({"scripts/check_spec_ids.py", "scripts/test_check_spec_ids.py"})
 
 # Not scanned for citations (rule 5): the registry and the rename map list IDs
@@ -89,7 +90,7 @@ def tracked_files(root: Path = REPOSITORY_ROOT) -> List[str]:
 
 
 def _skipped(path: str) -> bool:
-    return path in SKIPPED_PATHS or path in SELF_PATHS or path.startswith(SKIPPED_PREFIXES) or (
+    return path in SKIPPED_PATHS or path.startswith(SKIPPED_PREFIXES) or (
         path.rsplit("/", 1)[-1] in SKIPPED_PATHS
     )
 
@@ -383,8 +384,8 @@ def analyze(files: Dict[str, str]) -> Analysis:
     registered = set(result.registry)
     for path in sorted(files):
         text = files[path]
-        check_citations = path not in CITATION_EXEMPT_DATA and path not in CITATION_EXEMPT_EXAMPLES
-        check_old = path not in OLD_ID_ALLOWED
+        check_citations = path not in CITATION_EXEMPT_DATA and path not in CITATION_EXEMPT_EXAMPLES and path not in SELF_PATHS
+        check_old = path not in OLD_ID_ALLOWED and path not in SELF_PATHS
         if not (check_citations or check_old):
             continue
         for number, line in enumerate(text.split("\n"), start=1):

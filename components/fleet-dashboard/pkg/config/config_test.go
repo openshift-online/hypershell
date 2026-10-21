@@ -40,6 +40,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 
 // TestLoadSDLCDefaultsAndOverrides confirms the SDLC refresh and per-phase SLE
 // values default sensibly and are overridable via FD_* (SDLC-VIS-13).
+// Verifies: SDLC-VIS-13.01
 func TestLoadSDLCDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("FD_PROM_URL", "https://prom.example")
 	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")
@@ -92,6 +93,7 @@ func TestLoadE2EDisabledByDefault(t *testing.T) {
 
 // TestLoadE2EFromEnv confirms every e2e value comes from configuration, never
 // compiled in (E2E-LOG-02).
+// Verifies: E2E-LOG-02.02
 func TestLoadE2EFromEnv(t *testing.T) {
 	t.Setenv("FD_PROM_URL", "https://prom.example")
 	t.Setenv("FD_PROMOTER_NAMESPACE", "ns")

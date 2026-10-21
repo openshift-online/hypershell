@@ -165,6 +165,7 @@ describe("ServiceAccountsPage", () => {
     );
   });
 
+  // Verifies: OSG-SACC-11.03
   it("keeps the one-time secret local while completing setup", async () => {
     const user = userEvent.setup();
     const { queryClient } = renderPage();
@@ -425,6 +426,7 @@ describe("ServiceAccountsPage", () => {
     expect(within(dialog).getByDisplayValue("deploy-bot")).toBeTruthy();
   });
 
+  // Verifies: OSG-SACC-11.04
   it("loads repeatable setup and confirms revoke and delete separately", async () => {
     const user = userEvent.setup();
     const userAccount = { ...account, role: "openshell-user" as const };

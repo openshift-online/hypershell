@@ -31,6 +31,7 @@ func (s *scriptedRegistrar) Register(context.Context) (string, error) {
 
 // Fail-Closed Startup: 403 and 409 are non-retryable and exit immediately with a
 // clear message; any other failure is retried with backoff until it succeeds.
+// Verifies: CTRL-CORE-01.04, CTRL-CORE-01.05, CTRL-CORE-01.06, PLAT-CLUS-12.01, PLAT-CLUS-12.02, PLAT-CLUS-12.03
 func TestRegisterWithBackoff(t *testing.T) {
 	conflict := fmt.Errorf("%w: managed cluster name \"local-kind\" is held by record 2xyz", registration.ErrConflict)
 	cases := []struct {

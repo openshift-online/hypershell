@@ -133,6 +133,7 @@ func testE2E(loki LokiClient) *E2E {
 	return newE2EWithClient(cfg, loki)
 }
 
+// Verifies: E2E-LOG-07.01
 func TestParseViaQEnvelopeThenMessage(t *testing.T) {
 	line := viaQLine(t, ev(e2eEventStepStarted, 3, map[string]any{"stepId": "P1.1", "name": "provisioning"}))
 	got, ok := parseViaQEvent(line)
@@ -160,6 +161,7 @@ func TestParseViaQMalformedIsReported(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-07.02
 func TestReduceRunMalformedIsolated(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -236,6 +238,7 @@ func TestReduceRunSkippedVsNotRun(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-04.03
 func TestReduceRunSteplessNotMarkedStructured(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -247,6 +250,7 @@ func TestReduceRunSteplessNotMarkedStructured(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-08.01
 func TestReduceRunTrustedClusterIsTenant(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -260,6 +264,7 @@ func TestReduceRunTrustedClusterIsTenant(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-04.02
 func TestRunsTruncationReported(t *testing.T) {
 	loki := &fakeLoki{
 		history:  map[string][]LokiEntry{"hub-00": {{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))}}},
@@ -293,6 +298,7 @@ func TestRunsErrorWhenAllTenantsFail(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-01.02
 func TestRunDetailAddressingNoCrossTenantCollision(t *testing.T) {
 	// Two tenants share runId run-1; the address disambiguates by tenant/namespace.
 	cfg := &config.Config{

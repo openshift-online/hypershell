@@ -39,6 +39,7 @@ func newGRPCGatewayClient(t *testing.T, h *test.Helper) pb.GatewayServiceClient 
 // gateway is created Pending with an awaiting-placement status and its placement
 // persisted, so the declarative .hypershell import never hits "cluster_id is
 // required" (data-model.spec.md, "Gateway Placement and Late Binding"; WEB-PLC-07).
+// Verifies: PLAT-DATA-02.03, WEB-PLC-07.04
 func TestGRPCCreateGatewayLateBindsWhenNoClusterMatches(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -64,6 +65,7 @@ func TestGRPCCreateGatewayLateBindsWhenNoClusterMatches(t *testing.T) {
 // registers: the registration event drives the API server's re-resolution, which
 // assigns cluster_id (data-model.spec.md, "Unplaced Gateway binds when a matching
 // cluster appears").
+// Verifies: PLAT-DATA-02.04
 func TestLateBoundGatewayBindsWhenMatchingClusterRegisters(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -102,6 +104,7 @@ func TestLateBoundGatewayBindsWhenMatchingClusterRegisters(t *testing.T) {
 // GitOps capability): the capability change emits an update event that drives
 // re-resolution (data-model.spec.md; managed-cluster-registration.spec.md,
 // "Restart publishes configured capabilities").
+// Verifies: PLAT-DATA-02.04
 func TestLateBoundGatewayBindsWhenExistingClusterGainsCapability(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -160,6 +163,7 @@ func TestGRPCCreateGatewayRejectsBothClusterAndPlacement(t *testing.T) {
 	Expect(grpcstatus.Code(err)).To(Equal(codes.InvalidArgument))
 }
 
+// Verifies: PLAT-DATA-02.05
 func TestGRPCCreateGatewayRejectsNeitherClusterNorPlacement(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -176,6 +180,7 @@ func TestGRPCCreateGatewayRejectsNeitherClusterNorPlacement(t *testing.T) {
 
 // A pinned cluster_id (no placement) is accepted on the REST create path, so
 // hsctl apply and the declarative import can pin a gateway explicitly.
+// Verifies: PLAT-DATA-02.01
 func TestGatewayPostAcceptsPinnedClusterID(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	account := h.NewRandAccount()
@@ -193,6 +198,7 @@ func TestGatewayPostAcceptsPinnedClusterID(t *testing.T) {
 
 // The REST create path late-binds a selector that matches no cluster, mirroring
 // the gRPC behavior exercised above.
+// Verifies: PLAT-DATA-02.03, WEB-PLC-07.04
 func TestGatewayPostLateBindsWhenNoClusterMatches(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	account := h.NewRandAccount()
@@ -211,6 +217,7 @@ func TestGatewayPostLateBindsWhenNoClusterMatches(t *testing.T) {
 }
 
 // A REST create with neither cluster_id nor placement is rejected.
+// Verifies: PLAT-DATA-02.05
 func TestGatewayPostRejectsNeitherClusterNorPlacement(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	account := h.NewRandAccount()

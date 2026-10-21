@@ -170,6 +170,7 @@ describe("E2eRunView", () => {
     ).toBeDefined();
   });
 
+  // Verifies: E2E-LOG-12.01
   it("lists recent runs newest-first with revision and verdict", () => {
     const { api } = makeApi(detail());
     const older = summary({
@@ -303,6 +304,7 @@ describe("E2eRunView", () => {
     },
   );
 
+  // Verifies: E2E-LOG-04.03
   it("marks a pre-reporting run as having no structured steps", () => {
     const { api } = makeApi(detail());
     renderView(api, enabled([summary({ hasStructuredSteps: false })]));
@@ -311,6 +313,7 @@ describe("E2eRunView", () => {
     );
   });
 
+  // Verifies: E2E-LOG-12.04
   it("shows ordered steps, exact-SHA correlation, and distinguishes skipped from not-run", async () => {
     const user = userEvent.setup();
     const d = detail({
@@ -538,6 +541,7 @@ describe("E2eRunView", () => {
 });
 
 describe("gate execution", () => {
+  // Verifies: FLT-NAV-18.01
   it("opens step logs and preserves filters while changing tabs without a second stream", async () => {
     const user = userEvent.setup();
     const { api } = makeApi(detail());
@@ -610,6 +614,7 @@ describe("gate execution", () => {
     /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
     expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
   });
+  // Verifies: FLT-NAV-10.02
   it("follows the current attempt in explicit live mode (FLT-NAV-10)", async () => {
     const { api } = makeApi(detail());
     const history = createMemoryHistory({

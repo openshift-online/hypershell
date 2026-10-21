@@ -50,6 +50,7 @@ describe("DashboardAdoptionRoute", () => {
     expect(await screen.findByTestId("adoption-page")).toBeTruthy();
   });
 
+  // Verifies: ADO-DASH-01
   it("shows access denied for an authenticated non-admin", async () => {
     getSessionMock.mockReturnValue({
       data: {

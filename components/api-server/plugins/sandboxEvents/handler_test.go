@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// Verifies: OSG-SEVT-04.01
 func TestHandlerGroupsEventsAndPreservesFullRepresentation(t *testing.T) {
 	store := NewMemoryStore(time.Minute, 10, 10)
 	defer store.Close()
@@ -103,6 +104,7 @@ func TestHandlerPreservesGSE01ReportedOrder(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SEVT-04.02
 func TestHandlerReturnsEmptyCollection(t *testing.T) {
 	store := NewMemoryStore(time.Minute, 10, 10)
 	defer store.Close()

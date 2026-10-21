@@ -70,6 +70,7 @@ func TestEffectiveCredentialDriver_EmptyType(t *testing.T) {
 // unenforced literals). These values MUST match the hypershell-gitops GitOps
 // Contract in specs/platform/openshell-gateway-credentials.spec.md; changing one is
 // a deliberate, reviewed cross-repo change, so this test makes a silent edit fail.
+// Verifies: OSG-CRED-03.01
 func TestVaultConventionContract(t *testing.T) {
 	want := map[string]string{
 		"address":             "https://openshell-gateway-vault.openshell-vault.svc:8200",

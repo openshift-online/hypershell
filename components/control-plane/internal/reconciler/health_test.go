@@ -95,6 +95,7 @@ func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 	})
 }
 
+// Verifies: OSG-CON-09.01
 func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 	t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
 	const namespace = "openshell-abc"
@@ -345,6 +346,7 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 	}
 	for name, marker := range markers {
 		t.Run(name, func(t *testing.T) {
+			// Verifies: OSG-KCLK-02.03, OSG-KCLK-02.04
 			t.Run("already Running emits no update", func(t *testing.T) {
 				update := observedGatewayHealthUpdate(
 					"gw-1",
@@ -359,6 +361,7 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 				}
 			})
 
+			// Verifies: OSG-KCLK-02.03, OSG-KCLK-02.04
 			t.Run("phase promotion omits status", func(t *testing.T) {
 				update := observedGatewayHealthUpdate(
 					"gw-1",
@@ -448,6 +451,7 @@ func TestCompletedConditions_PreservesSetAndMarksComplete(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-HLTH-01.02
 func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	h := newHealthRec(fakeExposure{readiness: exposure.Readiness{Ready: true}}, fixedClock(time.Unix(0, 0)), 10*time.Minute)
 	for _, phase := range []string{"Provisioning", "Degraded"} {
@@ -458,6 +462,7 @@ func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-HLTH-01.01
 func TestEvaluateRouteReadiness_ProvisioningWithinGraceStaysProvisioning(t *testing.T) {
 	h := newHealthRec(
 		fakeExposure{readiness: exposure.Readiness{Ready: false, Reason: "gateway not programmed: Pending"}},
@@ -473,6 +478,7 @@ func TestEvaluateRouteReadiness_ProvisioningWithinGraceStaysProvisioning(t *test
 	}
 }
 
+// Verifies: OSG-HLTH-01.04
 func TestEvaluateRouteReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testing.T) {
 	base := time.Unix(1000, 0)
 	cur := base
@@ -498,6 +504,7 @@ func TestEvaluateRouteReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testin
 	}
 }
 
+// Verifies: OSG-HLTH-02.02
 func TestEvaluateRouteReadiness_RunningLosesReadinessBecomesDegraded(t *testing.T) {
 	h := newHealthRec(
 		fakeExposure{readiness: exposure.Readiness{Ready: false, Reason: "gateway has no assigned address"}},
@@ -672,6 +679,7 @@ func (f *fakeGatewayClient) UpdateGateway(ctx context.Context, in *pb.UpdateGate
 	return &pb.UpdateGatewayResponse{}, nil
 }
 
+// Verifies: OSG-HLTH-04.05
 func TestRunGatewayWorkersDoesNotBlockOtherGateways(t *testing.T) {
 	slowStarted := make(chan struct{})
 	releaseSlow := make(chan struct{})
@@ -726,6 +734,7 @@ func TestRunGatewayWorkersDoesNotBlockOtherGateways(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-HLTH-04.05
 func TestRunGatewayWorkersBoundsConcurrency(t *testing.T) {
 	gateways := make([]*pb.Gateway, gatewayHealthWorkerCount+2)
 	for i := range gateways {
@@ -934,6 +943,7 @@ func TestListAllGateways_Empty(t *testing.T) {
 // applied and observed, updated replica created but not yet available, no roll in
 // progress) must stay Provisioning within the deployment-readiness grace window
 // rather than flap to Degraded before the gateway was ever Running.
+// Verifies: OSG-HLTH-01.06
 func TestReconcileGatewayHealth_ProvisioningPodNotYetAvailableStaysProvisioning(t *testing.T) {
 	const namespace = "openshell-new"
 	clientset := k8sfake.NewSimpleClientset(
@@ -994,6 +1004,7 @@ func TestEvaluateDeploymentReadiness_ProvisioningWithinGraceStaysProvisioning(t 
 	}
 }
 
+// Verifies: OSG-HLTH-01.06
 func TestEvaluateDeploymentReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testing.T) {
 	cur := time.Unix(1000, 0)
 	h := newHealthRec(nil, func() time.Time { return cur }, 10*time.Minute)
@@ -1016,6 +1027,7 @@ func TestEvaluateDeploymentReadiness_ProvisioningBeyondGraceBecomesDegraded(t *t
 	}
 }
 
+// Verifies: OSG-HLTH-02.01
 func TestEvaluateDeploymentReadiness_RunningOrDegradedIsDegradedImmediately(t *testing.T) {
 	for _, phase := range []string{"Running", "Degraded"} {
 		t.Run(phase, func(t *testing.T) {

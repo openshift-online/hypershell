@@ -138,6 +138,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-03.01, WEB-PLC-01.03
   it("defaults public placement to IBM Cloud", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -157,6 +158,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-03.01
   it("defaults multiple available options to Public and IBM Cloud", async () => {
     renderPage();
 
@@ -166,6 +168,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-01.04, WEB-PLC-03.02
   it("forces AWS for VPN and disables IBM Cloud", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -259,6 +262,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-02.02
   it("uses accessible radio groups with mutually exclusive choices", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -275,6 +279,7 @@ describe("GatewayCreatePage", () => {
     expect(radio("No").checked).toBe(false);
   });
 
+  // Verifies: WEB-PLC-06.01
   it("shows required placement and name errors without disabling submit", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -310,6 +315,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-05.01
   it("offers and defaults local-kind when it is the only available placement", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([false, false, false, false], true),
@@ -342,6 +348,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-05.02
   it("hides local-kind when managed placement is also available", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([true, true, true, false], true),
@@ -395,6 +402,7 @@ describe("GatewayCreatePage", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
+  // Verifies: WEB-PLC-10.01
   it("uses network-specific availability and explains the backend reason", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([true, false, false, false]),
@@ -439,6 +447,7 @@ describe("GatewayCreatePage", () => {
     expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
 
+  // Verifies: WEB-PLC-11.01
   it("offers only advertised versions for the selected network and provider (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.1-rhaiv.3",
@@ -475,6 +484,7 @@ describe("GatewayCreatePage", () => {
     ]);
   });
 
+  // Verifies: WEB-PLC-11.03
   it("hides the preview version when Any version is selected (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
@@ -504,6 +514,7 @@ describe("GatewayCreatePage", () => {
     expect(screen.getByText("OpenShell version: v0.1.1-rhaiv.3")).toBeTruthy();
   });
 
+  // Verifies: WEB-PLC-01.01
   it("adds the chosen version to the placement selector (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
@@ -545,6 +556,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-01.02, WEB-PLC-11.02
   it("omits the version label when left at Any version (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
@@ -571,6 +583,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-11.04
   it("resets the version choice when it is no longer advertised (WEB-PLC-11)", async () => {
     operations.getGatewayProvisioningVersions.mockResolvedValue([
       "v0.1.2-rhaiv.7",
@@ -611,6 +624,7 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  // Verifies: WEB-PLC-11.05
   it("explains when provisioning versions cannot be loaded", async () => {
     operations.getGatewayProvisioningVersions.mockRejectedValue(
       new Error("unavailable"),

@@ -60,6 +60,7 @@ func realizerAR() *pb.AgentRuntime {
 	}
 }
 
+// Verifies: AGT-SEC-09.01
 func TestOpenShellProviderRealizer_GitHubAppIsControlPlaneRotated(t *testing.T) {
 	port := &recordingPort{}
 	minter := &fakeMinter{token: "ghs-minted-token"}
@@ -128,6 +129,7 @@ func TestOpenShellProviderRealizer_GitHubMintFailurePropagates(t *testing.T) {
 	}
 }
 
+// Verifies: AGT-SEC-02.01
 func TestOpenShellProviderRealizer_ServiceAccountIsOpenShellRefreshed(t *testing.T) {
 	port := &recordingPort{}
 	realizer, _ := NewOpenShellProviderRealizer(port, nil)

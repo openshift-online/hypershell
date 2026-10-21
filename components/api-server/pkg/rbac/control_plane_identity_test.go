@@ -109,6 +109,7 @@ var enforcedWithAllowlist = AuthzConfig{EnforceRBAC: true, ServiceAccounts: []st
 
 // A registered control plane needs no role bindings, but only for its own
 // cluster's gateways, fleet-wide reads, status writes, and its own record.
+// Verifies: PLAT-CLUS-11.02, PLAT-CLUS-03.02, OSG-SEVT-02.02
 func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
 	tests := []struct {
@@ -171,6 +172,7 @@ func TestAllowlistedAndRegisteredIsScoped(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-CLUS-11.03
 func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
 	owner := fakeLookup{bindings: []BindingSummary{ownerOf("gw-own"), creatorBinding}}
 	cases := map[string]context.Context{
@@ -197,6 +199,7 @@ func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-CLUS-11.04
 func TestRegisteredClusterLookupErrorIsUnavailable(t *testing.T) {
 	failing := &fakeResolver{err: errors.New("db down")}
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
@@ -321,6 +324,7 @@ func TestAuthorizeApiRegisteredClusterNotRecordedAsDailyActive(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-16.01, SEC-RBAC-16.02, PLAT-CLUS-04.01
 func TestAuthorizeApiRegisteredClusterGetsNoRESTBypass(t *testing.T) {
 	// No bindings: a registered spoke may not create gateways or read the user
 	// inventory over REST, exactly like an allowlisted account.
@@ -351,6 +355,7 @@ func TestAuthorizeApiRegisteredClusterGetsNoRESTBypass(t *testing.T) {
 // REST self-deregistration: a registered control plane may delete its own
 // ManagedCluster record and no other; other records need platform:admin, and
 // gateway:creator (every signed-in user on the GitOps hubs) is not enough.
+// Verifies: PLAT-CLUS-03.01, PLAT-CLUS-03.02, PLAT-CLUS-03.03
 func TestAuthorizeApiManagedClusterDelete(t *testing.T) {
 	const route = "/api/hypershell/v1/managed_clusters/{id}"
 	config := AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{hubSA}}

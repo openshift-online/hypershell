@@ -8,6 +8,7 @@ function apply(state: RouteState, ...actions: NavAction[]): RouteState {
 }
 
 describe("reduceRoute", () => {
+  // Verifies: FLT-NAV-08.01
   it("switches tabs and keeps each tab's own state (FLT-NAV-08)", () => {
     const state = apply(
       DEFAULT_ROUTE,
@@ -45,6 +46,7 @@ describe("reduceRoute", () => {
     expect(state.e2e.drawer).toBe(true);
   });
 
+  // Verifies: FLT-NAV-11.01
   it("openHistory carries the gate step scope and Logs sub-tab into run history (FLT-NAV-11)", () => {
     const state = apply(
       DEFAULT_ROUTE,
@@ -183,6 +185,7 @@ describe("reduceRoute", () => {
     expect(whole.e2e.exec.tab).toBe("logs");
   });
 
+  // Verifies: FLT-NAV-12.01
   it("opening then closing the run drawer preserves the selection (FLT-NAV-12)", () => {
     const state = reduceRoute(DEFAULT_ROUTE, {
       type: "e2eSelectRun",

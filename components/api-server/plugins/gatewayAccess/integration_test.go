@@ -71,6 +71,7 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 	return gatewayAccess.ServiceFrom(&environments.Environment().Services)
 }
 
+// Verifies: GTW-ACC-03.01
 func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -102,6 +103,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 	Expect(caps.CanManageOwners).To(BeTrue())
 }
 
+// Verifies: GTW-ACC-03.02
 func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -120,6 +122,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	Expect(items[0].Role).To(Equal(gatewayAccess.TierUser))
 }
 
+// Verifies: GTW-ACC-04.02
 func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -141,6 +144,7 @@ func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	Expect(*u.Name).To(Equal("Dana Scully"))
 }
 
+// Verifies: GTW-ACC-04.06
 func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -157,6 +161,7 @@ func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 	Expect(uerr).NotTo(BeNil())
 }
 
+// Verifies: GTW-ACC-04.04, SEC-RBAC-06.04
 func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -171,6 +176,7 @@ func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-08.02
 func TestGrant_AdminCanGrantUser(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -202,6 +208,7 @@ func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-05.01, GTW-ACC-05.04
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -237,6 +244,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	Expect(count).To(Equal(1))
 }
 
+// Verifies: GTW-ACC-05.03
 func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -251,6 +259,7 @@ func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-07.01
 func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -264,6 +273,7 @@ func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 	Expect(aerr.Message).NotTo(BeEmpty())
 }
 
+// Verifies: GTW-ACC-07.02
 func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -276,6 +286,7 @@ func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusConflict))
 }
 
+// Verifies: GTW-ACC-06.02
 func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -291,6 +302,7 @@ func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 	Expect(tier).To(Equal(""))
 }
 
+// Verifies: GTW-ACC-06.03
 func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -304,6 +316,7 @@ func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-08.01, SEC-RBAC-06.05
 func TestViewerCannotManage(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -318,6 +331,7 @@ func TestViewerCannotManage(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-10.01
 func TestIdempotentRegrant(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -341,6 +355,7 @@ func TestIdempotentRegrant(t *testing.T) {
 	Expect(count).To(Equal(1))
 }
 
+// Verifies: GTW-ACC-09.01, GTW-ACC-09.02
 func TestDirectorySearch_Authorization(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -408,6 +423,7 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 // authority (including assigning the owner tier) without holding a per-gateway
 // binding, the reported capabilities reflect that, and doing so grants the
 // platform admin no gateway login (no gateway-scoped binding is created for it).
+// Verifies: GTW-ACC-08.03, GTW-ACC-08.04, SEC-RBAC-07.04
 func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -442,6 +458,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 
 // GTW-ACC-07/GTW-ACC-08: a platform:admin may revoke an owner while another owner
 // remains, but is still blocked from removing the last remaining owner.
+// Verifies: GTW-ACC-08.05, GTW-ACC-07.02
 func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -515,6 +532,7 @@ func grantInOwnRequestTransaction(svc gatewayAccess.Service, callerUsername, cal
 // single advisory lock (userProfileWriteLockType) instead of the row lock
 // directly, so the two requests can only ever queue behind one shared
 // resource, never each hold a different one while waiting on the other's.
+// Verifies: SEC-RBAC-03.05
 func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)

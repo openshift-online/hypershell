@@ -94,6 +94,7 @@ function isCrossServiceTrace(trace: JaegerTrace): boolean {
   return hasBrowserWorkflowRoot && hasBrowserDependency && hasBffSpan;
 }
 
+// Verifies: WEB-TRC-11.01
 test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
   // 1. Log in through Keycloak and land on the gateway list. Loading the list
   //    is a gateway "list" workflow, which drives an /api proxy call through the

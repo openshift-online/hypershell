@@ -29,6 +29,7 @@ const (
 
 var testGateway = driver.GatewayRef{Name: "e2e-gw-1", Namespace: "gw-ns", ID: "gw-id"}
 
+// Verifies: E2E-CORE-40.01
 func TestResolveGatewayAuth(t *testing.T) {
 	for _, tt := range []struct {
 		value, mode, want, wantErr string
@@ -201,6 +202,7 @@ func newTestStore(t *testing.T, endpoint *fakeTokenEndpoint) (*gatewayServiceAcc
 	return store, api
 }
 
+// Verifies: E2E-CORE-02.08
 func TestGatewayServiceAccountTokenWithoutExchange(t *testing.T) {
 	endpoint := newFakeTokenEndpoint(t)
 	store, api := newTestStore(t, endpoint)
@@ -285,6 +287,7 @@ func TestGatewayServiceAccountRejectsUnexpectedTokenClaims(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-40.05
 func TestGatewayServiceAccountSecretGoesOnlyToExpectedEndpoint(t *testing.T) {
 	for name, tt := range map[string]struct {
 		mutate func(*sdktypes.OpenShellGatewayServiceAccountCreateResponse)
@@ -360,6 +363,7 @@ func TestGatewayServiceAccountDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-40.03
 func TestGatewayServiceAccountRetireVerifiesRevocationThenDeletes(t *testing.T) {
 	endpoint := newFakeTokenEndpoint(t)
 	store, api := newTestStore(t, endpoint)
@@ -381,6 +385,7 @@ func TestGatewayServiceAccountRetireVerifiesRevocationThenDeletes(t *testing.T) 
 	}
 }
 
+// Verifies: E2E-CORE-40.03
 func TestGatewayServiceAccountRetireFailsButDeletesWhenIssuanceContinues(t *testing.T) {
 	endpoint := newFakeTokenEndpoint(t)
 	store, api := newTestStore(t, endpoint)
@@ -398,6 +403,7 @@ func TestGatewayServiceAccountRetireFailsButDeletesWhenIssuanceContinues(t *test
 }
 
 // Only an OAuth client rejection proves revocation; other refusals must not pass.
+// Verifies: E2E-CORE-40.03
 func TestGatewayServiceAccountRevocationNeedsAnOAuthClientRejection(t *testing.T) {
 	for name, refusal := range map[string]struct {
 		status int
@@ -503,6 +509,7 @@ func newManagementClient(t *testing.T, fake *fakeSAAPI) *apiclient.Client {
 // TestGatewayServiceAccountModeEndToEnd runs the suite's own wiring: token via
 // the SDK-created account with no driver call, the CLI token file, and teardown
 // under E2E_SKIP_CLEANUP=1.
+// Verifies: E2E-CORE-40.04
 func TestGatewayServiceAccountModeEndToEnd(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

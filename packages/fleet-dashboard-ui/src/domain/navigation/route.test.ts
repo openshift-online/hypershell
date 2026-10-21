@@ -72,6 +72,7 @@ describe("parseRoute / serializeRoute", () => {
     expect(pinned.map.attempt).not.toBe(GATE_LIVE_ATTEMPT);
   });
 
+  // Verifies: FLT-NAV-12.01
   it("encodes the selected-but-closed drawer as rund=0 (FLT-NAV-12)", () => {
     const open = parseHref("/e2e?run=t%2Fn%2Fr");
     expect(open.e2e.drawer).toBe(true);
@@ -101,6 +102,7 @@ describe("stable identity and SDLC state", () => {
     expect(state.sdlc.card).toBeNull();
   });
 
+  // Verifies: FLT-NAV-02.01
   it("orders scopes deterministically and deduplicates (FLT-NAV-13)", () => {
     const a = canonical("/sdlc?scope=zed&scope=amber&scope=amber");
     const b = canonical("/sdlc?scope=amber&scope=zed");
@@ -125,6 +127,7 @@ describe("canonicalization and equivalence (FLT-NAV-02)", () => {
     expect(canonical("/?node=n1&nodeTab=details")).toBe("/?node=n1");
   });
 
+  // Verifies: FLT-NAV-02.01
   it("produces equal URLs for equivalent views regardless of input order", () => {
     const a = canonical("/e2e?run=t%2Fn%2Fr&runq=x");
     const b = canonical("/e2e?runq=x&run=t%2Fn%2Fr");
@@ -140,6 +143,7 @@ describe("canonicalization and equivalence (FLT-NAV-02)", () => {
 });
 
 describe("mutually exclusive and incompatible selections (FLT-NAV-14)", () => {
+  // Verifies: FLT-NAV-14.04
   it("prefers node over gate when both are present", () => {
     const state = parseHref("/?node=n1&gate=g1");
     expect(state.map.node).toBe("n1");
@@ -160,6 +164,7 @@ describe("mutually exclusive and incompatible selections (FLT-NAV-14)", () => {
     expect(routeToHref(state)).toBe("/e2e?run=t%2Fn%2Fr&rund=0");
   });
 
+  // Verifies: FLT-NAV-14.04
   it("prefers the board card over a shipped issue when both are present", () => {
     const state = parseHref("/sdlc?card=5&shipped=6&shippedVer=v2026");
     expect(state.sdlc.card).toBe(5);
@@ -170,6 +175,7 @@ describe("mutually exclusive and incompatible selections (FLT-NAV-14)", () => {
     expect(routeToHref(state)).toBe("/sdlc?card=5");
   });
 
+  // Verifies: FLT-NAV-14.04
   it("drops the escalations list when a shipped issue is selected", () => {
     const state = parseHref("/sdlc?shipped=6&escalations=1");
     expect(state.sdlc.shipped).toBe(6);
@@ -191,6 +197,7 @@ describe("malformed and unknown parameters degrade safely (FLT-NAV-14)", () => {
     expect(parseHref("/bogus").tab).toBe("map");
   });
 
+  // Verifies: FLT-NAV-14.01
   it("rejects an unknown enum value", () => {
     expect(parseHref("/?node=n1&nodeTab=wat").map.nodeTab).toBe("details");
     expect(parseHref("/e2e?run=t%2Fn%2Fr&rtab=wat").e2e.exec.tab).toBe(
@@ -198,6 +205,7 @@ describe("malformed and unknown parameters degrade safely (FLT-NAV-14)", () => {
     );
   });
 
+  // Verifies: FLT-NAV-14.01
   it("rejects out-of-range and malformed sorts", () => {
     expect(parseHref("/e2e?runsort=99-asc").e2e.runSort).toBeNull();
     expect(parseHref("/e2e?runsort=2-sideways").e2e.runSort).toBeNull();
@@ -218,6 +226,7 @@ describe("malformed and unknown parameters degrade safely (FLT-NAV-14)", () => {
 });
 
 describe("safe encoding of runtime identifiers (FLT-NAV-03)", () => {
+  // Verifies: FLT-NAV-03.01
   it("round-trips reserved and Unicode characters byte-for-byte", () => {
     const id = "tenant/with space:colon?and#hash&amp=é/漢字";
     const state: RouteState = {
@@ -229,6 +238,7 @@ describe("safe encoding of runtime identifiers (FLT-NAV-03)", () => {
     expect(parseHref(href).e2e.run).toBe(id);
   });
 
+  // Verifies: FLT-NAV-03.01
   it("does not corrupt neighbouring parameters", () => {
     const state: RouteState = {
       ...DEFAULT_ROUTE,

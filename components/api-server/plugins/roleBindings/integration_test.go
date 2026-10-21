@@ -208,6 +208,7 @@ func TestRoleBindingScopeValidation_GatewayScopeRequiresGatewayID(t *testing.T) 
 	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
 }
 
+// Verifies: SEC-RBAC-06.01
 func TestGrantValidation_OwnerCanGrantViewerOnSameGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -241,6 +242,7 @@ func TestGrantValidation_OwnerCanGrantViewerOnSameGateway(t *testing.T) {
 	Expect(viewerErr).NotTo(HaveOccurred())
 }
 
+// Verifies: SEC-RBAC-06.02
 func TestGrantValidation_OwnerCanGrantOwnerOnSameGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -273,6 +275,7 @@ func TestGrantValidation_OwnerCanGrantOwnerOnSameGateway(t *testing.T) {
 	Expect(grantErr).NotTo(HaveOccurred())
 }
 
+// Verifies: SEC-RBAC-06.05
 func TestGrantValidation_NonOwnerCannotGrantOnGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -306,6 +309,7 @@ func TestGrantValidation_NonOwnerCannotGrantOnGateway(t *testing.T) {
 	Expect(grantErr.HttpCode).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: SEC-RBAC-06.06
 func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -386,6 +390,7 @@ func TestGrantValidation_AdminSelfGrantRejected(t *testing.T) {
 // real HTTP middleware path with a token that carries no realm_access roles and
 // asserts that the user receives a gateway:creator binding. This is the exact
 // scenario RBAC_ENFORCE=true must handle: a brand-new user with no Keycloak roles.
+// Verifies: SEC-RBAC-13.01
 func TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 

@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// Verifies: OSG-KCLK-11.01, OSG-KCLK-11.02, OSG-KCLK-11.03
 func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name, oidc, wantClient string

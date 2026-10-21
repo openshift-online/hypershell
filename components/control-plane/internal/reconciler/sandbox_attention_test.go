@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -123,6 +124,7 @@ func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -204,6 +206,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-SBXA-06.04
 func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	var gotCounts gateway.AttentionCounts
 	published := false

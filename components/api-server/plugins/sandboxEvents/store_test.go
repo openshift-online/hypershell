@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Verifies: OSG-SEVT-03.01, OSG-SEVT-03.02
 func TestMemoryStoreIsolationCapExpiryAndEviction(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(time.Minute, 5, 2)

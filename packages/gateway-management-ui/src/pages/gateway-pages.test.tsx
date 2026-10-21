@@ -179,6 +179,7 @@ describe("gateway shell pages", () => {
     navigateMock.mockResolvedValue(undefined);
   });
 
+  // Verifies: OSG-HLTH-06.02
   it("renders gateway details with the shared connection actions", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -381,6 +382,7 @@ describe("gateway shell pages", () => {
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
   });
 
+  // Verifies: OSG-HLTH-06.01
   it("withholds the connection command while the gateway is provisioning", () => {
     // The route address may already be published while the gateway is still
     // provisioning; the command must not surface until phase is Running.
@@ -717,6 +719,7 @@ describe("gateway shell pages", () => {
     view.unmount();
   });
 
+  // Verifies: OSG-CON-09.01
   it("enables the console button once the console address arrives without a refresh", async () => {
     vi.useFakeTimers();
     // Pin the clock to keep this test independent of the host clock.
@@ -1190,6 +1193,7 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  // Verifies: OSG-SBX-05.01, OSG-SBX-05.02
   it("shows the active sandbox count with a not-available fallback when unset", () => {
     renderPage(() => (
       <GatewaysPage
@@ -1673,6 +1677,7 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
+  // Verifies: WEB-VER-01.02
   it("shows the running version as its own column with a placeholder (WEB-VER-01)", () => {
     renderPage(() => (
       <GatewaysPage
@@ -1728,6 +1733,7 @@ describe("gateway shell pages", () => {
     );
   });
 
+  // Verifies: WEB-VER-02.01
   it("shows a running-version chip and Details field on the detail page (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -1760,6 +1766,7 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
+  // Verifies: WEB-VER-02.02
   it("omits the header chip and shows a Details placeholder without a version (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -1812,6 +1819,7 @@ describe("gateway shell pages", () => {
     expect(screen.queryByText(/upgrade/i)).toBeNull();
   });
 
+  // Verifies: WEB-VER-03.02
   it("suppresses the newer-version indicator for a pinned-image gateway (WEB-VER-03)", () => {
     renderPage(() => (
       <GatewayPage

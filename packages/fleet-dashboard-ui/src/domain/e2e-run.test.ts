@@ -66,6 +66,7 @@ describe("reduceRun", () => {
     expect(detail.startedAt).toBe("2026-01-01T00:00:00Z");
   });
 
+  // Verifies: E2E-LOG-11.02
   it("dedupes duplicate sequences (reconnect overlap) idempotently", () => {
     const log = ev({
       event: "log",
@@ -103,6 +104,7 @@ describe("reduceRun", () => {
     expect(detail.steps[1]?.state).toBe("failed");
   });
 
+  // Verifies: E2E-LOG-12.04
   it("distinguishes skipped from not-run; neither reads as passed", () => {
     const detail = reduceRun([
       ev({
@@ -191,6 +193,7 @@ describe("applyEvents", () => {
     ev({ event: "log", sequence: 3, message: "first", timestamp: "t1" }),
   ]);
 
+  // Verifies: E2E-LOG-11.02
   it("applies live events onto a snapshot without losing or duplicating overlap", () => {
     const merged = applyEvents(base, [
       // sequence 3 overlaps the snapshot's log -> must not duplicate.
@@ -344,6 +347,7 @@ describe("derivations", () => {
   });
 });
 
+// Verifies: E2E-LOG-09.01
 describe("runsForVerification", () => {
   it("requires an exact revision, trusted cluster, and namespace", () => {
     const target = {

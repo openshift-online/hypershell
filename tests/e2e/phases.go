@@ -68,6 +68,7 @@ func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err e
 // call is 401 and the admin token is accepted. Long mode also checks that the BFF
 // OIDC endpoints honor their contract and the control plane has no
 // Unauthenticated gRPC errors.
+// Verifies: E2E-CORE-33.01, E2E-CORE-33.02, E2E-CORE-33.04
 func (s *E2ESuite) p0_1Authentication(t *testing.T) {
 	// Unauthenticated API request is rejected with 401.
 	s.runner.Comment("curl -s -o /dev/null -w '%%{http_code}' %s/api/hypershell/v1/gateways  # expect 401", s.apiHost)
@@ -105,6 +106,7 @@ func (s *E2ESuite) assertBFFSession(consoleHost string) {
 	s.Assert().Contains(string(body), "\"authenticated\":false", "BFF /auth/session body")
 }
 
+// Verifies: E2E-CORE-33.03
 func (s *E2ESuite) assertBFFLogin(t *testing.T, consoleHost string) {
 	s.runner.Show("GET %s/auth/login  # expect 302 to Keycloak with PKCE", consoleHost)
 	client := &http.Client{
@@ -123,6 +125,7 @@ func (s *E2ESuite) assertBFFLogin(t *testing.T, consoleHost string) {
 	s.Assert().Contains(resp.Header.Get("Location"), "code_challenge_method=S256", "PKCE challenge method in redirect")
 }
 
+// Verifies: E2E-CORE-33.05
 func (s *E2ESuite) assertNoUnauthenticatedControllerLogs(t *testing.T) {
 	// Scope to logs produced since the run started: a long-idle cluster accumulates
 	// benign token-expiry/recovery warnings that are not a failure of the watch
@@ -172,6 +175,7 @@ func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 
 // --- Phase P1: primary gateway up and reachable ---
 
+// Verifies: E2E-CORE-13.02
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
 	if s.clusterIDOverride != "" {
@@ -387,6 +391,7 @@ func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
 // p2_1SandboxLifecycle creates a sandbox via the CLI, waits for its pod to run,
 // execs into it, deletes it, and verifies the gateway's active_sandbox_count tracks
 // create/delete. Owns its own gateway so the count assertion is isolated.
+// Verifies: E2E-CORE-13.05, E2E-CORE-14.01, E2E-CORE-14.02
 func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping sandbox lifecycle")
@@ -531,6 +536,7 @@ func (s *E2ESuite) deleteSandboxAndWaitForCount(t *testing.T, local, name, gatew
 // RBAC default (gateway:creator grants create, otherwise 403); platform-admin
 // holds the elevated permissions including gateway delete. The developer
 // sandbox-create positive case needs the CLI and lands with the CLI wave.
+// Verifies: E2E-CORE-15.02, E2E-CORE-15.03, E2E-CORE-15.04, E2E-CORE-15.05
 func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	ctx := t.Context()
 	devAPI := s.apiClientForCreds(t, s.devCreds())
@@ -589,6 +595,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 // its managed namespace, and the periodic reaper deletes a synthetic orphan
 // namespace and emits a GarbageCollected Event. The orphan path is long-only and
 // relies on the shortened GC timing SetupSuite applied.
+// Verifies: E2E-CORE-16.01, E2E-CORE-16.02, E2E-CORE-16.03, E2E-CORE-16.04, E2E-CORE-16.05
 func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping namespace garbage collection")
@@ -651,6 +658,7 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // and name collisions (409), and gateway-create rejects an invalid placement (400).
 // It also checks that the gRPC WatchGateways stream rejects unauthorized and
 // revoked identities.
+// Verifies: E2E-CORE-18.01, E2E-CORE-18.02, E2E-CORE-18.03, E2E-CORE-18.04
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	ctx := t.Context()
 	defClusterName := s.seedDefaults()
@@ -759,6 +767,7 @@ func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time
 // Password-grant runs compare the developer and platform-admin users; brokered
 // client-credentials runs compare the privileged hypershell-e2e service account
 // and the unprivileged hypershell-control-plane service account.
+// Verifies: E2E-CORE-21.01, E2E-CORE-21.02, PLAT-USR-03.02, PLAT-USR-03.04
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	ctx := t.Context()
 

@@ -77,6 +77,7 @@ func TestGRPCAdjustActiveSandboxCount(t *testing.T) {
 	Expect(got.Gateway.GetActiveSandboxCount()).To(Equal(int32(1)))
 }
 
+// Verifies: OSG-SBX-02.02
 func TestGRPCActiveSandboxCountFloorsAtZero(t *testing.T) {
 	client, ctx := newSandboxCountClient(t)
 	gw := createGatewayForSandboxCount(ctx, client, "floor-count")
@@ -116,6 +117,7 @@ func TestGRPCSetActiveSandboxCount(t *testing.T) {
 	Expect(resp.ActiveSandboxCount).To(Equal(int32(0)))
 }
 
+// Verifies: OSG-SBX-02.01
 func TestGRPCConcurrentActiveSandboxIncrements(t *testing.T) {
 	client, ctx := newSandboxCountClient(t)
 	gw := createGatewayForSandboxCount(ctx, client, "concurrent-count")

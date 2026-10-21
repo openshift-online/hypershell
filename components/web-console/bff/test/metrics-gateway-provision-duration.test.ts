@@ -46,6 +46,7 @@ function prometheusSample(value: string) {
 }
 
 describe("queryGatewayProvisionDuration", () => {
+  // Verifies: OBS-GPT-09.01
   it("maps Prometheus histogram samples into mean, P50, and P95 seconds", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

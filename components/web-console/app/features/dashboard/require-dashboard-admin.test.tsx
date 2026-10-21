@@ -65,6 +65,7 @@ describe("RequireDashboardAdmin", () => {
     expect(await screen.findByTestId("dashboard-content")).toBeTruthy();
   });
 
+  // Verifies: WEB-OPS-04
   it("shows access denied when auth is enabled but the session is unauthenticated", async () => {
     getSessionMock.mockResolvedValue({
       authenticated: false,
@@ -80,6 +81,7 @@ describe("RequireDashboardAdmin", () => {
     expect(screen.queryByTestId("dashboard-content")).toBeNull();
   });
 
+  // Verifies: WEB-OPS-04
   it("shows access denied for hypershell-admins without platform:admin", async () => {
     getSessionMock.mockResolvedValue({
       authenticated: true,

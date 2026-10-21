@@ -193,6 +193,7 @@ func TestSeedRoleBindings_EnqueuesEveryBinding(t *testing.T) {
 
 // The resync is cluster-scoped and mandatory: an empty identity is refused before
 // any list, so it can never issue an unfiltered fleet-wide list.
+// Verifies: CTRL-CORE-08.03
 func TestSeedRoleBindings_RequiresClusterID(t *testing.T) {
 	srv := &listRoleBindingServer{gotFilter: make(chan *string, 1)}
 	conn := newRoleBindingWatchConn(t, srv)

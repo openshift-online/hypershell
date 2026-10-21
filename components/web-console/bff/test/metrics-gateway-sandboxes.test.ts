@@ -114,6 +114,7 @@ describe("queryGatewaySandboxes", () => {
     }
   });
 
+  // Verifies: OBS-SBXA-07.01
   it("includes Active and all attention fields on success", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -157,6 +158,7 @@ describe("queryGatewaySandboxes", () => {
     }
   });
 
+  // Verifies: OBS-SBXA-07.02
   it("omits only failed attention fields when Active succeeds", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

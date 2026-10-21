@@ -235,6 +235,7 @@ func TestRecordGatewayProvisionOutcome(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-CPL-07.06
 func TestRecordSandboxAttentionCounts(t *testing.T) {
 	reader := testMetricsReader(t)
 

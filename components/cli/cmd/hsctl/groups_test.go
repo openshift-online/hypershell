@@ -9,6 +9,7 @@ import (
 // groups every parent's help into core and extension sections. These checks
 // cover the generated parents (get, list, create, delete) and the hand-written
 // service account commands registered on them.
+// Verifies: CLI-EXT-01.01
 func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
 	ext := []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource"}
 	extPlural := []string{"agentRuntimes", "sandboxTemplates", "providerSpecs", "providerBindings", "inferenceRoutes", "secretSources"}

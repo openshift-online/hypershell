@@ -30,6 +30,7 @@ func createdSample() *SecretSource {
 	return item
 }
 
+// Verifies: PLAT-DATA-12.01, PLAT-DATA-12.02, AGT-SEC-04.02
 func TestSecretSubmission_WritesStoreFirstThenRecord_NeverReturnsValue(t *testing.T) {
 	store := secretstore.NewMemoryStore()
 	svc := &stubSecretSourceService{ret: createdSample()}
@@ -93,6 +94,7 @@ func TestSecretSubmission_RetryIsIdempotent(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-DATA-12.03, AGT-SEC-04.01
 func TestSecretSubmission_ReferenceOnlyWithoutPathDerivesConventionPath(t *testing.T) {
 	// A reference-only create that omits both value and path must succeed and
 	// persist the derived convention location, so the value can be uploaded later

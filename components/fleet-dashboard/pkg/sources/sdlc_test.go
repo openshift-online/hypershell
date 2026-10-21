@@ -103,6 +103,7 @@ func TestSDLCCodeMeterThreshold(t *testing.T) {
 
 // TestSDLCEscalationLane confirms paused and past-SLE records leave the board for
 // the lane, ordered blocked first, then needs-input, then past-SLE (SDLC-VIS-10).
+// Verifies: SDLC-VIS-10.01, SDLC-VIS-10.02, SDLC-VIS-10.03
 func TestSDLCEscalationLane(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	records := []SdlcRecord{
@@ -134,6 +135,7 @@ func TestSDLCEscalationLane(t *testing.T) {
 // truth, drives each bundle row's contents from the bundle's own PRs (grouped into
 // tracked issues and one-off PRs), reduces Unreleased to shipped work absent from
 // every bundle, and marks the current bundle per hub cluster (SDLC-VIS-03/11).
+// Verifies: SDLC-VIS-03.01, SDLC-VIS-03.02, SDLC-VIS-03.03, SDLC-VIS-11.04, SDLC-VIS-11.05
 func TestSDLCMatrix(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "pr 101"}}}
@@ -234,6 +236,7 @@ func (c *countingIssues) AssociatedPRs(ctx context.Context, rec SdlcRecord) []in
 // in a released row (the oldest resolved bundle row), not the Unreleased row. Only work
 // merged after the newest resolved bundle stays Unreleased. The decision adds no GitHub
 // calls beyond the one AssociatedPRs lookup per shipped record the grouping already does.
+// Verifies: SDLC-VIS-22.01, SDLC-VIS-22.02, SDLC-VIS-22.04
 func TestSDLCMatrixPreHorizonReleased(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	// Resolved bundles span 2026-09-01 (oldest) .. 2026-09-15 (newest).
@@ -305,6 +308,7 @@ func TestSDLCMatrixPreHorizonReleased(t *testing.T) {
 // TestSDLCMatrixTrackedIssueMultiplePRs confirms a tracked issue delivered by several
 // pull requests in ONE bundle appears once under that bundle's tracked issues with all
 // of its pull requests grouped beneath it (SDLC-VIS-03).
+// Verifies: SDLC-VIS-03.04
 func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{
@@ -357,6 +361,7 @@ func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 // issue delivered by one PR in each of two bundles appears in BOTH bundle rows,
 // grouped under the PR that landed in each (not attributed to a single bundle). This
 // is the behavior that replaced the old "newest bundle only" attribution (SDLC-VIS-03).
+// Verifies: SDLC-VIS-03.03
 func TestSDLCMatrixTrackedIssueAcrossBundles(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel1 := &Release{Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "part one"}}}
@@ -396,6 +401,7 @@ func TestSDLCMatrixTrackedIssueAcrossBundles(t *testing.T) {
 // TestSDLCMatrixOneOffPRNotUnreleased confirms a pull request that shipped in a bundle
 // but resolves to no execution-record issue appears under that bundle's one-off PRs,
 // never in the Unreleased row (SDLC-VIS-11).
+// Verifies: SDLC-VIS-11.04
 func TestSDLCMatrixOneOffPRNotUnreleased(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 540, Title: "fix typo"}}}

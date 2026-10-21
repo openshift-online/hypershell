@@ -114,6 +114,7 @@ describe("RouterProvider", () => {
     expect(h.replaces).toEqual([]);
   });
 
+  // Verifies: FLT-NAV-06.01
   it("replaces (coalesces) for text input (FLT-NAV-06)", () => {
     const h = renderWithHistory({ path: "/e2e", search: "" });
     fireEvent.click(screen.getByTestId("type"));
@@ -122,6 +123,7 @@ describe("RouterProvider", () => {
     expect(h.replaces).toEqual(["/e2e?runq=abc"]);
   });
 
+  // Verifies: FLT-NAV-07.01
   it("reconciles from the URL on popstate without echoing a new entry (FLT-NAV-07)", () => {
     const h = renderWithHistory({ path: "/", search: "" });
     act(() => {

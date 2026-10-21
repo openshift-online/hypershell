@@ -31,6 +31,7 @@ function renderView(overrides: Partial<AgentSdlcViewProps>): {
 }
 
 describe("AgentSdlcView board", () => {
+  // Verifies: SDLC-VIS-09.02
   it("renders a column per board phase with its card count, and the card's rework meter", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
@@ -93,6 +94,7 @@ describe("AgentSdlcView board", () => {
 });
 
 describe("AgentSdlcView escalations notification drawer", () => {
+  // Verifies: SDLC-VIS-10.04
   it("shows the cleared state when the drawer is opened with an empty lane", () => {
     renderView({ data: EMPTY });
     // The escalations live behind the bell now; open the notification drawer.
@@ -138,6 +140,7 @@ describe("AgentSdlcView escalations notification drawer", () => {
 });
 
 describe("AgentSdlcView matrix", () => {
+  // Verifies: FLT-NAV-08.02
   it("shows the Unreleased row and cross-links a bundle to the map", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
@@ -188,6 +191,7 @@ describe("AgentSdlcView matrix", () => {
     expect(route.bundle).toBe("d2");
   });
 
+  // Verifies: SDLC-VIS-16.02
   it("renders a localized 'merged Nd ago' timestamp using the injected clock", () => {
     const nowMs = Date.UTC(2026, 9, 15, 12, 0, 0);
     const mergedAt = new Date(Date.UTC(2026, 9, 12, 12, 0, 0)).toISOString(); // 3 days earlier
@@ -232,6 +236,7 @@ describe("AgentSdlcView matrix", () => {
     expect(screen.getByText("merged 3 days ago by octo-dev")).toBeDefined();
   });
 
+  // Verifies: SDLC-VIS-11.02, SDLC-VIS-11.03
   it("splits an expanded bundle into tracked issues and other PRs with a count summary", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
@@ -369,6 +374,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     );
   }
 
+  // Verifies: SDLC-VIS-21.03
   it("flies the whole card and holds its destination when a phase advances", () => {
     const { rerender } = render(tree(flightData("spec")));
     // Before the transition the card rests in its column (a queryable anchor).
@@ -385,6 +391,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     expect(document.querySelector('[data-card-number="10"]')).toBeNull();
   });
 
+  // Verifies: SDLC-VIS-20.02
   it("flies on a backward reject-loop move too", () => {
     const { rerender } = render(tree(flightData("spec-approved")));
     rerender(tree(flightData("spec")));
@@ -393,6 +400,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     );
   });
 
+  // Verifies: SDLC-VIS-21.02
   it("does not restart or cancel an in-flight flight on a continuous-aging re-render", () => {
     const { rerender } = render(tree(flightData("spec")));
     rerender(tree(flightData("spec-approved")));
@@ -408,6 +416,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     );
   });
 
+  // Verifies: SDLC-VIS-20.04
   it("snaps (no flight) under prefers-reduced-motion", () => {
     stubReducedMotion(true);
     const { rerender } = render(tree(flightData("spec")));
@@ -417,6 +426,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
   });
 
+  // Verifies: SDLC-VIS-20.03
   it("flies the card into the release matrix on the Shipped hop", () => {
     const onBoard: AgentSdlcData = {
       ...flightData("spec-approved"),
@@ -458,6 +468,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     expect(document.querySelector('[data-card-number="10"]')).toBeNull();
   });
 
+  // Verifies: SDLC-VIS-21.04
   it("flies each of several simultaneous phase changes on its own flight", () => {
     const before: AgentSdlcData = {
       ...flightData("spec"),

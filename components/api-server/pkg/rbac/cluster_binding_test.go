@@ -183,6 +183,7 @@ func TestClusterBoundRequestsCarryClusterID(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-CLUS-11.04
 func TestCheckClusterCallerBindingFailsClosedOnLookupError(t *testing.T) {
 	resolver := &fakeResolver{err: errors.New("db down")}
 	err := CheckClusterCallerBindingUnary(bearerContext(t, "cp-sub"), resolver, nil, listGatewaysMethod, &fakeScopedRequest{"cluster-x"})
@@ -209,6 +210,7 @@ func (s *fakeServerStream) RecvMsg(m interface{}) error {
 	return nil
 }
 
+// Verifies: PLAT-CLUS-10.04, PLAT-CLUS-10.05
 func TestBindClusterCallerStream(t *testing.T) {
 	resolver := &fakeResolver{clusters: map[string]string{"cp-sub": "cluster-x"}}
 	cases := []struct {

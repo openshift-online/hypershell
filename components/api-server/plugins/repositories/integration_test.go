@@ -20,6 +20,7 @@ import (
 // the AgentRuntime repository selector through the full HTTP server stack
 // (the /api/hypershell/ext prefixed-router path), which the service-level unit
 // tests do not cover.
+// Verifies: PLAT-DATA-10.01, PLAT-DATA-10.02, PLAT-DATA-10.03, PLAT-DATA-09.02
 func TestRepositoryCreateAndSelectorContract(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	account := h.NewRandAccount()

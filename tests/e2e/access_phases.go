@@ -17,6 +17,7 @@ import (
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
+// Verifies: GTW-ACC-04.02, GTW-ACC-05.03, GTW-ACC-08.01
 func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	if s.driver.Name() != "kind" || envOrDefault("E2E_OIDC_GRANT", "password") != "password" {
 		t.Skip("secondary-user gateway access matrix requires the Kind password-grant environment")
@@ -130,6 +131,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	s.Assert().False(accessListContains(finalList.Items, devUsername), "revoked developer absent from access list")
 }
 
+// Verifies: E2E-CORE-15.01, OSG-KCLK-05.03
 func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	ctx := t.Context()
 	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
@@ -166,6 +168,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	s.deleteSandboxAndWaitForCount(t, developerLocal, name, s.primary.ID, 0)
 }
 
+// Verifies: OSG-SACC-04.01
 func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	ctx := t.Context()
 	expires := time.Now().UTC().Add(2 * time.Hour)

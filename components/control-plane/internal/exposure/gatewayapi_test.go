@@ -31,6 +31,7 @@ func programmed(status metav1.ConditionStatus, reason string) metav1.Condition {
 	}
 }
 
+// Verifies: OSG-ROUT-08.01, OSG-ROUT-08.02
 func TestObserveReadiness(t *testing.T) {
 	tests := []struct {
 		name      string

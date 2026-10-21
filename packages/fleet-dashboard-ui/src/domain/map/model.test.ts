@@ -194,6 +194,7 @@ describe("buildMapModel - lanes", () => {
     expect(model.lanes.map((l) => l.hostsHub)).toEqual([true, false, false]);
   });
 
+  // Verifies: FLT-MAP-07.02
   it("groups instances without a provider under a single lane key", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
@@ -268,6 +269,7 @@ describe("buildMapModel - nodes", () => {
 });
 
 describe("buildMapModel - gates", () => {
+  // Verifies: FLT-SYNC-03.01, FLT-SYNC-03.02
   it("reports each SOURCE column's own gate badge on the gate to its right", () => {
     const model = buildMapModel(
       promotion(["hi", "hp"], {

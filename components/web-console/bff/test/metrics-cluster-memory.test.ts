@@ -51,6 +51,7 @@ describe("queryClusterMemory", () => {
     expect(clusterMemoryDailyUsedStepSeconds).toBe(86_400);
   });
 
+  // Verifies: OBS-MEM-02.01
   it("maps Prometheus capacity and available samples into bytes", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);
@@ -178,6 +179,7 @@ describe("queryClusterMemory", () => {
     }
   });
 
+  // Verifies: OBS-HCUT-03.02
   it("returns instant fields without daily_used when the range query fails", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);

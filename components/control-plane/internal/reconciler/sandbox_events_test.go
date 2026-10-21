@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// Verifies: OSG-SEVT-01.01
 func TestSelectSandboxEventsIncludesActiveAndTerminatedPodsAndCapsDefaultLimit(t *testing.T) {
 	sandbox := sandbox("live", "writer")
 	pods := []*corev1.Pod{
