@@ -101,6 +101,31 @@ subjects:
     name: vault
     namespace: ${VAULT_NS}
 ---
+# Namespace-read for Vault: the gateway/provisioner roles bind with a
+# bound_service_account_namespace_selector, so Vault must read the logging-in namespace's
+# labels at login (HYPERSHELL-369). Mirrors the production grant in hypershell-gitops.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshell-vault-namespace-reader
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshell-vault-namespace-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openshell-vault-namespace-reader
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: ${VAULT_NS}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -264,7 +289,7 @@ apply_config() {
 
   vxt "$rt" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
     bound_service_account_names="openshell-gateway" \
-    bound_service_account_namespaces='*' \
+    bound_service_account_namespace_selector='{"matchLabels":{"hypershell.redhat.io/managed":"true"}}' \
     audience=vault \
     token_policies="openshell-gateway-provider" \
     token_ttl=3600 >/dev/null
@@ -279,7 +304,7 @@ apply_config() {
     '}' | vxti "$rt" vault policy write openshell-gateway-provisioner -
   vxt "$rt" vault write "auth/kubernetes/role/openshell-gateway-provisioner" \
     bound_service_account_names="hypershell-controller" \
-    bound_service_account_namespaces='*' \
+    bound_service_account_namespace_selector='{"matchLabels":{"hypershell.redhat.io/control-plane":"true"}}' \
     audience=vault \
     token_policies="openshell-gateway-provisioner" \
     token_ttl=600 >/dev/null
@@ -295,11 +320,20 @@ apply_config() {
 # denied, and ANOTHER tenant's mount is denied (isolation). Fails the script if the policy
 # drifts. See openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E).
 run_selftest() {
-  local rt="$1" ns="openshell-vault-selftest" other="openshell-vault-other" jwt out rev
+  local rt="$1" ns="openshell-vault-selftest" other="openshell-vault-other" unlabeled="openshell-vault-unlabeled" jwt nolabeljwt out rev denied
+  # A gateway namespace carries the control plane's managed label, which the gateway role's
+  # namespace selector requires; label the selftest namespace to stand in for one.
   vkube create namespace "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  vkube label namespace "${ns}" hypershell.redhat.io/managed=true --overwrite >/dev/null
   vkube create serviceaccount openshell-gateway -n "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
   [ -n "${jwt}" ] || { error "vault self-test: could not mint a vault-audience token"; exit 1; }
+  # A namespace WITHOUT the managed label stands in for an unrelated/attacker namespace: the
+  # role's namespace selector must refuse it at login (defense in depth beyond the policy).
+  vkube create namespace "${unlabeled}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  vkube create serviceaccount openshell-gateway -n "${unlabeled}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  nolabeljwt="$(vkube create token openshell-gateway -n "${unlabeled}" --audience vault --duration 10m 2>/dev/null || true)"
+  [ -n "${nolabeljwt}" ] || { error "vault self-test: could not mint the unlabeled-namespace token"; exit 1; }
   # The control plane creates each gateway's per-tenant mount at provision; here the fixture
   # stands in for it (as root), enabling the selftest namespace's mount and a second tenant's
   # mount so cross-tenant denial can be proven.
@@ -322,6 +356,14 @@ run_selftest() {
   printf '%s\n' "${out}" | grep -q META_DELETE_DENIED  || { error "vault self-test: metadata delete not denied (out: ${out})"; exit 1; }
   printf '%s\n' "${out}" | grep -q CROSS_TENANT_DENIED || { error "vault self-test: cross-tenant access not denied - isolation broken (out: ${out})"; exit 1; }
 
+  # Namespace selector: a ServiceAccount in an UNLABELED namespace must be refused at login,
+  # so only control-plane-labeled tenant namespaces can authenticate (HYPERSHELL-369).
+  denied="$(printf '%s\n' "${nolabeljwt}" | vxi sh -c '
+    read -r JWT
+    if vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" >/dev/null 2>&1; then echo SELECTOR_ADMITTED; else echo SELECTOR_DENIED; fi
+  ' || true)"
+  printf '%s\n' "${denied}" | grep -q SELECTOR_DENIED || { error "vault self-test: an unlabeled namespace was admitted - namespace selector not enforced (out: ${denied})"; exit 1; }
+
   # Revocation (openshell-gateway-vault.spec.md section 10): removing the policy revokes all
   # gateway access. Delete the policy as root, confirm the gateway identity is then denied,
   # and restore it via apply_config (idempotent) so the fixture is left usable. This needs
@@ -338,8 +380,9 @@ run_selftest() {
   vxt "${rt}" vault secrets disable "openshell-gw/${ns}" >/dev/null 2>&1 || true
   vxt "${rt}" vault secrets disable "openshell-gw/${other}" >/dev/null 2>&1 || true
   vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
+  vkube delete namespace "${unlabeled}" --wait=false >/dev/null 2>&1 || true
   printf '%s\n' "${rev}" | grep -q REVOKED_DENIED || { error "vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"; exit 1; }
-  success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete denied; cross-tenant denied; revoked->denied)"
+  success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete denied; cross-tenant denied; unlabeled-namespace login denied; revoked->denied)"
 }
 
 info "Waiting for the Vault API..."

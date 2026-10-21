@@ -231,6 +231,15 @@ func main() {
 	// through an OpenShift Route -- leaving it stuck in Provisioning forever
 	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
 	// routed gateways are gated on Deployment readiness alone.
+	// Label this control-plane namespace so the per-cluster provider Vault's
+	// provisioner-role namespace selector admits it (HYPERSHELL-369). Best-effort: if it
+	// fails, per-tenant mount provisioning fails closed later with a clear error.
+	if clientset != nil {
+		if err := gateway.EnsureControlPlaneNamespaceLabel(ctx, clientset, cfg.Namespace); err != nil {
+			log.Printf("WARN could not label control-plane namespace %s (provider-Vault provisioner login may be denied until resolved): %v", cfg.Namespace, err)
+		}
+	}
+
 	// See specs/platform/openshell-gateway-routing.spec.md.
 	var exposurePort exposure.Port
 	if clientset != nil && k8sConfig != nil {

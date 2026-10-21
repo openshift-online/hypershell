@@ -522,6 +522,17 @@ whole gateway). The control plane authenticates to this role with a `vault`-audi
 mints for its **own** ServiceAccount via the Kubernetes TokenRequest API, so no static admin
 credential is stored or rotated.
 
+Both Vault roles are additionally bound by a **namespace selector**, a second independent
+isolation layer on top of the templated/mounts-only policies: the gateway role admits only
+namespaces carrying the control plane's `hypershell.redhat.io/managed` label, and the
+provisioner role admits only a namespace carrying `hypershell.redhat.io/control-plane` (the
+control plane self-applies this to its own namespace at startup). A namespace-scoped attacker
+cannot forge either label - labeling a namespace needs cluster-scoped `patch` on the
+`namespaces` resource - so an unrelated namespace cannot even authenticate, which in particular
+closes the provisioner mount-delete denial-of-service to any non-control-plane namespace. Vault
+evaluates the selectors by reading namespace labels at login, so its server ServiceAccount holds
+read-only `get`/`list` on namespaces.
+
 **Sandbox-to-sandbox isolation within one gateway is a separate layer and is not enforced
 by Vault.** Sandboxes never authenticate to Vault; the gateway process is the single Vault
 client and brokers every credential on a sandbox's behalf. The OpenShell gateway binds each
@@ -710,7 +721,8 @@ below mirrors it for convenience, and on any divergence the GitOps spec wins.
 | Kubernetes auth mount | `kubernetes` |
 | Vault role (gateway) | `openshell-gateway` |
 | Vault role (control-plane provisioner) | `openshell-gateway-provisioner` |
-| Isolation | a **templated** ACL policy scopes each gateway's token to its own namespace's mount, with **no `list`**; a handle leaked from another tenant is unusable, and isolation is by per-tenant mount plus the per-cluster Vault boundary. Sandbox-to-sandbox isolation is enforced by the OpenShell gateway's workspace authorization, not by Vault. |
+| Isolation | two independent layers: (1) role **namespace selectors** restrict *who may authenticate* (gateway role → namespaces labeled `hypershell.redhat.io/managed`; provisioner role → the control-plane namespace labeled `hypershell.redhat.io/control-plane`); (2) a **templated** ACL policy scopes each gateway's token to its own namespace's mount, with **no `list`**, so a handle leaked from another tenant is unusable. Isolation is per-tenant mount plus the per-cluster Vault boundary. Sandbox-to-sandbox isolation is enforced by the OpenShell gateway's workspace authorization, not by Vault. |
+| Namespace labels (selector inputs) | gateway namespaces carry `hypershell.redhat.io/managed=true` (control plane stamps it); the control-plane namespace carries `hypershell.redhat.io/control-plane=true` (control plane self-labels at startup). The Vault server SA holds read-only `get`/`list` on namespaces to evaluate the selectors. |
 | Policy capabilities (gateway) | templated `openshell-gateway-provider` grants the gateway identity `create`, `read`, `update`, `delete` on `openshell-gw/{{...service_account_namespace}}/data/openshell/provider-credentials/*` and `read` on the matching `metadata/` path; **no `list`**, **no metadata `delete`**, nothing outside the token's own mount |
 | Policy capabilities (provisioner) | `openshell-gateway-provisioner` grants `create`, `read`, `update`, `delete` only on `sys/mounts/openshell-gw/*`; no `data/` capability, no policy or role write |
 | Gateway SA token | projected, `audience: vault`, `expirationSeconds: 3600`, mounted at `/var/run/secrets/vault/token` |
@@ -728,7 +740,11 @@ the pre-deploy and authenticated reachability probes, and as the **provisioner**
 `vault`-audience token for the controller's **own** ServiceAccount) to manage the mount. The
 controller's RBAC MUST therefore allow `create` on the `serviceaccounts/token` subresource,
 scoped by `resourceNames` to `openshell-gateway` (the gateway identity) and the controller's own
-ServiceAccount (the provisioner identity), and to no other ServiceAccount.
+ServiceAccount (the provisioner identity), and to no other ServiceAccount. The control plane also
+self-labels its own namespace with `hypershell.redhat.io/control-plane=true` at startup (so the
+provisioner role's namespace selector admits it), which needs `patch` on the `namespaces`
+resource; the Vault server ServiceAccount holds read-only namespace `get`/`list` so Vault can
+evaluate the role selectors.
 
 ---
 
