@@ -90,6 +90,46 @@ func (c *vaultClient) health(ctx context.Context) error {
 	return nil
 }
 
+// enableKVv2Mount enables a KV version 2 secrets engine at mountPath, using the given
+// (provisioner) token. Idempotent: an already-mounted path (Vault "path is already in
+// use") is treated as success, so a re-reconcile is a no-op. The token's policy is
+// expected to allow only sys/mounts/<prefix>/*, so this cannot touch other mounts.
+func (c *vaultClient) enableKVv2Mount(ctx context.Context, token, mountPath string) error {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"type":    "kv",
+		"options": map[string]string{"version": "2"},
+	})
+	url := fmt.Sprintf("%s/v1/sys/mounts/%s", c.address, strings.Trim(mountPath, "/"))
+	code, body, err := c.do(ctx, http.MethodPost, url, token, payload)
+	if err != nil {
+		return fmt.Errorf("enable vault mount %s: %w", mountPath, err)
+	}
+	switch {
+	case code >= 200 && code < 300:
+		return nil
+	case code == http.StatusBadRequest && bytes.Contains(body, []byte("already in use")):
+		return nil // idempotent: the mount already exists
+	default:
+		return fmt.Errorf("enable vault mount %s: HTTP %d", mountPath, code)
+	}
+}
+
+// disableMount disables (deletes) the secrets engine at mountPath, using the given
+// (provisioner) token. Deleting a KV mount removes every secret it held in one
+// operation. Idempotent: Vault returns 204 whether or not the mount existed, and a 404
+// is also treated as already-gone.
+func (c *vaultClient) disableMount(ctx context.Context, token, mountPath string) error {
+	url := fmt.Sprintf("%s/v1/sys/mounts/%s", c.address, strings.Trim(mountPath, "/"))
+	code, _, err := c.do(ctx, http.MethodDelete, url, token, nil)
+	if err != nil {
+		return fmt.Errorf("disable vault mount %s: %w", mountPath, err)
+	}
+	if (code >= 200 && code < 300) || code == http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("disable vault mount %s: HTTP %d", mountPath, code)
+}
+
 // do issues an HTTP request and returns the status code and a size-capped body. The
 // Vault token header is set only when token is non-empty. Response bodies never carry
 // a provider secret value for these operations (login auth, health).

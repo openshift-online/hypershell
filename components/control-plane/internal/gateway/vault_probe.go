@@ -35,15 +35,17 @@ func readVaultCASource(ctx context.Context, clientset kubernetes.Interface) (pem
 }
 
 // resolvedVault returns the resolved Vault coordinates for a vault-resolved driver.
-func resolvedVault(driver *CredentialDriverConfig) *helm.VaultValues {
-	return resolveVaultValues(effectiveCredentialDriver(driver).Vault)
+// namespace derives the per-tenant mount; pass "" from probes that only need the
+// address, role, auth mount and CA (health and login never reference the mount).
+func resolvedVault(driver *CredentialDriverConfig, namespace string) *helm.VaultValues {
+	return resolveVaultValues(effectiveCredentialDriver(driver).Vault, namespace)
 }
 
 // probeVaultReachable is the pre-deploy, UNAUTHENTICATED reachability check: the
 // per-cluster Vault is up and serving TLS trusted by its serving CA. It needs no
 // ServiceAccount, so it runs during EnvironmentReady before the workload is deployed.
 func probeVaultReachable(ctx context.Context, clientset kubernetes.Interface, driver *CredentialDriverConfig) error {
-	v := resolvedVault(driver)
+	v := resolvedVault(driver, "")
 	caPEM, _, _, err := readVaultCASource(ctx, clientset)
 	if err != nil {
 		return err
@@ -87,7 +89,7 @@ func ProbeVaultReachable(ctx context.Context, clientset kubernetes.Interface, cr
 // authenticate to Vault (kubernetes auth, role openshell-gateway). The gateway
 // ServiceAccount must already exist (created by the Helm deploy).
 func probeVaultAuth(ctx context.Context, clientset kubernetes.Interface, namespace string, driver *CredentialDriverConfig) error {
-	v := resolvedVault(driver)
+	v := resolvedVault(driver, "")
 	caPEM, _, _, err := readVaultCASource(ctx, clientset)
 	if err != nil {
 		return err

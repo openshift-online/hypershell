@@ -18,12 +18,14 @@ import (
 // The control-plane suite owns the behaviors the control plane is responsible for:
 //   - the flat-vault-default happy path (a gateway provisions vault-backed, the serving CA
 //     is mirrored, no KEK) is asserted in the short suite by p1_2InfraVerification;
-//   - the real gateway-process resolve at provider-credentials/* is exercised end-to-end by
-//     the sandbox lifecycle (p2_1), which drives the actual OpenShell gateway, not a stand-in;
+//   - the real gateway-process resolve under its per-tenant mount
+//     (openshell-gw/<namespace>/.../provider-credentials/*) is exercised end-to-end by the
+//     sandbox lifecycle (p2_1), which drives the actual OpenShell gateway, not a stand-in;
 //   - fail-closed when Vault is unreachable is asserted here (p2_7), through the product API.
 //
-// The capability-scoped policy itself (round-trip under provider-credentials/*, no list, no
-// reach outside the prefix) is the GitOps Contract, authored in hypershell-gitops. It is
+// The templated per-tenant policy itself (round-trip under the token's own
+// openshell-gw/<namespace>/.../provider-credentials/*, no list, no metadata delete, no reach
+// into another tenant's mount) is the GitOps Contract, authored in hypershell-gitops. It is
 // verified once, in the Vault fixture, by scripts/cluster/vault.sh's own self-test -- not by
 // the suite reaching into Vault with a synthetic identity. See
 // specs/platform/openshell-gateway-credentials.spec.md (Requirement: End-to-End Vault

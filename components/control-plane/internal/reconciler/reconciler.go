@@ -325,18 +325,27 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
-			// Vault-backed provider credentials are NOT enumerate-and-purged on gateway
-			// delete: the OpenShell runtime stores them at the flat, hash-addressed
-			// secret/data/openshell/provider-credentials/ prefix (the gateway identity is
-			// granted no list, the paths are unguessable, and the naming handles live only
-			// in the gateway database, which is dropped below). Any entries the runtime did
-			// not delete during normal operation remain inert, unreachable dead storage,
-			// not exposed secret material. See openshell-gateway-credentials.spec.md
-			// (Provider Credential Lifecycle on Deletion).
 			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
 				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
+			}
+
+			// Delete the gateway's per-tenant Vault KV mount (openshell-gw/<namespace>),
+			// which removes every provider-credential entry it held in one operation,
+			// through the control plane's scoped provisioner identity (HYPERSHELL-369).
+			// Best-effort and idempotent: on failure record a durable orphan and aggregate
+			// the error so the delete-reconcile retries; a left-behind mount holds only
+			// unreferenced, un-listable entries (the gateway database is already dropped).
+			// See openshell-gateway-credentials.spec.md (Provider Credential Lifecycle on Deletion).
+			if gw.CredentialDriver != nil && gateway.IsVaultBacked(*gw.CredentialDriver) {
+				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace, *gw.CredentialDriver); err != nil {
+					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
+						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion; it may remain and the delete will be retried: %v", gateway.VaultMountForNamespace(namespace), err))
+					deleteErrs = append(deleteErrs, fmt.Errorf("delete vault tenant mount for %s: %w", namespace, err))
+				} else {
+					log.Printf("INFO deleted vault tenant mount for namespace %s", namespace)
+				}
 			}
 
 			// Namespace deletion and database deletion are independent cleanup

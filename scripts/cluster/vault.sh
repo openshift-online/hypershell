@@ -4,9 +4,10 @@
 # (openshell-gateway-credentials.spec.md) so vault-backed gateways - now the default -
 # work end-to-end in CI/dev.
 #
-# It mirrors what hypershell-gitops deploys per cluster (same HashiCorp Vault image, KV v2
-# at `secret`, kubernetes auth, the `openshell-gateway` role and the capability-scoped
-# policy, a serving CA in Secret openshell-gateway-vault-tls), MINUS the production
+# It mirrors what hypershell-gitops deploys per cluster (same HashiCorp Vault image, KV v2,
+# kubernetes auth, the `openshell-gateway` role and its templated per-tenant policy, the
+# `openshell-gateway-provisioner` role and policy the control plane uses to create per-tenant
+# mounts, a serving CA in Secret openshell-gateway-vault-tls), MINUS the production
 # unseal/storage plumbing (Secrets Manager / ESO / KMS / managed Postgres): a throwaway
 # Vault uses file storage + a scripted init+unseal. Not for production.
 #
@@ -231,7 +232,7 @@ gen_root_token() {
 # shared role. Re-applying is how a policy change in this repo takes effect on an
 # already-initialized (e.g. shared-cluster) Vault. $1 = root token.
 apply_config() {
-  local rt="$1"
+  local rt="$1" accessor
   vxt "$rt" vault secrets enable -path=secret -version=2 kv >/dev/null 2>&1 || true
   vxt "$rt" vault auth enable kubernetes >/dev/null 2>&1 || true
   vxt "$rt" sh -c 'vault write auth/kubernetes/config \
@@ -239,19 +240,26 @@ apply_config() {
     kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
     token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token'
 
-  # Capability-model policy: the OpenShell gateway runtime stores every provider credential
-  # at the flat, hash-addressed path secret/data/openshell/provider-credentials/<sha> (the
-  # <sha> is a SHA-256 seeded by a random provider UUID, so it is unguessable). The gateway
-  # reaches a secret only by the opaque handle it already holds in its own DB; NO list is
-  # granted, so one gateway can neither enumerate nor guess another's path. That capability
-  # boundary, on top of the per-cluster Vault, is the isolation unit. See
-  # openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+  # Resolve the kubernetes auth accessor for ACL templating (accessor starts with
+  # auth_kubernetes_, so grep -o extracts it without jq).
+  accessor="$(vxt "$rt" vault auth list -format=json | grep -o 'auth_kubernetes_[a-z0-9]*' | head -1)"
+  [ -n "${accessor}" ] || { error "vault fixture: could not resolve kubernetes auth accessor"; exit 1; }
+
+  # Templated, capability-model gateway policy: each gateway gets its OWN per-tenant mount
+  # openshell-gw/<namespace>, and the policy scopes a token to its own namespace's mount. The
+  # OpenShell runtime stores every provider credential at the flat, hash-addressed suffix
+  # data/openshell/provider-credentials/<sha> under that mount (<sha> is seeded by a random
+  # provider UUID, so it is unguessable). NO list (cannot enumerate another's entries) and NO
+  # metadata delete (cannot permanently destroy versions; data-path delete is a soft delete).
+  # A handle leaked from another tenant is unusable. The control plane creates the per-tenant
+  # mount at provision via the provisioner role below. See openshell-gateway-credentials.spec.md
+  # (Provider Credential Isolation).
   printf '%s\n' \
-    'path "secret/data/openshell/provider-credentials/*" {' \
+    "path \"openshell-gw/{{identity.entity.aliases.${accessor}.metadata.service_account_namespace}}/data/openshell/provider-credentials/*\" {" \
     '  capabilities = ["create", "read", "update", "delete"]' \
     '}' \
-    'path "secret/metadata/openshell/provider-credentials/*" {' \
-    '  capabilities = ["read", "delete"]' \
+    "path \"openshell-gw/{{identity.entity.aliases.${accessor}.metadata.service_account_namespace}}/metadata/openshell/provider-credentials/*\" {" \
+    '  capabilities = ["read"]' \
     '}' | vxti "$rt" vault policy write openshell-gateway-provider -
 
   vxt "$rt" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
@@ -260,36 +268,59 @@ apply_config() {
     audience=vault \
     token_policies="openshell-gateway-provider" \
     token_ttl=3600 >/dev/null
+
+  # Control-plane provisioner policy + role: mount management under openshell-gw/* ONLY - no
+  # secret (data/metadata) capability, no policy or role write - so it can neither read a
+  # provider secret nor rewrite the isolation boundary. The control plane logs in as its own
+  # hypershell-controller ServiceAccount to create/delete each gateway's per-tenant mount.
+  printf '%s\n' \
+    'path "sys/mounts/openshell-gw/*" {' \
+    '  capabilities = ["create", "read", "update", "delete"]' \
+    '}' | vxti "$rt" vault policy write openshell-gateway-provisioner -
+  vxt "$rt" vault write "auth/kubernetes/role/openshell-gateway-provisioner" \
+    bound_service_account_names="hypershell-controller" \
+    bound_service_account_namespaces='*' \
+    audience=vault \
+    token_policies="openshell-gateway-provisioner" \
+    token_ttl=600 >/dev/null
 }
 
-# run_selftest validates the capability-scoped policy the way a gateway does, so the
+# run_selftest validates the templated per-tenant policy the way a gateway does, so the
 # GitOps Contract is checked once here in the fixture rather than by the e2e suite reaching
 # into Vault with a synthetic identity. It mints a vault-audience token for a throwaway
-# openshell-gateway ServiceAccount (the role binds bound_service_account_namespaces=*),
-# logs in under the openshell-gateway role, and asserts: a round-trip under
-# provider-credentials/* works, LIST is denied (no enumeration), and any path outside the
-# prefix is denied. Fails the script if the policy drifts. See
-# openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E Vault Coverage).
+# openshell-gateway ServiceAccount, enables that namespace's per-tenant mount (standing in
+# for the control plane, which does this at provision) plus a SECOND tenant's mount, logs in
+# under the openshell-gateway role, and asserts: a round-trip under its OWN
+# openshell-gw/<ns>/.../provider-credentials/* works, LIST is denied, metadata delete is
+# denied, and ANOTHER tenant's mount is denied (isolation). Fails the script if the policy
+# drifts. See openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E).
 run_selftest() {
-  local rt="$1" ns="openshell-vault-selftest" jwt out rev
+  local rt="$1" ns="openshell-vault-selftest" other="openshell-vault-other" jwt out rev
   vkube create namespace "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   vkube create serviceaccount openshell-gateway -n "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
   [ -n "${jwt}" ] || { error "vault self-test: could not mint a vault-audience token"; exit 1; }
+  # The control plane creates each gateway's per-tenant mount at provision; here the fixture
+  # stands in for it (as root), enabling the selftest namespace's mount and a second tenant's
+  # mount so cross-tenant denial can be proven.
+  vxt "${rt}" vault secrets enable -path="openshell-gw/${ns}" -version=2 kv >/dev/null 2>&1 || true
+  vxt "${rt}" vault secrets enable -path="openshell-gw/${other}" -version=2 kv >/dev/null 2>&1 || true
   # The login + checks run inside the pod; the SA JWT is read from stdin (never argv).
   out="$(printf '%s\n' "${jwt}" | vxi sh -c '
     read -r JWT
     CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
     export VAULT_TOKEN="$CT"
-    K="secret/openshell/provider-credentials/selftest"
-    if vault kv put "$K" value=ok >/dev/null 2>&1 && [ "$(vault kv get -field=value "$K" 2>/dev/null)" = "ok" ]; then echo ROUNDTRIP_OK; else echo ROUNDTRIP_FAIL; fi
-    vault kv metadata delete "$K" >/dev/null 2>&1 || true
-    if vault kv list secret/openshell/provider-credentials 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
-    if vault kv put secret/openshell/not-allowed/x value=nope 2>&1 | grep -qiE "permission denied|403"; then echo OUTSIDE_DENIED; else echo OUTSIDE_ALLOWED; fi
+    MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/selftest"
+    OTHER="openshell-gw/'"${other}"'/openshell/provider-credentials/x"
+    if vault kv put "$MINE" value=ok >/dev/null 2>&1 && [ "$(vault kv get -field=value "$MINE" 2>/dev/null)" = "ok" ]; then echo ROUNDTRIP_OK; else echo ROUNDTRIP_FAIL; fi
+    if vault kv list "openshell-gw/'"${ns}"'/openshell/provider-credentials" 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
+    if vault kv metadata delete "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo META_DELETE_DENIED; else echo META_DELETE_ALLOWED; fi
+    if vault kv get "$OTHER" 2>&1 | grep -qiE "permission denied|403" && vault kv put "$OTHER" value=nope 2>&1 | grep -qiE "permission denied|403"; then echo CROSS_TENANT_DENIED; else echo CROSS_TENANT_ALLOWED; fi
   ')"
-  printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK  || { error "vault self-test: provider-credentials round-trip failed (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q LIST_DENIED   || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q OUTSIDE_DENIED || { error "vault self-test: out-of-prefix write not denied (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK        || { error "vault self-test: own-mount round-trip failed (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q LIST_DENIED         || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q META_DELETE_DENIED  || { error "vault self-test: metadata delete not denied (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q CROSS_TENANT_DENIED || { error "vault self-test: cross-tenant access not denied - isolation broken (out: ${out})"; exit 1; }
 
   # Revocation (openshell-gateway-vault.spec.md section 10): removing the policy revokes all
   # gateway access. Delete the policy as root, confirm the gateway identity is then denied,
@@ -300,12 +331,15 @@ run_selftest() {
     read -r JWT
     CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" 2>/dev/null) || CT=""
     [ -n "$CT" ] && export VAULT_TOKEN="$CT"
-    if [ -z "$CT" ] || vault kv get secret/openshell/provider-credentials/selftest 2>&1 | grep -qiE "permission denied|403"; then echo REVOKED_DENIED; else echo REVOKED_ALLOWED; fi
+    MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/selftest"
+    if [ -z "$CT" ] || vault kv get "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo REVOKED_DENIED; else echo REVOKED_ALLOWED; fi
   ' || true)"
   apply_config "${rt}" # restore the policy/role (idempotent); leaves the fixture usable
+  vxt "${rt}" vault secrets disable "openshell-gw/${ns}" >/dev/null 2>&1 || true
+  vxt "${rt}" vault secrets disable "openshell-gw/${other}" >/dev/null 2>&1 || true
   vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
   printf '%s\n' "${rev}" | grep -q REVOKED_DENIED || { error "vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"; exit 1; }
-  success "Capability policy self-test passed (round-trip ok; list denied; out-of-prefix denied; revoked->denied)"
+  success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete denied; cross-tenant denied; revoked->denied)"
 }
 
 info "Waiting for the Vault API..."

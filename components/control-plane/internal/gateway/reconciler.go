@@ -149,6 +149,15 @@ func ReconcileGateway(
 			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
 			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
 		}
+		// Create the gateway's OWN per-tenant Vault KV mount (openshell-gw/<namespace>)
+		// before the workload starts, through the control plane's scoped provisioner
+		// identity (it can manage only openshell-gw/* mounts, never read a secret or
+		// rewrite a policy). Idempotent. Fail closed: a gateway must have its mount before
+		// it runs. See openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+		if err := EnsureVaultTenantMount(ctx, clientset, opts, nsConfig.Name, nsConfig.Gateway.CredentialDriver); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend mount could not be provisioned")
+			return fmt.Errorf("ensure vault tenant mount for %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	// Reconcile OpenShift SCC binding BEFORE Helm install

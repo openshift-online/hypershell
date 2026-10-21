@@ -100,20 +100,22 @@ resource classes is:
    controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
+6. For a Vault-backed gateway, the gateway's per-tenant provider-secret KV mount
+   (`openshell-gw/<namespace>`) on the per-cluster provider Vault.
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
 be reconciled explicitly on the delete-event path, because the namespace cascade
 cannot reach it.
 
-A Vault-backed gateway's provider secrets are deliberately **not** in this
-enumeration. The OpenShell runtime stores them at a flat, hash-addressed KV path
-(`secret/data/openshell/provider-credentials/<hash>`) on the per-cluster provider
-Vault, and the opaque handles that name them live only in the gateway database, which
-is dropped above. The control plane therefore cannot enumerate them (the gateway
-identity is granted no `list` and the path is not per-namespace) and does not try: any
-remaining entries are unreferenced, un-listable, and at computationally-unguessable
-paths, so they are left inert rather than purged. See
+A Vault-backed gateway's provider secrets are reclaimed by deleting the gateway's
+**per-tenant KV mount**. Each gateway has its own KV v2 mount (`openshell-gw/<namespace>`)
+on the per-cluster provider Vault; the control plane deletes that mount through its scoped
+provisioner identity, which removes every provider-credential entry in one operation, with
+no enumeration and no handle needed. Mount deletion is best-effort and idempotent: a
+failure (for example Vault unreachable at teardown) is a non-fatal signal a later reconcile
+retries, and a left-behind mount holds only entries that are already unreferenced (the
+gateway database is dropped above) and un-listable from any tenant identity. See
 [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
 (Provider Credential Lifecycle on Deletion).
 
@@ -333,17 +335,16 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   (recovery per the runbook in
   [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
 
-#### Scenario: GTW-DEL-07.03 -- Vault-backed provider credentials are left inert, not purged
+#### Scenario: GTW-DEL-07.03 -- Vault-backed provider credentials are reclaimed by mount deletion
 
-- GIVEN a Vault-backed Gateway whose runtime stored provider secrets under
-  `secret/data/openshell/provider-credentials/*`
+- GIVEN a Vault-backed Gateway whose runtime stored provider secrets under its per-tenant
+  mount `openshell-gw/<namespace>/data/openshell/provider-credentials/*`
 - WHEN the control plane tears the gateway down
-- THEN it SHALL NOT attempt to enumerate-and-purge that KV path, because the gateway
-  identity is granted no `list`, the path is not per-namespace, and the naming handles
-  live only in the gateway database being dropped
-- AND it SHALL NOT record a `VaultCredentialPath` orphan, because inert (unreferenced,
-  un-listable, unguessable) entries are the expected steady-state outcome of a delete,
-  not an unreclaimed owned resource
+- THEN it SHALL delete the gateway's per-tenant KV mount through the scoped provisioner
+  identity, removing every entry in one operation without enumeration
+- AND a failed mount deletion SHALL be a non-fatal signal that a later reconcile retries,
+  not a fatal teardown error
+- AND it SHALL NOT record a `VaultCredentialPath` orphan
 
 #### Scenario: GTW-DEL-07.04 -- Invalid stored identity does not silently orphan the client
 

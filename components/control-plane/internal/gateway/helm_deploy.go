@@ -38,7 +38,7 @@ func deployGatewayViaHelm(
 				Host:    nsConfig.Gateway.Route.Host,
 				Enabled: nsConfig.Gateway.Route.Enabled,
 			},
-			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver),
+			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
 		},
 		Namespace:      nsConfig.Name,
 		HasCertManager: opts.HasCertManager,
@@ -140,8 +140,9 @@ func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriver
 
 // convertCredentialDriver converts gateway.CredentialDriverConfig to
 // helm.CredentialDriverConfig, applying the deployment default for an omitted
-// driver and resolving the Vault conventions for the vault driver.
-func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDriverConfig {
+// driver and resolving the Vault conventions for the vault driver. namespace is the
+// gateway's tenant namespace, from which the per-tenant Vault mount is derived.
+func convertCredentialDriver(driver *CredentialDriverConfig, namespace string) *helm.CredentialDriverConfig {
 	driver = effectiveCredentialDriver(driver)
 	if driver == nil {
 		return nil
@@ -156,18 +157,24 @@ func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDri
 	case "kek-db":
 		return &helm.CredentialDriverConfig{Type: "kek-db"}
 	case "vault", "":
-		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(driver.Vault)}
+		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(driver.Vault, namespace)}
 	default:
 		return &helm.CredentialDriverConfig{Type: driver.Type}
 	}
 }
 
 // resolveVaultValues fills the Vault coordinates from the per-cluster conventions
-// (config.go), applying any per-gateway overrides in credential_driver.vault.
-func resolveVaultValues(o *VaultCredentialConfig) *helm.VaultValues {
+// (config.go), applying any per-gateway overrides in credential_driver.vault. The
+// mount defaults to the gateway's per-tenant mount openshell-gw/<namespace>; an empty
+// namespace (probe callers that do not use the mount) leaves it unset.
+func resolveVaultValues(o *VaultCredentialConfig, namespace string) *helm.VaultValues {
+	mount := ""
+	if namespace != "" {
+		mount = VaultMountForNamespace(namespace)
+	}
 	v := &helm.VaultValues{
 		Address:                 VaultAddressDefault(),
-		Mount:                   VaultDefaultMount,
+		Mount:                   mount,
 		KVVersion:               VaultDefaultKVVersion,
 		AuthMethod:              VaultDefaultAuthMethod,
 		Role:                    VaultRoleDefault(),

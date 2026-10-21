@@ -101,11 +101,22 @@ type CredentialDriverConfig struct {
 // (specs/openshell-gateway-vault.spec.md) and must stay in sync with it - the role
 // name and auth mount are shared literals a mismatch would break authentication on.
 const (
-	VaultDefaultAddress              = "https://openshell-gateway-vault.openshell-vault.svc:8200"
-	VaultDefaultMount                = "secret"
-	VaultDefaultKVVersion            = "2"
-	VaultDefaultAuthMethod           = "kubernetes"
-	VaultDefaultRole                 = "openshell-gateway"
+	VaultDefaultAddress = "https://openshell-gateway-vault.openshell-vault.svc:8200"
+	// VaultTenantMountPrefix is the parent path under which each gateway gets its OWN
+	// KV v2 secrets engine, at VaultTenantMountPrefix+<tenant-namespace> (HYPERSHELL-369).
+	// The former single shared `secret` mount is replaced by these per-tenant mounts, so a
+	// handle leaked from one tenant's namespace is useless against another's mount.
+	VaultTenantMountPrefix = "openshell-gw/"
+	VaultDefaultKVVersion  = "2"
+	VaultDefaultAuthMethod = "kubernetes"
+	VaultDefaultRole       = "openshell-gateway"
+	// VaultProvisionerRole is the Kubernetes-auth role the control plane logs in as to
+	// create and delete per-tenant mounts. Its policy grants sys/mounts/openshell-gw/* and
+	// nothing else - no secret read, no policy or role write - so the control plane can
+	// neither read a provider secret nor rewrite the isolation boundary. It authenticates
+	// with a vault-audience token minted for the controller's OWN ServiceAccount. See
+	// openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+	VaultProvisionerRole             = "openshell-gateway-provisioner"
 	VaultDefaultKubernetesAuthMount  = "kubernetes"
 	VaultServiceAccountTokenPath     = "/var/run/secrets/vault/token"
 	VaultServiceAccountTokenDir      = "/var/run/secrets/vault"
@@ -140,6 +151,27 @@ func VaultRoleDefault() string {
 		return v
 	}
 	return VaultDefaultRole
+}
+
+// VaultMountForNamespace returns the per-tenant KV mount path for a gateway namespace
+// (HYPERSHELL-369): openshell-gw/<namespace>. The OpenShell runtime appends its fixed
+// data/openshell/provider-credentials/<hash> suffix under this mount.
+func VaultMountForNamespace(namespace string) string {
+	return VaultTenantMountPrefix + namespace
+}
+
+// VaultProvisionerServiceAccountDefault is the control plane's own ServiceAccount, whose
+// vault-audience token the control plane mints to log in as the provisioner identity.
+const VaultProvisionerServiceAccountDefault = "hypershell-controller"
+
+// VaultProvisionerServiceAccount returns the control plane's own ServiceAccount name
+// (used to mint the provisioner login token), overridable by the
+// GATEWAY_VAULT_PROVISIONER_SA control-plane environment variable.
+func VaultProvisionerServiceAccount() string {
+	if v := os.Getenv("GATEWAY_VAULT_PROVISIONER_SA"); v != "" {
+		return v
+	}
+	return VaultProvisionerServiceAccountDefault
 }
 
 // VaultCASource returns the namespace and name of the Vault serving-CA source

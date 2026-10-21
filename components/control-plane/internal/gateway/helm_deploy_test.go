@@ -54,10 +54,11 @@ func TestEffectiveCredentialDriver_EmptyType(t *testing.T) {
 func TestVaultConventionContract(t *testing.T) {
 	want := map[string]string{
 		"address":             "https://openshell-gateway-vault.openshell-vault.svc:8200",
-		"mount":               "secret",
+		"mountPrefix":         "openshell-gw/",
 		"kvVersion":           "2",
 		"authMethod":          "kubernetes",
 		"role":                "openshell-gateway",
+		"provisionerRole":     "openshell-gateway-provisioner",
 		"kubernetesAuthMount": "kubernetes",
 		"saTokenPath":         "/var/run/secrets/vault/token",
 		"saTokenAudience":     "vault",
@@ -68,10 +69,11 @@ func TestVaultConventionContract(t *testing.T) {
 	}
 	got := map[string]string{
 		"address":             VaultDefaultAddress,
-		"mount":               VaultDefaultMount,
+		"mountPrefix":         VaultTenantMountPrefix,
 		"kvVersion":           VaultDefaultKVVersion,
 		"authMethod":          VaultDefaultAuthMethod,
 		"role":                VaultDefaultRole,
+		"provisionerRole":     VaultProvisionerRole,
 		"kubernetesAuthMount": VaultDefaultKubernetesAuthMount,
 		"saTokenPath":         VaultServiceAccountTokenPath,
 		"saTokenAudience":     VaultServiceAccountTokenAudience,
