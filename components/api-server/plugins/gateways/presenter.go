@@ -2,9 +2,9 @@ package gateways
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
@@ -107,7 +107,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.ID, err)
+			slog.Warn("failed to unmarshal provisioning_conditions", "gateway_id", gateway.ID, "error", err)
 		} else {
 			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
 			for _, c := range conditions {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	stderrors "errors"
+	"log/slog"
 	"net/http"
 	"reflect"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
@@ -79,21 +79,18 @@ type sqlGatewayService struct {
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-
 	gateway, err := s.gatewayDao.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	logger.Infof("Do idempotent somethings with this gateway: %s", gateway.ID)
+	slog.InfoContext(ctx, "Do idempotent somethings with this gateway", "gateway_id", gateway.ID)
 
 	return nil
 }
 
 func (s *sqlGatewayService) OnDelete(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-	logger.Infof("This gateway has been deleted: %s", id)
+	slog.InfoContext(ctx, "This gateway has been deleted", "gateway_id", id)
 	return nil
 }
 

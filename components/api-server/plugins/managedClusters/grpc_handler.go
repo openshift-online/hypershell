@@ -2,8 +2,8 @@ package managedClusters
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -176,12 +176,12 @@ func (h *managedClusterGRPCHandler) WatchManagedClusters(req *pb.WatchManagedClu
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchManagedClusters: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchManagedClusters subscriber connected", "subscriber_id", sub.ID)
 
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchManagedClusters: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchManagedClusters subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -200,14 +200,14 @@ func (h *managedClusterGRPCHandler) WatchManagedClusters(req *pb.WatchManagedClu
 			if evt.EventType != api.DeleteEventType {
 				managedCluster, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchManagedClusters: failed to load managedCluster %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchManagedClusters failed to load managedCluster", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.ManagedCluster = managedClusterToProto(managedCluster)
 			}
 
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchManagedClusters: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchManagedClusters send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

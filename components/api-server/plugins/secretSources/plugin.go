@@ -2,12 +2,11 @@ package secretSources
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
-
-	"github.com/golang/glog"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
@@ -85,7 +84,7 @@ func init() {
 		// it fails any value submission loudly (errorStore).
 		store, storeErr := secretstore.NewFromEnv()
 		if storeErr != nil {
-			glog.Warningf("secret store configuration error; secret submissions will be rejected: %v", storeErr)
+			slog.Warn("secret store configuration error; secret submissions will be rejected", "error", storeErr)
 			store = secretstore.NewErrorStore(storeErr)
 		}
 		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store)

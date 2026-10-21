@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -500,7 +500,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchGateways: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchGateways subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the stream header now that the subscription is live. This turns opening
 	// the stream into a real subscription handshake: a client that blocks on the
@@ -514,7 +514,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchGateways: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchGateways subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -533,7 +533,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			if evt.EventType == api.DeleteEventType {
 				gateway, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchGateways: failed to load soft-deleted gateway %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchGateways failed to load soft-deleted gateway", "resource_id", evt.SourceID, "error", svcErr)
 					// When a cluster filter is set we cannot attribute an
 					// unloadable delete to a cluster, so we must not leak it to a
 					// scoped subscriber. Skip it; the spoke's namespace GC still
@@ -550,7 +550,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			} else {
 				gateway, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchGateways: failed to load gateway %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchGateways failed to load gateway", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				if clusterFilter != "" && gateway.ClusterId != clusterFilter {
@@ -560,7 +560,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			}
 
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchGateways: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchGateways send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

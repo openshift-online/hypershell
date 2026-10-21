@@ -3,8 +3,7 @@ package gateways
 import (
 	"context"
 	"fmt"
-
-	"github.com/golang/glog"
+	"log/slog"
 )
 
 // resolvePendingPlacements re-resolves every late-bound gateway that is still
@@ -43,7 +42,7 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 		}
 		clusterID, resolved, resolveErr := resolve(ctx, intent)
 		if resolveErr != nil {
-			glog.Warningf("late-binding: resolving placement for gateway %s failed, will retry on the next cluster change: %v", gateway.ID, resolveErr)
+			slog.WarnContext(ctx, "late-binding: resolving placement failed, will retry on the next cluster change", "gateway_id", gateway.ID, "error", resolveErr)
 			continue
 		}
 		if !resolved {
@@ -56,10 +55,10 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 		// generation because cluster_id changed.
 		gateway.Status = nil
 		if _, replaceErr := svc.Replace(ctx, gateway); replaceErr != nil {
-			glog.Warningf("late-binding: assigning cluster %s to gateway %s failed, will retry on the next cluster change: %v", clusterID, gateway.ID, replaceErr)
+			slog.WarnContext(ctx, "late-binding: assigning cluster failed, will retry on the next cluster change", "cluster_id", clusterID, "gateway_id", gateway.ID, "error", replaceErr)
 			continue
 		}
-		glog.Infof("late-bound gateway %s placed on cluster %s", gateway.ID, clusterID)
+		slog.InfoContext(ctx, "late-bound gateway placed on cluster", "gateway_id", gateway.ID, "cluster_id", clusterID)
 	}
 	return nil
 }

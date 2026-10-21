@@ -2,8 +2,8 @@ package repositories
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -132,7 +132,7 @@ func (h *repositoryGRPCHandler) WatchRepositories(_ *pb.WatchRepositoriesRequest
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchRepositories: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchRepositories subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header once the subscription is live so a client can seed its
 	// state with a LIST without a list-watch gap (see gateways WatchGateways).
@@ -143,7 +143,7 @@ func (h *repositoryGRPCHandler) WatchRepositories(_ *pb.WatchRepositoriesRequest
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchRepositories: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchRepositories subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -163,13 +163,13 @@ func (h *repositoryGRPCHandler) WatchRepositories(_ *pb.WatchRepositoriesRequest
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchRepositories: failed to load repository %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchRepositories failed to load repository", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.Repository = repositoryToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchRepositories: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchRepositories send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

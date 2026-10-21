@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
@@ -283,7 +283,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	spec := serviceAccountSpec(account, gateway, oidc)
 	provisioned, err := s.provisioner.ProvisionServiceAccount(ctx, spec)
 	if err != nil {
-		glog.Warningf("Keycloak service-account provisioning failed for gateway %q and account %q: %v", gatewayID, account.ID, err)
+		slog.WarnContext(ctx, "Keycloak service-account provisioning failed", "gateway_id", gatewayID, "service_account_id", account.ID, "error", err)
 		const safe = "keycloak_provisioning_failed"
 		_ = s.cleanupUndeliveredAccount(ctx, account, userID, safe)
 		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: safe, Message: "Keycloak could not provision and verify the service account"}

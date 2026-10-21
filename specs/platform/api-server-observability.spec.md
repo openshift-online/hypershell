@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Give the HyperShell API server distributed tracing and request-level metrics through OpenTelemetry (OTel), so a single user workflow can be followed from the browser, through the web-console BFF, into the API server, and operators can observe request latency and error rates across the platform. This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and this specification makes the API server extract that context and join the same trace. Instrumentation is a cross-cutting concern applied once at the server layer, transparent to plugin authors: HTTP middleware and gRPC interceptors create spans and record metrics without per-handler changes.
+Give the HyperShell API server distributed tracing, request-level metrics, and trace-correlated logs through OpenTelemetry (OTel), so a single user workflow can be followed from the browser, through the web-console BFF, into the API server, and operators can observe request latency and error rates across the platform. This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and this specification makes the API server extract that context and join the same trace. Instrumentation is a cross-cutting concern applied once at the server layer, transparent to plugin authors: HTTP middleware and gRPC interceptors create spans and record metrics without per-handler changes.
 
 This specification covers the API server component only. Control-plane observability and gateway-level telemetry are out of scope. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -14,7 +14,7 @@ This specification covers the API server component only. Control-plane observabi
 
 ### Requirement: API-OBS-01 -- OTel SDK Bootstrap and Configuration
 
-The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a `TracerProvider` and a `MeterProvider` that export telemetry via OTLP to any OTel-compatible collector. Configuration SHALL be deployment configuration, separate from code, supplied through the standard OTel environment variables:
+The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a `TracerProvider`, a `MeterProvider`, and a `LoggerProvider` that export telemetry via OTLP to any OTel-compatible collector. Configuration SHALL be deployment configuration, separate from code, supplied through the standard OTel environment variables:
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -23,10 +23,11 @@ The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a 
 | `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Root-trace sampling ratio (`0.0` to `1.0`) for the parent-based sampler |
 | `OTEL_SERVICE_NAME` | `hypershell-api-server` | Service name reported in spans and metrics |
 | `OTEL_METRICS_EXPORTER` | (unset -- metrics enabled) | Set to `none` to export traces only and skip the OTLP metric exporter; use against a trace-only backend such as Jaeger, which has no OTLP metrics service |
+| `OTEL_LOGS_EXPORTER` | (unset -- logs enabled) | Set to `none` to skip the OTLP log exporter; use against a backend without an OTLP logs service, such as Jaeger |
 
 The SDK SHALL use a parent-based trace-id-ratio sampler so a child span inherits the parent's sampling decision and only a root span is subject to the configured ratio. The SDK SHALL install a W3C Trace Context propagator, composed with baggage, as the global propagator.
 
-Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, the SDK SHALL NOT be initialized, no tracing or metrics middleware SHALL be registered, and the server SHALL run with no observability overhead. When the endpoint is set but the collector is unreachable, the server SHALL continue to serve requests normally; export failures SHALL be logged and SHALL NOT crash or degrade request handling. On termination the SDK SHALL flush buffered spans and metrics, bounded by a timeout so shutdown never blocks indefinitely.
+Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, the SDK SHALL NOT be initialized, no tracing or metrics middleware SHALL be registered, and the server SHALL run with no observability overhead. When the endpoint is set but the collector is unreachable, the server SHALL continue to serve requests normally; export failures SHALL be logged and SHALL NOT crash or degrade request handling. On termination the SDK SHALL flush buffered spans, metrics, and log records, bounded by a timeout so shutdown never blocks indefinitely.
 
 **Verification:** Start the server with the endpoint set, absent, and set-but-unreachable; confirm export when configured, no initialization and no overhead when absent, and continued request handling with logged failures when unreachable. Send SIGTERM after serving traffic and confirm a bounded flush.
 
@@ -222,6 +223,42 @@ Database instrumentation MAY additionally export database client metrics over OT
 - THEN no database client span SHALL be created
 - AND the database access layer SHALL operate with no observability overhead
 
+### Requirement: API-OBS-09 -- Trace-Correlated Logs
+
+The API server SHALL log only through the Go standard library `log/slog`, as the rh-trex-ai framework does (rh-trex-ai `STD-005`). Code SHALL pass the request or stream context to the log call whenever one is in scope, use a constant message, and put variable data in snake_case attributes, with errors under the `error` key. The level and format SHALL be the framework's `--log-level` (`debug`, `info`, `warn`, `error`) and `--log-format` (`text`, `json`) flags; each environment SHALL set its default level through its flag defaults.
+
+The `serve` command SHALL install one default logger before the framework initializes the environment, so that the framework's records and HyperShell's records share it. That logger SHALL:
+
+1. Write every record at or above the configured level to standard error. A record logged with a context that carries a valid span SHALL include `trace_id` and `span_id` attributes, so a log line can be joined to its trace.
+2. When the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`, also export every record at or above the configured level over OTLP through the `LoggerProvider` of `API-OBS-01`. Exported records SHALL carry the trace and span identifiers of their context.
+3. Add the framework's request attributes (`opid`, `accountID`) to records on both outputs.
+4. Remove request headers, request bodies, response headers, and response bodies from the framework's HTTP request and response log records at every level, on both outputs, keeping the method, URL, status, and elapsed time. Some API responses return one-time credentials, and the framework only redacts credential headers.
+
+Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors SHALL be written to standard error and SHALL NOT be fed back into the log exporter.
+
+**Verification:** A unit test runs the framework's HTTP logging middleware at `debug` with a secret in a request header, the request body, and the response body, and confirms the secret appears in neither output while the request metadata remains. Unit tests confirm `trace_id`, `span_id`, and `opid` on standard-error records and the level filter on the exported records. With a collector that accepts OTLP logs, a request's log records reach the collector with the trace identifier of the request span.
+
+#### Scenario: API-OBS-09.01 -- Log records carry the trace of the request
+
+- GIVEN the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`
+- WHEN a request handler logs with the request context
+- THEN the standard-error record SHALL include the `trace_id` and `span_id` of the request span
+- AND the exported OTLP log record SHALL carry the same trace and span identifiers
+
+#### Scenario: API-OBS-09.02 -- HTTP bodies never reach the logs
+
+- GIVEN the API server runs with `--log-level=debug`
+- WHEN a client calls an endpoint whose response contains a one-time credential
+- THEN neither the standard-error output nor the exported log records SHALL contain the request or response headers or bodies
+- AND the HTTP request and response records SHALL still contain the method, URL, status, and elapsed time
+
+#### Scenario: API-OBS-09.03 -- Log export disabled
+
+- GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, or `OTEL_LOGS_EXPORTER` is `none`
+- WHEN the API server logs a record
+- THEN the record SHALL be written to standard error only
+- AND no OTLP log exporter SHALL be created
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -234,6 +271,8 @@ Database instrumentation MAY additionally export database client metrics over OT
 | Extraction before authentication | A propagated trace joins regardless of the auth outcome, so authentication failures are still traceable |
 | OTLP/gRPC on 4317 for the API server | The development Jaeger reserves 4317 (OTLP/gRPC) for the API server and 4318 (OTLP/HTTP) for the web console; exporting over gRPC matches that contract |
 | Correlate the existing operation identifier onto the span | The framework already returns `operation_id`; recording it on the span joins a user-visible failure to server evidence without new caller-facing surface |
+| One slog logger shared with the framework, installed by `serve` before the environment initializes | The framework keeps a program's own slog default (`SetDefaultIfUnset`), so one logger receives every record with its context; the OTel slog bridge reads the span from that context |
+| Strip HTTP headers and bodies in the logger, not by capping the level | The framework adds them at `debug`; removing them from its two HTTP records keeps every other debug record available, where the previous glog verbosity cap had to give up a whole verbosity level |
 | OTLP export for traces, Prometheus preserved for metrics | Traces require push-based export over OTLP; the existing framework Prometheus metrics are kept as-is |
 | Database spans via a GORM plugin on the base connection, not per data-access object | A GORM plugin installs callbacks once on the base connection, so every plugin's queries are traced without per-plugin changes and callbacks are never duplicated per request; this mirrors the server-level HTTP and gRPC instrumentation |
 | Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |

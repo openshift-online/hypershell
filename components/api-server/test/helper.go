@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 
 	"github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
@@ -47,19 +48,27 @@ func NewHelper(t *testing.T) *Helper {
 		env := environments.Environment()
 		err := env.AddFlags(pflag.CommandLine)
 		if err != nil {
-			glog.Fatalf("Unable to add environment flags: %s", err.Error())
+			slog.Error("Unable to add environment flags", "error", err)
+			os.Exit(1)
 		}
 		if logLevel := os.Getenv("LOGLEVEL"); logLevel != "" {
-			glog.Infof("Using custom loglevel: %s", logLevel)
-			if err := pflag.CommandLine.Set("v", logLevel); err != nil {
-				glog.Fatalf("Unable to set custom loglevel: %s", err)
+			slog.Info("Using custom log level", "log_level", logLevel)
+			// A number is the old glog verbosity: it sets the deprecated -v.
+			flagName := "log-level"
+			if _, err := strconv.Atoi(logLevel); err == nil {
+				flagName = "v"
+			}
+			if err := pflag.CommandLine.Set(flagName, logLevel); err != nil {
+				slog.Error("Unable to set log level", "log_level", logLevel, "error", err)
+				os.Exit(1)
 			}
 		}
 		pflag.Parse()
 
 		err = env.Initialize()
 		if err != nil {
-			glog.Fatalf("Unable to initialize testing environment: %s", err.Error())
+			slog.Error("Unable to initialize testing environment", "error", err)
+			os.Exit(1)
 		}
 
 		base := testutil.NewBaseHelper(
@@ -111,17 +120,19 @@ func (helper *Helper) Teardown() {
 func (helper *Helper) startAPIServer() {
 	specData, err := localapi.GetOpenAPISpec()
 	if err != nil {
-		glog.Fatalf("Unable to load OpenAPI spec: %s", err)
+		slog.Error("Unable to load OpenAPI spec", "error", err)
+		os.Exit(1)
 	}
 	helper.APIServer = pkgserver.NewDefaultAPIServer(environments.Environment(), specData)
 	listener, err := helper.APIServer.Listen()
 	if err != nil {
-		glog.Fatalf("Unable to start Test API server: %s", err)
+		slog.Error("Unable to start Test API server", "error", err)
+		os.Exit(1)
 	}
 	go func() {
-		glog.V(10).Info("Test API server started")
+		slog.Debug("Test API server started")
 		helper.APIServer.Serve(listener)
-		glog.V(10).Info("Test API server stopped")
+		slog.Debug("Test API server stopped")
 	}()
 }
 
@@ -138,12 +149,13 @@ func (helper *Helper) startGRPCServer() {
 	helper.GRPCServer = pkgserver.NewDefaultGRPCServer(env)
 	listener, err := helper.GRPCServer.Listen()
 	if err != nil {
-		glog.Fatalf("Unable to start Test gRPC server: %s", err)
+		slog.Error("Unable to start Test gRPC server", "error", err)
+		os.Exit(1)
 	}
 	go func() {
-		glog.V(10).Info("Test gRPC server started")
+		slog.Debug("Test gRPC server started")
 		helper.GRPCServer.Serve(listener)
-		glog.V(10).Info("Test gRPC server stopped")
+		slog.Debug("Test gRPC server stopped")
 	}()
 }
 
@@ -179,24 +191,25 @@ func (helper *Helper) stopControllersServer() error {
 func (helper *Helper) startMetricsServer() {
 	helper.MetricsServer = pkgserver.NewDefaultMetricsServer(environments.Environment())
 	go func() {
-		glog.V(10).Info("Test Metrics server started")
+		slog.Debug("Test Metrics server started")
 		helper.MetricsServer.Start()
-		glog.V(10).Info("Test Metrics server stopped")
+		slog.Debug("Test Metrics server stopped")
 	}()
 }
 
 func (helper *Helper) stopMetricsServer() {
 	if err := helper.MetricsServer.Stop(); err != nil {
-		glog.Fatalf("Unable to stop metrics server: %s", err.Error())
+		slog.Error("Unable to stop metrics server", "error", err)
+		os.Exit(1)
 	}
 }
 
 func (helper *Helper) startHealthCheckServer() {
 	helper.HealthCheckServer = pkgserver.NewDefaultHealthCheckServer(environments.Environment())
 	go func() {
-		glog.V(10).Info("Test health check server started")
+		slog.Debug("Test health check server started")
 		helper.HealthCheckServer.Start()
-		glog.V(10).Info("Test health check server stopped")
+		slog.Debug("Test health check server stopped")
 	}()
 }
 
@@ -205,13 +218,13 @@ func (helper *Helper) RestartServer() {
 		helper.T.Fatalf("Unable to restart API server: %s", err)
 	}
 	helper.startAPIServer()
-	glog.V(10).Info("Test API server restarted")
+	slog.Debug("Test API server restarted")
 }
 
 func (helper *Helper) RestartMetricsServer() {
 	helper.stopMetricsServer()
 	helper.startMetricsServer()
-	glog.V(10).Info("Test metrics server restarted")
+	slog.Debug("Test metrics server restarted")
 }
 
 func (helper *Helper) NewApiClient() *openapi.APIClient {

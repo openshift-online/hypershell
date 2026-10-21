@@ -2,11 +2,10 @@ package rbac_test
 
 import (
 	"flag"
+	"log/slog"
 	"os"
 	"runtime"
 	"testing"
-
-	"github.com/golang/glog"
 
 	// The gateways plugin and RBAC plugin, linked as in the real server
 	// (cmd/hypershell/main.go), so the RBAC post-auth interceptors run in
@@ -18,7 +17,7 @@ import (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	glog.Infof("Starting rbac integration test using go version %s", runtime.Version())
+	slog.Info("Starting rbac integration test", "go_version", runtime.Version())
 	helper := test.NewHelper(&testing.T{})
 	exitCode := m.Run()
 	helper.Teardown()

@@ -2,12 +2,12 @@ package users
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -282,7 +282,7 @@ func maybePruneActivity(ctx context.Context, activityDao UserActivityDao, cutoff
 	}
 
 	if err := activityDao.PruneBefore(ctx, cutoff); err != nil {
-		glog.Warningf("user daily activity prune failed: %v", err)
+		slog.WarnContext(ctx, "user daily activity prune failed", "error", err)
 		return
 	}
 

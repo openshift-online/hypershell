@@ -3,12 +3,12 @@ package gateways
 import (
 	"context"
 	stderrors "errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
@@ -236,7 +236,7 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 			// assigns a cluster when a matching ManagedCluster becomes available.
 			return "", false, nil
 		}
-		glog.Errorf("failed to resolve managed cluster placement selector=%v: %v", selector, err)
+		slog.Error("failed to resolve managed cluster placement", "selector", selector, "error", err)
 		return "", false, errors.GeneralError("failed to resolve managed cluster placement")
 	}
 	return selected, true, nil
