@@ -73,6 +73,7 @@ function renderSurface({
   summaryIsLoading = false,
   summaryValue = summary,
   quickCreatePlacement = summary.quickCreate,
+  quickCreateOpen = false,
   quickCreateUnavailable = false,
 }: {
   isAdmin?: boolean;
@@ -81,6 +82,7 @@ function renderSurface({
   summaryValue?: HomepageSummary;
   summaryIsLoading?: boolean;
   quickCreatePlacement?: HomepageSummary["quickCreate"];
+  quickCreateOpen?: boolean;
   quickCreateUnavailable?: boolean;
 } = {}) {
   return render(
@@ -96,7 +98,7 @@ function renderSurface({
           quickCreate={() => undefined}
           quickCreateError={false}
           quickCreateIsPending={false}
-          quickCreateOpen={false}
+          quickCreateOpen={quickCreateOpen}
           sessionIsLoading={sessionIsLoading}
           setQuickCreateOpen={() => undefined}
           summary={summaryValue}
@@ -138,6 +140,19 @@ describe("HomepagePageSurface", () => {
 
     expect(screen.queryByText("Quick create")).toBeNull();
     expect(screen.getByText("Create a gateway")).toBeTruthy();
+  });
+
+  it("describes local-kind Quick Create placement", () => {
+    renderSurface({
+      quickCreateOpen: true,
+      quickCreatePlacement: { placement: { mode: "local-kind" } },
+    });
+
+    expect(
+      screen.getByText(
+        "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps the role card neutral while the session loads", () => {

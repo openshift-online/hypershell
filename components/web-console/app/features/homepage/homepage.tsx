@@ -181,14 +181,14 @@ function UnavailableContent({ title }: { title: string }) {
 }
 
 function WelcomeCard({
-  isQuickCreateAvailable,
+  quickCreatePlacement,
   onQuickCreate,
   quickCreateError,
   quickCreateIsPending,
   quickCreateOpen,
   setQuickCreateOpen,
 }: Readonly<{
-  isQuickCreateAvailable: boolean;
+  quickCreatePlacement?: HomepageSummary["quickCreate"];
   onQuickCreate: () => void;
   quickCreateError: boolean;
   quickCreateIsPending: boolean;
@@ -196,6 +196,8 @@ function WelcomeCard({
   setQuickCreateOpen: (open: boolean) => void;
 }>) {
   const quickCreateTitleId = useId();
+  const placement = quickCreatePlacement?.placement;
+  const isLocalKind = placement !== undefined && "mode" in placement;
   return (
     <>
       <Card>
@@ -233,7 +235,7 @@ function WelcomeCard({
                     <FormattedMessage {...messages.homepageViewGateways} />
                   </Button>
                 </FlexItem>
-                {isQuickCreateAvailable ? (
+                {quickCreatePlacement !== undefined ? (
                   <FlexItem>
                     <Button
                       icon={<BoltIcon />}
@@ -283,7 +285,11 @@ function WelcomeCard({
         />
         <ModalBody>
           <Content>
-            <FormattedMessage {...messages.homepageQuickCreateBody} />
+            <FormattedMessage
+              {...(isLocalKind
+                ? messages.homepageQuickCreateLocalKindBody
+                : messages.homepageQuickCreateBody)}
+            />
           </Content>
           {quickCreateError ? (
             <Alert
@@ -845,8 +851,8 @@ export function HomepagePageSurface({
           <Stack hasGutter>
             <StackItem>
               <WelcomeCard
-                isQuickCreateAvailable={quickCreatePlacement !== undefined}
                 onQuickCreate={quickCreate}
+                quickCreatePlacement={quickCreatePlacement}
                 quickCreateError={quickCreateError}
                 quickCreateIsPending={quickCreateIsPending}
                 quickCreateOpen={quickCreateOpen}
