@@ -142,7 +142,7 @@ func TestGitHubSDLCAllowedOnlyIntake(t *testing.T) {
 				t.Errorf("listing must filter by agent/allowed, got labels=%q", r.URL.Query().Get("labels"))
 			}
 			_, _ = w.Write([]byte(`[
-				{"number":42,"title":"Allowed only","html_url":"https://github.com/acme/hypershell/issues/42","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/scope/hyp0"}]},
+				{"number":42,"title":"Allowed only","html_url":"https://github.com/acme/hypershell/issues/42","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/scope/test0"}]},
 				{"number":43,"title":"With execution record","html_url":"https://github.com/acme/hypershell/issues/43","state":"open","labels":[{"name":"agent/allowed"},{"name":"agent/execution-record"},{"name":"agent/reviewable-spec"}]}
 			]`))
 		case "/repos/acme/hypershell/issues/42/timeline":
@@ -192,8 +192,8 @@ func TestGitHubSDLCAllowedOnlyIntake(t *testing.T) {
 	if rec42.PhaseSince != "2026-10-10T12:00:00Z" {
 		t.Errorf("#42 PhaseSince = %q, want 2026-10-10T12:00:00Z (from agent/allowed event)", rec42.PhaseSince)
 	}
-	if rec42.Scope != "agent/scope/hyp0" {
-		t.Errorf("#42 Scope = %q, want agent/scope/hyp0", rec42.Scope)
+	if rec42.Scope != "agent/scope/test0" {
+		t.Errorf("#42 Scope = %q, want agent/scope/test0", rec42.Scope)
 	}
 
 	// SDLC-VIS-23.03: issue with execution record + funnel label resolves to its phase
