@@ -83,6 +83,13 @@ export interface PromotionEnvironment {
   readonly envLabel: string | null;
   /** Cluster the instance runs on, from delivery labels. */
   readonly cluster: string | null;
+  /**
+   * Self-declared capability labels (`namespace/value` strings, see PLAT-CLUS-06),
+   * sourced from the instance's Argo delivery labels exactly like `provider`.
+   * Optional and opaque: absent/omitted means an empty set, and the UI bakes in no
+   * capability vocabulary (FLT-CAP-01).
+   */
+  readonly capabilities?: readonly string[];
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
   /**

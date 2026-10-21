@@ -57,9 +57,11 @@ func TestPromotionDerivation(t *testing.T) {
 			"name":      "promoter-ns-alpha",
 			"namespace": "promoter-ns",
 			"labels": map[string]any{
-				deliveryLabelPrefix + "role":     "hub",
-				deliveryLabelPrefix + "provider": "aws",
-				deliveryLabelPrefix + "cluster":  "cluster-a",
+				deliveryLabelPrefix + "role":            "hub",
+				deliveryLabelPrefix + "provider":        "aws",
+				deliveryLabelPrefix + "cluster":         "cluster-a",
+				deliveryLabelPrefix + "runtime":         "kata",
+				deliveryLabelPrefix + "gateway-version": "v0.1.2-rhaiv.7",
 			},
 		},
 		"spec": map[string]any{"destination": map[string]any{"namespace": "workload-a"}},
@@ -107,6 +109,17 @@ func TestPromotionDerivation(t *testing.T) {
 	}
 	if alpha.Role != "hub" || alpha.Provider != "aws" {
 		t.Errorf("alpha delivery labels not surfaced: role=%q provider=%q", alpha.Role, alpha.Provider)
+	}
+	// Capabilities are assembled from the delivery labels in capabilityNamespaces
+	// order; role/cluster are not capability namespaces and must be excluded (FLT-CAP-01).
+	wantCaps := []string{"provider/aws", "runtime/kata", "gateway-version/v0.1.2-rhaiv.7"}
+	if len(alpha.Capabilities) != len(wantCaps) {
+		t.Fatalf("alpha capabilities = %v, want %v", alpha.Capabilities, wantCaps)
+	}
+	for i, want := range wantCaps {
+		if alpha.Capabilities[i] != want {
+			t.Errorf("alpha capabilities[%d] = %q, want %q", i, alpha.Capabilities[i], want)
+		}
 	}
 	if alpha.ArgoHealth != "Healthy" || alpha.ArgoSync != "Synced" {
 		t.Errorf("alpha argo status not surfaced: health=%q sync=%q", alpha.ArgoHealth, alpha.ArgoSync)

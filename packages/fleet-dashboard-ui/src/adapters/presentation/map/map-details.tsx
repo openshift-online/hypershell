@@ -20,6 +20,7 @@ import {
   Flex,
   FlexItem,
   Label,
+  LabelGroup,
   type LabelProps,
   List,
   ListItem,
@@ -46,6 +47,10 @@ import {
 } from "../../../domain/map/bundles";
 import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
+import {
+  capabilityParts,
+  orderedCapabilities,
+} from "../../../domain/map/capabilities";
 import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapModel, MapNode } from "../../../domain/map/model";
@@ -598,6 +603,49 @@ function SpokeAttributionSection({
   );
 }
 
+/**
+ * The cluster's self-declared capability set, as a PatternFly label group of
+ * compact outline labels in lead-namespace order (FLT-CAP-06). Each label pairs a
+ * muted namespace (its `/` separator drawn in CSS, so it is decorative rather than
+ * an untranslated text node) with an emphasised value, since the value is the part
+ * that varies. Extras collapse behind the built-in "N more" toggle. Renders nothing
+ * when the cluster declares no capabilities; the vocabulary is never baked in.
+ */
+function NodeCapabilities({
+  node,
+}: {
+  node: MapNode;
+}): React.ReactElement | null {
+  const intl = useIntl();
+  const caps = node.capabilities ?? [];
+  if (caps.length === 0) {
+    return null;
+  }
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionCapabilities} />
+      </h4>
+      <LabelGroup
+        numLabels={6}
+        aria-label={intl.formatMessage(messages.sectionCapabilities)}
+      >
+        {orderedCapabilities(caps).map((cap) => {
+          const { namespace, value } = capabilityParts(cap);
+          return (
+            <Label key={cap} isCompact variant="outline" color="grey">
+              {namespace ? (
+                <span className={styles.capNamespace}>{namespace}</span>
+              ) : null}
+              <span className={styles.capValue}>{value}</span>
+            </Label>
+          );
+        })}
+      </LabelGroup>
+    </div>
+  );
+}
+
 function NodeFields({
   node,
   onSelectBundle,
@@ -923,6 +971,7 @@ function NodeDetails({
           {node.spokeAttribution ? (
             <SpokeAttributionSection attribution={node.spokeAttribution} />
           ) : null}
+          <NodeCapabilities node={node} />
           <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>

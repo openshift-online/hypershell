@@ -128,6 +128,24 @@ export function roleBadgeFill(role: string): SvgColor {
   return `hsl(${String(hueFor(role))}, 68%, 66%)`;
 }
 
+/**
+ * Capability chip colours (dark fill + bright same-hue text) for an opaque
+ * capability VALUE - one notch dimmer than {@link providerChip} so the runtime /
+ * gateway-version row reads as secondary to the provider/role row (FLT-CAP-05).
+ * The hue is value-derived (brand hue for a known public cloud, else a hash hue),
+ * so an unrecognized value still renders without any capability list baked in.
+ */
+export function capabilityChip(value: string): {
+  readonly bg: SvgColor;
+  readonly fg: SvgColor;
+} {
+  const h = hueFor(value);
+  return {
+    bg: `hsl(${String(h)}, 40%, 16%)`,
+    fg: `hsl(${String(h)}, 70%, 70%)`,
+  };
+}
+
 /** Promotion-state ring colour for a node's identicon. */
 export function promotionRing(
   state: "up-to-date" | "promoting" | "behind",
