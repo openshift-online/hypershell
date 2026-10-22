@@ -951,11 +951,21 @@ function NodeAgents({
     >
       <Thead>
         <Tr>
-          <Th><FormattedMessage {...messages.agentsColAgent} /></Th>
-          <Th><FormattedMessage {...messages.agentsColReplicas} /></Th>
-          <Th><FormattedMessage {...messages.agentsColQueue} /></Th>
-          <Th><FormattedMessage {...messages.agentsColDone} /></Th>
-          <Th><FormattedMessage {...messages.agentsColFailed} /></Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColAgent} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColReplicas} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColQueue} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColDone} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColFailed} />
+          </Th>
         </Tr>
       </Thead>
       <Tbody>
@@ -982,10 +992,7 @@ function NodeAgents({
               <span
                 style={{
                   ...tabNums,
-                  color:
-                    agent.replicasOn > 0
-                      ? TONE_COLOR.success
-                      : subtle,
+                  color: agent.replicasOn > 0 ? TONE_COLOR.success : subtle,
                 }}
               >
                 {agent.replicasOn}
@@ -999,8 +1006,7 @@ function NodeAgents({
               <span
                 style={{
                   ...tabNums,
-                  color:
-                    agent.queueDepth > 0 ? USER_COLOR : subtle,
+                  color: agent.queueDepth > 0 ? USER_COLOR : subtle,
                 }}
               >
                 {agent.queueDepth}
@@ -1015,10 +1021,7 @@ function NodeAgents({
               <span
                 style={{
                   ...tabNums,
-                  color:
-                    agent.itemsFailed > 0
-                      ? TONE_COLOR.danger
-                      : subtle,
+                  color: agent.itemsFailed > 0 ? TONE_COLOR.danger : subtle,
                 }}
               >
                 {agent.itemsFailed}

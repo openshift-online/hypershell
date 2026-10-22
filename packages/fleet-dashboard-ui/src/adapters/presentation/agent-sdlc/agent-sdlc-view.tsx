@@ -2255,8 +2255,7 @@ function AgentDetailPanel({
             <DescriptionListDescription>
               <span
                 style={{
-                  color:
-                    agent.queueDepth > 0 ? USER_COLOR : METRIC_SUBTLE,
+                  color: agent.queueDepth > 0 ? USER_COLOR : METRIC_SUBTLE,
                   fontWeight: 700,
                 }}
               >
@@ -2279,8 +2278,7 @@ function AgentDetailPanel({
             <DescriptionListDescription>
               <span
                 style={{
-                  color:
-                    failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
+                  color: failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
                   fontWeight: 700,
                 }}
               >
