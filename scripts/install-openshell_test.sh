@@ -123,12 +123,21 @@ OPENSHELL_VERSION=v0.0.109 sh "$ROOT/scripts/install-openshell.sh"
 # ADC, and current working directory used by normal CLI workflows.
 mkdir -p "$TEST_DIR/home/.config/gcloud" "$TEST_DIR/work"
 : > "$TEST_DIR/podman.log"
-env TEST_OS=Darwin HOME="$TEST_DIR/home" OPENSHELL_VERSION=v0.0.116-rhaiv.6 \
-  sh "$ROOT/scripts/install-openshell.sh"
-[[ "$(env HOME="$TEST_DIR/home" "$OPENSHELL_INSTALL_DIR/openshell" --version)" == 'openshell 0.0.116-rhaiv.6' ]]
+env TEST_OS=Darwin HOME="$TEST_DIR/home" \
+  XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
+  CLOUDSDK_CONFIG="$TEST_DIR/home/.config/gcloud" \
+  OPENSHELL_VERSION=v0.0.116-rhaiv.6 sh "$ROOT/scripts/install-openshell.sh"
+[[ "$(env HOME="$TEST_DIR/home" \
+  XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
+  CLOUDSDK_CONFIG="$TEST_DIR/home/.config/gcloud" \
+  "$OPENSHELL_INSTALL_DIR/openshell" --version)" == 'openshell 0.0.116-rhaiv.6' ]]
 (
   cd "$TEST_DIR/work"
-  HOME="$TEST_DIR/home" "$OPENSHELL_INSTALL_DIR/openshell" provider create --name test --type google-vertex-ai --from-gcloud-adc
+  HOME="$TEST_DIR/home" \
+    XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
+    CLOUDSDK_CONFIG="$TEST_DIR/home/.config/gcloud" \
+    "$OPENSHELL_INSTALL_DIR/openshell" provider create --name test \
+      --type google-vertex-ai --from-gcloud-adc
 )
 grep -Fq "$TEST_DIR/home/.config/openshell:/home/cli/.config/openshell" "$TEST_DIR/podman.log"
 grep -Fq "$TEST_DIR/home/.config/gcloud:/home/cli/.config/gcloud:ro" "$TEST_DIR/podman.log"
