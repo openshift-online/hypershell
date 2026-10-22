@@ -49,6 +49,28 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-445 -- Fleet-dashboard capability chips from the delivery annotation (done, issue #707)
+
+Scoped reconciliation of `specs/platform/fleet-dashboard-capability-chips.spec.md`
+(FLT-CAP-01) against `components/fleet-dashboard`. The BFF assembled capability
+chips from per-namespace `delivery.hypershell.app/<ns>` **labels**, but the gitops
+repo only ever writes the single comma-joined `delivery.hypershell.app/capabilities`
+**annotation** (drift-checked against the registered capability set), so every chip
+but `provider` was silently dropped.
+
+| ID | Requirement | Status | Evidence |
+|----|-------------|--------|----------|
+| FLT-CAP-01 | BFF sources capabilities from the `delivery.hypershell.app/capabilities` annotation, low-privilege, allow-list validated, stable order | Present | `promotion.go`: `capabilitiesAnnotation` const + `capabilitiesFromAnnotation` (replaces `capabilitiesFromLabels`); call site reads already-extracted `ann`; `promotion_test.go` fixture uses the annotation + new `TestCapabilitiesFromAnnotation` (absent/unknown-ns/whitespace/dup/malformed/out-of-order/internal-slash) |
+
+Spec note updated so the sourcing contract reads "from the
+`delivery.hypershell.app/capabilities` annotation" (Applies-to, purpose point 4,
+FLT-CAP-01 requirement + scenario 01.03). No wire-contract, SDK, CLI, or frontend
+change: the BFF still emits `capabilities: []string` of `namespace/value` and the UI
+keeps treating it as opaque, ordered data. `provider`/`env`/`role`/`cluster` delivery
+**labels** remain the grouping/identity source, untouched. Gates green: `gofmt -l .`
+clean, `go vet ./...`, `golangci-lint` 0 issues, `go test -count=1 ./...`, fleet
+identity firewall, `make check`.
+
 ### HYPERSHELL-404 -- Glass URL-addressable navigation (done, PR #584 branch)
 
 Scoped reconciliation of `specs/platform/glass-url-addressable-navigation.spec.md`

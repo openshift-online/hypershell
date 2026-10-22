@@ -4,7 +4,7 @@
 **Status:** Active
 **Applies to:** `packages/fleet-dashboard-ui` promotion domain, map model, wire
 adapter, and map presentation (card + node drawer); `components/fleet-dashboard`
-BFF promotion source (delivery-label sourcing).
+BFF promotion source (delivery capabilities-annotation sourcing).
 **Tracks:** [HYPERSHELL-437](https://redhat.atlassian.net/browse/HYPERSHELL-437)
 
 ## Purpose
@@ -29,8 +29,9 @@ This specification makes the following behavior contracts:
 3. The node drawer SHALL gain a **Capabilities** section listing the cluster's
    full self-declared capability set.
 4. The `capabilities` set SHALL be carried end to end as an optional field on the
-   promotion environment, mirroring exactly how `provider` is already carried
-   from an Argo delivery label, so the BFF stays low-privilege.
+   promotion environment, sourced by the BFF from the delivery
+   `delivery.hypershell.app/capabilities` annotation already present on the
+   resolved Argo `Application`, so the BFF stays low-privilege.
 
 Capabilities are **opaque data**: the UI SHALL NOT bake in a closed vocabulary.
 An unknown namespace or value SHALL still render. The capability chips and the
@@ -56,18 +57,21 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
 
 ## Requirements
 
-### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the delivery label
+### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the delivery annotation
 
 The promotion environment SHALL carry an optional `capabilities` set of
 `namespace/value` strings, threaded unchanged through the wire adapter, the
 promotion domain, and the map node, mirroring how `provider` is carried today.
-The set SHALL be sourced from an Argo CD application delivery label by the
-fleet-dashboard BFF promotion source, using data the BFF already resolves per
+The set SHALL be sourced from the single, comma-joined
+`delivery.hypershell.app/capabilities` annotation on the Argo CD `Application` by
+the fleet-dashboard BFF promotion source, using data the BFF already resolves per
 instance; the BFF SHALL NOT authenticate to the api-server and SHALL NOT
 introduce any new Kubernetes query, list, watch, or cluster credential to obtain
-it. The field SHALL be optional at every hop: a node with no delivery-label
-capabilities SHALL carry an empty set, not an error, so existing test factories
-and payloads that omit it stay valid.
+it. Entries SHALL be validated against the recognized capability namespaces
+(`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
+SHALL be dropped rather than rendered. The field SHALL be optional at every hop:
+a node with no capability annotation SHALL carry an empty set, not an error, so
+existing test factories and payloads that omit it stay valid.
 
 #### Scenario: FLT-CAP-01.01 -- Capabilities thread from wire to map node
 
@@ -88,7 +92,7 @@ and payloads that omit it stay valid.
 
 - GIVEN the fleet-dashboard BFF promotion source resolving each instance's Argo CD `Application`
 - WHEN it emits the `capabilities` field for a promotion environment
-- THEN the value SHALL be read from an Argo delivery label on the already-resolved object
+- THEN the value SHALL be read from the `delivery.hypershell.app/capabilities` annotation on the already-resolved object
 - AND the BFF SHALL NOT open a new Kubernetes query, watch, or cluster credential, and SHALL NOT call the api-server, to obtain capabilities
 
 ### Requirement: FLT-CAP-02 -- Capability string helpers
