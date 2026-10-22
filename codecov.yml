@@ -1,0 +1,64 @@
+# Codecov configuration for the App-SRE Codecov instance (codecov-appsre).
+# Coverage is uploaded per Go module by .github/workflows/unit-tests.yml via
+# scripts/codecov-upload.sh. Statuses are informational: they report but do
+# not block merges until the team agrees on targets.
+codecov:
+  require_ci_to_pass: yes
+
+# Go coverage profiles name files by module import path; strip the repository
+# prefix so they match paths in the repository.
+fixes:
+  - "github.com/openshift-online/hypershell/::"
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...100"
+  status:
+    project:
+      default:
+        informational: true
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        informational: true
+        target: auto
+        threshold: 1%
+
+ignore:
+  - "**/*.pb.go"
+  - "**/*.pb.gw.go"
+  - "**/mock_*.go"
+  - "**/*_mock.go"
+  - "**/zz_generated*.go"
+  - "components/api-server/pkg/api/openapi/**"
+  - "tests/**"
+  - "docs/**"
+
+# Unit jobs run only for components a change touches, so each flag carries
+# its last coverage forward when its job is skipped.
+flags:
+  api-server:
+    paths:
+      - components/api-server/
+    carryforward: true
+  control-plane:
+    paths:
+      - components/control-plane/
+    carryforward: true
+  cli:
+    paths:
+      - components/cli/
+    carryforward: true
+  sdk-generator:
+    paths:
+      - scripts/sdk-generator/
+    carryforward: true
+
+comment:
+  layout: "header,diff,flags,files,footer"
+  behavior: default
+  require_changes: false
+  require_base: true
+  require_head: true
