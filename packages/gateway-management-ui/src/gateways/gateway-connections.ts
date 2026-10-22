@@ -132,11 +132,50 @@ export const sandboxResourceDefaults = {
 } as const;
 
 /**
+ * Default provider profile file for the Vertex AI example used across the
+ * connection steps. Keep the provider type in sync with
+ * `buildProviderCreateCommand`'s `--type google-vertex-ai`.
+ *
+ * See specs/platform/hsctl-gateway-connection.spec.md (CLI-GWC-01) and
+ * specs/web-console/architecture.spec.md § WEB-UIEX-05 step 2.
+ */
+export const vertexProviderProfileFile = "google-vertex-ai.yaml";
+
+/**
+ * Documentation that explains how to obtain and import an OpenShell provider
+ * profile for a given provider type (the "command or link that downloads or
+ * locates the profile file" required by CLI-GWC-01 / WEB-UIEX-05 step 2).
+ */
+export const providerProfileDocsUrl =
+  "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles";
+
+/**
+ * Builds the `openshell provider profile import` command that registers a
+ * provider type's profile in the gateway's profile catalog. This MUST run
+ * before `buildProviderCreateCommand` for the same provider type, or
+ * `provider create` fails with "provider profile '<type>' not found".
+ *
+ * Uses `--global` scope, which `buildProviderCreateCommand` matches with its
+ * own `--global-profile` flag -- the import and create scopes must agree, or
+ * the "profile not found" error reproduces even though the profile has
+ * already been imported. See
+ * specs/platform/hsctl-gateway-connection.spec.md (CLI-GWC-02).
+ */
+export function buildProviderProfileImportCommand(
+  profileFile: string = vertexProviderProfileFile,
+): string {
+  return `openshell provider profile import -f ${shellArgument(profileFile)} --global`;
+}
+
+/**
  * Primary "add a provider" command. Pulls credentials from Application Default
  * Credentials (`--from-gcloud-adc`) and reads the project id from the shell, so
  * no secret has to be pasted into the browser. `providerName` is parameterized so
  * the caller can substitute an edit marker (for highlighting) or the operator's
  * chosen name (for copy) without diverging from this single command template.
+ *
+ * `--global-profile` resolves the profile imported by
+ * `buildProviderProfileImportCommand`'s matching `--global` scope.
  */
 export function buildProviderCreateCommand(
   providerName: string = vertexProviderName,
@@ -145,6 +184,7 @@ export function buildProviderCreateCommand(
     "openshell provider create",
     `--name ${providerName}`,
     "--type google-vertex-ai",
+    "--global-profile",
     "--from-gcloud-adc",
     '--config VERTEX_AI_PROJECT_ID="$ANTHROPIC_VERTEX_PROJECT_ID"',
     "--config VERTEX_AI_REGION=global",
@@ -234,10 +274,13 @@ export function buildOneTimeSetupScript(
     "# 1. Register the gateway",
     gatewayAdd,
     "",
-    "# 2. Add the Claude on Vertex AI provider",
+    "# 2. Import the provider profile",
+    buildProviderProfileImportCommand(),
+    "",
+    "# 3. Add the Claude on Vertex AI provider",
     buildProviderCreateCommand(providerName),
     "",
-    "# 3. Select the model",
+    "# 4. Select the model",
     buildInferenceSetCommand(providerName, model),
   ].join("\n");
 }

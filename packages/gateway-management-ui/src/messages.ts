@@ -142,6 +142,31 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
+  connectionProfileImportDocsLink: {
+    id: "app.gateway.connection.profileImportDocsLink",
+    defaultMessage: "View provider profile documentation",
+    description:
+      "Link text pointing to the OpenShell provider profile documentation.",
+  },
+  connectionProfileImportDocsLinkNewTab: {
+    id: "app.gateway.connection.profileImportDocsLinkNewTab",
+    defaultMessage: "View provider profile documentation (opens in a new tab)",
+    description:
+      "Accessible name for the provider profile documentation link, including that it opens in a new tab.",
+  },
+  connectionProfileImportScopeNote: {
+    id: "app.gateway.connection.profileImportScopeNote",
+    defaultMessage:
+      'The profile import command above uses --global scope. This must match the scope used by the provider create command below (its --global-profile flag here): a scope mismatch reproduces a "provider profile not found" error even after the profile has been imported.',
+    description:
+      "Explains that the provider profile import scope and the provider create scope must match.",
+  },
+  connectionProfileImportScopeTitle: {
+    id: "app.gateway.connection.profileImportScopeTitle",
+    defaultMessage: "Provider profile scope",
+    description:
+      "Toggle text for the expandable section explaining provider profile import scope.",
+  },
   connectionSandboxConnectDescription: {
     id: "app.gateway.connection.sandboxConnect.description",
     defaultMessage:
@@ -167,7 +192,7 @@ export const messages = defineMessages({
   connectionSetupDescription: {
     id: "app.gateway.connection.setup.description",
     defaultMessage:
-      "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
+      "Run these commands in order to register the gateway, import the provider profile, add the Claude on Vertex AI provider, and select the model.",
     description: "Supporting text for the one-time setup connection step.",
   },
   connectionSetupTitle: {
@@ -240,7 +265,7 @@ export const messages = defineMessages({
     id: "app.gateway.connection.copySetupCommand",
     defaultMessage: "Copy the one-time setup commands",
     description:
-      "Accessible label for copying the gateway registration, provider creation, and model selection commands.",
+      "Accessible label for copying the gateway registration, provider profile import, provider creation, and model selection commands.",
   },
   created: {
     id: "app.table.column.created",
