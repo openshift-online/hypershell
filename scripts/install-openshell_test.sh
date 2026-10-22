@@ -66,7 +66,9 @@ grep -q 'no unique checksum' "$TEST_DIR/error.log"
 # installed the same way as the release path.
 cat > "$TEST_DIR/bin/podman" <<MOCK
 #!/bin/sh
+printf '%s\n' "\$*" >> "$TEST_DIR/podman.log"
 case "\$1" in
+  info) ;;
   create)
     shift
     while [ "\$#" -gt 0 ]; do
@@ -83,6 +85,9 @@ case "\$1" in
     shift
     dest=\$2
     cp "$TEST_DIR/source/openshell" "\$dest"
+    ;;
+  run)
+    printf 'openshell 0.0.116-rhaiv.6\n'
     ;;
   rm) ;;
   *) echo "unexpected podman subcommand: \$1" >&2; exit 1 ;;
@@ -112,13 +117,27 @@ done
 (cd "$TEST_DIR/assets" && sha256sum ./*.tar.gz | sed 's|  ./|  |') > "$TEST_DIR/assets/openshell-checksums-sha256.txt"
 OPENSHELL_VERSION=v0.0.109 sh "$ROOT/scripts/install-openshell.sh"
 
-# A container image's binary is Linux-only regardless of host CPU architecture.
-# On a non-Linux host this must fail clearly instead of extracting a binary
-# that can never run there (an "exec format error" is a confusing way to find
-# this out). The podman mock is still on PATH from above; it must not even be
-# invoked once the OS check fails.
-expect_failure env TEST_OS=Darwin OPENSHELL_VERSION=v0.0.116-rhaiv.6 sh "$ROOT/scripts/install-openshell.sh"
-grep -q 'Linux-only container image' "$TEST_DIR/error.log"
+# A downstream CLI image contains a Linux binary, so Darwin installs a wrapper
+# that runs the exact version-matched image instead of leaving an incompatible
+# native CLI in place. The wrapper must preserve the OpenShell config, gcloud
+# ADC, and current working directory used by normal CLI workflows.
+mkdir -p "$TEST_DIR/home/.config/gcloud" "$TEST_DIR/work"
+: > "$TEST_DIR/podman.log"
+env TEST_OS=Darwin HOME="$TEST_DIR/home" OPENSHELL_VERSION=v0.0.116-rhaiv.6 \
+  sh "$ROOT/scripts/install-openshell.sh"
+[[ "$(env HOME="$TEST_DIR/home" "$OPENSHELL_INSTALL_DIR/openshell" --version)" == 'openshell 0.0.116-rhaiv.6' ]]
+(
+  cd "$TEST_DIR/work"
+  HOME="$TEST_DIR/home" "$OPENSHELL_INSTALL_DIR/openshell" provider create --name test --type google-vertex-ai --from-gcloud-adc
+)
+grep -Fq "$TEST_DIR/home/.config/openshell:/home/cli/.config/openshell" "$TEST_DIR/podman.log"
+grep -Fq "$TEST_DIR/home/.config/gcloud:/home/cli/.config/gcloud:ro" "$TEST_DIR/podman.log"
+grep -Fq "$TEST_DIR/work:$TEST_DIR/work" "$TEST_DIR/podman.log"
+grep -Fq 'quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6' "$TEST_DIR/podman.log"
+
+# Restore the native baseline so the failure-atomicity helper below can prove
+# that a missing container engine does not replace an existing installation.
+OPENSHELL_VERSION=v0.0.109 sh "$ROOT/scripts/install-openshell.sh"
 
 # Without podman or docker on PATH, the downstream path fails clearly instead
 # of silently falling back to the (incompatible) GitHub release path. Use a
@@ -129,6 +148,6 @@ for tool in sh grep mkdir mktemp rm uname; do
   ln -s "$(command -v "$tool")" "$TEST_DIR/bin-empty/$tool"
 done
 expect_failure env PATH="$TEST_DIR/bin-empty" OPENSHELL_VERSION=v0.0.116-rhaiv.6 sh "$ROOT/scripts/install-openshell.sh"
-grep -q 'Install podman or docker' "$TEST_DIR/error.log"
+grep -q 'Start podman or docker' "$TEST_DIR/error.log"
 
 echo 'CLI archive installation tests passed'

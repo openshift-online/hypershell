@@ -27,25 +27,92 @@ trap 'exit 1' HUP INT TERM
 case "$version" in
   v[0-9]*.[0-9]*.[0-9]*-*)
     image="quay.io/opendatahub/odh-openshell-cli:${version}"
-    # This is a container image: its /usr/local/bin/openshell is always a
-    # Linux ELF binary, whatever the host's CPU architecture. Extracting it
-    # and running it directly only works when the host OS is Linux itself;
-    # on any other OS the binary would fail with "exec format error" instead
-    # of a normal command-not-found, which is confusing to debug. Fail early
-    # and clearly instead.
-    [ "$(uname -s)" = Linux ] || fail "This OpenShell build ($version) is only published as the Linux-only container image $image; there is no native build for $(uname -s). Run this on a Linux host, or build the CLI from source at that exact commit."
     engine=
     for candidate in podman docker; do
-      command -v "$candidate" >/dev/null 2>&1 && { engine=$candidate; break; }
+      if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
+        engine=$candidate
+        break
+      fi
     done
-    [ -n "$engine" ] || fail "Install podman or docker to install this downstream OpenShell CLI build ($image)."
-    ctr_name="openshell-cli-install-$$"
-    "$engine" create --name "$ctr_name" "$image" true >/dev/null 2>&1 || fail "Cannot pull $image."
-    "$engine" cp "${ctr_name}:/usr/local/bin/openshell" "${work_dir}/openshell" 2>/dev/null || {
-      "$engine" rm "$ctr_name" >/dev/null 2>&1
-      fail "Cannot extract the openshell binary from $image."
-    }
-    "$engine" rm "$ctr_name" >/dev/null 2>&1
+    [ -n "$engine" ] || fail "Start podman or docker to install this downstream OpenShell CLI build ($image)."
+
+    case "$(uname -s)" in
+      Linux)
+        ctr_name="openshell-cli-install-$$"
+        "$engine" create --name "$ctr_name" "$image" true >/dev/null 2>&1 || fail "Cannot pull $image."
+        "$engine" cp "${ctr_name}:/usr/local/bin/openshell" "${work_dir}/openshell" 2>/dev/null || {
+          "$engine" rm "$ctr_name" >/dev/null 2>&1
+          fail "Cannot extract the openshell binary from $image."
+        }
+        "$engine" rm "$ctr_name" >/dev/null 2>&1
+        ;;
+      Darwin)
+        # Downstream builds are published only as Linux container images. Keep
+        # the CLI and gateway protobufs at the exact same version on macOS by
+        # installing a transparent container-backed command instead of leaving
+        # an older native CLI in place. The mounts preserve the state and local
+        # files used by gateway login, provider ADC discovery, profile/policy
+        # imports, uploads, and downloads.
+        cat > "${work_dir}/openshell" <<EOF
+#!/bin/sh
+set -eu
+
+image='$image'
+engine=
+for candidate in podman docker; do
+  if command -v "\$candidate" >/dev/null 2>&1 && "\$candidate" info >/dev/null 2>&1; then
+    engine=\$candidate
+    break
+  fi
+done
+if [ -z "\$engine" ]; then
+  printf 'OpenShell CLI requires a running podman or docker engine to run %s.\n' "\$image" >&2
+  exit 1
+fi
+
+config_root=\${XDG_CONFIG_HOME:-"\${HOME}/.config"}
+openshell_config="\${config_root}/openshell"
+gcloud_config=\${CLOUDSDK_CONFIG:-"\${HOME}/.config/gcloud"}
+mkdir -p "\$openshell_config"
+
+tty_flags=
+if [ -t 0 ] && [ -t 1 ]; then
+  tty_flags=-it
+fi
+
+if [ -d "\$gcloud_config" ]; then
+  exec "\$engine" run --rm \$tty_flags \
+    -e HOME=/home/cli \
+    -e CLOUDSDK_CONFIG=/home/cli/.config/gcloud \
+    -e OPENSHELL_GATEWAY \
+    -e OPENSHELL_GATEWAY_ENDPOINT \
+    -e OPENSHELL_GATEWAY_INSECURE \
+    -e OPENSHELL_WORKSPACE \
+    -e OPENSHELL_COLOR \
+    -v "\${openshell_config}:/home/cli/.config/openshell" \
+    -v "\${gcloud_config}:/home/cli/.config/gcloud:ro" \
+    -v "\${PWD}:\${PWD}" \
+    -w "\${PWD}" \
+    "\$image" "\$@"
+fi
+
+exec "\$engine" run --rm \$tty_flags \
+  -e HOME=/home/cli \
+  -e OPENSHELL_GATEWAY \
+  -e OPENSHELL_GATEWAY_ENDPOINT \
+  -e OPENSHELL_GATEWAY_INSECURE \
+  -e OPENSHELL_WORKSPACE \
+  -e OPENSHELL_COLOR \
+  -v "\${openshell_config}:/home/cli/.config/openshell" \
+  -v "\${PWD}:\${PWD}" \
+  -w "\${PWD}" \
+  "\$image" "\$@"
+EOF
+        ;;
+      *)
+        fail "This OpenShell build ($version) is only published as the Linux container image $image; supported installer hosts are Linux and macOS."
+        ;;
+    esac
     chmod 755 "${work_dir}/openshell"
     reported=$("${work_dir}/openshell" --version)
     [ "$reported" = "openshell ${version#v}" ] || [ "$reported" = "openshell ${version}" ] || fail "The CLI reports an unexpected version: $reported"
