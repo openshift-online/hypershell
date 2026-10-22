@@ -610,7 +610,7 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 		// Default gateways now resolve to the vault driver; treat Vault as reachable
 		// here so settled-health tests exercise readiness/release logic, not Vault.
 		// Vault-degradation behavior is covered by TestReconcileGatewayHealth_VaultUnreachable.
-		vaultReachable: func(context.Context, kubernetes.Interface, string) error { return nil },
+		vaultReachable: func(context.Context, kubernetes.Interface) error { return nil },
 	}
 	// Pre-settle teardown so it short-circuits (marker set, addresses empty, and
 	// the verification stamped now so no residual-absence probe is due this tick).
@@ -1070,7 +1070,7 @@ func TestReconcileGatewayHealth_VaultUnreachable(t *testing.T) {
 		healthGatewayDeployment(namespace, 1, 2, 2, 1, 1, 1),
 	)
 	h := newSettledHealthRec(clientset, "gw-1")
-	h.vaultReachable = func(context.Context, kubernetes.Interface, string) error {
+	h.vaultReachable = func(context.Context, kubernetes.Interface) error {
 		return errors.New("vault unreachable")
 	}
 

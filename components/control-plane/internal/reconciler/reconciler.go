@@ -343,7 +343,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// with no credential_driver is stored as NULL yet still resolves to vault (the flat
 			// default), so it has an openshell-gw/<ns> mount to reclaim. IsVaultBacked("") is true.
 			if gateway.IsVaultBacked(gw.GetCredentialDriver()) {
-				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace, gw.GetCredentialDriver()); err != nil {
+				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace); err != nil {
 					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
 						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion; it may remain and the delete will be retried: %v", gateway.VaultMountForNamespace(namespace), err))
 					deleteErrs = append(deleteErrs, fmt.Errorf("delete vault tenant mount for %s: %w", namespace, err))

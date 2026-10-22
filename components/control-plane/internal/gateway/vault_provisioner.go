@@ -19,8 +19,8 @@ const vaultProvisionTimeout = 15 * time.Second
 // identity can manage per-tenant mounts but cannot read a provider secret or rewrite the
 // isolation boundary. See openshell-gateway-credentials.spec.md (Provider Credential
 // Isolation).
-func vaultProvisionerClient(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts, driver *CredentialDriverConfig) (*vaultClient, string, error) {
-	v := resolvedVault(driver, "") // address, auth mount and CA source; the mount path is computed per call
+func vaultProvisionerClient(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts) (*vaultClient, string, error) {
+	v := resolveVaultValues("") // address, auth mount and CA source (conventions); the mount path is computed per call
 	caPEM, _, _, err := readVaultCASource(ctx, clientset)
 	if err != nil {
 		return nil, "", err
@@ -44,8 +44,8 @@ func vaultProvisionerClient(ctx context.Context, clientset kubernetes.Interface,
 // (openshell-gw/<namespace>) if it does not already exist, so the gateway runtime has a
 // mount to write its provider credentials to. Idempotent. Called before the workload is
 // deployed (HYPERSHELL-369).
-func EnsureVaultTenantMount(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts, namespace string, driver *CredentialDriverConfig) error {
-	c, token, err := vaultProvisionerClient(ctx, clientset, opts, driver)
+func EnsureVaultTenantMount(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts, namespace string) error {
+	c, token, err := vaultProvisionerClient(ctx, clientset, opts)
 	if err != nil {
 		return err
 	}
@@ -53,12 +53,11 @@ func EnsureVaultTenantMount(ctx context.Context, clientset kubernetes.Interface,
 }
 
 // DeleteVaultTenantMount deletes the gateway's per-tenant KV mount on teardown, removing
-// every provider-credential entry it held in one operation. credentialDriverJSON is the
-// gateway's stored credential_driver (used to resolve the Vault coordinates). Idempotent:
-// an absent mount is treated as already-gone. Best-effort at the call site - the caller
-// records a durable orphan and retries on failure (HYPERSHELL-369).
-func DeleteVaultTenantMount(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts, namespace, credentialDriverJSON string) error {
-	c, token, err := vaultProvisionerClient(ctx, clientset, opts, ParseCredentialDriver(credentialDriverJSON))
+// every provider-credential entry it held in one operation. Idempotent: an absent mount is
+// treated as already-gone. Best-effort at the call site - the caller records a durable
+// orphan and retries on failure (HYPERSHELL-369).
+func DeleteVaultTenantMount(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts, namespace string) error {
+	c, token, err := vaultProvisionerClient(ctx, clientset, opts)
 	if err != nil {
 		return err
 	}

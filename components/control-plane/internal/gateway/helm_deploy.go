@@ -131,11 +131,7 @@ func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriver
 	if driver != nil && driver.Type != "" {
 		return driver
 	}
-	resolved := &CredentialDriverConfig{Type: "vault"}
-	if driver != nil {
-		resolved.Vault = driver.Vault // preserve any supplied overrides
-	}
-	return resolved
+	return &CredentialDriverConfig{Type: "vault"}
 }
 
 // convertCredentialDriver converts gateway.CredentialDriverConfig to
@@ -157,22 +153,23 @@ func convertCredentialDriver(driver *CredentialDriverConfig, namespace string) *
 	case "kek-db":
 		return &helm.CredentialDriverConfig{Type: "kek-db"}
 	case "vault", "":
-		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(driver.Vault, namespace)}
+		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(namespace)}
 	default:
 		return &helm.CredentialDriverConfig{Type: driver.Type}
 	}
 }
 
-// resolveVaultValues fills the Vault coordinates from the per-cluster conventions
-// (config.go), applying any per-gateway overrides in credential_driver.vault. The
-// mount defaults to the gateway's per-tenant mount openshell-gw/<namespace>; an empty
-// namespace (probe callers that do not use the mount) leaves it unset.
-func resolveVaultValues(o *VaultCredentialConfig, namespace string) *helm.VaultValues {
+// resolveVaultValues fills the Vault coordinates purely from the per-cluster conventions
+// (config.go) plus control-plane deployment config (GATEWAY_VAULT_* env). Vault is a black
+// box to users: there are NO per-gateway overrides, so address/role/auth are fixed and the
+// mount is always the gateway's own per-tenant mount openshell-gw/<namespace>. An empty
+// namespace (probe callers that do not use the mount) leaves the mount unset.
+func resolveVaultValues(namespace string) *helm.VaultValues {
 	mount := ""
 	if namespace != "" {
 		mount = VaultMountForNamespace(namespace)
 	}
-	v := &helm.VaultValues{
+	return &helm.VaultValues{
 		Address:                 VaultAddressDefault(),
 		Mount:                   mount,
 		KVVersion:               VaultDefaultKVVersion,
@@ -186,27 +183,6 @@ func resolveVaultValues(o *VaultCredentialConfig, namespace string) *helm.VaultV
 		CAConfigMapName:         VaultCATargetConfigMapName,
 		TimeoutSecs:             VaultDefaultTimeoutSecs,
 	}
-	if o != nil {
-		if o.Address != "" {
-			v.Address = o.Address
-		}
-		if o.Mount != "" {
-			v.Mount = o.Mount
-		}
-		if o.AuthMethod != "" {
-			v.AuthMethod = o.AuthMethod
-		}
-		if o.Role != "" {
-			v.Role = o.Role
-		}
-		if o.KubernetesAuthMount != "" {
-			v.KubernetesAuthMount = o.KubernetesAuthMount
-		}
-		if o.TimeoutSecs != 0 {
-			v.TimeoutSecs = o.TimeoutSecs
-		}
-	}
-	return v
 }
 
 // isVaultDriver reports whether the resolved credential driver is vault (an

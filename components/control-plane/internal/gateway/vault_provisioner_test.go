@@ -16,24 +16,18 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// TestResolveVaultValues_PerTenantMount pins the per-tenant mount derivation: the mount
-// defaults to openshell-gw/<namespace>, an explicit override wins, and an empty namespace
-// (probe callers that never use the mount) leaves it unset.
+// TestResolveVaultValues_PerTenantMount pins the per-tenant mount derivation: the mount is
+// always openshell-gw/<namespace> (Vault is a black box - no per-gateway override), and an
+// empty namespace (probe callers that never use the mount) leaves it unset.
 func TestResolveVaultValues_PerTenantMount(t *testing.T) {
 	t.Run("derived from namespace", func(t *testing.T) {
-		v := resolveVaultValues(nil, "openshell-acme")
+		v := resolveVaultValues("openshell-acme")
 		if v.Mount != "openshell-gw/openshell-acme" {
 			t.Errorf("mount = %q; want openshell-gw/openshell-acme", v.Mount)
 		}
 	})
-	t.Run("explicit override wins", func(t *testing.T) {
-		v := resolveVaultValues(&VaultCredentialConfig{Mount: "custom-mount"}, "openshell-acme")
-		if v.Mount != "custom-mount" {
-			t.Errorf("mount = %q; want custom-mount", v.Mount)
-		}
-	})
 	t.Run("empty namespace leaves mount unset", func(t *testing.T) {
-		v := resolveVaultValues(nil, "")
+		v := resolveVaultValues("")
 		if v.Mount != "" {
 			t.Errorf("mount = %q; want empty", v.Mount)
 		}
@@ -172,17 +166,18 @@ func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 
 	cs, _ := fakeClientsetWithToken(t, vaultTLSCASecret(t, srv))
 	opts := ReconcileOpts{ControlPlaneNamespace: "hypershell-system"}
-	driver := &CredentialDriverConfig{Type: "vault", Vault: &VaultCredentialConfig{Address: srv.URL}}
+	// Vault is a black box with no per-gateway overrides; point the provisioner at the test
+	// server via the control-plane deployment env (the only supported address override).
+	t.Setenv("GATEWAY_VAULT_ADDRESS", srv.URL)
 
-	if err := EnsureVaultTenantMount(context.Background(), cs, opts, "openshell-acme", driver); err != nil {
+	if err := EnsureVaultTenantMount(context.Background(), cs, opts, "openshell-acme"); err != nil {
 		t.Fatalf("EnsureVaultTenantMount: %v", err)
 	}
 	if !loggedIn.Load() || !enabled.Load() {
 		t.Fatalf("expected provisioner login and mount enable; loggedIn=%v enabled=%v", loggedIn.Load(), enabled.Load())
 	}
 
-	driverJSON := `{"type":"vault","vault":{"address":"` + srv.URL + `"}}`
-	if err := DeleteVaultTenantMount(context.Background(), cs, opts, "openshell-acme", driverJSON); err != nil {
+	if err := DeleteVaultTenantMount(context.Background(), cs, opts, "openshell-acme"); err != nil {
 		t.Fatalf("DeleteVaultTenantMount: %v", err)
 	}
 	if !disabled.Load() {

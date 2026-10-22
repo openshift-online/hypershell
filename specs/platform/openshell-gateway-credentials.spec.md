@@ -24,7 +24,10 @@ provider secrets (stood up by `hypershell-gitops`; see the GitOps counterpart). 
 Vault is **convention-addressed**: its address, auth mount, shared role and serving CA are
 fixed coordinates the control plane already knows, and each gateway's KV mount is derived
 from its tenant namespace (`openshell-gw/<namespace>`), so a gateway becomes Vault-backed
-with **no user input**. The former default - a key-encryption-key (KEK) encrypted database
+with **no user input**. Vault is a **black box** to API clients: there are **no**
+per-gateway Vault override fields (no `address`, `role`, `mount`, auth, or timeout), so a
+tenant cannot point a gateway at a different Vault, assume a different Vault identity, or
+widen its own KV mount. The former default - a key-encryption-key (KEK) encrypted database
 store - remains available as an explicit opt-in (`kek-db`), as does the Kubernetes Secrets
 driver (`kubernetes-secrets`).
 
@@ -79,7 +82,7 @@ CLI, and it carries the same RBAC as any other gateway field.
 | `credential_driver` | Resolves to | Notes |
 |---|---|---|
 | omitted / null | `vault` | **Default (HYPERSHELL-369).** Convention-addressed per-cluster Vault; no user input required |
-| `type: vault` | `vault` | Explicit; same outcome as omitted. MAY carry optional overrides |
+| `type: vault` | `vault` | Explicit; same outcome as omitted. No sub-fields (black box) |
 | `type: kubernetes-secrets` | Kubernetes Secrets | Explicit opt-in; unchanged |
 | `type: kek-db` | KEK-encrypted database | Explicit opt-in to the former default; provisions the KEK Secret |
 
@@ -96,21 +99,15 @@ An **unspecified** `type` - the field omitted/null, *or* an object with an empty
 default (`vault`, per the table above). An empty object behaves identically to no
 field at all.
 
-When `type` is `vault`, every sub-field is **optional**: omitted sub-fields take the
-control-plane convention defaults (see Requirement: Vault Convention Defaults). The
-fields exist for non-standard topologies (for example a dev cluster or an external
-Vault) and SHALL NOT be required for the common case.
+When `type` is `vault`, there are **no** sub-fields: Vault is convention-addressed and
+is a black box to API clients. Every Vault coordinate (address, mount, role, auth) is
+resolved by the control plane from fixed conventions (see Requirement: Vault Convention
+Defaults); a `credential_driver.vault` object SHALL be rejected as an unknown field.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `credential_driver.type` | string | No | `vault` (default), `kubernetes-secrets`, or `kek-db` |
 | `credential_driver.kubernetes_secrets.namespace` | string | No | Namespace for credential Secrets. Defaults to the tenant namespace |
-| `credential_driver.vault.address` | string | No | Vault server URL. Default: the convention address |
-| `credential_driver.vault.mount` | string | No | KV secrets engine mount. Default: `openshell-gw/<tenant-namespace>` (derived per gateway) |
-| `credential_driver.vault.auth_method` | string | No | Authentication method. Default: `kubernetes` |
-| `credential_driver.vault.role` | string | No | Vault role. Default: `openshell-gateway` |
-| `credential_driver.vault.kubernetes_auth_mount` | string | No | Vault Kubernetes auth mount. Default: `kubernetes` |
-| `credential_driver.vault.timeout_secs` | int | No | Vault client timeout in seconds. Default: `30` |
 
 #### Scenario: OSG-CRED-01.01 -- Gateway created with no credential_driver defaults to Vault
 
@@ -125,8 +122,8 @@ Vault) and SHALL NOT be required for the common case.
 
 - GIVEN a Gateway resource with `credential_driver.type` = `vault`
 - WHEN the GatewayReconciler reconciles
-- THEN the gateway SHALL be configured identically to the omitted-field case, honoring
-  any supplied overrides in `credential_driver.vault`
+- THEN the gateway SHALL be configured identically to the omitted-field case using the
+  convention defaults (no per-gateway Vault overrides exist)
 
 #### Scenario: OSG-CRED-01.03 -- Gateway with explicit KEK database driver
 
@@ -152,9 +149,8 @@ The GatewayReconciler SHALL validate the `credential_driver` configuration befor
 reconciliation.
 
 - `credential_driver.type`, when present, SHALL be one of: `vault`, `kubernetes-secrets`, `kek-db`.
-- A `vault` driver SHALL NOT require any sub-field; supplied sub-fields SHALL be
-  validated (`address`, when present, SHALL be a well-formed URL; a non-loopback
-  `address` SHALL use `https`).
+- A `vault` driver SHALL NOT accept any sub-field; a `credential_driver.vault` object
+  (or any Vault override key) SHALL be rejected as an unknown field.
 - Unknown fields SHALL be rejected.
 
 #### Scenario: OSG-CRED-02.01 -- Invalid credential driver type
@@ -170,11 +166,11 @@ reconciliation.
 - THEN it SHALL accept the configuration
 - AND it SHALL apply the convention defaults for address, mount, role, and auth
 
-#### Scenario: OSG-CRED-02.03 -- Vault override with a plaintext address is rejected
+#### Scenario: OSG-CRED-02.03 -- Vault override object is rejected
 
-- GIVEN a Gateway with `credential_driver.vault.address` = `http://vault.example.com:8200`
+- GIVEN a Gateway with a `credential_driver.vault` object (for example `vault.address` or `vault.role`)
 - WHEN the GatewayReconciler validates the configuration
-- THEN it SHALL reject the configuration because a non-loopback Vault address MUST use `https`
+- THEN it SHALL reject the configuration because Vault is a black box with no per-gateway overrides
 
 ---
 
@@ -183,21 +179,21 @@ reconciliation.
 When the resolved driver is `vault`, the GatewayReconciler SHALL fill every unset Vault
 coordinate from fixed conventions, so a gateway is Vault-backed without user input. The
 conventions match the per-cluster Vault stood up by `hypershell-gitops` (see the GitOps
-Contract section). The address and serving-CA source MAY be overridden by control-plane
-deployment configuration for non-standard topologies; any field MAY be overridden
-per-gateway via `credential_driver.vault.*`.
+Contract section). There are **no** per-gateway Vault overrides; the only overrides are
+control-plane **deployment** configuration (cluster-operator controlled, not API/tenant
+controlled) for non-standard topologies.
 
 | Coordinate | Convention default | Override |
 |---|---|---|
-| address | `https://openshell-gateway-vault.openshell-vault.svc:8200` | `GATEWAY_VAULT_ADDRESS` env; `vault.address` |
-| mount (KV v2) | `openshell-gw/<tenant-namespace>` (derived from the gateway namespace) | `vault.mount` |
+| address | `https://openshell-gateway-vault.openshell-vault.svc:8200` | `GATEWAY_VAULT_ADDRESS` env (deployment) |
+| mount (KV v2) | `openshell-gw/<tenant-namespace>` (derived from the gateway namespace) | - |
 | KV version | `2` | - |
-| auth method | `kubernetes` | `vault.auth_method` |
-| Vault role | `openshell-gateway` | `GATEWAY_VAULT_ROLE` env; `vault.role` |
-| Kubernetes auth mount | `kubernetes` | `vault.kubernetes_auth_mount` |
+| auth method | `kubernetes` | - |
+| Vault role | `openshell-gateway` | `GATEWAY_VAULT_ROLE` env (deployment) |
+| Kubernetes auth mount | `kubernetes` | - |
 | SA token path | `/var/run/secrets/vault/token` | - |
 | SA token audience | `vault` | - |
-| serving-CA source | Secret `openshell-gateway-vault-tls` (key `ca.crt`) in namespace `openshell-vault` | `GATEWAY_VAULT_CA_SECRET` env |
+| serving-CA source | Secret `openshell-gateway-vault-tls` (key `ca.crt`) in namespace `openshell-vault` | `GATEWAY_VAULT_CA_SECRET` env (deployment) |
 
 The role name and auth mount are shared, literal constants used identically by every
 gateway on the cluster and by `hypershell-gitops`; a mismatch there breaks
@@ -208,8 +204,8 @@ identity (see Provider Credential Isolation).
 
 #### Scenario: OSG-CRED-03.01 -- Convention address used when none is supplied
 
-- GIVEN a Vault-backed Gateway whose `credential_driver.vault.address` is unset
-- AND no `GATEWAY_VAULT_ADDRESS` override is configured
+- GIVEN a Vault-backed Gateway
+- AND no `GATEWAY_VAULT_ADDRESS` deployment override is configured
 - WHEN the GatewayReconciler generates `gateway.toml`
 - THEN the `address` SHALL be `https://openshell-gateway-vault.openshell-vault.svc:8200`
 - AND the `role` SHALL be `openshell-gateway`, `mount` `openshell-gw/<tenant-namespace>`, `auth_method` `kubernetes`
@@ -495,8 +491,8 @@ gateway runtime stores every provider credential at the flat, hash-addressed suf
 `data/openshell/provider-credentials/<hash>` under that mount (with its KV v2 metadata under
 `metadata/openshell/provider-credentials/<hash>`), where `<hash>` is a SHA-256 over the owning
 workspace, a random per-provider UUID, and the credential coordinates. The runtime fixes the
-suffix; the **mount** is the configurable prefix, which the control plane derives from the
-gateway namespace and sets through `credential_driver.vault.mount`.
+suffix; the **mount** is the prefix, which the control plane derives from the gateway
+namespace (`openshell-gw/<tenant-namespace>`). The mount is not user-configurable.
 
 The gateway policy `openshell-gateway-provider` is **templated**: Vault substitutes the
 logging-in token's own ServiceAccount namespace into the path, so each gateway is scoped to
@@ -797,7 +793,7 @@ credential_driver:
     namespace: tenant-a
 ```
 
-### Gateway pointed at an external / non-convention Vault
+### Gateway pinned explicitly to Vault (same outcome as omitting the field)
 
 ```yaml
 kind: Gateway
@@ -805,9 +801,7 @@ name: openshell-gateway
 project: tenant-a
 credential_driver:
   type: vault
-  vault:
-    address: https://vault.example.com:8200
-    role: openshell-gateway-tenant-a
+# no vault sub-fields exist; Vault is a black box, convention-addressed
 ```
 
 ---

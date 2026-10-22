@@ -148,68 +148,12 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "vault with address and role is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address: "https://vault.example.com",
-					Role:    "gw-role",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with all fields is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address:             "https://vault.example.com",
-					Mount:               "secret",
-					AuthMethod:          "kubernetes",
-					Role:                "gw-role",
-					KubernetesAuthMount: "kubernetes",
-					TimeoutSecs:         30,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			// HYPERSHELL-369: vault sub-fields are optional; the control plane
-			// fills them from the per-cluster conventions.
-			name:    "vault without config is valid (conventions fill it)",
+			// HYPERSHELL-369: Vault is a black box - credential_driver carries NO per-gateway
+			// Vault coordinates (no address/role/mount/auth), so `type: vault` alone is the
+			// whole contract; the control plane fills everything from the per-cluster
+			// conventions + deployment config.
+			name:    "vault (type only) is valid; no overrides exist",
 			config:  &CredentialDriverConfig{Type: "vault"},
-			wantErr: false,
-		},
-		{
-			name: "vault without address is valid (convention address used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Role: "gw-role"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault without role is valid (convention role used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "https://vault.example.com"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with plaintext non-loopback address is invalid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://vault.example.com:8200"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "vault with http loopback address is valid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://127.0.0.1:8200"},
-			},
 			wantErr: false,
 		},
 		{

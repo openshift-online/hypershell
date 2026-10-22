@@ -37,14 +37,6 @@ func TestEffectiveCredentialDriver_EmptyType(t *testing.T) {
 			t.Errorf("empty-type object should resolve to vault, got %+v", got)
 		}
 	})
-
-	t.Run("empty-type object preserves vault overrides", func(t *testing.T) {
-		in := &CredentialDriverConfig{Type: "", Vault: &VaultCredentialConfig{Role: "custom"}}
-		got := effectiveCredentialDriver(in)
-		if got == nil || got.Vault == nil || got.Vault.Role != "custom" {
-			t.Errorf("expected preserved vault override role=custom, got %+v", got)
-		}
-	})
 }
 
 // TestVaultConventionContract pins the cross-repo Vault contract (review finding:

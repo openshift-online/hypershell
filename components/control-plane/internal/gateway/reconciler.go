@@ -80,7 +80,7 @@ func ReconcileGateway(
 	// the gateway ServiceAccount exists. See openshell-gateway-credentials.spec.md
 	// (Fail Closed When Vault Is Unavailable).
 	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
-		if err := probeVaultReachable(ctx, clientset, nsConfig.Gateway.CredentialDriver); err != nil {
+		if err := probeVaultReachable(ctx, clientset); err != nil {
 			report(ConditionEnvironmentReady, StatusFailed, "Vault credential backend is unreachable")
 			return fmt.Errorf("vault reachability probe failed for %s: %w", nsConfig.Name, err)
 		}
@@ -154,7 +154,7 @@ func ReconcileGateway(
 		// identity (it can manage only openshell-gw/* mounts, never read a secret or
 		// rewrite a policy). Idempotent. Fail closed: a gateway must have its mount before
 		// it runs. See openshell-gateway-credentials.spec.md (Provider Credential Isolation).
-		if err := EnsureVaultTenantMount(ctx, clientset, opts, nsConfig.Name, nsConfig.Gateway.CredentialDriver); err != nil {
+		if err := EnsureVaultTenantMount(ctx, clientset, opts, nsConfig.Name); err != nil {
 			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend mount could not be provisioned")
 			return fmt.Errorf("ensure vault tenant mount for %s: %w", nsConfig.Name, err)
 		}
@@ -181,7 +181,7 @@ func ReconcileGateway(
 	// before it advances to Running. Fail closed + retry on denial. See
 	// openshell-gateway-credentials.spec.md (Fail Closed When Vault Is Unavailable).
 	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
-		if err := probeVaultAuth(ctx, clientset, nsConfig.Name, nsConfig.Gateway.CredentialDriver); err != nil {
+		if err := probeVaultAuth(ctx, clientset, nsConfig.Name); err != nil {
 			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend rejected the gateway identity")
 			return fmt.Errorf("vault auth probe failed for %s: %w", nsConfig.Name, err)
 		}

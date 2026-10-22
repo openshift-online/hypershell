@@ -88,10 +88,16 @@ type GatewayConfig struct {
 	CredentialDriver    *CredentialDriverConfig `yaml:"credentialDriver"`
 }
 
+// CredentialDriverConfig selects the provider-credential backend. Vault is
+// convention-addressed and is a BLACK BOX to users: there are deliberately NO
+// per-gateway Vault coordinate overrides (address/role/mount/auth), so a gateway can
+// never point itself at a different Vault, assume a different Vault identity, or choose
+// another tenant's mount. Non-standard topologies are handled by control-plane
+// deployment config (GATEWAY_VAULT_* env), not per-gateway API fields. See
+// openshell-gateway-credentials.spec.md (HYPERSHELL-369).
 type CredentialDriverConfig struct {
 	Type              string                   `yaml:"type" json:"type"`
 	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
-	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
 }
 
 // Vault credential-driver conventions (HYPERSHELL-369). A gateway resolved to the
@@ -187,15 +193,6 @@ func VaultCASource() (namespace, name string) {
 
 type KubernetesSecretsConfig struct {
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
-}
-
-type VaultCredentialConfig struct {
-	Address             string `yaml:"address" json:"address"`
-	Mount               string `yaml:"mount,omitempty" json:"mount,omitempty"`
-	AuthMethod          string `yaml:"auth_method,omitempty" json:"auth_method,omitempty"`
-	Role                string `yaml:"role" json:"role"`
-	KubernetesAuthMount string `yaml:"kubernetes_auth_mount,omitempty" json:"kubernetes_auth_mount,omitempty"`
-	TimeoutSecs         int    `yaml:"timeout_secs,omitempty" json:"timeout_secs,omitempty"`
 }
 
 type RouteConfig struct {

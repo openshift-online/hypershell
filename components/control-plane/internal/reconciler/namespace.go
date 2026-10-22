@@ -294,7 +294,7 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	// effort and idempotent: a missing mount, or a cluster with no provider Vault, is a no-op
 	// or a logged warning and never blocks the reap.
 	mountCtx, cancelMount := context.WithTimeout(ctx, namespaceOperationTimeout)
-	if err := gateway.DeleteVaultTenantMount(mountCtx, r.client, gateway.ReconcileOpts{ControlPlaneNamespace: r.cpNamespace}, ns.Name, ""); err != nil {
+	if err := gateway.DeleteVaultTenantMount(mountCtx, r.client, gateway.ReconcileOpts{ControlPlaneNamespace: r.cpNamespace}, ns.Name); err != nil {
 		log.Printf("WARN namespace gc: %s: delete vault tenant mount (best-effort): %v", ns.Name, err)
 	}
 	cancelMount()
