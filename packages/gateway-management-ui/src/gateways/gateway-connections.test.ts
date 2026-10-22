@@ -77,11 +77,11 @@ describe("gateway connections", () => {
     // until the fixture is regenerated.
     const rendered = buildOpenShellInstallCommand(gateway);
     expect(rendered).toBeDefined();
-    const installerVersion = gateway.gatewayVersion?.startsWith("v")
-      ? gateway.gatewayVersion
-      : `v${gateway.gatewayVersion}`;
-    const templated = rendered!
-      .split(installerVersion!)
+    if (rendered === undefined) return;
+    const version = gateway.gatewayVersion ?? "";
+    const installerVersion = version.startsWith("v") ? version : `v${version}`;
+    const templated = rendered
+      .split(installerVersion)
       .join("__OPENSHELL_INSTALLER_VERSION__");
     const fixture = readFileSync(
       fileURLToPath(
