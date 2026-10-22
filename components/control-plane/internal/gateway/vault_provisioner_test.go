@@ -49,15 +49,45 @@ func TestVaultClient_EnableKVv2Mount(t *testing.T) {
 		}
 	})
 
-	t.Run("already in use is idempotent", func(t *testing.T) {
+	t.Run("already in use as KV v2 is idempotent", func(t *testing.T) {
 		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"errors":["path is already in use at openshell-gw/openshell-ns/"]}`))
+			switch r.Method {
+			case http.MethodPost:
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"errors":["path is already in use at openshell-gw/openshell-ns/"]}`))
+			case http.MethodGet:
+				// enableKVv2Mount verifies the existing engine is KV v2 before accepting it.
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"data":{"type":"kv","options":{"version":"2"}}}`))
+			default:
+				t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			}
 		}))
 		defer srv.Close()
 		c := newTestVaultClient(t, srv)
 		if err := c.enableKVv2Mount(context.Background(), "tok", "openshell-gw/openshell-ns"); err != nil {
-			t.Fatalf("already-in-use should be a no-op, got %v", err)
+			t.Fatalf("already-in-use KV v2 should be a no-op, got %v", err)
+		}
+	})
+
+	t.Run("already in use as a different engine fails closed", func(t *testing.T) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPost:
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"errors":["path is already in use at openshell-gw/openshell-ns/"]}`))
+			case http.MethodGet:
+				// A KV v1 engine (or anything not KV v2) at the path must be rejected, not reused.
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"data":{"type":"kv","options":{"version":"1"}}}`))
+			default:
+				t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			}
+		}))
+		defer srv.Close()
+		c := newTestVaultClient(t, srv)
+		if err := c.enableKVv2Mount(context.Background(), "tok", "openshell-gw/openshell-ns"); err == nil {
+			t.Fatal("expected a non-KV-v2 existing mount to fail closed, got nil")
 		}
 	})
 
@@ -142,6 +172,7 @@ func fakeClientsetWithToken(t *testing.T, objs ...runtime.Object) (*k8sfake.Clie
 // enables (then deletes) the per-tenant mount at openshell-gw/<namespace>.
 func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 	var enabled, disabled, loggedIn atomic.Bool
+	var revoked atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/kubernetes/login":
@@ -156,6 +187,10 @@ func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v1/sys/mounts/openshell-gw/openshell-acme":
 			disabled.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/token/revoke-self":
+			// The provisioner revokes its short-lived token after each mount op.
+			revoked.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -183,6 +218,11 @@ func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 	if !disabled.Load() {
 		t.Fatal("expected mount disable to be called")
 	}
+	// Each provisioner op revokes its token after use (amarin review): one for ensure, one
+	// for delete.
+	if got := revoked.Load(); got != 2 {
+		t.Errorf("expected 2 token revocations (ensure + delete), got %d", got)
+	}
 }
 
 // TestIsVaultBacked locks the contract the delete path depends on: a gateway stored with NO
@@ -191,19 +231,27 @@ func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 // CredentialDriver skipped mount deletion (amarin review).
 func TestIsVaultBacked(t *testing.T) {
 	cases := []struct {
-		name string
-		json string
-		want bool
+		name    string
+		json    string
+		want    bool
+		wantErr bool
 	}{
-		{"empty (NULL default) is vault-backed", "", true},
-		{"empty-type object is vault-backed", `{}`, true},
-		{"explicit vault is vault-backed", `{"type":"vault"}`, true},
-		{"kek-db is not vault-backed", `{"type":"kek-db"}`, false},
-		{"kubernetes-secrets is not vault-backed", `{"type":"kubernetes-secrets"}`, false},
+		{"empty (NULL default) is vault-backed", "", true, false},
+		{"empty-type object is vault-backed", `{}`, true, false},
+		{"explicit vault is vault-backed", `{"type":"vault"}`, true, false},
+		{"kek-db is not vault-backed", `{"type":"kek-db"}`, false, false},
+		{"kubernetes-secrets is not vault-backed", `{"type":"kubernetes-secrets"}`, false, false},
+		// A malformed stored driver must surface an error, not be silently treated as the
+		// vault default (amarin review): callers log or skip instead of probing/deleting.
+		{"malformed JSON returns an error", `{"type":`, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := IsVaultBacked(tc.json); got != tc.want {
+			got, err := IsVaultBacked(tc.json)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("IsVaultBacked(%q) err = %v; wantErr %v", tc.json, err, tc.wantErr)
+			}
+			if got != tc.want {
 				t.Errorf("IsVaultBacked(%q) = %v; want %v", tc.json, got, tc.want)
 			}
 		})

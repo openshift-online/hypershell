@@ -383,7 +383,10 @@ non-functional.
     NOT mark the gateway `Running`, and SHALL return the error so the reconcile retries.
 - **At runtime:** a later Vault outage SHALL move the gateway to `Degraded` through the
   existing health reconciler (see [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md)),
-  recoverable without recreation once Vault returns.
+  recoverable without recreation once Vault returns. Because every Vault-backed gateway
+  shares the single convention Vault address (Vault is a black box with no per-gateway
+  overrides), the health reconciler SHALL probe reachability at most **once per sweep** and
+  apply the cached result to all vault-backed gateways, rather than probing per gateway.
 - **Observability:** the control plane SHALL expose a named, dashboard-visible signal for
   whether a gateway's Vault backend is reachable, so an operator can distinguish
   Vault-caused failures from other causes.
@@ -516,7 +519,14 @@ and **cannot rewrite the isolation boundary**; its worst case is to create or de
 under the prefix (a bounded denial of service, since the control plane can already delete a
 whole gateway). The control plane authenticates to this role with a `vault`-audience token it
 mints for its **own** ServiceAccount via the Kubernetes TokenRequest API, so no static admin
-credential is stored or rotated.
+credential is stored or rotated. It **revokes** this short-lived provisioner token (and the
+gateway-identity probe token) via `auth/token/revoke-self` immediately after use, so live token
+leases do not accumulate across reconciles in a fail-closed retry loop.
+
+Mount creation is idempotent but **type-checked**: when the per-tenant path already exists, the
+control plane reads `sys/mounts/<path>` and accepts it only if it is a KV **v2** engine. A path
+occupied by a different engine (KV v1, a leftover, or a manual setup) fails closed at provision
+rather than letting the gateway break at runtime when it writes KV v2 data paths.
 
 Both Vault roles are additionally bound by a **namespace selector**, a second independent
 isolation layer on top of the templated/mounts-only policies: the gateway role admits only
@@ -554,6 +564,20 @@ application layer were bypassed).
 - AND it SHALL NOT grant any capability on a `data/` or `metadata/` secret path
 - AND it SHALL NOT grant write on any ACL policy (`sys/policies/acl/*`) or auth role (`auth/*/role/*`)
 
+#### Scenario: OSG-CRED-10.03 -- Existing per-tenant mount is accepted only if it is KV v2
+
+- GIVEN the per-tenant path `openshell-gw/<namespace>` already exists in Vault
+- WHEN the control plane ensures the mount at provision
+- THEN it SHALL read `sys/mounts/openshell-gw/<namespace>` and treat the mount as ready only if it is a KV v2 engine
+- AND it SHALL fail closed when the path is occupied by any other engine (for example KV v1)
+
+#### Scenario: OSG-CRED-10.04 -- Provisioner and probe tokens are revoked after use
+
+- GIVEN the control plane logs in to mint a provisioner token (mount ensure/delete) or a gateway-identity probe token
+- WHEN the operation completes
+- THEN the control plane SHALL revoke the token via `auth/token/revoke-self`
+- AND a revoke failure SHALL be non-fatal (the token is short-lived and expires on its own)
+
 ---
 
 ### Requirement: OSG-CRED-11 -- Provider Credential Lifecycle on Deletion
@@ -570,10 +594,18 @@ removes every provider-credential entry the gateway stored, in one operation, wi
 enumerate the entries or hold any handle. The control plane therefore leaves no reachable and
 no dead provider-secret storage behind, and records no credential orphan: clean mount deletion
 is the expected steady-state outcome of deleting a gateway. Mount deletion is best-effort and
-idempotent - if it fails (for example Vault is unreachable at teardown), the control plane
-SHALL surface it as a non-fatal signal and a later reconcile retries; a left-behind mount holds
-only entries that are already unreferenced (the gateway database is gone) and un-listable from
-any tenant identity.
+idempotent.
+
+A failed mount deletion (for example Vault is permanently unreachable or decommissioned at
+teardown, or the provisioner login is denied) SHALL **not** pin the delete tombstone: the
+control plane SHALL record a durable `VaultTenantMount` orphan for operator reclaim and
+**complete** the gateway deletion, exactly as it does for other permanent cleanup failures in
+the same path (for example a deconfigured Keycloak provisioner). A left-behind mount holds only
+entries that are already unreferenced (the gateway database is gone) and un-listable from any
+tenant identity, so retrying the delete forever would pin the tombstone for no isolation
+benefit. The stored `credential_driver` is parsed before reclaim; a **malformed** stored driver
+is NOT assumed to be Vault-backed - the control plane records a `VaultTenantMount` orphan and
+completes the deletion rather than probing or mount-deleting on a value it cannot parse.
 
 There is no audit-retention exception: if an audit trail is required, it comes from Vault's
 own audit log (which records that an access happened, never the value).
@@ -584,8 +616,14 @@ own audit log (which records that an access happened, never the value).
 - WHEN the Gateway is deleted
 - THEN the control plane SHALL remove the gateway namespace, ServiceAccount and database
 - AND it SHALL delete the gateway's per-tenant KV mount `openshell-gw/<namespace>` through the scoped provisioner identity, removing every entry in one operation
-- AND it SHALL NOT record a `VaultCredentialPath` orphan
-- AND a failed mount deletion SHALL be a non-fatal signal that a later reconcile retries
+- AND it SHALL NOT record a `VaultTenantMount` orphan
+
+#### Scenario: OSG-CRED-11.02 -- Mount deletion failure does not block the delete
+
+- GIVEN a Vault-backed Gateway whose per-tenant mount cannot be deleted (Vault unreachable/decommissioned, or provisioner login denied)
+- WHEN the Gateway is deleted
+- THEN the control plane SHALL record a durable `VaultTenantMount` orphan for operator reclaim
+- AND it SHALL complete the gateway deletion rather than retrying the mount delete indefinitely
 
 ---
 

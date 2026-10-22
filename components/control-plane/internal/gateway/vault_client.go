@@ -92,8 +92,11 @@ func (c *vaultClient) health(ctx context.Context) error {
 
 // enableKVv2Mount enables a KV version 2 secrets engine at mountPath, using the given
 // (provisioner) token. Idempotent: an already-mounted path (Vault "path is already in
-// use") is treated as success, so a re-reconcile is a no-op. The token's policy is
-// expected to allow only sys/mounts/<prefix>/*, so this cannot touch other mounts.
+// use") is accepted ONLY after verifying the existing mount is actually KV v2, so a
+// re-reconcile is a no-op but a path occupied by a different engine (KV v1, a leftover,
+// or a manual setup) fails closed here instead of letting the gateway break at runtime
+// when it writes KV v2 data paths. The token's policy is expected to allow only
+// sys/mounts/<prefix>/*, so this cannot touch other mounts.
 func (c *vaultClient) enableKVv2Mount(ctx context.Context, token, mountPath string) error {
 	payload, _ := json.Marshal(map[string]interface{}{
 		"type":    "kv",
@@ -108,10 +111,69 @@ func (c *vaultClient) enableKVv2Mount(ctx context.Context, token, mountPath stri
 	case code >= 200 && code < 300:
 		return nil
 	case code == http.StatusBadRequest && bytes.Contains(body, []byte("already in use")):
-		return nil // idempotent: the mount already exists
+		// Idempotent only if the existing engine is KV v2; otherwise fail closed.
+		return c.verifyKVv2Mount(ctx, token, mountPath)
 	default:
 		return fmt.Errorf("enable vault mount %s: HTTP %d", mountPath, code)
 	}
+}
+
+// verifyKVv2Mount confirms an existing mount at mountPath is a KV version 2 secrets
+// engine. It is called when enableKVv2Mount finds the path already in use, so a path
+// occupied by KV v1 or a different engine is rejected rather than silently accepted.
+func (c *vaultClient) verifyKVv2Mount(ctx context.Context, token, mountPath string) error {
+	url := fmt.Sprintf("%s/v1/sys/mounts/%s", c.address, strings.Trim(mountPath, "/"))
+	code, body, err := c.do(ctx, http.MethodGet, url, token, nil)
+	if err != nil {
+		return fmt.Errorf("verify vault mount %s: %w", mountPath, err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("verify vault mount %s: HTTP %d", mountPath, code)
+	}
+	// GET sys/mounts/<path> returns the mount's config either at the top level (newer
+	// Vault wraps it under "data"); accept either shape.
+	var out struct {
+		Type    string `json:"type"`
+		Options struct {
+			Version string `json:"version"`
+		} `json:"options"`
+		Data struct {
+			Type    string `json:"type"`
+			Options struct {
+				Version string `json:"version"`
+			} `json:"options"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("verify vault mount %s: unparseable response: %w", mountPath, err)
+	}
+	engine, version := out.Type, out.Options.Version
+	if engine == "" {
+		engine, version = out.Data.Type, out.Data.Options.Version
+	}
+	if engine != "kv" || version != "2" {
+		return fmt.Errorf("vault mount %s already exists but is not KV v2 (type=%q version=%q); refusing to reuse", mountPath, engine, version)
+	}
+	return nil
+}
+
+// revokeSelf revokes the given Vault token via auth/token/revoke-self so a short-lived
+// provisioner/probe token does not linger as a live lease until its TTL ends. Best-effort:
+// a revoke failure is returned for the caller to log but is not fatal to the operation the
+// token already completed. The default policy grants every token revoke-self.
+func (c *vaultClient) revokeSelf(ctx context.Context, token string) error {
+	if token == "" {
+		return nil
+	}
+	url := fmt.Sprintf("%s/v1/auth/token/revoke-self", c.address)
+	code, _, err := c.do(ctx, http.MethodPost, url, token, nil)
+	if err != nil {
+		return fmt.Errorf("revoke vault token: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("revoke vault token: HTTP %d", code)
+	}
+	return nil
 }
 
 // disableMount disables (deletes) the secrets engine at mountPath, using the given

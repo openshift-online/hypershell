@@ -375,7 +375,6 @@ func RecordSandboxLifetime(ctx context.Context, clusterID, namespace string, lif
 	))
 }
 
-// RecordReconcileError increments the reconcile error counter.
 // RecordGatewayVaultUnreachable counts a health observation where a vault-backed
 // gateway's provider Vault was unreachable (the dashboard-visible signal that lets an
 // operator distinguish Vault-caused Degraded gateways from other causes). Cluster-level
@@ -389,6 +388,7 @@ func RecordGatewayVaultUnreachable(ctx context.Context, clusterID string) {
 	))
 }
 
+// RecordReconcileError increments the reconcile error counter.
 func RecordReconcileError(ctx context.Context, kind string) {
 	if reconcileErrors == nil {
 		return

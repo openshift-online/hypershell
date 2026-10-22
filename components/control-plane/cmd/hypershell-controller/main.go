@@ -222,15 +222,6 @@ func main() {
 		}
 	}
 
-	// The Gateway Exposure port decouples route-address resolution and readiness
-	// observation from the concrete ingress backend. Select the adapter by the
-	// SAME effective ingress mode the reconciler uses to emit ingress resources
-	// (gateway.IngressMode), not by raw CRD presence: IBM Cloud ROKS ships the
-	// Gateway API CRDs but runs Route mode, so keying off CRD presence would wire
-	// the Gateway API readiness observer for a gateway that is actually exposed
-	// through an OpenShift Route -- leaving it stuck in Provisioning forever
-	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
-	// routed gateways are gated on Deployment readiness alone.
 	// Label this control-plane namespace so the per-cluster provider Vault's
 	// provisioner-role namespace selector admits it (HYPERSHELL-369). Best-effort: if it
 	// fails, per-tenant mount provisioning fails closed later with a clear error.
@@ -240,6 +231,15 @@ func main() {
 		}
 	}
 
+	// The Gateway Exposure port decouples route-address resolution and readiness
+	// observation from the concrete ingress backend. Select the adapter by the
+	// SAME effective ingress mode the reconciler uses to emit ingress resources
+	// (gateway.IngressMode), not by raw CRD presence: IBM Cloud ROKS ships the
+	// Gateway API CRDs but runs Route mode, so keying off CRD presence would wire
+	// the Gateway API readiness observer for a gateway that is actually exposed
+	// through an OpenShift Route -- leaving it stuck in Provisioning forever
+	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
+	// routed gateways are gated on Deployment readiness alone.
 	// See specs/platform/openshell-gateway-routing.spec.md.
 	var exposurePort exposure.Port
 	if clientset != nil && k8sConfig != nil {

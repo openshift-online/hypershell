@@ -334,19 +334,33 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// Delete the gateway's per-tenant Vault KV mount (openshell-gw/<namespace>),
 			// which removes every provider-credential entry it held in one operation,
 			// through the control plane's scoped provisioner identity (HYPERSHELL-369).
-			// Best-effort and idempotent: on failure record a durable orphan and aggregate
-			// the error so the delete-reconcile retries; a left-behind mount holds only
-			// unreferenced, un-listable entries (the gateway database is already dropped).
 			// See openshell-gateway-credentials.spec.md (Provider Credential Lifecycle on Deletion).
 			//
 			// Use the nil-safe getter, NOT a `CredentialDriver != nil` guard: a gateway created
 			// with no credential_driver is stored as NULL yet still resolves to vault (the flat
 			// default), so it has an openshell-gw/<ns> mount to reclaim. IsVaultBacked("") is true.
-			if gateway.IsVaultBacked(gw.GetCredentialDriver()) {
+			// A malformed stored driver is NOT assumed to be vault (it records an orphan instead).
+			vaultBacked, driverErr := gateway.IsVaultBacked(gw.GetCredentialDriver())
+			switch {
+			case driverErr != nil:
+				// The stored credential_driver could not be parsed, so we cannot assert the
+				// gateway was Vault-backed. Record a durable orphan for operator reclaim and
+				// let the delete proceed rather than pinning the tombstone on a value we do
+				// not understand.
+				log.Printf("WARN gateway %s: cannot determine credential driver during deletion (%v); skipping Vault mount reclaim", event.ResourceID, driverErr)
+				opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
+					fmt.Sprintf("stored credential_driver could not be parsed (%v); if this gateway was Vault-backed, mount %s may remain", driverErr, gateway.VaultMountForNamespace(namespace)))
+			case vaultBacked:
 				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace); err != nil {
+					// Orphan-only, like the other permanent-failure cleanups in this function
+					// (a deconfigured Keycloak provisioner above): a failed mount delete (Vault
+					// unreachable or decommissioned, provisioner login denied) must NOT pin the
+					// delete tombstone forever. Record a durable orphan for operator reclaim and
+					// complete the deletion; the gateway database is already dropped, so a
+					// left-behind mount holds only unreferenced, un-listable entries.
+					log.Printf("WARN gateway %s: per-tenant Vault mount %s could not be deleted (%v); recording orphan and completing deletion", event.ResourceID, gateway.VaultMountForNamespace(namespace), err)
 					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
-						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion; it may remain and the delete will be retried: %v", gateway.VaultMountForNamespace(namespace), err))
-					deleteErrs = append(deleteErrs, fmt.Errorf("delete vault tenant mount for %s: %w", namespace, err))
+						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion and may remain: %v", gateway.VaultMountForNamespace(namespace), err))
 				} else {
 					log.Printf("INFO deleted vault tenant mount for namespace %s", namespace)
 				}

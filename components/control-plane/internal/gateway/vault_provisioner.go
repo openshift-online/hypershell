@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -49,6 +50,7 @@ func EnsureVaultTenantMount(ctx context.Context, clientset kubernetes.Interface,
 	if err != nil {
 		return err
 	}
+	defer revokeVaultToken(ctx, c, token)
 	return c.enableKVv2Mount(ctx, token, VaultMountForNamespace(namespace))
 }
 
@@ -61,5 +63,16 @@ func DeleteVaultTenantMount(ctx context.Context, clientset kubernetes.Interface,
 	if err != nil {
 		return err
 	}
+	defer revokeVaultToken(ctx, c, token)
 	return c.disableMount(ctx, token, VaultMountForNamespace(namespace))
+}
+
+// revokeVaultToken revokes a short-lived provisioner/probe token after use so live
+// leases do not accumulate in a fail-closed retry loop. Best-effort: a revoke failure is
+// logged, never surfaced, because the operation the token performed already succeeded or
+// failed on its own terms. Tokens are short-TTL, so an un-revoked one still expires.
+func revokeVaultToken(ctx context.Context, c *vaultClient, token string) {
+	if err := c.revokeSelf(ctx, token); err != nil {
+		log.Printf("WARN could not revoke vault token after use (it will expire at its TTL): %v", err)
+	}
 }

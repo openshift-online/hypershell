@@ -51,25 +51,33 @@ func probeVaultReachable(ctx context.Context, clientset kubernetes.Interface) er
 	return c.health(ctx)
 }
 
-// ParseCredentialDriver parses a gateway's stored credential_driver JSON (which may be
-// empty) into a config. An empty or unparseable value returns nil, which
-// effectiveCredentialDriver treats as the default (vault).
-func ParseCredentialDriver(s string) *CredentialDriverConfig {
+// ParseCredentialDriver parses a gateway's stored credential_driver JSON into a config.
+// An empty value returns (nil, nil), which effectiveCredentialDriver treats as the
+// default (vault). A non-empty but malformed value returns a non-nil error instead of
+// silently falling back to the default, so a caller can log or skip rather than Vault-probe
+// (and mount-delete) a gateway whose stored driver it could not understand.
+func ParseCredentialDriver(s string) (*CredentialDriverConfig, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil
+		return nil, nil
 	}
 	var c CredentialDriverConfig
 	if err := json.Unmarshal([]byte(s), &c); err != nil {
-		return nil
+		return nil, fmt.Errorf("parse credential_driver: %w", err)
 	}
-	return &c
+	return &c, nil
 }
 
 // IsVaultBacked reports whether a gateway with this stored credential_driver JSON
-// resolves to the vault driver (including the flat default for an empty/absent value).
-func IsVaultBacked(credentialDriverJSON string) bool {
-	return isVaultDriver(effectiveCredentialDriver(ParseCredentialDriver(credentialDriverJSON)))
+// resolves to the vault driver (including the flat default for an empty/absent value). It
+// returns an error when the stored JSON is present but malformed, so callers do not treat
+// an unparseable driver as the Vault default.
+func IsVaultBacked(credentialDriverJSON string) (bool, error) {
+	cfg, err := ParseCredentialDriver(credentialDriverJSON)
+	if err != nil {
+		return false, err
+	}
+	return isVaultDriver(effectiveCredentialDriver(cfg)), nil
 }
 
 // ProbeVaultReachable (exported) runs the unauthenticated reachability check against the
@@ -96,8 +104,12 @@ func probeVaultAuth(ctx context.Context, clientset kubernetes.Interface, namespa
 	if err != nil {
 		return err
 	}
-	if _, err := c.login(ctx, v.KubernetesAuthMount, v.Role, jwt); err != nil {
+	token, err := c.login(ctx, v.KubernetesAuthMount, v.Role, jwt)
+	if err != nil {
 		return err
 	}
+	// Revoke the probe token immediately: it proved the gateway identity can authenticate,
+	// and leaving it live would accumulate leases on every reconcile. Best-effort.
+	revokeVaultToken(ctx, c, token)
 	return nil
 }
