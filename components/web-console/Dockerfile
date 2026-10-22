@@ -42,6 +42,16 @@ COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
 RUN pnpm run build:web
 
+# BFF_SOURCE_MAPS=true recompiles the BFF with embedded source maps so
+# NODE_V8_COVERAGE data maps back to TypeScript in local Kind coverage runs
+# (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
+# Release builds leave it off.
+ARG BFF_SOURCE_MAPS=false
+RUN if [ "${BFF_SOURCE_MAPS}" = "true" ]; then \
+    pnpm --filter @openshift-online/hypershell-web-console-bff exec \
+      tsc --project tsconfig.json --sourceMap --inlineSources; \
+  fi
+
 FROM --platform=linux/${TARGETARCH} build-${TARGETARCH} AS bundle
 
 USER root

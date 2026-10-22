@@ -26,6 +26,7 @@ select.
   - [Updating the rh-trex-ai pin](#updating-the-rh-trex-ai-pin)
   - [Customizing generated code](#customizing-generated-code)
 - [Testing](#testing)
+  - [Coverage](#coverage)
 - [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
   - [Keep or destroy the environment](#keep-or-destroy-the-environment)
 - [Troubleshooting](#troubleshooting)
@@ -355,6 +356,7 @@ build time, so no external dependency checkout is needed.
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset) | Set to `true` to build baseline images from the working tree |
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount a coverage volume (implies `LOCAL_IMAGES=true`). See [Coverage](#coverage). |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
 | `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
@@ -794,6 +796,68 @@ See `specs/platform/e2e-testing.spec.md` for the e2e and performance test
 suites (`make e2e`, `make e2e-performance`), which run against Kind or an
 existing OpenShift cluster. Origin pull-request OpenShift e2e is the
 ephemeral PR environment described below.
+
+### Coverage
+
+`make coverage` runs every test layer and writes one combined report. It
+measures which code the unit tests and the e2e suites run, and merges the
+results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
+
+1. Deploy a Kind cluster with instrumented images:
+
+   ```bash
+   KIND_COVERAGE=true make kind-up
+   ```
+
+   The API server and controller are built with `go build -cover`. The web
+   console BFF is built with source maps. All three write coverage data to a
+   shared volume (`deploy/kind/code-coverage`).
+
+2. Run the tests and build the report:
+
+   ```bash
+   make coverage
+   ```
+
+   This runs, in order:
+   - The Go unit tests (API server, control plane, CLI) with `-coverprofile`.
+     The API server tests start PostgreSQL with testcontainers, like
+     `make test`.
+   - The frontend unit tests with vitest coverage over all source files, not
+     only the files each package's CI gate lists.
+   - `make e2e` and `make e2e-console` against the cluster.
+
+   It then stops the instrumented pods so they write their data, copies it off
+   the Kind node, and starts the pods again.
+
+3. Read the report:
+   - `coverage/report/summary.md`: unit, e2e and combined numbers per
+     component and per Go package.
+   - `coverage/report/go/<component>.html`: line-by-line Go coverage.
+   - `coverage/report/bff-e2e/index.html`: BFF coverage from the e2e run.
+
+A failing test step does not stop the run. The report is still built, and
+`make coverage` exits non-zero at the end. Logs are in `coverage/logs/`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COVERAGE_DIR` | `coverage` | Output directory |
+| `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
+| `COVERAGE_E2E` | `true` | Run `make e2e` and collect the cluster data. Set to `false` for unit tests only (no cluster needed). |
+| `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+
+`make coverage-report` rebuilds the report from the data of the last run.
+
+Notes:
+
+- The console suite opens `https://console.hypershell.localhost` in a browser,
+  so host port 443 must reach the cluster (`make kind-fix-ports`). Without it,
+  set `COVERAGE_CONSOLE_E2E=false`.
+- Generated code (OpenAPI and gRPC clients) is reported separately from
+  hand-written code.
+- Browser-side React code is not measured during e2e.
+- Swapping a component (`make kind-api-server-up` and siblings) with
+  `KIND_COVERAGE=true` keeps it instrumented.
 
 ## Ephemeral OpenShift PR environments
 

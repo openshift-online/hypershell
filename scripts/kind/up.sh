@@ -220,6 +220,14 @@ kube wait --for=condition=available deployment/prometheus-operator -n default --
 success "Infrastructure ready"
 echo ""
 
+# --- Coverage instrumentation (DEV-LOC-18) ---
+# Instrumented images exist only as local builds, so KIND_COVERAGE=true implies
+# LOCAL_IMAGES=true.
+if coverage_enabled && [[ "${LOCAL_IMAGES:-}" != "true" ]]; then
+  info "KIND_COVERAGE=true - building images locally (implies LOCAL_IMAGES=true)"
+  LOCAL_IMAGES=true
+fi
+
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
@@ -566,6 +574,11 @@ header "Deploying Components"
 # control plane creates with the hypershell-gateway-database-admin credentials
 # over sslmode=verify-full.
 _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
+# KIND_COVERAGE=true mounts the shared coverage volume and points GOCOVERDIR and
+# NODE_V8_COVERAGE at it (deploy/kind/code-coverage, DEV-LOC-18).
+if coverage_enabled; then
+  _db_overlay_extra+=$'\n  - ../kind/code-coverage'
+fi
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   info "Applying Kind manifests with localhost image refs..."

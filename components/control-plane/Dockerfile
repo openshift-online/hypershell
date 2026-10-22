@@ -43,7 +43,15 @@ COPY components/control-plane/cmd/ components/control-plane/cmd/
 COPY components/control-plane/internal/ components/control-plane/internal/
 
 ARG TARGETARCH
-RUN cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
+# GO_COVERAGE=true builds a coverage-instrumented binary for local Kind runs
+# (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
+# Release builds leave it off.
+ARG GO_COVERAGE=false
+RUN cover_flags=""; \
+  if [ "${GO_COVERAGE}" = "true" ]; then \
+    cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/control-plane/..."; \
+  fi; \
+  cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 # Package Helm chart from the vendored source tree in charts/openshell.
 # The chart source is committed to the repository (no network access needed),
