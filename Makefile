@@ -711,9 +711,10 @@ e2e-console:
 # Combined unit + e2e coverage (specs/platform/local-development.spec.md
 # DEV-LOC-18). Runs the Go and frontend unit tests with coverage, then e2e and
 # e2e-console against a Kind cluster deployed with KIND_COVERAGE=true make
-# kind-up, collects the data the instrumented pods wrote, and merges everything
-# into coverage/report/. COVERAGE_UNIT, COVERAGE_E2E and COVERAGE_CONSOLE_E2E
-# (default true) select the steps.
+# kind-up, plus the hsctl smoke test with a -cover hsctl. It collects the data
+# the instrumented pods and hsctl wrote, and merges everything into
+# coverage/report/. COVERAGE_UNIT, COVERAGE_E2E, COVERAGE_HSCTL_E2E and
+# COVERAGE_CONSOLE_E2E (default true) select the steps.
 .PHONY: coverage
 coverage:
 	@bash scripts/code-coverage/run.sh

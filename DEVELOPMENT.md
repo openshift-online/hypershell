@@ -825,7 +825,12 @@ results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
      `make test`.
    - The frontend unit tests with vitest coverage over all source files, not
      only the files each package's CI gate lists.
-   - `make e2e` and `make e2e-console` against the cluster.
+   - `make e2e` against the cluster.
+   - The `hsctl` smoke test (`tests/e2e/e2e-hsctl.sh`) with an `hsctl` built
+     by `go build -cover`. It writes coverage to a local folder, because
+     `hsctl` runs on your machine, and keeps its login in a temporary config
+     file, so your own `hsctl` login is untouched.
+   - `make e2e-console` against the cluster.
 
    It then stops the instrumented pods so they write their data, copies it off
    the Kind node, and starts the pods again.
@@ -844,6 +849,7 @@ A failing test step does not stop the run. The report is still built, and
 | `COVERAGE_DIR` | `coverage` | Output directory |
 | `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
 | `COVERAGE_E2E` | `true` | Run `make e2e` and collect the cluster data. Set to `false` for unit tests only (no cluster needed). |
+| `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with an instrumented `hsctl` |
 | `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
 
 `make coverage-report` rebuilds the report from the data of the last run.

@@ -82,6 +82,22 @@ class ReportTest(unittest.TestCase):
         report = self.build()
         self.assertIn("| cli | 5 | 0.0% | not run | **0.0%** |", report)
 
+    # The hsctl smoke test adds CLI blocks to the e2e profile.
+    # Verifies: DEV-LOC-18.06
+    def test_cli_shows_e2e_numbers_when_hsctl_data_exists(self):
+        write(self.root, "unit/go/cli.out", profile(
+            f"{P}cli/pkg/oidc/oidc.go:1.1,2.1 5 0",
+            f"{P}cli/cmd/hsctl/login/cmd.go:1.1,2.1 15 0",
+        ))
+        write(self.root, "e2e/go.out", profile(
+            f"{P}cli/cmd/hsctl/login/cmd.go:1.1,2.1 15 1",
+            f"{P}control-plane/cmd/x/main.go:1.1,2.1 5 1",
+        ))
+        report = self.build()
+        self.assertIn("| cli | 20 | 0.0% | 75.0% | **75.0%** |", report)
+        self.assertIn("| cli/cmd/hsctl/login | 15 | 0.0% | 100.0% | 100.0% |", report)
+        self.assertIn("| cli/pkg/oidc | 5 | 0.0% | 0.0% | 0.0% |", report)
+
     def test_writes_merged_profile_per_component(self):
         write(self.root, "unit/go/control-plane.out", profile(f"{P}control-plane/internal/a/a.go:1.1,2.1 4 0"))
         write(self.root, "e2e/go.out", profile(f"{P}control-plane/internal/a/a.go:1.1,2.1 4 7"))
