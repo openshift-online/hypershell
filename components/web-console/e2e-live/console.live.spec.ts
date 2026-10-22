@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import {
   expect,
   test,
@@ -202,7 +205,7 @@ test.describe("live console user journey", () => {
       page.getByRole("link", {
         name: `Open console for ${gatewayName} in a new tab`,
       }),
-    ).toHaveAttribute("href", consoleAddress);
+    ).toHaveAttribute("href", consoleAddress, { timeout: pageTimeout });
 
     const consolePage = await page.context().newPage();
     await consolePage.goto(consoleAddress);
@@ -258,6 +261,48 @@ test.describe("live console user journey", () => {
     });
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
+
+    // E2E-COV-05.01/05.04: the console must render the REAL, version-derived
+    // install command, not a pinned constant. Scrape the exact text the UI hands
+    // the operator by reading the copy button's clipboard payload, then assert it
+    // carries the live reconciled gateway_version. This reads the actual rendered
+    // command, so UI drift (unlike a Go-to-Go comparison) is caught here.
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    const installVersion = gateway?.gateway_version ?? "";
+    expect(installVersion, "gateway reported a reconciled version").not.toBe(
+      "",
+    );
+    const expectedInstallerVersion = installVersion.startsWith("v")
+      ? installVersion
+      : `v${installVersion}`;
+    const copyInstall = page.getByRole("button", {
+      name: "Copy the OpenShell installation command",
+    });
+    await expect(copyInstall).toBeVisible({ timeout: pageTimeout });
+    await copyInstall.click();
+    const renderedInstall = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    // Exact equality, not substrings: the live rendered command must equal the
+    // shared fixture (the same one the Go merge-gate phase asserts against) with
+    // the live installer version substituted. A wrong URL, flag, quoting, or line
+    // would fail this.
+    const fixture = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../tests/e2e/testdata/ui-install-command.golden",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ).replace(/\n$/u, "");
+    const expectedCommand = fixture.replaceAll(
+      "__OPENSHELL_INSTALLER_VERSION__",
+      expectedInstallerVersion,
+    );
+    expect(renderedInstall).toBe(expectedCommand);
   });
 
   test("deletes the gateway from its actions menu", async ({ page }) => {
@@ -276,9 +321,9 @@ test.describe("live console user journey", () => {
       name: `Delete ${gatewayName}?`,
     });
     await dialog.getByRole("button", { name: "Delete gateway" }).click();
-    await expect(
-      page.getByText(`Gateway ${gatewayName} deleted`),
-    ).toBeVisible();
+    await expect(page.getByText(`Gateway ${gatewayName} deleted`)).toBeVisible({
+      timeout: pageTimeout,
+    });
     await expect
       .poll(
         async () =>

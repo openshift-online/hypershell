@@ -598,7 +598,6 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping namespace garbage collection")
 	}
-	ctx := t.Context()
 
 	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
 	// account is revoked, verified, and deleted here (a no-op in identity mode).
@@ -608,33 +607,7 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	gw := s.createGateway(t, "e2e-del-"+s.runID)
 	ns := s.waitGatewayNamespace(t, gw.ID)
 	s.Require().NotEmpty(ns, "gateway namespace")
-	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gw.ID, ns)
-	// The delete-path service-account cleanup barrier (deletion_cleanup.go) holds a
-	// per-gateway lock across the Keycloak cleanup call; under concurrent phase load
-	// it can transiently report 503 "cleanup is unavailable" even though no
-	// service accounts exist for this gateway. That status is the server's own
-	// retry signal, so poll it rather than failing the phase on a transient lock
-	// contention/provisioner hiccup.
-	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
-		status, body, err := s.admin.RawJSON(ctx, http.MethodDelete, "/gateways/"+gw.ID, nil)
-		if err != nil {
-			return false, err
-		}
-		switch status {
-		case http.StatusNoContent, http.StatusOK, http.StatusAccepted:
-			return true, nil
-		case http.StatusServiceUnavailable:
-			s.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gw.ID, body)
-			return false, nil
-		default:
-			return false, fmt.Errorf("delete gateway status %d: %s", status, body)
-		}
-	}), "delete gateway")
-	s.Require().NoError(harness.Poll(ctx, time.Second, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second), func(ctx context.Context) (bool, error) {
-		status, _, err := s.admin.RawJSON(ctx, http.MethodGet, "/gateways/"+gw.ID, nil)
-		return err == nil && status == http.StatusNotFound, nil
-	}), "deleted gateway API record reaches 404")
-	s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
+	s.deleteGatewayAndWaitGC(t, gw.ID, ns)
 
 	// Periodic-reaper path: P1.1 seeded the orphan and started this wait in the
 	// background, overlapping it with P1.2-P1.5 and the P2 fan-out.
@@ -733,6 +706,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().True(found, "second managed cluster %q is registered and selectable", secondName)
 	}
 	s.assertManagedClusterGRPCIdentity(t)
+	t.Run("delete-and-re-register", func(t *testing.T) { s.assertManagedClusterDeleteAndReRegister(t) })
 }
 
 // waitDisruptiveGate blocks until gate exists, which is how
@@ -830,10 +804,11 @@ type gatewayPlacementIntent struct {
 // In particular, cluster_id is server-derived from Placement and must not be
 // sent by callers.
 type gatewayCreateRequest struct {
-	Name      string                 `json:"name"`
-	Placement gatewayPlacementIntent `json:"placement"`
-	Route     string                 `json:"route"`
-	OIDC      string                 `json:"oidc,omitempty"`
+	Name             string                 `json:"name"`
+	Placement        gatewayPlacementIntent `json:"placement"`
+	Route            string                 `json:"route"`
+	OIDC             string                 `json:"oidc,omitempty"`
+	CredentialDriver string                 `json:"credential_driver,omitempty"`
 }
 
 // gatewayCreateRequestForDriver builds the infra-specific create payload used by
@@ -889,15 +864,35 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 // example the readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
 	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
-	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
+	status, created, resp := s.createGatewayRequest(t, body)
+	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))
+	return created
+}
+
+// createGatewayWithCredentialDriver provisions a gateway carrying the given
+// JSON-encoded credential_driver configuration (for example `{"type":"vault"}`).
+func (s *E2ESuite) createGatewayWithCredentialDriver(t *testing.T, name, credentialDriverJSON string) *sdktypes.Gateway {
+	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
+	body.CredentialDriver = credentialDriverJSON
+	status, created, resp := s.createGatewayRequest(t, body)
+	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))
+	return created
+}
+
+// createGatewayRequest issues the create call and returns the status, the
+// decoded gateway (nil on a non-201 status), and the raw response body, so
+// callers can assert either a successful create or a rejection.
+func (s *E2ESuite) createGatewayRequest(t *testing.T, body gatewayCreateRequest) (int, *sdktypes.Gateway, []byte) {
+	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v credential_driver=%s", s.apiHost, body.Name, body.Placement, body.CredentialDriver)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")
-	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))
-
+	if status != http.StatusCreated {
+		return status, nil, resp
+	}
 	var created sdktypes.Gateway
 	s.Require().NoError(json.Unmarshal(resp, &created), "unmarshal created gateway")
 	s.Require().NotEmpty(created.ID, "created gateway id")
-	return &created
+	return status, &created, resp
 }
 
 // gatewayOIDCConfig returns the JSON-encoded gateway OIDC config string. The
@@ -957,6 +952,43 @@ func (s *E2ESuite) requireGatewayRoute(t *testing.T, ref driver.GatewayRef, mess
 		s.dumpGatewayDiagnostics(t, ref.ID, gw)
 	}
 	s.Require().NoError(err, message)
+}
+
+// deleteGatewayAndWaitGC deletes gatewayID, waits for the API record to reach a
+// 404, and (when ns is non-empty) waits for its managed namespace to be
+// garbage-collected. Shared by every phase that owns and tears down a gateway
+// beyond the primary.
+func (s *E2ESuite) deleteGatewayAndWaitGC(t *testing.T, gatewayID, ns string) {
+	ctx := t.Context()
+	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gatewayID, ns)
+	// The delete-path service-account cleanup barrier (deletion_cleanup.go) holds a
+	// per-gateway lock across the Keycloak cleanup call; under concurrent phase load
+	// it can transiently report 503 "cleanup is unavailable" even though no
+	// service accounts exist for this gateway. That status is the server's own
+	// retry signal, so poll it rather than failing the phase on a transient lock
+	// contention/provisioner hiccup.
+	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+		status, body, err := s.admin.RawJSON(ctx, http.MethodDelete, "/gateways/"+gatewayID, nil)
+		if err != nil {
+			return false, err
+		}
+		switch status {
+		case http.StatusNoContent, http.StatusOK, http.StatusAccepted:
+			return true, nil
+		case http.StatusServiceUnavailable:
+			s.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gatewayID, body)
+			return false, nil
+		default:
+			return false, fmt.Errorf("delete gateway status %d: %s", status, body)
+		}
+	}), "delete gateway")
+	s.Require().NoError(harness.Poll(ctx, time.Second, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second), func(ctx context.Context) (bool, error) {
+		status, _, err := s.admin.RawJSON(ctx, http.MethodGet, "/gateways/"+gatewayID, nil)
+		return err == nil && status == http.StatusNotFound, nil
+	}), "deleted gateway API record reaches 404")
+	if ns != "" {
+		s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
+	}
 }
 
 // waitGatewayNamespace waits only until reconciliation has assigned and created
