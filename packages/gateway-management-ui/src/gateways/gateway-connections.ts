@@ -134,17 +134,19 @@ export const sandboxResourceDefaults = {
 /**
  * Default provider profile file for the Vertex AI example used across the
  * connection steps. Keep the provider type in sync with
- * `buildProviderCreateCommand`'s `--type google-vertex-ai`.
+ * `buildProviderCreateCommand`'s `--type google-vertex-ai`, and keep this
+ * literal in sync with `providerProfile` in
+ * components/cli/pkg/gatewayconnect/gatewayconnect.go.
  *
  * See specs/platform/hsctl-gateway-connection.spec.md (CLI-GWC-01) and
- * specs/web-console/architecture.spec.md § WEB-UIEX-05 step 2.
+ * specs/web-console/architecture.spec.md § WEB-UIEX-05 step 1 (one-time setup).
  */
 export const vertexProviderProfileFile = "google-vertex-ai.yaml";
 
 /**
  * Documentation that explains how to obtain and import an OpenShell provider
  * profile for a given provider type (the "command or link that downloads or
- * locates the profile file" required by CLI-GWC-01 / WEB-UIEX-05 step 2).
+ * locates the profile file" required by CLI-GWC-01 / WEB-UIEX-05 step 1).
  */
 export const providerProfileDocsUrl =
   "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles";

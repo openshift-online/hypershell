@@ -80,7 +80,10 @@ func resolveEndpoint(gw gatewayResponse) string {
 
 func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 	const (
-		providerName    = "my-gcp"
+		providerName = "my-gcp"
+		// providerProfile: keep in sync with
+		// packages/gateway-management-ui/src/gateways/gateway-connections.ts
+		// (vertexProviderProfileFile).
 		providerProfile = "google-vertex-ai.yaml"
 		model           = "claude-haiku-4-5"
 		sandboxName     = "mysand"
