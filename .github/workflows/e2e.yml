@@ -28,11 +28,18 @@ name: E2E
 # carries the retainment label, so teardown always runs for it. Fork PRs skip
 # deploy and OpenShift (no per-PR environment).
 #
-# CICD-MRG-06: this whole workflow is not called on merge_group events or on
-# Mergify temporary queue pull requests (tests.yml gates the `e2e` job on the
-# head branch), so E2E and the ephemeral OpenShift environment never run on the
-# merge path; the queue is validated by the cheap required checks only. The Kind
-# job therefore runs the Go E2ESuite (make e2e -> go test TestE2E) alongside the
+# CICD-MRG-06: this workflow is not called on Mergify temporary queue pull
+# requests, so E2E and the ephemeral OpenShift environment never run on the merge
+# path; the queue is validated by the cheap required checks only. The operative
+# suppression lives in tests.yml, which skips the `e2e` job when a same-repo PR's
+# head branch carries Mergify's queue_branch_prefix (`mergify/merge-queue/`, or
+# the legacy `tmp-mergify/merge-queue/`). The `merge_group` guards that also
+# appear in this file are inert vestiges of the former native-merge-queue path:
+# this repo uses Mergify's draft-PR queue, not GitHub's native merge queue, so
+# merge_group never fires here. They are not a guarantee of native-queue support
+# -- the concurrency groups no longer carry a merge_group key, so enabling native
+# merge queue would need those guards revisited, not merely left in place. The
+# Kind job runs the Go E2ESuite (make e2e -> go test TestE2E) alongside the
 # Playwright console suite (tests/e2e/e2e-console.sh) and then the trace
 # verification on every event that does reach it. The OpenShift job runs only the
 # Go E2ESuite: its GitHub-brokered login cannot be completed by a headless
@@ -725,9 +732,9 @@ jobs:
       # plane is down is covered by api-server and control-plane tests instead.
       # Any future Go suite step that stops or restarts the control plane must
       # wait for E2E_DISRUPTIVE_GATE_FILE. E2E_MODE=short applies to the console
-      # suite only. The merge_group branch below is retained defensively: this
-      # workflow is no longer called on merge_group (CICD-MRG-06), so events that
-      # reach it run both suites.
+      # suite only. The merge_group branch below is an inert defensive guard
+      # (merge_group never fires for this repo, see the header); every event that
+      # actually reaches this job runs both suites.
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
@@ -887,14 +894,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Origin-PR deploy of hypershell-ci-pr-<n>, hypershell-ci-main-<short-sha> on
-  # push to main, or hypershell-ci-mq-<short-sha> for a merge queue entry
-  # (ephemeral-pr-environments.spec.md). Per-commit main/merge-queue
+  # Origin-PR deploy of hypershell-ci-pr-<n>, or hypershell-ci-main-<short-sha>
+  # on push to main (ephemeral-pr-environments.spec.md). Per-commit main
   # namespaces mean cancel-in-progress teardown of an older run cannot delete
-  # a newer deploy. Concurrency keys on the PR number, 'main', or the
-  # merge-queue commit SHA, so unrelated runs (including two merge queue
-  # entries validated concurrently) never cancel each other while repeats of
-  # the same target still serialize. Same plan-images / should_run gate as
+  # a newer deploy. Concurrency keys on the PR number or the push-to-main commit
+  # SHA (CICD-MRG-07), so unrelated runs -- including rapid merges to main --
+  # never cancel each other while repeats of the same target still serialize.
+  # Same plan-images / should_run gate as
   # Kind and OpenShift. Runs concurrently with Unit. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
   # and close so those cannot race an in-flight deploy. Kind runs in
   # parallel with this job. Fork PRs skip it (no per-PR environment; a fork
@@ -922,12 +928,11 @@ jobs:
     # CICD-MRG-07: push to main keys on its own SHA so rapid merges each deploy
     # and run their OpenShift E2E to completion instead of cancelling the
     # previous commit's nearly-done run. PR revisions still supersede each other
-    # (PR-number group), and a merge-queue entry keeps its per-commit group.
+    # (PR-number group).
     concurrency:
       group: >-
         pr-env-${{
           github.event.pull_request.number ||
-          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
           (github.event_name == 'push' && format('main-{0}', github.sha)) ||
           'main'
         }}
@@ -1004,12 +1009,11 @@ jobs:
     # CICD-MRG-07: push to main keys on its own SHA so rapid merges each deploy
     # and run their OpenShift E2E to completion instead of cancelling the
     # previous commit's nearly-done run. PR revisions still supersede each other
-    # (PR-number group), and a merge-queue entry keeps its per-commit group.
+    # (PR-number group).
     concurrency:
       group: >-
         pr-env-${{
           github.event.pull_request.number ||
-          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
           (github.event_name == 'push' && format('main-{0}', github.sha)) ||
           'main'
         }}
@@ -1087,7 +1091,7 @@ jobs:
           name: >-
             pr-env-diagnostics-${{
               github.event.pull_request.number ||
-              (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+              (github.event_name == 'push' && format('main-{0}', github.sha)) ||
               'main'
             }}
           path: e2e-diagnostics/

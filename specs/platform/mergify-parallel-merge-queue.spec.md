@@ -136,9 +136,11 @@ The following consumer scopes SHALL be defined:
     the optional harness changes.
 11. **architecture-site** - Site tooling, published architecture sources and
     assets, the architecture site workflow, and frontend toolchain.
-12. **documentation** - Root prose, component READMEs, AGENTS.md, CLAUDE.md,
-    instructions, specification prose, and skill content. Compiled mockups and
-    architecture-site inputs SHALL be excluded.
+12. **documentation** - Prose Markdown anywhere in the tree (the catch-all so no
+    prose file falls through the coverage audit), specification prose, and skill
+    content. Compiled mockups and architecture-site inputs SHALL be excluded. A
+    runtime Markdown file additionally keeps its component scope, so this lane
+    never hides a dependency.
 13. **repository-tooling** - Repository administration, policy and tooling inputs,
     scripts, executable documentation helpers, and dependency management. Markdown
     files SHALL be excluded from this scope. Runtime helpers that affect actual
@@ -279,8 +281,13 @@ a pending or failed check for developer awareness.
 The E2E workflow SHALL suppress the expensive e2e reusable-workflow call on both
 `merge_group` events and Mergify-generated temporary queue pull requests. Mergify
 temporary queue pull requests SHALL be detected by the configured queue branch
-prefix (`mergify/merge-queue/`) on the head branch of pull requests in this
-repository. The suppression SHALL NOT skip all drafts or all bot pull requests.
+prefix on the head branch of same-repository pull requests. Detection SHALL match
+Mergify's documented default `queue_branch_prefix` (`mergify/merge-queue/`) and
+its legacy `tmp-mergify/merge-queue/` variant, so a prefix change across Mergify
+versions does not silently re-enable E2E on queue pull requests. The suppression
+SHALL NOT skip all drafts or all bot pull requests. The `merge_group` guard is a
+defensive no-op because this repository uses Mergify's draft-PR queue rather than
+GitHub's native merge queue, so `merge_group` events do not fire.
 
 The suppression SHALL apply to both Kind and OpenShift deployment and suite work.
 Cheap required validation (detection, unit tests) SHALL continue to run on
@@ -308,6 +315,14 @@ temporary queue pull requests.
 - WHEN the `tests.yml` workflow triggers
 - THEN the `e2e` stage SHALL run normally (draft status alone does not suppress
   E2E)
+
+#### Scenario: CICD-MRG-06.04 -- Legacy-prefix queue PR skips E2E
+
+- GIVEN a Mergify temporary queue pull request with head branch
+  `tmp-mergify/merge-queue/main/pr-42`
+- WHEN the `tests.yml` workflow triggers
+- THEN the `e2e` stage SHALL be skipped or its jobs SHALL be suppressed
+- AND the `unit` stage SHALL still run
 
 ### Requirement: CICD-MRG-07 -- Post-Merge E2E Concurrency
 

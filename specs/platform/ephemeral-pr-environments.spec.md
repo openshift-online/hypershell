@@ -671,10 +671,14 @@ labeled for a different instance, including `hyp4`, `hyp5`, and local
 On pull-request `closed` (merge or close) or `enqueued` (the pull request enters
 the merge queue), CI SHALL destroy the environment as the primary path by
 running the same teardown as `make openshift-down`, whether or not the pull
-request was retained. `enqueued` destroys early because `e2e-testing.spec.md`'s
-mq-<sha> environment takes over validation once the pull request is queued, so
-this pull request's own namespace would otherwise sit idle on the cluster for
-the whole queue wait. That destroy SHALL live in a `closed`/`enqueued`-only
+request was retained. `enqueued` would destroy early because once the pull
+request is queued its merged code is validated on push to `main` (E2E is
+suppressed on queue entries, `mergify-parallel-merge-queue.spec.md` CICD-MRG-06),
+so this pull request's own namespace would otherwise sit idle on the cluster for
+the whole queue wait. Under Mergify's draft-PR queue the native `enqueued` action
+does not fire (the same reason `merge_group` does not, CICD-MRG-06), so in
+practice the `closed` (merge) path and the timebox backstop own teardown;
+`enqueued` is retained as a no-op for a possible native-merge-queue future. That destroy SHALL live in a `closed`/`enqueued`-only
 workflow so open and synchronize runs do not list a skipped Destroy check. The
 timebox SHALL remain the backstop for the case where neither event fires or its
 destroy cannot be confirmed; when the destroy step cannot confirm the destroy,

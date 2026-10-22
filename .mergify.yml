@@ -347,18 +347,19 @@ scopes:
           - '**/AGENTS.md'
           - '**/CLAUDE.md'
       documentation:
-        # Prose lane. Compiled mockups and architecture-site inputs are excluded
-        # because they are not prose (CICD-MRG-03).
+        # Prose lane. This is the catch-all for Markdown prose anywhere in the
+        # tree (`**/*.md`) so an ordinary doc file under a tooling directory
+        # (e.g. scripts/lib/NOTES.md) is classified instead of falling through
+        # the CICD-MRG-08 coverage audit. A runtime Markdown file additionally
+        # keeps its component scope (the union), so coverage never hides a
+        # dependency. Compiled mockups and architecture-site inputs are excluded
+        # because they are not prose (CICD-MRG-03); their lanes own them.
         include:
-          - README.md
-          - DEVELOPMENT.md
+          # All Markdown prose at any depth. README/AGENTS/CLAUDE and every
+          # other *.md file are covered by this one pattern; LICENSE is listed
+          # explicitly because it has no extension.
+          - '**/*.md'
           - LICENSE
-          - AGENTS.md
-          - CLAUDE.md
-          - '**/README.md'
-          - '**/AGENTS.md'
-          - '**/CLAUDE.md'
-          - docs/**/*.md
           - specs/**
           - skills/**
         exclude:

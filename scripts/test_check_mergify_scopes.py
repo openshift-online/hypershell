@@ -64,6 +64,35 @@ class ParseMergifyTest(unittest.TestCase):
         self.assertNotIn("title", scopes)
         self.assertNotIn("body", scopes)
 
+    def test_expected_scopes_matches_real_config(self):
+        # main() guards the parsed scope set against EXPECTED_SCOPES; keep that
+        # constant in sync with the committed .mergify.yml (finding 3).
+        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(mod.EXPECTED_SCOPES, frozenset(scopes))
+
+    def test_parses_reindented_block(self):
+        # The parser reads indentation relative to the `files:` / `barrier_files:`
+        # anchors, so shifting the whole scopes block by extra spaces must not
+        # drop scopes (finding 3: no silent partial parse on reindent).
+        text = (
+            "scopes:\n"
+            "      source:\n"
+            "        files:\n"
+            "          api-server:\n"
+            "            include:\n"
+            "              - components/api-server/**\n"
+            "          cli:\n"
+            "            include:\n"
+            "              - components/cli/**\n"
+            "      barrier_files:\n"
+            "        include:\n"
+            "          - .mergify.yml\n"
+        )
+        scopes, barriers = mod.parse_mergify(text)
+        self.assertEqual({"api-server", "cli"}, set(scopes))
+        self.assertEqual(["components/api-server/**"], scopes["api-server"]["include"])
+        self.assertEqual([".mergify.yml"], barriers)
+
     def test_ignores_queue_rule_list_items(self):
         text = (
             "queue_rules:\n"

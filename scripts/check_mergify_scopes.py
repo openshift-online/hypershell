@@ -106,14 +106,19 @@ def parse_mergify(text: str) -> tuple[dict[str, dict[str, list[str]]], list[str]
     """Parse ``scopes.source.files`` and ``scopes.barrier_files.include``.
 
     Returns ``(scopes, barriers)`` where ``scopes`` maps a scope name to its
-    ``include``/``exclude`` lists. Tailored to the known indentation of
-    ``.mergify.yml`` (scope names at 6 spaces, their include/exclude at 8,
-    list items at 10; barrier include at 4, its items at 6).
+    ``include``/``exclude`` lists.
+
+    Indentation is read *relative* to the ``files:`` and ``barrier_files:``
+    anchors rather than from fixed columns, so reindenting or shifting the
+    scopes block as a whole does not silently drop scopes. A two-space step is
+    still assumed, but any structural break produces a scope set that
+    ``main()`` rejects against ``EXPECTED_SCOPES`` instead of passing a partial
+    graph (CICD-MRG-03/08).
     """
     scopes: dict[str, dict[str, list[str]]] = {}
     barriers: list[str] = []
-    in_files = False
-    in_barriers = False
+    files_indent: int | None = None  # indent of the `files:` key
+    barriers_indent: int | None = None  # indent of the `barrier_files:` key
     cur_scope: str | None = None
     section: str | None = None  # 'include' | 'exclude' | 'barrier'
 
@@ -131,42 +136,90 @@ def parse_mergify(text: str) -> tuple[dict[str, dict[str, list[str]]], list[str]
                 scopes[cur_scope][section].append(item)
             continue
 
-        key = stripped[:-1] if stripped.endswith(":") else stripped
+        is_key = stripped.endswith(":")
+        key = stripped[:-1] if is_key else stripped
 
+        # A top-level key ends any scopes/barriers context.
         if indent == 0:
-            in_files = False
-            in_barriers = False
+            files_indent = barriers_indent = None
             cur_scope = None
             section = None
             continue
-        if indent == 4 and key == "files":
-            in_files = True
-            in_barriers = False
+
+        # The `files:` / `barrier_files:` anchors establish the relative frame.
+        if is_key and key == "files":
+            files_indent = indent
+            barriers_indent = None
             cur_scope = None
             section = None
             continue
-        if indent == 2 and key == "barrier_files":
-            in_files = False
-            in_barriers = True
+        if is_key and key == "barrier_files":
+            barriers_indent = indent
+            files_indent = None
             cur_scope = None
             section = None
             continue
-        if in_files and indent == 6 and stripped.endswith(":"):
-            cur_scope = key
-            scopes.setdefault(cur_scope, {"include": [], "exclude": []})
-            section = None
-            continue
-        if in_files and indent == 8 and key in ("include", "exclude"):
-            section = key
-            continue
-        if in_barriers and indent == 4 and key == "include":
-            section = "barrier"
-            continue
-        # Any other key resets the active list but keeps the block context.
-        if indent <= 4:
-            section = None
+
+        if files_indent is not None:
+            if indent <= files_indent:
+                # Left the files block without hitting an anchor above.
+                files_indent = None
+                cur_scope = None
+                section = None
+            elif indent == files_indent + 2 and is_key and key not in (
+                "include",
+                "exclude",
+            ):
+                cur_scope = key
+                scopes.setdefault(cur_scope, {"include": [], "exclude": []})
+                section = None
+                continue
+            elif (
+                cur_scope is not None
+                and indent == files_indent + 4
+                and key in ("include", "exclude")
+            ):
+                section = key
+                continue
+            else:
+                continue
+
+        if barriers_indent is not None:
+            if indent <= barriers_indent:
+                barriers_indent = None
+                section = None
+            elif indent == barriers_indent + 2 and is_key and key == "include":
+                section = "barrier"
+                continue
+            else:
+                continue
 
     return scopes, barriers
+
+
+# The exact dependency-aware consumer scopes the specification defines
+# (CICD-MRG-03). main() asserts the parsed set matches this, so a reindented or
+# restructured .mergify.yml that the heuristic parser reads partially fails
+# loudly on every invocation path (hook, CI, or `make check`) instead of
+# passing a wrong or truncated scope graph. Adding or removing a scope is a
+# deliberate owner decision that must update this set too.
+EXPECTED_SCOPES: frozenset[str] = frozenset(
+    {
+        "api-server",
+        "cli",
+        "control-plane",
+        "sdk-typescript",
+        "sdk-go",
+        "web-console",
+        "fleet-dashboard",
+        "agents",
+        "deployment",
+        "test-infrastructure",
+        "architecture-site",
+        "documentation",
+        "repository-tooling",
+    }
+)
 
 
 def scopes_for(
@@ -224,6 +277,10 @@ SCENARIOS: list[tuple[str, set[str]]] = [
     ("README.md", {"documentation"}),
     ("specs/platform/e2e-testing.spec.md", {"documentation"}),
     ("components/api-server/README.md", {"documentation"}),
+    # Prose Markdown under a tooling directory is the documentation lane, not an
+    # unclassified coverage gap (CICD-MRG-08): `**/*.md` is the documentation
+    # catch-all and repository-tooling excludes Markdown.
+    ("scripts/dev-notes.md", {"documentation"}),
     # Compiled mockups are web-console, not prose.
     ("specs/web-console/mockups/GatewayList.tsx", {"web-console"}),
     # Executable doc helper is repository tooling, not prose-only.
@@ -307,8 +364,27 @@ def main() -> int:
         return 1
 
     scopes, barriers = parse_mergify(mergify_text)
-    if not scopes:
-        print("No scopes parsed from .mergify.yml -- the scope graph is missing.")
+    parsed_names = set(scopes)
+    if parsed_names != EXPECTED_SCOPES:
+        missing = sorted(EXPECTED_SCOPES - parsed_names)
+        unexpected = sorted(parsed_names - EXPECTED_SCOPES)
+        print(
+            "Parsed .mergify.yml scopes do not match the expected scope graph "
+            "(CICD-MRG-03). This usually means the file was reindented or "
+            "restructured and the parser read it partially."
+        )
+        if missing:
+            print(f"- missing scopes: {missing}")
+        if unexpected:
+            print(f"- unexpected scopes: {unexpected}")
+        print(
+            "If this is an intentional scope change, update EXPECTED_SCOPES in "
+            f"{Path(__file__).name}."
+        )
+        return 1
+    empty = sorted(name for name, spec in scopes.items() if not spec["include"])
+    if empty:
+        print(f"Scopes with no include patterns parsed from .mergify.yml: {empty}")
         return 1
     if not barriers:
         print("No barrier_files parsed from .mergify.yml.")
