@@ -258,6 +258,34 @@ test.describe("live console user journey", () => {
     });
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
+
+    // E2E-COV-05.01/05.04: the console must render the REAL, version-derived
+    // install command, not a pinned constant. Scrape the exact text the UI hands
+    // the operator by reading the copy button's clipboard payload, then assert it
+    // carries the live reconciled gateway_version. This reads the actual rendered
+    // command, so UI drift (unlike a Go-to-Go comparison) is caught here.
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    const installVersion = gateway?.gateway_version ?? "";
+    expect(installVersion, "gateway reported a reconciled version").not.toBe(
+      "",
+    );
+    const expectedInstallerVersion = installVersion.startsWith("v")
+      ? installVersion
+      : `v${installVersion}`;
+    const copyInstall = page.getByRole("button", {
+      name: "Copy the OpenShell installation command",
+    });
+    await expect(copyInstall).toBeVisible({ timeout: pageTimeout });
+    await copyInstall.click();
+    const renderedInstall = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    expect(renderedInstall).toContain(
+      `OPENSHELL_VERSION=${expectedInstallerVersion}`,
+    );
+    expect(renderedInstall).toContain("install-openshell.sh");
   });
 
   test("deletes the gateway from its actions menu", async ({ page }) => {

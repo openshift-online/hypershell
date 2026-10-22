@@ -115,14 +115,16 @@ func (s *E2ESuite) p2_11CLIUIParity(t *testing.T) {
 	s.Require().NotEmpty(running.GatewayVersion, "primary gateway has a reconciled gateway_version")
 
 	uiVersion, err := uiInstallerVersion(running.GatewayVersion)
-	s.Require().NoError(err, "derive UI-rendered installer version")
-	suiteVersion, err := suiteInstallerVersion(running.GatewayVersion)
-	s.Require().NoError(err, "derive suite-executed installer version")
-	s.Assert().Equal(uiVersion, suiteVersion, "UI and suite derive the same installer version from gateway_version (E2E-COV-05.04)")
-
-	uiCommand := buildOpenShellInstallCommand(uiVersion)
-	suiteCommand := buildOpenShellInstallCommand(suiteVersion)
-	s.Assert().Equal(uiCommand, suiteCommand, "UI-rendered install command string-equals the command the suite executes (E2E-COV-05.01)")
+	s.Require().NoError(err, "derive installer version from gateway_version")
+	// E2E-COV-05.01/05.04 - that the command the UI RENDERS equals the real
+	// version-derived command - is verified against the LIVE console by the
+	// console.live Playwright scrape ("shows placement and CLI installation
+	// choices"), which reads the exact command the UI hands the operator (via its
+	// copy button). Comparing two copies of the Go port of buildOpenShellInstallCommand
+	// here would be tautological and blind to UI drift, so this phase instead proves
+	// the version end to end: it executes the derived installer and the rendered
+	// provider-create command. The Go port's own correctness is unit-tested in
+	// cli_parity_phases_test.go.
 
 	t.Run("install-produces-matching-cli", func(t *testing.T) {
 		s.assertInstallProducesMatchingCLI(t, uiVersion, running.GatewayVersion)
