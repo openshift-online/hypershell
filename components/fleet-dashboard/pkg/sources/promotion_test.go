@@ -529,9 +529,11 @@ func TestCapabilitiesFromAnnotation(t *testing.T) {
 			want: []string{"provider/aws", "runtime/kata"},
 		},
 		{
+			// strings.Cut splits on the FIRST "/", so a value that itself contains a
+			// slash is kept intact: only "<namespace>/" is consumed.
 			name: "value with internal slash preserved",
-			ann:  map[string]string{capabilitiesAnnotation: "gateway-version/v0.1.2-rhaiv.7"},
-			want: []string{"gateway-version/v0.1.2-rhaiv.7"},
+			ann:  map[string]string{capabilitiesAnnotation: "network/zone/a"},
+			want: []string{"network/zone/a"},
 		},
 	}
 	for _, tc := range tests {
