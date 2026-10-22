@@ -2222,9 +2222,7 @@ function AgentDetailPanel({
             <DescriptionListTerm>
               <FormattedMessage {...messages.columnEnvironment} />
             </DescriptionListTerm>
-            <DescriptionListDescription>
-              {agent.env}
-            </DescriptionListDescription>
+            <DescriptionListDescription>{agent.env}</DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
             <DescriptionListTerm>
@@ -2234,9 +2232,7 @@ function AgentDetailPanel({
               <span
                 style={{
                   color:
-                    agent.replicasOn > 0
-                      ? TONE_COLOR.success
-                      : METRIC_SUBTLE,
+                    agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
                   fontWeight: 700,
                 }}
               >
