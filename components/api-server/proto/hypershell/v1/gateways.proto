@@ -30,6 +30,7 @@ message GatewayPlacementIntent {
 
 message CapabilitySelectorPlacement {
   repeated string selector = 1;
+  repeated string excluded_selector = 2;
 }
 
 message LocalKindPlacement {}

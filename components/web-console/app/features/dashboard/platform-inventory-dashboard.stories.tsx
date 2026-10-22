@@ -8,9 +8,16 @@ import {
 import { IntlProvider } from "react-intl";
 
 import { englishMessages } from "../../i18n/catalog";
+import { routePaths } from "../../../shared/routes";
 
 const stubNavigation: DashboardUiNavigation = {
-  collectionHref: "/",
+  adoptionHref: routePaths.dashboardAdoption,
+  collectionHref: routePaths.gatewayList,
+  dashboardHref: routePaths.dashboard,
+  inventoryHref: routePaths.dashboardInventory,
+  provisioningHref: routePaths.dashboardProvisioning,
+  reliabilityHref: routePaths.dashboardReliability,
+  usageHref: routePaths.dashboardUsage,
   navigate: () => undefined,
 };
 

@@ -7,9 +7,16 @@ import {
   mockAdoptionDashboardMetrics,
   mockAdoptionDashboardUnavailableMetrics,
 } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
+import { routePaths } from "../../../shared/routes";
 
 const navigation = {
-  collectionHref: "/",
+  adoptionHref: routePaths.dashboardAdoption,
+  collectionHref: routePaths.gatewayList,
+  dashboardHref: routePaths.dashboard,
+  inventoryHref: routePaths.dashboardInventory,
+  provisioningHref: routePaths.dashboardProvisioning,
+  reliabilityHref: routePaths.dashboardReliability,
+  usageHref: routePaths.dashboardUsage,
   navigate: () => undefined,
 };
 

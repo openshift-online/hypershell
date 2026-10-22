@@ -387,7 +387,9 @@ describe("web-console BFF with OIDC enabled", () => {
   });
 
   // --- helper: create an auth session cookie with test data ---
-  function authenticateSession(): string {
+  function authenticateSession(
+    roles: readonly string[] = ["admin", "viewer"],
+  ): string {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
       email: "test@example.com",
@@ -395,7 +397,7 @@ describe("web-console BFF with OIDC enabled", () => {
       idToken: "fake-id-token",
       name: "Test User",
       preferredUsername: "testuser",
-      roles: ["admin", "viewer"],
+      roles,
       sub: "user-123",
     });
     // URL-encode the value because @fastify/cookie URL-decodes the Cookie header
@@ -666,6 +668,40 @@ describe("web-console BFF with OIDC enabled", () => {
   // -----------------------------------------------------------------------
 
   // Verifies: SEC-OIDC-04.03
+  it("allows dashboard administrators to read the homepage platform overview", async () => {
+    const cookie = authenticateSession(["platform:admin"]);
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/homepage/platform-overview",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      gatewayStatuses: {
+        available: true,
+        total: 0,
+      },
+      sandboxStatuses: { available: false },
+    });
+  });
+
+  it("rejects non-administrators from the homepage platform overview", async () => {
+    const cookie = authenticateSession();
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/homepage/platform-overview",
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: "Forbidden",
+      statusCode: 403,
+    });
+    expect(apiRequests).toHaveLength(0);
+  });
+
   it("rejects cross-origin POST requests with 403", async () => {
     const cookie = authenticateSession();
     const response = await app.inject({

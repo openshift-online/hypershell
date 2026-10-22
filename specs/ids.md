@@ -34,6 +34,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
 | `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
 
@@ -42,6 +43,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -200,6 +202,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-DATA` | `web-console/architecture.spec.md` | 4 |
 | `WEB-DOCS` | `platform/openshell-install-docs-link.spec.md` | 2 |
 | `WEB-DPLY` | `web-console/architecture.spec.md` | 2 |
+| `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |

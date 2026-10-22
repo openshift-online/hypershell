@@ -220,10 +220,11 @@ func (*GatewayPlacementIntent_CapabilitySelector) isGatewayPlacementIntent_Place
 func (*GatewayPlacementIntent_LocalKind) isGatewayPlacementIntent_Placement() {}
 
 type CapabilitySelectorPlacement struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Selector      []string               `protobuf:"bytes,1,rep,name=selector,proto3" json:"selector,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Selector         []string               `protobuf:"bytes,1,rep,name=selector,proto3" json:"selector,omitempty"`
+	ExcludedSelector []string               `protobuf:"bytes,2,rep,name=excluded_selector,json=excludedSelector,proto3" json:"excluded_selector,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CapabilitySelectorPlacement) Reset() {
@@ -259,6 +260,13 @@ func (*CapabilitySelectorPlacement) Descriptor() ([]byte, []int) {
 func (x *CapabilitySelectorPlacement) GetSelector() []string {
 	if x != nil {
 		return x.Selector
+	}
+	return nil
+}
+
+func (x *CapabilitySelectorPlacement) GetExcludedSelector() []string {
+	if x != nil {
+		return x.ExcludedSelector
 	}
 	return nil
 }
@@ -1884,9 +1892,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x13capability_selector\x18\x01 \x01(\v2*.hypershell.v1.CapabilitySelectorPlacementH\x00R\x12capabilitySelector\x12B\n" +
 	"\n" +
 	"local_kind\x18\x02 \x01(\v2!.hypershell.v1.LocalKindPlacementH\x00R\tlocalKindB\v\n" +
-	"\tplacement\"9\n" +
+	"\tplacement\"f\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
-	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
+	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
+	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
 	"\x12LocalKindPlacement\"\xc8\n" +
 	"\n" +
 	"\aGateway\x12:\n" +

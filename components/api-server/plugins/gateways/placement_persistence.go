@@ -22,13 +22,18 @@ const awaitingPlacementStatus = "Awaiting placement: no connected managed cluste
 // API server re-evaluates it to assign a cluster_id when a matching ManagedCluster
 // becomes available.
 type storedPlacement struct {
-	Selector []string `json:"selector,omitempty"`
-	Mode     *string  `json:"mode,omitempty"`
+	Selector         []string `json:"selector,omitempty"`
+	ExcludedSelector []string `json:"excludedSelector,omitempty"`
+	Mode             *string  `json:"mode,omitempty"`
 }
 
 // marshalPlacement encodes a placement intent for persistence on the Gateway row.
 func marshalPlacement(intent openapi.GatewayPlacementIntent) (*string, error) {
-	stored := storedPlacement{Selector: intent.Selector, Mode: intent.Mode}
+	stored := storedPlacement{
+		Selector:         intent.Selector,
+		ExcludedSelector: intent.ExcludedSelector,
+		Mode:             intent.Mode,
+	}
 	data, err := json.Marshal(stored)
 	if err != nil {
 		return nil, fmt.Errorf("marshal gateway placement: %w", err)
@@ -53,5 +58,9 @@ func storedPlacementToIntent(stored *string) (openapi.GatewayPlacementIntent, bo
 	if len(parsed.Selector) == 0 && parsed.Mode == nil {
 		return openapi.GatewayPlacementIntent{}, false
 	}
-	return openapi.GatewayPlacementIntent{Selector: parsed.Selector, Mode: parsed.Mode}, true
+	return openapi.GatewayPlacementIntent{
+		Selector:         parsed.Selector,
+		ExcludedSelector: parsed.ExcludedSelector,
+		Mode:             parsed.Mode,
+	}, true
 }

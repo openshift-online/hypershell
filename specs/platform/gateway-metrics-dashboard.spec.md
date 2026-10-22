@@ -225,7 +225,7 @@ All user-visible strings SHALL be declared with `defineMessages` and rendered th
 
 ### Requirement: OBS-GMD-07 -- BFF Metrics Route Registration
 
-The BFF SHALL recognise `/dashboard` and `/metrics` as valid SPA shell routes (returning `index.html` for direct navigation and refresh) alongside `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
+The BFF SHALL recognise `/dashboard` and `/metrics` as valid SPA shell routes (returning `index.html` for direct navigation and refresh) alongside `/`, `/gateways`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
 
 When OIDC is enabled, browser navigations to `/metrics` SHALL require dashboard-operator authorization (WEB-OPS-04). Non-admin users SHALL be redirected to `/`. The SPA route module for `/metrics` SHALL wrap `GatewayMetricsDashboard` in the same `RequireDashboardAdmin` guard used by `/dashboard`.
 

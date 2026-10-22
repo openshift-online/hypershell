@@ -451,9 +451,13 @@ components:
         - title: Local Kind placement
           required: [mode]
           not:
-            required: [selector]
+            anyOf:
+              - required: [selector]
+              - required: [excludedSelector]
       properties:
         selector:
+          $ref: '#/components/schemas/GatewayPlacementSelector'
+        excludedSelector:
           $ref: '#/components/schemas/GatewayPlacementSelector'
         mode:
           type: string

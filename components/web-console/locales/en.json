@@ -1509,7 +1509,7 @@
   },
   "app.gateway.connection.copySetupCommand": {
     "defaultMessage": "Copy the one-time setup commands",
-    "description": "Accessible label for copying the gateway registration, provider creation, and model selection commands."
+    "description": "Accessible label for copying the gateway registration, provider profile import, provider creation, and model selection commands."
   },
   "app.gateway.connection.editEditor": {
     "defaultMessage": "Editor",
@@ -1571,6 +1571,22 @@
     "defaultMessage": "Log in and configure",
     "description": "Sub-header for the login and configuration command within one-time setup."
   },
+  "app.gateway.connection.profileImportDocsLink": {
+    "defaultMessage": "View provider profile documentation",
+    "description": "Link text pointing to the OpenShell provider profile documentation."
+  },
+  "app.gateway.connection.profileImportDocsLinkNewTab": {
+    "defaultMessage": "View provider profile documentation (opens in a new tab)",
+    "description": "Accessible name for the provider profile documentation link, including that it opens in a new tab."
+  },
+  "app.gateway.connection.profileImportScopeNote": {
+    "defaultMessage": "The profile import command above uses --global scope. This must match the scope used by the provider create command below (its --global-profile flag here): a scope mismatch reproduces a \"provider profile not found\" error even after the profile has been imported.",
+    "description": "Explains that the provider profile import scope and the provider create scope must match."
+  },
+  "app.gateway.connection.profileImportScopeTitle": {
+    "defaultMessage": "Provider profile scope",
+    "description": "Toggle text for the expandable section explaining provider profile import scope."
+  },
   "app.gateway.connection.sandbox.description": {
     "defaultMessage": "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
     "description": "Supporting text for the create-sandbox connection step."
@@ -1588,7 +1604,7 @@
     "description": "Title for the connect-to-sandbox connection step."
   },
   "app.gateway.connection.setup.description": {
-    "defaultMessage": "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
+    "defaultMessage": "Run these commands in order to register the gateway, import the provider profile, add the Claude on Vertex AI provider, and select the model.",
     "description": "Supporting text for the one-time setup connection step."
   },
   "app.gateway.connection.setup.title": {
@@ -2139,6 +2155,186 @@
     "defaultMessage": "Hello world",
     "description": "Main heading on the initial web-console landing page."
   },
+  "app.homepage.actions.createGateway": {
+    "defaultMessage": "Create a gateway",
+    "description": "Primary action that opens the full gateway creation page."
+  },
+  "app.homepage.actions.dashboard": {
+    "defaultMessage": "Dashboard",
+    "description": "Action that opens the operational dashboard."
+  },
+  "app.homepage.actions.goToDashboard": {
+    "defaultMessage": "Go to your dashboard",
+    "description": "Action in the non-administrator dashboard card."
+  },
+  "app.homepage.actions.quickCreate": {
+    "defaultMessage": "Quick create",
+    "description": "Action that opens the gateway quick-create dialog."
+  },
+  "app.homepage.actions.viewGateways": {
+    "defaultMessage": "View gateways",
+    "description": "Action that opens the gateway list."
+  },
+  "app.homepage.actions.viewMyGateways": {
+    "defaultMessage": "View my gateways",
+    "description": "Action in the gateway health card."
+  },
+  "app.homepage.announcement.example.body": {
+    "defaultMessage": "HyperShell will be unavailable on Oct 24 from 02:00 to 03:00 CT while we upgrade the platform.",
+    "description": "Body of the example homepage announcement."
+  },
+  "app.homepage.announcement.example.title": {
+    "defaultMessage": "Scheduled downtime",
+    "description": "Title of the example homepage announcement."
+  },
+  "app.homepage.dashboard.body": {
+    "defaultMessage": "Track your gateways, sandbox activity, and reliability in one place.",
+    "description": "Body of the non-administrator dashboard card."
+  },
+  "app.homepage.dashboard.title": {
+    "defaultMessage": "Your dashboard",
+    "description": "Title of the non-administrator dashboard card."
+  },
+  "app.homepage.dataUnavailable.body": {
+    "defaultMessage": "Refresh the page to try again.",
+    "description": "Recovery guidance shown when homepage data is unavailable."
+  },
+  "app.homepage.gatewayHealth.allHealthy": {
+    "defaultMessage": "{total, plural, =0 {No gateways yet} one {# gateway is healthy} other {All # gateways are healthy}}",
+    "description": "Alert title for the visible gateway health summary."
+  },
+  "app.homepage.gatewayHealth.attention": {
+    "defaultMessage": "{count} gateways need attention",
+    "description": "Alert title when gateways need attention."
+  },
+  "app.homepage.gatewayHealth.progress": {
+    "defaultMessage": "{healthy} of {total} gateways healthy",
+    "description": "Progress label for healthy gateway count."
+  },
+  "app.homepage.gatewayHealth.title": {
+    "defaultMessage": "Gateway health",
+    "description": "Title of the gateway health card."
+  },
+  "app.homepage.gatewayHealth.unavailable": {
+    "defaultMessage": "Gateway status is unavailable",
+    "description": "Alert title when gateway health cannot be loaded."
+  },
+  "app.homepage.learn.cli": {
+    "defaultMessage": "OpenShell CLI",
+    "description": "External link to the OpenShell CLI installation instructions."
+  },
+  "app.homepage.learn.cli.description": {
+    "defaultMessage": "Install and start using the CLI.",
+    "description": "Description for the OpenShell CLI installation link."
+  },
+  "app.homepage.learn.docs": {
+    "defaultMessage": "OpenShell docs",
+    "description": "External link to the OpenShell documentation."
+  },
+  "app.homepage.learn.docs.description": {
+    "defaultMessage": "Get oriented with OpenShell concepts.",
+    "description": "Description for the OpenShell documentation link."
+  },
+  "app.homepage.learn.repository": {
+    "defaultMessage": "HyperShell repo",
+    "description": "External link to the HyperShell repository."
+  },
+  "app.homepage.learn.repository.description": {
+    "defaultMessage": "Explore the source and project history.",
+    "description": "Description for the HyperShell repository link."
+  },
+  "app.homepage.learn.title": {
+    "defaultMessage": "Learn and explore",
+    "description": "Title of the learning links card."
+  },
+  "app.homepage.loading": {
+    "defaultMessage": "Loading",
+    "description": "Accessible label for homepage loading states."
+  },
+  "app.homepage.platformOverview.clusters.progress": {
+    "defaultMessage": "{healthy} of {total} clusters healthy",
+    "description": "Progress label for healthy cluster count."
+  },
+  "app.homepage.platformOverview.clusters.title": {
+    "defaultMessage": "Cluster availability",
+    "description": "Title of the cluster availability section."
+  },
+  "app.homepage.platformOverview.clusters.unavailable": {
+    "defaultMessage": "Unavailable",
+    "description": "Status shown for an unhealthy cluster."
+  },
+  "app.homepage.platformOverview.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Title of the gateway status donut chart."
+  },
+  "app.homepage.platformOverview.gatewaysSubTitle": {
+    "defaultMessage": "gateways",
+    "description": "Center subtitle for the gateway status donut chart."
+  },
+  "app.homepage.platformOverview.sandboxes": {
+    "defaultMessage": "Active sandboxes",
+    "description": "Title of the active sandbox status donut chart."
+  },
+  "app.homepage.platformOverview.sandboxesSubTitle": {
+    "defaultMessage": "sandboxes",
+    "description": "Center subtitle for the active sandbox status donut chart."
+  },
+  "app.homepage.platformOverview.title": {
+    "defaultMessage": "Platform overview",
+    "description": "Title of the administrator platform overview card."
+  },
+  "app.homepage.platformOverview.unavailable": {
+    "defaultMessage": "Platform overview is unavailable",
+    "description": "Alert title when platform overview cannot be loaded."
+  },
+  "app.homepage.quickCreate.body": {
+    "defaultMessage": "Quick create makes a gateway on IBM Cloud public with a generated name. You can rename it after it starts.",
+    "description": "Explanation shown in the gateway quick-create dialog."
+  },
+  "app.homepage.quickCreate.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Cancellation action in the quick-create dialog."
+  },
+  "app.homepage.quickCreate.error": {
+    "defaultMessage": "The gateway could not be created. Retry to generate another unique name.",
+    "description": "Error shown when quick create cannot create a gateway."
+  },
+  "app.homepage.quickCreate.localKindBody": {
+    "defaultMessage": "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
+    "description": "Explanation shown in the local-kind quick-create dialog."
+  },
+  "app.homepage.quickCreate.submit": {
+    "defaultMessage": "Create gateway",
+    "description": "Confirmation action in the quick-create dialog."
+  },
+  "app.homepage.quickCreate.title": {
+    "defaultMessage": "Quick create a gateway",
+    "description": "Title of the gateway quick-create dialog."
+  },
+  "app.homepage.roleLoading.title": {
+    "defaultMessage": "Dashboard",
+    "description": "Neutral title shown while the session role is loading."
+  },
+  "app.homepage.support.description": {
+    "defaultMessage": "Onboarding, access to a gateway, questions, or something broken. We answer in the channel.",
+    "description": "Description for the homepage support channel card."
+  },
+  "app.homepage.support.open": {
+    "defaultMessage": "Open in Slack",
+    "description": "Action that opens the HyperShell Slack channel."
+  },
+  "app.homepage.support.title": {
+    "defaultMessage": "Talk to the team in #forum-hypershell",
+    "description": "Title for the homepage support channel card."
+  },
+  "app.homepage.welcome.body": {
+    "defaultMessage": "HyperShell runs OpenShell gateways across clusters and clouds for you. Choose where your workload belongs and get to a running gateway in just a few steps.",
+    "description": "Primary call-to-action copy on the HyperShell homepage."
+  },
+  "app.homepage.welcome.title": {
+    "defaultMessage": "Pick a gateway. Ship your sandboxes.",
+    "description": "Primary heading on the HyperShell homepage."
+  },
   "app.logout": {
     "defaultMessage": "Log out",
     "description": "Sign-out action in the masthead identity menu."
@@ -2454,6 +2650,14 @@
   "app.page.gateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
+  },
+  "app.page.homepage.description": {
+    "defaultMessage": "Gateway health, quick gateway creation, dashboards, support, and learning resources.",
+    "description": "Browser metadata description for the HyperShell homepage."
+  },
+  "app.page.homepage.title": {
+    "defaultMessage": "HyperShell homepage",
+    "description": "Browser metadata title for the HyperShell homepage."
   },
   "app.page.metrics.description": {
     "defaultMessage": "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",

@@ -15,9 +15,12 @@ name: Tests
 # Within this workflow, unit and e2e are reusable workflows (on:
 # workflow_call) that both depend only on detect-changes, so they run
 # concurrently: e2e's slow cluster setup overlaps the unit stage. The cost is
-# that a SHA whose unit tests fail still spends an e2e run; the Tests CI Gate
-# fails on either stage. e2e does not wait on Checks either; a
-# lint/policy/drift failure alone will not stop e2e from starting.
+# that a SHA whose unit tests fail still spends an e2e run. The Tests CI Gate
+# fails only on the unit stage (CICD-MRG-05): E2E's 10-20 minute runtime is
+# deliberately kept off the required merge path, so a failed or pending E2E
+# never blocks the merge queue even though it still runs and reports its
+# `E2E / <job>` checks. e2e does not wait on Checks either; a lint/policy/drift
+# failure alone will not stop e2e from starting.
 #
 # Change detection runs exactly once here (the detect-changes job) and is
 # passed into each stage as inputs; the stage workflows no longer detect
@@ -27,10 +30,11 @@ name: Tests
 # `Unit / <job>` and (once it runs) `E2E / <job>` checks -- there is no
 # single check named just `Unit`/`E2E`. To give branch protection a stable,
 # always-present required check, the `tests-gate` job below runs with
-# `if: always()`, reads both stages' rolled-up `result` via `needs`, and
-# fails unless detect-changes succeeded and neither stage failed or was
-# cancelled. Because it always runs, it is never left pending by
-# path-filtered skips (a skipped stage still passes the gate), so THIS is
+# `if: always()`, reads the detect-changes and unit rolled-up `result` via
+# `needs` (NOT e2e -- CICD-MRG-05), and fails unless detect-changes succeeded
+# and the unit stage did not fail or get cancelled. Because it always runs, it
+# is never left pending by path-filtered skips (a skipped stage still passes
+# the gate), so THIS is
 # the check to mark required in branch protection alongside checks.yml's own
 # gate job. The two are named distinctly (`Tests CI Gate` here, `Checks CI
 # Gate` there) rather than both plain `CI Gate`: this repo's branch
@@ -62,9 +66,20 @@ permissions:
   checks: read
   pull-requests: write
 
+# CICD-MRG-07: post-merge runs on `main` use a SHA-specific concurrency group
+# and do NOT cancel in progress, so a rapid series of merges cannot cancel an
+# earlier commit's nearly-complete E2E validation -- each pushed commit gets its
+# own run to completion. Pull requests still key on the PR number with
+# cancel-in-progress so a superseded revision's run is cancelled. merge_group
+# keeps the ref-based group (its E2E stage is suppressed below anyway).
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: >-
+    tests-${{
+      github.event.pull_request.number ||
+      (github.event_name == 'push' && format('sha-{0}', github.sha)) ||
+      github.ref
+    }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   detect-changes:
@@ -108,12 +123,32 @@ jobs:
       sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
       web_console: ${{ needs.detect-changes.outputs.web_console }}
 
+  # Runs concurrently with unit (needs only change detection) and is NOT part
+  # of the Tests CI Gate (CICD-MRG-05). CICD-MRG-06: the e2e job below is the
+  # operative E2E suppression for the merge path. It skips this expensive call on
+  # same-repo Mergify temporary queue PRs, whose head branch carries Mergify's
+  # queue_branch_prefix. The default prefix is `mergify/merge-queue/`
+  # (docs.mergify.com/merge-queue/rules/, verified 2026-10-22); the legacy
+  # `tmp-mergify/merge-queue/` variant is matched too so a prefix change across
+  # Mergify versions does not quietly re-enable E2E on queue PRs. The prefix is
+  # trusted only on same-repo PRs so a fork PR cannot self-suppress by spoofing
+  # it. head_ref is empty for push/workflow_dispatch, so ordinary PRs, push to
+  # main, and manual dispatch still run E2E (draft status alone does not
+  # suppress it). The merge_group guard is a defensive no-op: this repo uses
+  # Mergify's draft-PR queue, not GitHub's native merge queue, so merge_group
+  # never fires here. If the prefix were ever wrong the failure is fail-open and
+  # visible (E2E simply runs and reports as checks), never a silent merge break.
+  #
+  # Keep the `id-token: write` grant close under `name: E2E`:
+  # scripts/ci/ephemeral-ci-secrets_test.sh locks that the E2E caller grants it,
+  # so do not reinsert a comment block between the job name and the permissions.
   e2e:
     name: E2E
-    # Runs concurrently with unit: it needs only change detection, so the
-    # slow cluster setup (Kind creation, OpenShift deploy) overlaps the unit
-    # stage instead of waiting on it. A unit failure no longer stops e2e from
-    # starting; it still fails the Tests CI Gate below.
+    if: >-
+      github.event_name != 'merge_group' &&
+      !(github.event.pull_request.head.repo.full_name == github.repository &&
+        (startsWith(github.head_ref, 'mergify/merge-queue/') ||
+         startsWith(github.head_ref, 'tmp-mergify/merge-queue/')))
     needs: detect-changes
     uses: ./.github/workflows/e2e.yml
     permissions:
@@ -133,20 +168,24 @@ jobs:
   # check pending. A stage that was skipped (result 'skipped') passes the
   # gate; only an actual 'failure'/'cancelled' -- or a detect-changes that did
   # not succeed -- fails it.
+  #
+  # CICD-MRG-05: this gate depends only on detect-changes and unit -- NOT e2e.
+  # E2E's 10-20 minute runtime no longer gates the merge path; it still runs as
+  # a stage of this workflow (concurrently with unit) and its result is visible
+  # as `E2E / <job>` checks for developer awareness, but a failed or pending
+  # E2E never blocks the merge queue. A unit failure still fails the gate.
   tests-gate:
     name: Tests CI Gate
     needs:
       - detect-changes
       - unit
-      - e2e
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Verify unit and e2e stages passed
+      - name: Verify unit stage passed
         env:
           DETECT_RESULT: ${{ needs.detect-changes.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
-          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           if [[ "${DETECT_RESULT}" != "success" ]]; then
             echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
@@ -156,8 +195,4 @@ jobs:
             echo "Unit stage did not pass (result: ${UNIT_RESULT})"
             exit 1
           fi
-          if [[ "${E2E_RESULT}" == "failure" || "${E2E_RESULT}" == "cancelled" ]]; then
-            echo "E2E stage did not pass (result: ${E2E_RESULT})"
-            exit 1
-          fi
-          echo "Tests stages OK (unit: ${UNIT_RESULT}, e2e: ${E2E_RESULT})"
+          echo "Tests gate OK (unit: ${UNIT_RESULT}; e2e is not part of the merge gate)"

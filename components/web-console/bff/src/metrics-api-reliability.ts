@@ -7,7 +7,7 @@ import {
 } from "./prometheus-range-query.js";
 
 /**
- * Framework Prometheus histogram scraped from the API server `/metrics`
+ * Framework Prometheus histogram scraped from the API server metrics
  * endpoint (ServiceMonitor job `hypershell-api-server`). Kind does not export
  * OTel `http.server.request.duration` into Prometheus today (no API-server
  * OTEL_EXPORTER_OTLP_ENDPOINT), so the reliability dashboard uses this series.

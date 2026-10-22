@@ -358,7 +358,7 @@ they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
@@ -1541,7 +1541,7 @@ hsctl login --url https://api.example.com --issuer-url https://keycloak.example.
 hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
 
 hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3
+hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0
 ```
 
 

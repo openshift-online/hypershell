@@ -21,6 +21,10 @@ function placementAvailability(
     ["network/vpn", "provider/aws"],
     ["network/public", "provider/ibm"],
     ["network/vpn", "provider/ibm"],
+    ["network/public", "provider/aws", "runtime/kata"],
+    ["network/vpn", "provider/aws", "runtime/kata"],
+    ["network/public", "provider/ibm", "runtime/kata"],
+    ["network/vpn", "provider/ibm", "runtime/kata"],
   ] as const;
   return {
     localKind,
@@ -32,7 +36,16 @@ function placementAvailability(
   };
 }
 
-const availablePlacement = placementAvailability([true, true, true, false]);
+const availablePlacement = placementAvailability([
+  true,
+  true,
+  true,
+  false,
+  false,
+  false,
+  true,
+  false,
+]);
 
 const operations = {
   changeGatewayAccessRole: vi.fn(),
@@ -127,7 +140,26 @@ describe("GatewayCreatePage", () => {
       expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
         placement: {
+          excludedSelector: ["runtime/kata"],
           selector: ["network/public", "provider/ibm"],
+        },
+      });
+    });
+  });
+
+  it("submits an explicit Kata request when Kata is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+    await user.click(screen.getByRole("button", { name: "Advanced options" }));
+    await user.click(screen.getByRole("radio", { name: "Yes, use Kata" }));
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: {
+          selector: ["network/public", "provider/ibm", "runtime/kata"],
         },
       });
     });
@@ -160,7 +192,10 @@ describe("GatewayCreatePage", () => {
     await waitFor(() => {
       expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
-        placement: { selector: ["network/vpn", "provider/aws"] },
+        placement: {
+          excludedSelector: ["runtime/kata"],
+          selector: ["network/vpn", "provider/aws"],
+        },
       });
     });
   });
@@ -185,7 +220,10 @@ describe("GatewayCreatePage", () => {
     await waitFor(() => {
       expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
-        placement: { selector: ["network/vpn", "provider/ibm"] },
+        placement: {
+          excludedSelector: ["runtime/kata"],
+          selector: ["network/vpn", "provider/ibm"],
+        },
       });
     });
   });
@@ -438,7 +476,10 @@ describe("GatewayCreatePage", () => {
     await waitFor(() => {
       expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
-        placement: { selector: ["network/public", "provider/ibm"] },
+        placement: {
+          excludedSelector: ["runtime/kata"],
+          selector: ["network/public", "provider/ibm"],
+        },
       });
     });
   });
