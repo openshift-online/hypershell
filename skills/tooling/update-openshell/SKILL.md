@@ -6,7 +6,8 @@ description: >
   (rhaiv.N tags, published to quay.io/opendatahub/odh-openshell-*); (2) custom builds from
   a specific github.com/NVIDIA/OpenShell upstream branch or commit via the HyperShell build
   agent (for unmerged bug fixes or pre-release validation). Bumps the pinned image versions
-  across the repo, triages release notes for contract-affecting changes, verifies the rendered
+  across the repo, moves the per-gateway console to the newest release of the gateway's
+  release line, triages release notes for contract-affecting changes, verifies the rendered
   gateway config still matches upstream, and folds every lesson back into this skill and the
   specs. Use when a new OpenShell version ships, when asked to "update OpenShell", "bump the
   gateway version", "pull the latest openshell", or to test an unmerged upstream fix.
@@ -139,7 +140,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 |------|----------------|-------|
 | `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`, `OPENSHELL_SANDBOX_IMAGE` | Edit release coordinates first; vendoring derives the workload image from the selected chart, independent of `OPENSHELL_TAG` |
 | `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
-| `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest + comment tag) | Must agree with `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change |
+| `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest) and the release named in its comment | `make sync-openshell-version` stamps the digest from `OPENSHELL_CONSOLE_DIGEST`; edit the comment by hand (Step 3b) |
 | `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE` env vars | Generated pins; run `make sync-openshell-version` |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
@@ -255,7 +256,11 @@ be investigated rather than retaining the old pin silently.
    **Exit condition - compare FULL tags including rhaiv suffix:**
 
    After resolving both versions, compare the full midstream tag strings:
-   - If `latest_midstream_tag == current_pin` (exact string match) → **exit, nothing to update.**
+   - If `latest_midstream_tag == current_pin` (exact string match), resolve the
+     console target (Step 3b). If `OPENSHELL_CONSOLE_DIGEST` already is that
+     release's digest → **exit, nothing to update.** Otherwise run a
+     **console-only update**: Step 3b, then Steps 5, 7 and 8, with the commit
+     `chore(deps): bump OpenShell console to <release>`.
    - If they differ for **any reason** - different base version, different rhaiv patch number,
      or different rhaiv suffix format - → **proceed with the update.**
 
@@ -352,27 +357,62 @@ be investigated rather than retaining the old pin silently.
    grep -r "resources:\|verbs:" charts/openshell/templates/ | grep -v '#'
    ```
 
-3b. **Check the console image.** The console dashboard
-   (`quay.io/gkrumbach07/openshell-dashboard`) has its own tagging scheme and is
-   NOT locked to `OPENSHELL_TAG`. It only needs a bump when the gateway's
-   workspace/sandbox gRPC proto changes (breaking proto changes cause the
-   dashboard BFF to hang loading sandbox lists with no visible error). Check
-   whenever triage (Step 2) flags a proto or gRPC surface change:
+3b. **Bump the console image.** Run this step on every bump, whatever triage
+   found. The per-gateway console is the OpenShell dashboard
+   (`github.com/Gkrumbach07/openshell-dashboard`, image
+   `quay.io/gkrumbach07/openshell-dashboard`). Its version follows the gateway's
+   **release line**, the major.minor of the gateway version (the dashboard's
+   ADR 0005): a dashboard release `vX.Y.N` is built and CI-tested for every
+   gateway `X.Y.x`. The target is the newest dashboard release on the line of
+   the new `OPENSHELL_TAG`:
 
    ```bash
-   # List available console image tags (newest first)
-   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?limit=20" \
-     | python3 -c "import sys,json; [print(t['name'],t.get('manifest_digest','')) for t in json.load(sys.stdin)['tags']]"
+   . ./OPENSHELL_VERSION
+   LINE=$(printf '%s\n' "$OPENSHELL_TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')   # v0.1.5-rhaiv.0 -> 0.1
+   R=repos/Gkrumbach07/openshell-dashboard
+   REL=$(gh api "$R/releases" --jq '.[].tag_name' | grep -E "^v${LINE}\.[0-9]+$" | sort -V | tail -1)
+   TAG=${REL#v}                                       # quay tags drop the v: v0.1.1 -> 0.1.1
+   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?specificTag=$TAG&onlyActiveTags=true" \
+     | jq -r '.tags[0].manifest_digest'
    ```
 
-   When updating, set both files - they must agree:
-   - `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`
-   - `defaultConsoleImage` in `components/control-plane/internal/gateway/config.go`
-     (also update the `sha-XXXXXXX` tag name in the comment on the line above)
+   - **Pin a release, by digest.** Release images carry tags `X.Y.N` and `X.Y`.
+     The `latest`, `sha-<commit>` and `pr-<N>` tags are unreleased `main` and
+     pull-request builds; keep them for manual trials. Name the release in the
+     `defaultConsoleImage` comment in `config.go`, e.g. "Pinned by digest to
+     dashboard release v0.1.1 (gateway line 0.1)".
+   - **No release on the line yet** (a new gateway minor the dashboard has not
+     caught up with): keep the current pin, mark it `needs-decision`, and file an
+     issue. A dashboard from another line shows a compatibility notice and may
+     not work.
+   - **Identify the current pin.** The digest's tags, including tags that have
+     since moved, come from the tag history (page through `has_additional`):
+     `curl -s ".../tag/?limit=100&page=<N>" | jq --arg d <DIGEST> '.tags[] | select(.manifest_digest==$d) | .name'`.
+     Put the dashboard release notes from that version to the target
+     (`gh api $R/releases --jq '.[] | .tag_name, .body'`) in the impact report.
+   - **Check the env contract.** The control plane builds the console Deployment
+     itself (`buildConsoleDeployment` in
+     `components/control-plane/internal/gateway/console.go`). Compare the env it
+     sets with the release's `docs/configuration.md`. A newly required variable,
+     a renamed one, or a changed default for `PORT`, `AUTH_TOKEN_HEADER` or
+     `AUTH_USER_HEADER` is a code change, not a pin bump.
+   - **Write the pin.** Set `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and
+     run `make sync-openshell-version`; it stamps `defaultConsoleImage`, and
+     `make check` fails when the two disagree.
+   - **Trial on one gateway first** (optional, needs a live cluster). On the
+     gateway's cluster run
+     `oc set image deploy/openshell-console -n <gateway-namespace> dashboard=quay.io/gkrumbach07/openshell-dashboard@<digest>`.
+     The control plane restores its pinned image the next time it reconciles
+     that gateway's console, so this is a trial, not a deploy. A good trial has
+     the pod Ready, the BFF log line `openshell-dashboard BFF listening` with
+     `gatewayReleaseLine=<LINE>`, and a sandbox created from the console's
+     Create sandbox form reaching Running.
 
-   Symptom of a stale console image after a proto-breaking bump: the Sandboxes
-   tab shows an infinite loading spinner that never resolves, with no error in the
-   browser console. The gateway itself is healthy - only the BFF gRPC call hangs.
+   A stale console is easy to miss because the gateway stays healthy. After a
+   proto-breaking bump, the Sandboxes tab spins forever with no browser error,
+   because only the BFF's gRPC call hangs. Without a proto break, the console
+   simply lacks every feature added since its build (see the 2026-10-22
+   Learnings entry).
 
 4. **Verify contracts.** For each `needs-decision` item from step 2, check the
    thing it touches:
@@ -423,7 +463,7 @@ does, the item is `needs-decision`:
 | Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` | `manifests/gateway/configmap.yaml`, `internal/gateway/config.go` |
 | Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/base/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |
-| gRPC/proto surface | API server + control plane speak gRPC; console BFF calls gateway gRPC directly for sandbox/workspace ops | `components/api-server/proto/`; also check console image compatibility (Step 3b) when proto changes are in triage |
+| gRPC/proto surface | API server + control plane speak gRPC; console BFF calls gateway gRPC directly for sandbox/workspace ops | `components/api-server/proto/`; the console's release line covers its gateway proto (Step 3b) |
 | Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |
 | PKI / TLS / ingress (Route, cert-manager, Gateway API) | HyperShell hand-rolls per-tenant PKI + ingress | `internal/gateway/` reconciler, ingress specs |
 | Auth (OIDC) | OIDC is the client auth mechanism (no client mTLS) | `ValidateOIDCConfig`, gateway OIDC config |
@@ -441,6 +481,9 @@ Before considering the update done:
 5. [Self-reinforcement](#self-reinforcement) is complete.
 6. `OPENSHELL_SANDBOX_IMAGE` matches the selected chart's workload-image default
    (`make check` verifies this); e2e requests and Kind preload use that entry.
+7. `OPENSHELL_CONSOLE_DIGEST` is the newest dashboard release on the new
+   gateway's release line and the `config.go` comment names that release, or
+   the gap is filed as `needs-decision`.
 
 ## Self-reinforcement
 
@@ -465,6 +508,46 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Console v0.1.1 (2026-10-22, console-only update, no-arg run):** OpenShell
+  stayed at v0.1.5-rhaiv.0, the latest midstream tag. The console moved from
+  `sha-71335e5` to dashboard release v0.1.1
+  (`sha256:880cd6b6ce87faf99d7edd55b660a11248c4c7a3c38438592556b89af13b3f2f`,
+  "tested on 0.1.4", line 0.1). `go build/vet/test` and `make check` pass.
+  - **Step 1 gap (fixed):** the exit rule stopped the run when the OpenShell tag
+    matched, so a stale console was never reached. Step 1 now resolves the
+    console target first and runs a console-only update when the pin differs.
+  - **Step 0:** issue #366's latest human comment still names no version; skipped.
+  - **Env contract:** every console variable the control plane sets (`PORT`,
+    `OPENSHELL_GATEWAY_URL`, `GATEWAY_CA_CERT`, `GATEWAY_CLIENT_CERT`,
+    `GATEWAY_CLIENT_KEY`, `AUTH_*`, `ADMIN_ROLE`, `LOGOUT_URL`) keeps its meaning
+    in v0.1.1, and no new one is required. The dashboard probe is a TCP check, so
+    the new `/api/v1/healthz` route needs no change.
+  - **Trial:** on `amarin-hyp0-v0.1.5` (hyp0-spoke2) the v0.1.1 pod went Ready
+    and logged `gatewayReleaseLine=0.1`; the login redirect works. A signed-in
+    sandbox create from the console was not checked.
+  - **Spec:** `openshell-gateway-console.spec.md` Prerequisites now name the
+    release tags and the release-line rule instead of only `sha-<short>` builds.
+
+- **Skill correction (2026-10-22, stale console):** Step 3b bumped the console
+  only on a breaking proto change, so v0.1.5-rhaiv.0 shipped with `sha-71335e5`,
+  a `main` build from 2026-09-23. That build is older than dashboard releases
+  v0.1.0 and v0.1.1 and 34 commits behind `main`. Live on hyp0
+  (`amarin-hyp0-v0.1.5`), the console worked but lacked everything since the
+  dashboard's OpenShell 0.1.2 parity work, such as the Create sandbox form's
+  advanced options and driver config. The dashboard publishes releases per
+  gateway release line (its ADR 0005), so Step 3b now runs on every bump and pins
+  the newest release of the line by digest. Live findings from the same check,
+  for the next run's triage:
+  - v0.1.5 gateways refuse a caller's sandbox driver config (`openshell sandbox
+    create --driver-config-json`, or the console's driver config field) with
+    "caller driver config is disabled; a gateway administrator must enable
+    allow_driver_config". A plain `sandbox create` and the console's CPU and
+    memory fields work. HyperShell does not set `allow_driver_config`; it is
+    `needs-decision` if users need per-sandbox driver config.
+  - A console-created sandbox and a CLI round trip (create, exec, delete) both
+    work on v0.1.5-rhaiv.0 under Kata, once each node's CRI-O has loaded the Kata
+    runtime handlers (a ROKS cluster setup issue, not a HyperShell one).
 
 - **v0.1.5-rhaiv.0 (2026-10-22, v0.1.3-rhaiv.3 -> v0.1.5-rhaiv.0, no-arg run = latest stable):**
   Pins and chart bumped. `go build/vet/test` and `make check` pass with no code changes.
