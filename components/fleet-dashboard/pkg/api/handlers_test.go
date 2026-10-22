@@ -19,10 +19,23 @@ import (
 type fakeE2E struct {
 	detail *sources.E2ERunDetail
 	err    error
+
+	logs    *sources.E2ELogPage
+	logsErr error
+	// gotBefore and gotLimit record the last RunLogs arguments so a test can assert
+	// the handler forwarded the before cursor and limit it parsed from the query.
+	gotBefore string
+	gotLimit  int
 }
 
 func (f *fakeE2E) RunDetail(context.Context, string) (*sources.E2ERunDetail, error) {
 	return f.detail, f.err
+}
+
+func (f *fakeE2E) RunLogs(_ context.Context, _, before string, limit int) (*sources.E2ELogPage, error) {
+	f.gotBefore = before
+	f.gotLimit = limit
+	return f.logs, f.logsErr
 }
 
 func (f *fakeE2E) Stream(w http.ResponseWriter, _ *http.Request) {
@@ -180,6 +193,85 @@ func TestE2ERunDetailHealthy(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/runs/hub-00/ns/run-1", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+// TestE2ERunLogsPage confirms the paginated logs route serves a page wrapped in
+// the cache snapshot envelope and forwards the before cursor and parsed limit to
+// the source (E2E-LOG-19).
+func TestE2ERunLogsPage(t *testing.T) {
+	fake := &fakeE2E{logs: &sources.E2ELogPage{
+		Entries:    []sources.E2ELogLine{{Sequence: 1, Message: "hello"}},
+		NextCursor: "42",
+		HasMore:    true,
+	}}
+	h := &Handlers{E2E: fake}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1&before=100&limit=150", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if fake.gotBefore != "100" {
+		t.Errorf("before = %q, want 100", fake.gotBefore)
+	}
+	if fake.gotLimit != 150 {
+		t.Errorf("limit = %d, want 150", fake.gotLimit)
+	}
+	var snap cache.Snapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, _ := snap.Data.(map[string]any)
+	if data["nextCursor"] != "42" {
+		t.Errorf("nextCursor = %v, want 42", data["nextCursor"])
+	}
+	if hasMore, _ := data["hasMore"].(bool); !hasMore {
+		t.Error("hasMore should be true")
+	}
+}
+
+// TestE2ERunLogsNotFound confirms the logs route honors the tenant allowlist the
+// same way the detail route does: an unaddressable tenant 404s (E2E-LOG-19.04).
+func TestE2ERunLogsNotFound(t *testing.T) {
+	h := &Handlers{E2E: &fakeE2E{logsErr: sources.ErrRunNotFound}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=other/ns/run-1", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunLogsDegradedDoesNotLeakError confirms a Loki failure on the logs route
+// degrades to a stale 200 without echoing the raw error (E2E-LOG-08/20).
+func TestE2ERunLogsDegradedDoesNotLeakError(t *testing.T) {
+	leaky := errors.New(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range": refused`)
+	h := &Handlers{E2E: &fakeE2E{logsErr: leaky}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded, not blanked)", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "e2e-loki") || strings.Contains(rr.Body.String(), "query_range") {
+		t.Errorf("response leaked internal Loki identity: %s", rr.Body.String())
+	}
+}
+
+// TestE2ERunLogsFeatureOff confirms the logs route reports the feature off when
+// the plane is unconfigured, rather than 404ing (E2E-LOG-01/02).
+func TestE2ERunLogsFeatureOff(t *testing.T) {
+	h := &Handlers{} // E2E nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (feature off)", rr.Code)
 	}
 }
 

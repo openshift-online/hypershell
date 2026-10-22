@@ -7,8 +7,10 @@ import {
 } from "../../domain/promotion";
 import {
   mapE2eRunDetail,
+  mapE2eRunLogPage,
   mapE2eRuns,
   mapE2eStreamEvent,
+  mapE2eStreamLog,
   mapFleet,
   mapInstances,
   mapPromotion,
@@ -580,5 +582,56 @@ describe("mapE2eStreamEvent", () => {
   it("returns null for an unknown event name so the frame is skipped", () => {
     expect(mapE2eStreamEvent({ event: "mystery", sequence: 1 })).toBeNull();
     expect(mapE2eStreamEvent(null)).toBeNull();
+  });
+});
+
+describe("mapE2eRunLogPage", () => {
+  it("maps entries, cursor, and hasMore (E2E-LOG-19)", () => {
+    const page = mapE2eRunLogPage({
+      entries: [
+        { sequence: 1, timestamp: "t1", message: "a" },
+        {
+          sequence: 2,
+          timestamp: "t2",
+          message: "b",
+          stepId: "s",
+          truncated: true,
+        },
+      ],
+      nextCursor: "42",
+      hasMore: true,
+    });
+    expect(page.entries.map((l) => l.sequence)).toEqual([1, 2]);
+    expect(page.entries[1]?.stepId).toBe("s");
+    expect(page.entries[1]?.truncated).toBe(true);
+    expect(page.nextCursor).toBe("42");
+    expect(page.hasMore).toBe(true);
+  });
+
+  it("defaults a stale/empty page to no entries, no cursor, no more", () => {
+    const page = mapE2eRunLogPage(undefined);
+    expect(page.entries).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+    expect(page.hasMore).toBe(false);
+  });
+});
+
+describe("mapE2eStreamLog", () => {
+  it("maps a live log frame into a reduced line (E2E-LOG-21)", () => {
+    const line = mapE2eStreamLog({
+      sequence: 7,
+      timestamp: "t7",
+      stepId: "s",
+      message: "live",
+      truncated: false,
+    });
+    expect(line).not.toBeNull();
+    expect(line?.sequence).toBe(7);
+    expect(line?.message).toBe("live");
+  });
+
+  it("returns null for a missing frame so the stream is not dropped", () => {
+    expect(mapE2eStreamLog(null)).toBeNull();
+    expect(mapE2eStreamLog(undefined)).toBeNull();
   });
 });

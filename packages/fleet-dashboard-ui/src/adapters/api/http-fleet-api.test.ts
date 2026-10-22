@@ -174,9 +174,13 @@ describe("createHttpFleetApi streamE2eRun", () => {
 
     const events: string[] = [];
     const statuses: string[] = [];
+    const logLines: string[] = [];
     const unsubscribe = api.streamE2eRun("tenant-1/ns/run-1", {
       onEvent: (event) => {
         events.push(`${event.event}:${String(event.sequence)}`);
+      },
+      onLog: (line) => {
+        logLines.push(`${String(line.sequence)}:${line.message}`);
       },
       onStatus: (status) => {
         statuses.push(status.state);
@@ -195,9 +199,16 @@ describe("createHttpFleetApi streamE2eRun", () => {
     });
     // A malformed / unknown-name event is isolated, not delivered.
     es.emit({ kind: "event", event: { event: "mystery", sequence: 3 } });
+    // A live log line rides its own `log` frame and reaches onLog, not onEvent
+    // (E2E-LOG-21).
+    es.emit({
+      kind: "log",
+      log: { sequence: 4, timestamp: "2026-01-01T00:00:00Z", message: "hello" },
+    });
     es.emit({ kind: "heartbeat" });
 
     expect(events).toEqual(["step_started:2"]);
+    expect(logLines).toEqual(["4:hello"]);
     expect(statuses).toEqual(["live"]);
 
     unsubscribe();
@@ -213,6 +224,9 @@ describe("createHttpFleetApi streamE2eRun", () => {
     const statuses: string[] = [];
     api.streamE2eRun("tenant-1/ns/run-1", {
       onEvent: () => {
+        /* unused */
+      },
+      onLog: () => {
         /* unused */
       },
       onStatus: (status) => {
@@ -235,6 +249,9 @@ describe("createHttpFleetApi streamE2eRun", () => {
       "tenant-1/ns/run-1",
       {
         onEvent: () => {
+          /* unused */
+        },
+        onLog: () => {
           /* unused */
         },
         onStatus: () => {
