@@ -15,6 +15,7 @@ import {
   mapInstances,
   mapPromotion,
   mapSdlc,
+  mapSdlcAgents,
   mapTopology,
 } from "./wire";
 
@@ -145,6 +146,7 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getTopology: (signal) => getPlane("/topology", mapTopology, signal),
     getInstances: (signal) => getPlane("/instances", mapInstances, signal),
     getSdlc: (signal) => getPlane("/sdlc", mapSdlc, signal),
+    getSdlcAgents: (signal) => getPlane("/sdlc-agents", mapSdlcAgents, signal),
     getE2eRuns: (signal) => getPlane("/e2e/runs", mapE2eRuns, signal),
     getE2eRun: (id, signal) =>
       getPlane(`/e2e/runs/${encodeRunId(id)}`, mapE2eRunDetail, signal),

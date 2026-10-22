@@ -59,7 +59,7 @@ The matrix SHALL at minimum classify the following current state. Navigation and
 deliberate view state (URL-represented unless a documented exception applies):
 active top-level tab; the shared freight-bar selected release bundle (by bundle
 seed, a full release digest falling back to version); map node/gate selection and
-drawer open/closed; map node-detail sub-tab (Details/Bundle/Links); gate-execution
+drawer open/closed; map node-detail sub-tab (Details/Bundle/Agents/Links); gate-execution
 pinned attempt plus Progress/Logs sub-tab, selected step scope, and expanded log
 viewer; Agent SDLC scope multi-select, issue search, selected board card, shipped
 selection, escalations drawer and selected escalation, and expanded buckets/rows;
@@ -243,7 +243,7 @@ copy-link, open-in-new-tab, and Ctrl/Cmd-click work.
 
 The Fleet Map SHALL encode its selected instance/node, promotion gate, or release
 bundle, and whether the details drawer is open. Node-detail sub-tabs (Details,
-Bundle, Links) and any other nested tabs SHALL be addressable. The gate-execution
+Bundle, Agents, Links) and any other nested tabs SHALL be addressable. The gate-execution
 drawer SHALL address its pinned attempt, Progress/Logs sub-tab, selected-step or
 whole-run scope, and expanded log viewer, sharing the e2e execution-detail contract
 (FLT-NAV-11). Map pan, zoom, and reset SHALL default to transient per-session view

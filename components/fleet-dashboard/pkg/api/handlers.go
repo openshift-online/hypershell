@@ -31,6 +31,9 @@ type Handlers struct {
 	Promotion *cache.Source
 	Topology  *cache.Source
 	Instances *cache.Source
+	// SdlcAgents is the SDLC agent runtime telemetry plane (SDLC-AGT spec).
+	// It is unconditional since Prometheus is required config.
+	SdlcAgents *cache.Source
 	// SDLC is the Agent SDLC funnel-visibility plane
 	// (agent-sdlc-visibility-dashboard.spec). It is optional: nil when no source
 	// repository is configured, in which case the route is simply not mounted.
@@ -50,6 +53,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/promotion", h.serve(h.Promotion))
 	mux.HandleFunc("GET /api/topology", h.serve(h.Topology))
 	mux.HandleFunc("GET /api/instances", h.serve(h.Instances))
+	mux.HandleFunc("GET /api/sdlc-agents", h.serve(h.SdlcAgents))
 	if h.SDLC != nil {
 		mux.HandleFunc("GET /api/sdlc", h.serve(h.SDLC))
 	}

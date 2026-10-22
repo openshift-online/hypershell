@@ -5,6 +5,7 @@ import type { E2eRunDetail, E2eRunsData } from "../domain/e2e-run";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
+import type { SdlcAgentsData } from "../domain/sdlc-agents";
 import type { FleetApi, InstancesData, TopologyData } from "./ports";
 import type {
   E2eWorkflowProbe,
@@ -75,12 +76,14 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     logs: [],
     logsTruncated: false,
   };
+  const sdlcAgents: SdlcAgentsData = { envs: [], agents: [] };
   return {
     getFleet: vi.fn().mockResolvedValue(plane(fleet)),
     getPromotion: vi.fn().mockResolvedValue(plane(promotion)),
     getTopology: vi.fn().mockResolvedValue(plane(topology)),
     getInstances: vi.fn().mockResolvedValue(plane(instances)),
     getSdlc: vi.fn().mockResolvedValue(plane(sdlc)),
+    getSdlcAgents: vi.fn().mockResolvedValue(plane(sdlcAgents)),
     getE2eRuns: vi.fn().mockResolvedValue(plane(e2eRuns)),
     getE2eRun: vi.fn().mockResolvedValue(plane(e2eRun)),
     getE2eRunLogs: vi

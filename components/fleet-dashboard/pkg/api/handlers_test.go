@@ -299,6 +299,43 @@ func contains(s, sub string) bool {
 	return false
 }
 
+// TestServeSdlcAgentsColdIs503 confirms the sdlc-agents route returns 503 before
+// its first successful refresh (never-refreshed), distinguishing cold-start from
+// stale (mirroring the SDLC plane behavior).
+func TestServeSdlcAgentsColdIs503(t *testing.T) {
+	cold := cache.NewSource("sdlc-agents", time.Hour, func(context.Context) (any, error) {
+		return nil, context.DeadlineExceeded
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cold.Run(ctx) // one failed refresh: GeneratedAt stays zero
+	h := &Handlers{SdlcAgents: cold}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cold sdlc-agents status = %d, want 503", rr.Code)
+	}
+}
+
+// TestServeSdlcAgentsHealthy confirms a populated sdlc-agents source serves 200.
+func TestServeSdlcAgentsHealthy(t *testing.T) {
+	src := oneShotSource(t, sources.SdlcAgentsData{
+		Envs:   []string{"prod"},
+		Agents: []sources.SdlcAgentMetrics{{Name: "reconciler", Env: "prod"}},
+	})
+	h := &Handlers{SdlcAgents: src}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.
 func TestServeHealthy(t *testing.T) {
 	src := oneShotSource(t, map[string]any{"instances": []string{"alpha", "beta"}})

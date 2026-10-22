@@ -26,11 +26,14 @@ import {
   useFleet,
   usePromotion,
   useSdlc,
+  useSdlcAgents,
   useTopology,
 } from "../query/hooks";
 import { useRouter } from "../routing/router";
 import { useSessionExpired } from "../auth/session-expiry";
 import { buildMapModel } from "../../domain/map/model";
+import type { SdlcAgentMetrics } from "../../domain/sdlc-agents";
+import { agentRowsByEnv } from "../../domain/sdlc-agents";
 import type { FleetData } from "../../domain/fleet";
 import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
@@ -74,6 +77,7 @@ export function App(): React.ReactElement {
   const fleet = useFleet();
   const topology = useTopology();
   const sdlc = useSdlc();
+  const sdlcAgents = useSdlcAgents();
   const e2e = useE2eRuns();
 
   // The URL is the single source of truth for navigation state (FLT-NAV-05):
@@ -105,6 +109,23 @@ export function App(): React.ReactElement {
     () => buildMapModel(promotionData, fleetData, topologyData),
     [promotionData, fleetData, topologyData],
   );
+
+  // Per-cluster SDLC agent rows for the map's Agents tab (SDLC-AGT-11).
+  const sdlcAgentsData = sdlcAgents.data?.data;
+  const agentsByEnvMap = useMemo(
+    () => (sdlcAgentsData ? agentRowsByEnv(sdlcAgentsData) : undefined),
+    [sdlcAgentsData],
+  );
+
+  // Per-agent-name map for the board's column runtime strip (SDLC-AGT-08).
+  const agentByName = useMemo(() => {
+    if (!sdlcAgentsData) return undefined;
+    const m = new Map<string, SdlcAgentMetrics>();
+    for (const a of sdlcAgentsData.agents) {
+      if (!m.has(a.name)) m.set(a.name, a);
+    }
+    return m;
+  }, [sdlcAgentsData]);
 
   // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
   // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
@@ -171,6 +192,7 @@ export function App(): React.ReactElement {
                       topology={topologyData}
                       selectedBundleSeed={selectedBundleSeed}
                       onSelectBundle={onSelectBundle}
+                      agentsByEnv={agentsByEnvMap}
                     />
                   )}
                 </PlaneSection>
@@ -188,6 +210,7 @@ export function App(): React.ReactElement {
                     <AgentSdlcView
                       data={data}
                       selectedBundleSeed={selectedBundleSeed}
+                      agents={agentByName}
                     />
                   )}
                 </PlaneSection>

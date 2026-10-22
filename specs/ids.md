@@ -152,6 +152,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 23 |
 
