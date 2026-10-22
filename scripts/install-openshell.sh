@@ -27,6 +27,14 @@ trap 'exit 1' HUP INT TERM
 case "$version" in
   v[0-9]*.[0-9]*.[0-9]*-*)
     image="quay.io/opendatahub/odh-openshell-cli:${version}"
+    host_os=$(uname -s)
+    case "$host_os" in
+      Linux | Darwin) ;;
+      *)
+        fail "This OpenShell build ($version) is only published as the Linux container image $image; supported installer hosts are Linux and macOS."
+        ;;
+    esac
+
     engine=
     for candidate in podman docker; do
       if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
@@ -36,7 +44,7 @@ case "$version" in
     done
     [ -n "$engine" ] || fail "Start podman or docker to install this downstream OpenShell CLI build ($image)."
 
-    case "$(uname -s)" in
+    case "$host_os" in
       Linux)
         ctr_name="openshell-cli-install-$$"
         "$engine" create --name "$ctr_name" "$image" true >/dev/null 2>&1 || fail "Cannot pull $image."
@@ -79,9 +87,14 @@ tty_flags=
 if [ -t 0 ] && [ -t 1 ]; then
   tty_flags=-it
 fi
+userns_flag=
+if [ "\$engine" = podman ]; then
+  userns_flag=--userns=keep-id
+fi
 
 if [ -d "\$gcloud_config" ]; then
-  exec "\$engine" run --rm \$tty_flags \
+  exec "\$engine" run --rm \
+    \${tty_flags:+"\$tty_flags"} \${userns_flag:+"\$userns_flag"} \
     -e HOME=/home/cli \
     -e CLOUDSDK_CONFIG=/home/cli/.config/gcloud \
     -e OPENSHELL_GATEWAY \
@@ -96,7 +109,8 @@ if [ -d "\$gcloud_config" ]; then
     "\$image" "\$@"
 fi
 
-exec "\$engine" run --rm \$tty_flags \
+exec "\$engine" run --rm \
+  \${tty_flags:+"\$tty_flags"} \${userns_flag:+"\$userns_flag"} \
   -e HOME=/home/cli \
   -e OPENSHELL_GATEWAY \
   -e OPENSHELL_GATEWAY_ENDPOINT \
@@ -108,9 +122,6 @@ exec "\$engine" run --rm \$tty_flags \
   -w "\${PWD}" \
   "\$image" "\$@"
 EOF
-        ;;
-      *)
-        fail "This OpenShell build ($version) is only published as the Linux container image $image; supported installer hosts are Linux and macOS."
         ;;
     esac
     chmod 755 "${work_dir}/openshell"

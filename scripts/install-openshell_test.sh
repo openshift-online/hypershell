@@ -143,6 +143,7 @@ grep -Fq "$TEST_DIR/home/.config/openshell:/home/cli/.config/openshell" "$TEST_D
 grep -Fq "$TEST_DIR/home/.config/gcloud:/home/cli/.config/gcloud:ro" "$TEST_DIR/podman.log"
 grep -Fq "$TEST_DIR/work:$TEST_DIR/work" "$TEST_DIR/podman.log"
 grep -Fq 'quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6' "$TEST_DIR/podman.log"
+grep -Fq -- '--userns=keep-id' "$TEST_DIR/podman.log"
 
 # Restore the native baseline so the failure-atomicity helper below can prove
 # that a missing container engine does not replace an existing installation.
@@ -156,6 +157,9 @@ mkdir -p "$TEST_DIR/bin-empty"
 for tool in sh grep mkdir mktemp rm uname; do
   ln -s "$(command -v "$tool")" "$TEST_DIR/bin-empty/$tool"
 done
+expect_failure env PATH="$TEST_DIR/bin-empty" TEST_OS=Windows \
+  OPENSHELL_VERSION=v0.0.116-rhaiv.6 sh "$ROOT/scripts/install-openshell.sh"
+grep -q 'supported installer hosts are Linux and macOS' "$TEST_DIR/error.log"
 expect_failure env PATH="$TEST_DIR/bin-empty" OPENSHELL_VERSION=v0.0.116-rhaiv.6 sh "$ROOT/scripts/install-openshell.sh"
 grep -q 'Start podman or docker' "$TEST_DIR/error.log"
 
