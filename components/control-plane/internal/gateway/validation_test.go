@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -122,7 +124,7 @@ func TestValidateOIDCConfig(t *testing.T) {
 	}
 }
 
-// Verifies: OSG-CRED-02.01, OSG-CRED-02.02, OSG-CRED-02.03
+// Verifies: OSG-CRED-02.01, OSG-CRED-02.02
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -180,6 +182,36 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			err := ValidateCredentialDriverConfig(tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateCredentialDriverConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-CRED-02.03
+//
+// Vault is a black box: a credential_driver.vault object (or any Vault override key) has no
+// field on CredentialDriverConfig, so it is rejected when the stored driver JSON is decoded
+// with DisallowUnknownFields - the exact decoder the reconciler uses before reconciling. This
+// asserts that contract on the same struct + decoder option the production path uses.
+func TestCredentialDriverRejectsVaultOverride(t *testing.T) {
+	cases := []struct {
+		name    string
+		json    string
+		wantErr bool
+	}{
+		{"vault type only is accepted", `{"type":"vault"}`, false},
+		{"vault.address override is rejected", `{"type":"vault","vault":{"address":"https://vault.example.com:8200"}}`, true},
+		{"vault.role override is rejected", `{"type":"vault","vault":{"role":"openshell-gateway-tenant-a"}}`, true},
+		{"bare vault object is rejected", `{"type":"vault","vault":{}}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dec := json.NewDecoder(strings.NewReader(tc.json))
+			dec.DisallowUnknownFields()
+			var c CredentialDriverConfig
+			err := dec.Decode(&c)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("decode(%s) err = %v; wantErr %v", tc.json, err, tc.wantErr)
 			}
 		})
 	}

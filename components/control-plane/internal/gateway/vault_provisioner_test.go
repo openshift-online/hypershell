@@ -34,6 +34,7 @@ func TestResolveVaultValues_PerTenantMount(t *testing.T) {
 	})
 }
 
+// Verifies: OSG-CRED-10.03
 func TestVaultClient_EnableKVv2Mount(t *testing.T) {
 	t.Run("enable succeeds", func(t *testing.T) {
 		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +170,10 @@ func fakeClientsetWithToken(t *testing.T, objs ...runtime.Object) (*k8sfake.Clie
 
 // TestEnsureAndDeleteVaultTenantMount drives the provisioner end to end against an httptest
 // Vault: the control plane mints its own SA token, logs in to the provisioner role, and
-// enables (then deletes) the per-tenant mount at openshell-gw/<namespace>.
+// enables (then deletes) the per-tenant mount at openshell-gw/<namespace>, revoking its token
+// after each op.
+//
+// Verifies: OSG-CRED-10.04
 func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 	var enabled, disabled, loggedIn atomic.Bool
 	var revoked atomic.Int32
