@@ -23,7 +23,7 @@ import {
 } from "@patternfly/react-core";
 import RhMicronsCloseIcon from "@patternfly/react-icons/dist/esm/icons/rh-microns-close-icon";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { useIntl } from "react-intl";
 
 import type {
@@ -154,7 +154,6 @@ function DirectoryTypeahead({
         <Select
           id="gateway-access-directory-select"
           isOpen={isOpen}
-          isScrollable
           maxMenuHeight="min(20rem, 40vh)"
           onOpenChange={setIsOpen}
           popperProps={{ preventOverflow: true }}
@@ -230,20 +229,6 @@ export function AddUsersDialog({
   const roles = assignableRoles(capabilities);
   const [selected, setSelected] = useState<GatewayDirectoryUser | null>(null);
   const [role, setRole] = useState<GatewayAccessRole>(roles[0] ?? "user");
-
-  // PatternFly's Modal does not lock background scroll, so the (potentially long)
-  // access-list page behind stays scrollable and the body-appended directory menu
-  // can grow the page. Freeze body scroll while open so only the dropdown scrolls.
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [isOpen]);
 
   const mutation = useMutation({
     mutationFn: async () => {
