@@ -56,12 +56,14 @@ func TestPromotionDerivation(t *testing.T) {
 		"metadata": map[string]any{
 			"name":      "promoter-ns-alpha",
 			"namespace": "promoter-ns",
+			// labels carry identity/grouping only; capabilities come from the annotation.
 			"labels": map[string]any{
-				deliveryLabelPrefix + "role":            "hub",
-				deliveryLabelPrefix + "provider":        "aws",
-				deliveryLabelPrefix + "cluster":         "cluster-a",
-				deliveryLabelPrefix + "runtime":         "kata",
-				deliveryLabelPrefix + "gateway-version": "v0.1.2-rhaiv.7",
+				deliveryLabelPrefix + "role":     "hub",
+				deliveryLabelPrefix + "provider": "aws",
+				deliveryLabelPrefix + "cluster":  "cluster-a",
+			},
+			"annotations": map[string]any{
+				capabilitiesAnnotation: "provider/aws,runtime/kata,gateway-version/v0.1.2-rhaiv.7",
 			},
 		},
 		"spec": map[string]any{"destination": map[string]any{"namespace": "workload-a"}},
@@ -110,8 +112,8 @@ func TestPromotionDerivation(t *testing.T) {
 	if alpha.Role != "hub" || alpha.Provider != "aws" {
 		t.Errorf("alpha delivery labels not surfaced: role=%q provider=%q", alpha.Role, alpha.Provider)
 	}
-	// Capabilities are assembled from the delivery labels in capabilityNamespaces
-	// order; role/cluster are not capability namespaces and must be excluded (FLT-CAP-01).
+	// Capabilities are parsed from the delivery capabilities annotation, emitted in
+	// capabilityNamespaces order (FLT-CAP-01).
 	wantCaps := []string{"provider/aws", "runtime/kata", "gateway-version/v0.1.2-rhaiv.7"}
 	if len(alpha.Capabilities) != len(wantCaps) {
 		t.Fatalf("alpha capabilities = %v, want %v", alpha.Capabilities, wantCaps)
@@ -484,4 +486,67 @@ func keysOf(m map[string]*Release) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+// TestCapabilitiesFromAnnotation covers the delivery capabilities-annotation parser:
+// recognized namespaces are kept and emitted in capabilityNamespaces order, unknown
+// or malformed entries are dropped, whitespace is trimmed, duplicates collapse, and
+// an absent annotation yields no capabilities (FLT-CAP-01).
+func TestCapabilitiesFromAnnotation(t *testing.T) {
+	tests := []struct {
+		name string
+		ann  map[string]string
+		want []string
+	}{
+		{
+			name: "absent annotation yields nil",
+			ann:  map[string]string{deliveryLabelPrefix + "role": "hub"},
+			want: nil,
+		},
+		{
+			name: "recognized entries kept, authored order",
+			ann:  map[string]string{capabilitiesAnnotation: "provider/ibm,network/public,runtime/kata"},
+			want: []string{"provider/ibm", "runtime/kata", "network/public"},
+		},
+		{
+			name: "unknown/identity namespaces dropped",
+			ann:  map[string]string{capabilitiesAnnotation: "provider/aws,role/hub,cluster/cluster-a,runtime/kata"},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			name: "whitespace trimmed, empties skipped, duplicates collapsed",
+			ann:  map[string]string{capabilitiesAnnotation: " provider/aws , ,runtime/kata, runtime/kata "},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			name: "malformed entries dropped",
+			ann:  map[string]string{capabilitiesAnnotation: "provider,provider/,/aws,runtime/kata"},
+			want: []string{"runtime/kata"},
+		},
+		{
+			name: "out-of-order annotation emits in capabilityNamespaces order",
+			ann:  map[string]string{capabilitiesAnnotation: "runtime/kata,provider/aws"},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			// strings.Cut splits on the FIRST "/", so a value that itself contains a
+			// slash is kept intact: only "<namespace>/" is consumed.
+			name: "value with internal slash preserved",
+			ann:  map[string]string{capabilitiesAnnotation: "network/zone/a"},
+			want: []string{"network/zone/a"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := capabilitiesFromAnnotation(tc.ann)
+			if len(got) != len(tc.want) {
+				t.Fatalf("capabilitiesFromAnnotation(%v) = %v, want %v", tc.ann, got, tc.want)
+			}
+			for i, want := range tc.want {
+				if got[i] != want {
+					t.Errorf("capability[%d] = %q, want %q (full: %v)", i, got[i], want, got)
+				}
+			}
+		})
+	}
 }
