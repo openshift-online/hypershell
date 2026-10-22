@@ -169,9 +169,10 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// An empty-typed driver object is unspecified; it defers to the deployment default
-			// selector (kek-db unless opted in), not an implicit vault selection (HYPERSHELL-369).
-			name:    "empty type is valid (defers to deployment default)",
+			// An empty-typed driver object (credential_driver: {}) is unspecified and resolves
+			// to the flat vault default, same as an omitted field (OSG-CRED-01); validation
+			// accepts it here and effectiveCredentialDriver fills in vault at reconcile.
+			name:    "empty type is valid (resolves to the vault default)",
 			config:  &CredentialDriverConfig{Type: ""},
 			wantErr: false,
 		},
