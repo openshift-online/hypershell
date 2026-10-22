@@ -97,7 +97,7 @@ func openshellCLIMatchesVersion(reportedVersion, gatewayVersion string) bool {
 
 // uiInstallCommandVersionSentinel is the placeholder the shared UI install-command
 // fixture uses in place of the installer version; see
-// tests/e2e/testdata/ui-install-command.golden.
+// packages/gateway-management-ui/src/gateways/ui-install-command.golden.
 const uiInstallCommandVersionSentinel = "__OPENSHELL_INSTALLER_VERSION__"
 
 // uiInstallCommandFromFixture returns the UI-rendered install command for
@@ -105,7 +105,7 @@ const uiInstallCommandVersionSentinel = "__OPENSHELL_INSTALLER_VERSION__"
 // test keeps in sync with the real TS buildOpenShellInstallCommand. This lets the
 // merge gate (which has no browser) assert UI parity without scraping a console.
 func (s *E2ESuite) uiInstallCommandFromFixture(installerVersion string) string {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(), "tests", "e2e", "testdata", "ui-install-command.golden"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot(), "packages", "gateway-management-ui", "src", "gateways", "ui-install-command.golden"))
 	s.Require().NoError(err, "read shared UI install-command fixture")
 	return strings.ReplaceAll(strings.TrimRight(string(raw), "\n"), uiInstallCommandVersionSentinel, installerVersion)
 }
@@ -135,7 +135,7 @@ func (s *E2ESuite) p2_11CLIUIParity(t *testing.T) {
 	// E2E-COV-05.01: the UI-rendered install command must string-equal the command
 	// the suite executes, and this phase runs on the merge gate where no browser is
 	// available. The UI command is captured in a shared fixture
-	// (tests/e2e/testdata/ui-install-command.golden) that the gateway-management-ui
+	// (packages/gateway-management-ui/src/gateways/ui-install-command.golden) that the gateway-management-ui
 	// unit test checks against the real TS buildOpenShellInstallCommand, so the
 	// fixture cannot silently drift from the UI. Substitute the live installer
 	// version and require the suite's independently derived command to equal it
@@ -193,12 +193,14 @@ func (s *E2ESuite) assertProviderCreateCommand(t *testing.T) {
 	// For reference, log the command the UI renders; the suite executes the
 	// credential-free equivalent below.
 	s.runner.Show("%s  # UI-rendered form; the suite runs the --runtime-credentials equivalent", buildProviderCreateCommand(providerName))
+	// Use the anthropic provider profile (a built-in type) with --runtime-credentials:
+	// the google-vertex-ai profile the UI example renders is not registered in the
+	// e2e gateway ("provider profile not found"), and E2E-COV-05.03 only requires the
+	// provider-create path to run end to end, not a specific provider type.
 	out, err := s.cli(t, s.primaryLocalName, "provider", "create",
 		"--name", providerName,
-		"--type", "google-vertex-ai",
+		"--type", "anthropic",
 		"--runtime-credentials",
-		"--config", "VERTEX_AI_PROJECT_ID=e2e-parity",
-		"--config", "VERTEX_AI_REGION=global",
 	)
 	s.Require().NoErrorf(err, "credential-free provider create (E2E-COV-05.03): %s", out)
 	defer func() { _, _ = s.cli(t, s.primaryLocalName, "provider", "delete", providerName) }()

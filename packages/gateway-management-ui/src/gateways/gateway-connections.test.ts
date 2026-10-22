@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +16,10 @@ import {
   vertexProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
+// Shared with the Go e2e P2.11 phase (tests/e2e/cli_parity_phases.go), which reads
+// this same file on the merge gate. Imported as a raw string so the path resolves
+// via Vite regardless of the test runner's cwd.
+import installCommandFixture from "./ui-install-command.golden?raw";
 
 const gateway: GatewayConnection = {
   clusterId: "cluster-east",
@@ -83,15 +84,7 @@ describe("gateway connections", () => {
     const templated = rendered
       .split(installerVersion)
       .join("__OPENSHELL_INSTALLER_VERSION__");
-    const fixture = readFileSync(
-      fileURLToPath(
-        new URL(
-          "../../../../tests/e2e/testdata/ui-install-command.golden",
-          import.meta.url,
-        ),
-      ),
-      "utf8",
-    ).replace(/\n$/u, "");
+    const fixture = installCommandFixture.replace(/\n$/u, "");
     expect(templated).toBe(fixture);
   });
 

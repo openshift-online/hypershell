@@ -159,6 +159,7 @@ func isAuthorizationDenial(output string) bool {
 		"unauthorized",
 		"permission denied",
 		"permissiondenied",
+		"does not have permission",
 		"not authorized",
 		"access denied",
 		"status 403",
