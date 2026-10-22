@@ -13,7 +13,8 @@ var errNoEligiblePlacement = errors.New("no eligible placement is available")
 // PlacementIntent is the client-facing placement request. Cluster IDs are
 // deliberately absent: they are selected by the API server at create time.
 type PlacementIntent struct {
-	Selector []string `json:"selector,omitempty"`
+	Selector         []string `json:"selector,omitempty"`
+	ExcludedSelector []string `json:"excludedSelector,omitempty"`
 }
 
 const managedClusterConnectedMaxAge = 5 * time.Minute
@@ -35,7 +36,9 @@ type PlacementCandidate struct {
 func eligiblePlacementCandidates(intent PlacementIntent, candidates []PlacementCandidate) []PlacementCandidate {
 	eligible := make([]PlacementCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Connected && capabilitySetContains(candidate.Capabilities, intent.Selector) {
+		if candidate.Connected &&
+			capabilitySetContains(candidate.Capabilities, intent.Selector) &&
+			capabilitySetExcludes(candidate.Capabilities, intent.ExcludedSelector) {
 			eligible = append(eligible, candidate)
 		}
 	}
@@ -72,6 +75,19 @@ func capabilitySetContains(capabilities, selector []string) bool {
 	}
 	for _, label := range selector {
 		if _, ok := set[label]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func capabilitySetExcludes(capabilities, excludedSelector []string) bool {
+	set := make(map[string]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		set[capability] = struct{}{}
+	}
+	for _, label := range excludedSelector {
+		if _, ok := set[label]; ok {
 			return false
 		}
 	}

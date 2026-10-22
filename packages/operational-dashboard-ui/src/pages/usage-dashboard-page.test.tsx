@@ -66,7 +66,16 @@ function renderPage({
         <DashboardUiProvider
           dashboard={dashboard}
           isAdmin={isAdmin}
-          navigation={{ collectionHref: "/", navigate: () => undefined }}
+          navigation={{
+            adoptionHref: "/dashboard/adoption",
+            collectionHref: "/",
+            dashboardHref: "/dashboard",
+            inventoryHref: "/dashboard/inventory",
+            provisioningHref: "/dashboard/provisioning",
+            reliabilityHref: "/dashboard/reliability",
+            usageHref: "/dashboard/usage",
+            navigate: () => undefined,
+          }}
         >
           <UsageDashboardPage metrics={metricsOverride} />
         </DashboardUiProvider>
@@ -180,7 +189,16 @@ describe("UsageDashboardPage", () => {
           <DashboardUiProvider
             dashboard={dashboard}
             isAdmin
-            navigation={{ collectionHref: "/", navigate: () => undefined }}
+            navigation={{
+              adoptionHref: "/dashboard/adoption",
+              collectionHref: "/",
+              dashboardHref: "/dashboard",
+              inventoryHref: "/dashboard/inventory",
+              provisioningHref: "/dashboard/provisioning",
+              reliabilityHref: "/dashboard/reliability",
+              usageHref: "/dashboard/usage",
+              navigate: () => undefined,
+            }}
           >
             <UsageDashboardPage
               metrics={metrics}

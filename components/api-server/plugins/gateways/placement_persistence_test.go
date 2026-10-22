@@ -46,6 +46,29 @@ func TestMarshalPlacementEncodesLocalKind(t *testing.T) {
 	}
 }
 
+func TestMarshalPlacementEncodesExcludedSelector(t *testing.T) {
+	stored, err := marshalPlacement(openapi.GatewayPlacementIntent{
+		Selector:         []string{"network/public", "provider/ibm"},
+		ExcludedSelector: []string{"runtime/kata"},
+	})
+	if err != nil {
+		t.Fatalf("marshalPlacement: %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected a non-nil stored placement")
+	}
+	intent, ok := storedPlacementToIntent(stored)
+	if !ok {
+		t.Fatal("expected a valid stored placement")
+	}
+	if len(intent.Selector) != 2 || intent.Selector[0] != "network/public" || intent.Selector[1] != "provider/ibm" {
+		t.Fatalf("selector did not round-trip: %+v", intent.Selector)
+	}
+	if len(intent.ExcludedSelector) != 1 || intent.ExcludedSelector[0] != "runtime/kata" {
+		t.Fatalf("excluded selector did not round-trip: %+v", intent.ExcludedSelector)
+	}
+}
+
 func TestApplyAwaitingPlacementSetsPendingAndStatus(t *testing.T) {
 	model := &Gateway{ClusterId: "should-be-cleared"}
 	applyAwaitingPlacement(model)

@@ -4,7 +4,13 @@ import type { DashboardOperations } from "./application/dashboard-types";
 import type { DashboardProbePublisher } from "./application/dashboard-probes";
 
 export interface DashboardUiNavigation {
+  adoptionHref: string;
   collectionHref: string;
+  dashboardHref: string;
+  inventoryHref: string;
+  provisioningHref: string;
+  reliabilityHref: string;
+  usageHref: string;
   navigate: (href: string) => Promise<void> | void;
 }
 

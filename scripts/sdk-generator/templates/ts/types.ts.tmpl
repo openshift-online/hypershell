@@ -10,7 +10,7 @@ import type { ObjectReference, ListMeta } from './base.js';
 {{- if eq .Name "GatewayPlacementIntent"}}
 export type GatewayPlacementIntent =
   | { mode: 'local-kind' }
-  | { selector: string[] }
+  | { selector: string[]; excludedSelector?: string[] }
   | { network: 'public'; provider: 'aws' | 'ibm' }
   | { network: 'vpn'; provider: 'aws' };
 {{- else if .IsEnum}}

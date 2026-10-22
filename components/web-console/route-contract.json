@@ -1,4 +1,5 @@
 {
+  "home": "/",
   "dashboard": "dashboard",
   "dashboardInventory": "dashboard/inventory",
   "dashboardAdoption": "dashboard/adoption",
@@ -6,6 +7,7 @@
   "dashboardReliability": "dashboard/reliability",
   "dashboardUsage": "dashboard/usage",
   "gatewayDetail": "gateways/:gatewayId",
+  "gatewayList": "gateways",
   "gatewayNew": "gateways/new",
   "login": "login",
   "metrics": "metrics",
@@ -20,6 +22,7 @@
     "/login",
     "/gateways/new",
     "/gateways/gateway-1",
-    "/metrics"
+    "/metrics",
+    "/gateways"
   ]
 }

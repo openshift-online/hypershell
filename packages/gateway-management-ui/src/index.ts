@@ -46,7 +46,9 @@ export type {
   OpenShellGatewayServiceAccountSortField,
   OpenShellGatewayServiceAccountStatus,
 } from "./application/gateway-types";
+export { externalLinkUrls } from "./application/external-links";
 export {
+  kataRuntimeSelector,
   defaultGatewayAccessListRequest,
   defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,

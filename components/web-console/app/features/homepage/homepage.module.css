@@ -1,0 +1,9 @@
+.learnIcon {
+  padding-block-start: var(--pf-t--global--spacer--control--vertical--default);
+}
+
+.learnDescription {
+  padding-inline-start: var(
+    --pf-t--global--spacer--action--horizontal--plain--default
+  );
+}

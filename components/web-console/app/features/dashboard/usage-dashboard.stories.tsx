@@ -15,9 +15,16 @@ import { expect, within } from "storybook/test";
 import { createMockDashboardControlPlane } from "../../adapters/mock/dashboard-control-plane";
 import { englishMessages } from "../../i18n/catalog";
 import { ApplicationShell } from "../shell/application-shell";
+import { routePaths } from "../../../shared/routes";
 
 const stubNavigation: DashboardUiNavigation = {
-  collectionHref: "/",
+  adoptionHref: routePaths.dashboardAdoption,
+  collectionHref: routePaths.gatewayList,
+  dashboardHref: routePaths.dashboard,
+  inventoryHref: routePaths.dashboardInventory,
+  provisioningHref: routePaths.dashboardProvisioning,
+  reliabilityHref: routePaths.dashboardReliability,
+  usageHref: routePaths.dashboardUsage,
   navigate: () => undefined,
 };
 

@@ -113,8 +113,10 @@ export interface GatewayProvisionInput {
 
 export type GatewayProvider = "aws" | "ibm";
 
+export const kataRuntimeSelector = "runtime/kata";
+
 export type GatewayPlacementIntent =
-  { mode: "local-kind" } | { selector: string[] };
+  { mode: "local-kind" } | { selector: string[]; excludedSelector?: string[] };
 
 export type GatewayPlacementUnavailableReason = "no-eligible-cluster";
 

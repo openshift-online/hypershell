@@ -96,8 +96,8 @@ function isCrossServiceTrace(trace: JaegerTrace): boolean {
 
 // Verifies: WEB-TRC-11.01
 test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
-  // 1. Log in through Keycloak and land on the gateway list. Loading the list
-  //    is a gateway "list" workflow, which drives an /api proxy call through the
+  // 1. Log in through Keycloak, then open the gateway list. Loading the list is
+  //    a gateway "list" workflow, which drives an /api proxy call through the
   //    BFF and produces both a browser workflow span and a BFF server span.
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByLabel(/username/iu).fill(oidcUser);
@@ -106,6 +106,7 @@ test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
     page.waitForURL((url) => url.origin === new URL(consoleUrl).origin),
     page.getByRole("button", { name: /sign in|log in/iu }).click(),
   ]);
+  await page.goto("/gateways");
   await expect(
     page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
   ).toBeVisible();
