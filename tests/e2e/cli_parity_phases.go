@@ -95,6 +95,21 @@ func openshellCLIMatchesVersion(reportedVersion, gatewayVersion string) bool {
 	return strings.TrimPrefix(fields[1], "v") == strings.TrimPrefix(strings.TrimSpace(gatewayVersion), "v")
 }
 
+// uiInstallCommandVersionSentinel is the placeholder the shared UI install-command
+// fixture uses in place of the installer version; see
+// tests/e2e/testdata/ui-install-command.golden.
+const uiInstallCommandVersionSentinel = "__OPENSHELL_INSTALLER_VERSION__"
+
+// uiInstallCommandFromFixture returns the UI-rendered install command for
+// installerVersion, read from the shared fixture the gateway-management-ui unit
+// test keeps in sync with the real TS buildOpenShellInstallCommand. This lets the
+// merge gate (which has no browser) assert UI parity without scraping a console.
+func (s *E2ESuite) uiInstallCommandFromFixture(installerVersion string) string {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(), "tests", "e2e", "testdata", "ui-install-command.golden"))
+	s.Require().NoError(err, "read shared UI install-command fixture")
+	return strings.ReplaceAll(strings.TrimRight(string(raw), "\n"), uiInstallCommandVersionSentinel, installerVersion)
+}
+
 // p2_11CLIUIParity validates that the CLI commands the web console renders are
 // the commands the suite executes, driven by the live reconciled
 // gateway_version rather than a pinned constant (E2E-COV-05).
@@ -116,15 +131,21 @@ func (s *E2ESuite) p2_11CLIUIParity(t *testing.T) {
 
 	uiVersion, err := uiInstallerVersion(running.GatewayVersion)
 	s.Require().NoError(err, "derive installer version from gateway_version")
-	// E2E-COV-05.01/05.04 - that the command the UI RENDERS equals the real
-	// version-derived command - is verified against the LIVE console by the
-	// console.live Playwright scrape ("shows placement and CLI installation
-	// choices"), which reads the exact command the UI hands the operator (via its
-	// copy button). Comparing two copies of the Go port of buildOpenShellInstallCommand
-	// here would be tautological and blind to UI drift, so this phase instead proves
-	// the version end to end: it executes the derived installer and the rendered
-	// provider-create command. The Go port's own correctness is unit-tested in
-	// cli_parity_phases_test.go.
+
+	// E2E-COV-05.01: the UI-rendered install command must string-equal the command
+	// the suite executes, and this phase runs on the merge gate where no browser is
+	// available. The UI command is captured in a shared fixture
+	// (tests/e2e/testdata/ui-install-command.golden) that the gateway-management-ui
+	// unit test checks against the real TS buildOpenShellInstallCommand, so the
+	// fixture cannot silently drift from the UI. Substitute the live installer
+	// version and require the suite's independently derived command to equal it
+	// exactly; the install subtest below then executes that version end to end. On
+	// pull_request the console.live suite additionally scrapes the real rendered
+	// command from the live console. E2E-COV-05.04 (version derivation) is
+	// unit-tested in cli_parity_phases_test.go.
+	uiCommand := s.uiInstallCommandFromFixture(uiVersion)
+	suiteCommand := buildOpenShellInstallCommand(uiVersion)
+	s.Require().Equal(uiCommand, suiteCommand, "UI-rendered install command (shared fixture) string-equals the command the suite derives and executes (E2E-COV-05.01)")
 
 	t.Run("install-produces-matching-cli", func(t *testing.T) {
 		s.assertInstallProducesMatchingCLI(t, uiVersion, running.GatewayVersion)

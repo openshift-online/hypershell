@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import {
   expect,
   test,
@@ -282,10 +285,24 @@ test.describe("live console user journey", () => {
     const renderedInstall = await page.evaluate(() =>
       navigator.clipboard.readText(),
     );
-    expect(renderedInstall).toContain(
-      `OPENSHELL_VERSION=${expectedInstallerVersion}`,
+    // Exact equality, not substrings: the live rendered command must equal the
+    // shared fixture (the same one the Go merge-gate phase asserts against) with
+    // the live installer version substituted. A wrong URL, flag, quoting, or line
+    // would fail this.
+    const fixture = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../tests/e2e/testdata/ui-install-command.golden",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ).replace(/\n$/u, "");
+    const expectedCommand = fixture.replaceAll(
+      "__OPENSHELL_INSTALLER_VERSION__",
+      expectedInstallerVersion,
     );
-    expect(renderedInstall).toContain("install-openshell.sh");
+    expect(renderedInstall).toBe(expectedCommand);
   });
 
   test("deletes the gateway from its actions menu", async ({ page }) => {

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -64,6 +67,32 @@ describe("gateway connections", () => {
         'export PATH="$HOME/.local/bin:$PATH"',
       ].join("\n"),
     );
+  });
+
+  it("stays in sync with the shared e2e install-command fixture (E2E-COV-05.01)", () => {
+    // The Go P2.11 phase runs on the merge gate where no browser is available, so
+    // it asserts UI parity by reading this fixture. Keep it honest: the real helper
+    // output (with the version replaced by the fixture's sentinel) must equal the
+    // committed fixture, so any change to buildOpenShellInstallCommand fails here
+    // until the fixture is regenerated.
+    const rendered = buildOpenShellInstallCommand(gateway);
+    expect(rendered).toBeDefined();
+    const installerVersion = gateway.gatewayVersion?.startsWith("v")
+      ? gateway.gatewayVersion
+      : `v${gateway.gatewayVersion}`;
+    const templated = rendered!
+      .split(installerVersion!)
+      .join("__OPENSHELL_INSTALLER_VERSION__");
+    const fixture = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../../tests/e2e/testdata/ui-install-command.golden",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ).replace(/\n$/u, "");
+    expect(templated).toBe(fixture);
   });
 
   it("quotes an unsafe gateway version in the installation command", () => {
