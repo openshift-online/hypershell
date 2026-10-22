@@ -11,6 +11,16 @@ import (
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Per-cluster Vault serving-CA source the control plane reads for its reachability probe.
+// These mirror the control-plane conventions (gateway.VaultCADefaultSourceNamespace /
+// VaultCADefaultSourceSecret / VaultCAKey), duplicated here because that package is internal.
+const (
+	vaultCASourceNamespace = "openshell-vault"
+	vaultCASourceSecret    = "openshell-gateway-vault-tls"
+	vaultCAKey             = "ca.crt"
 )
 
 // Vault credential-driver end-to-end coverage (HYPERSHELL-369).
@@ -21,7 +31,8 @@ import (
 //   - the real gateway-process resolve under its per-tenant mount
 //     (openshell-gw/<namespace>/.../provider-credentials/*) is exercised end-to-end by the
 //     sandbox lifecycle (p2_1), which drives the actual OpenShell gateway, not a stand-in;
-//   - fail-closed when Vault is unreachable is asserted here (p2_7), through the product API.
+//   - fail-closed when Vault is unreachable is asserted here (p2_7), by making the per-cluster
+//     Vault unreachable to the control plane and provisioning a gateway through the product API.
 //
 // The templated per-tenant policy itself (round-trip under the token's own
 // openshell-gw/<namespace>/.../provider-credentials/*, no list, no metadata delete, no reach
@@ -31,25 +42,37 @@ import (
 // specs/platform/openshell-gateway-credentials.spec.md (Requirement: End-to-End Vault
 // Coverage in CI).
 
-// p2_7VaultFailClosed asserts the control plane fails a vault-backed gateway closed when its
-// Vault is unreachable: EnvironmentReady reports a Vault reachability failure and the gateway
-// never reaches Running. It needs no Vault fixture and no kube access -- it drives the product
-// API only, pointing the driver at an address that does not resolve.
+// p2_7VaultFailClosed asserts the control plane fails a vault-backed gateway closed when the
+// per-cluster Vault is unreachable: EnvironmentReady reports a Vault reachability failure and
+// the gateway never reaches Running.
+//
+// Vault is a black box (HYPERSHELL-369): there are no per-gateway overrides, so a gateway
+// cannot be pointed at a bad address through the API. Vault reachability is a cluster-wide
+// property (one Vault per cluster, one convention address), so the scenario makes that Vault
+// unreachable to the control plane by corrupting the serving-CA source Secret the reachability
+// probe reads, then restores it. Because that break is cluster-wide, this step runs serially as
+// the final behavior check (after the parallel P2 wave and read-only P3), never concurrently
+// with other gateway provisioning. It needs kube access to mutate the CA source Secret.
 func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; fail-closed needs kube access to make Vault unreachable")
+	}
 	s.vaultFailClosedScenario(t.Context(), t)
 }
 
-// vaultFailClosedScenario provisions a gateway pointed at an unreachable Vault and asserts
-// fail-closed: EnvironmentReady reports a Vault reachability failure and the gateway never
-// reaches Running.
+// vaultFailClosedScenario makes the per-cluster Vault unreachable to the control plane, then
+// provisions a gateway and asserts fail-closed: EnvironmentReady reports a Vault reachability
+// failure and the gateway never reaches Running. It restores Vault reachability before returning.
 func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
+	restore := s.breakVaultReachability(ctx, t)
+	defer restore()
+
 	name := "e2e-vault-failclosed-" + s.runID
 	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
-	// https (TLS) + non-loopback is a valid driver config; the host does not resolve, so
-	// the pre-deploy reachability probe fails closed. The override lives under the `vault`
-	// key (CredentialDriverConfig.Vault), which the control plane unmarshals; any other key
-	// is ignored and would silently fall back to the reachable convention address.
-	body.CredentialDriver = `{"type":"vault","vault":{"address":"https://openshell-gateway-vault.unreachable.svc:8200"}}`
+	// Vault-backed with no overrides (black box): the control plane resolves the convention
+	// address and reads the (now corrupted) serving CA, so the pre-deploy reachability probe
+	// fails closed.
+	body.CredentialDriver = `{"type":"vault"}`
 	status, resp, err := s.admin.RawJSON(ctx, http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create fail-closed gateway")
 	s.Require().Equalf(http.StatusCreated, status, "create fail-closed gateway status (body: %s)", string(resp))
@@ -81,6 +104,40 @@ func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 		return false, nil
 	})
 	s.Require().NoErrorf(err, "fail-closed: EnvironmentReady never reported a Vault reachability failure (last=%q)", lastReason)
+}
+
+// breakVaultReachability makes the per-cluster Vault unreachable to the control plane by
+// replacing the serving-CA source Secret's ca.crt with bytes that are not a usable
+// certificate, so the control plane's reachability probe (which reads that CA) fails for any
+// newly provisioned gateway. It returns a restore function that puts the original CA back.
+// The Secret is a plain fixture Secret (not cert-manager-managed), so the edit sticks until
+// restored. Scoped to this serial step so it never races with concurrent provisioning.
+func (s *E2ESuite) breakVaultReachability(ctx context.Context, t *testing.T) func() {
+	secrets := s.clients.Kube.CoreV1().Secrets(vaultCASourceNamespace)
+	orig, err := secrets.Get(ctx, vaultCASourceSecret, metav1.GetOptions{})
+	s.Require().NoErrorf(err, "get Vault serving-CA source Secret %s/%s", vaultCASourceNamespace, vaultCASourceSecret)
+	originalCA := append([]byte(nil), orig.Data[vaultCAKey]...)
+	s.Require().NotEmptyf(originalCA, "Vault serving-CA source Secret %s/%s has no %q", vaultCASourceNamespace, vaultCASourceSecret, vaultCAKey)
+
+	broken := orig.DeepCopy()
+	broken.Data[vaultCAKey] = []byte("fail-closed-e2e: not a certificate")
+	_, err = secrets.Update(ctx, broken, metav1.UpdateOptions{})
+	s.Require().NoError(err, "corrupt Vault serving-CA source Secret to simulate unreachable Vault")
+
+	return func() {
+		// Restore on the background context so a cancelled test context still reverts the break.
+		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cur, getErr := secrets.Get(rctx, vaultCASourceSecret, metav1.GetOptions{})
+		if getErr != nil {
+			t.Logf("WARN could not re-read Vault CA source Secret to restore it: %v", getErr)
+			return
+		}
+		cur.Data[vaultCAKey] = originalCA
+		if _, updErr := secrets.Update(rctx, cur, metav1.UpdateOptions{}); updErr != nil {
+			t.Logf("WARN could not restore Vault CA source Secret: %v", updErr)
+		}
+	}
 }
 
 // conditionText flattens a provisioning condition's values so the Vault reason can be

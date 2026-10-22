@@ -705,8 +705,13 @@ into Vault with a synthetic identity:
   lifecycle**: creating a sandbox drives the actual OpenShell gateway to resolve a provider
   credential from Vault under its per-tenant `openshell-gw/<namespace>/.../provider-credentials/*`,
   so if the policy or mount were wrong the sandbox would never reach Running.
-- **Fail-closed** when Vault is unreachable is asserted by the suite through the **product API**
-  only (no Vault fixture or kube access required).
+- **Fail-closed** when Vault is unreachable is asserted by the suite by making the per-cluster
+  Vault **unreachable to the control plane** (corrupting the serving-CA source Secret the
+  reachability probe reads) and then provisioning a Vault-backed gateway through the product API.
+  Because Vault is a black box with no per-gateway overrides, reachability is a cluster-wide
+  property and cannot be broken for a single gateway; this step therefore runs **serially as the
+  final behavior check** (never concurrently with other provisioning) and restores Vault
+  reachability afterward. It needs kube access to mutate the CA source Secret.
 
 #### Scenario: OSG-CRED-14.01 -- Vault fixture self-verifies the capability policy
 
@@ -723,10 +728,12 @@ into Vault with a synthetic identity:
 
 #### Scenario: OSG-CRED-14.02 -- Fail-closed is observable when Vault is unavailable
 
-- GIVEN a gateway provisioned with a Vault driver pointed at an unreachable address
+- GIVEN the suite has made the per-cluster Vault unreachable to the control plane (corrupting the serving-CA source Secret), running serially so no other provisioning is in flight
+- AND a Vault-backed gateway is then provisioned through the product API (no per-gateway overrides)
 - WHEN the GatewayReconciler reconciles
 - THEN the suite SHALL observe the fail-closed signal through the API (`EnvironmentReady` fails
   with a Vault-named reason), and the gateway SHALL never report `Running`
+- AND the suite SHALL restore Vault reachability afterward
 
 **Coverage boundaries.** The sandbox lifecycle exercises the real gateway-process resolve at
 `provider-credentials/*`; the fixture self-test proves the capability policy (round-trip, no
