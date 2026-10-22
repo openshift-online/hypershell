@@ -31,8 +31,13 @@ export interface SortState {
 }
 
 /** Node-detail drawer sub-tabs on the Fleet Map. */
-export type NodeTabKey = "details" | "bundle" | "links";
-const NODE_TAB_KEYS: readonly NodeTabKey[] = ["details", "bundle", "links"];
+export type NodeTabKey = "details" | "bundle" | "agents" | "links";
+const NODE_TAB_KEYS: readonly NodeTabKey[] = [
+  "details",
+  "bundle",
+  "agents",
+  "links",
+];
 
 /** Progress/Logs sub-tab of the shared execution detail. */
 export type ExecTabKey = "progress" | "logs";
