@@ -85,8 +85,12 @@ func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 		// packages/gateway-management-ui/src/gateways/gateway-connections.ts
 		// (vertexProviderProfileFile).
 		providerProfile = "google-vertex-ai.yaml"
-		model           = "claude-haiku-4-5"
-		sandboxName     = "mysand"
+		// providerProfileURL: keep in sync with
+		// packages/gateway-management-ui/src/gateways/gateway-connections.ts
+		// (vertexProviderProfileUrl).
+		providerProfileURL = "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml"
+		model              = "claude-haiku-4-5"
+		sandboxName        = "mysand"
 	)
 
 	addParts := []string{
@@ -106,8 +110,8 @@ func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 		"",
 		"# Steps 2-5 below show a GCP/Vertex AI example. Adjust provider type and config for your environment.",
 		"",
-		"# 2. Download/locate the provider profile, then import it into the gateway's",
-		"# profile catalog: https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles",
+		"# 2. Download and import the provider profile",
+		"curl -LsSfO " + providerProfileURL,
 		"openshell provider profile import -f " + providerProfile + " --global",
 		"",
 		"# NOTE: the profile import scope above (--global) must match the scope used",

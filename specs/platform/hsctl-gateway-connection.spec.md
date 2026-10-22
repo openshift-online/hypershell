@@ -21,9 +21,11 @@ found" error with no guidance on how to resolve it.
 
 `hsctl get gateway --show-connection` SHALL print a numbered step that imports
 the provider profile before the numbered step that creates the provider. The
-profile-import step SHALL show the command or link that downloads or locates
-the profile file for the connection script's provider type, followed by the
+profile-import step SHALL show a command that downloads the profile file for
+the connection script's provider type, followed by the
 `openshell provider profile import -f <profile>.yaml` command that imports it.
+A documentation link alone is not sufficient: the operator SHALL be able to
+run the printed instructions verbatim without separately locating the file.
 
 #### Scenario: CLI-GWC-01.01 -- Profile import precedes provider create
 
@@ -31,6 +33,13 @@ the profile file for the connection script's provider type, followed by the
 - WHEN the user runs `hsctl get gateway --show-connection`
 - THEN the output SHALL contain a numbered step that runs `openshell provider profile import -f google-vertex-ai.yaml --global`
 - AND that step's number SHALL be lower than the numbered step that runs `openshell provider create`
+
+#### Scenario: CLI-GWC-01.02 -- Profile download command precedes profile import
+
+- GIVEN a ready Gateway
+- WHEN the user runs `hsctl get gateway --show-connection`
+- THEN the output SHALL contain a `curl` command that downloads the provider profile file
+- AND that command SHALL appear before the `openshell provider profile import` command
 
 ### Requirement: CLI-GWC-02 -- Profile and Provider Scope Must Match
 

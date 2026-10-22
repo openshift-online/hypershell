@@ -152,6 +152,27 @@ export const providerProfileDocsUrl =
   "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles";
 
 /**
+ * Public source for the Vertex AI example's provider profile file. Keep this
+ * literal in sync with `providerProfileURL` in
+ * components/cli/pkg/gatewayconnect/gatewayconnect.go.
+ */
+export const vertexProviderProfileUrl =
+  "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml";
+
+/**
+ * Builds the command that downloads the provider profile file, satisfying the
+ * "command ... that downloads or locates that profile file" requirement
+ * (CLI-GWC-01 / WEB-UIEX-05 step 1) with an actual command rather than only a
+ * documentation link. Must run before `buildProviderProfileImportCommand`,
+ * which imports the file this downloads.
+ */
+export function buildProviderProfileDownloadCommand(
+  profileUrl: string = vertexProviderProfileUrl,
+): string {
+  return `curl -LsSfO ${shellArgument(profileUrl)}`;
+}
+
+/**
  * Builds the `openshell provider profile import` command that registers a
  * provider type's profile in the gateway's profile catalog. This MUST run
  * before `buildProviderCreateCommand` for the same provider type, or
@@ -276,7 +297,8 @@ export function buildOneTimeSetupScript(
     "# 1. Register the gateway",
     gatewayAdd,
     "",
-    "# 2. Import the provider profile",
+    "# 2. Download and import the provider profile",
+    buildProviderProfileDownloadCommand(),
     buildProviderProfileImportCommand(),
     "",
     "# 3. Add the Claude on Vertex AI provider",

@@ -6,6 +6,7 @@ import {
   buildOneTimeSetupScript,
   buildOpenShellInstallCommand,
   buildProviderCreateCommand,
+  buildProviderProfileDownloadCommand,
   buildProviderProfileImportCommand,
   buildSandboxConnectCommand,
   buildSandboxCreateCommand,
@@ -16,6 +17,7 @@ import {
   sandboxResourceDefaults,
   vertexProviderName,
   vertexProviderProfileFile,
+  vertexProviderProfileUrl,
   type GatewayConnection,
 } from "./gateway-connections";
 
@@ -165,6 +167,18 @@ describe("gateway connections", () => {
     );
   });
 
+  it("builds the provider profile download command", () => {
+    expect(buildProviderProfileDownloadCommand()).toBe(
+      `curl -LsSfO ${vertexProviderProfileUrl}`,
+    );
+  });
+
+  it("substitutes a custom url into the profile download command", () => {
+    expect(
+      buildProviderProfileDownloadCommand("https://example.test/p.yaml"),
+    ).toBe("curl -LsSfO https://example.test/p.yaml");
+  });
+
   it("builds the provider profile import command with matching --global scope", () => {
     expect(buildProviderProfileImportCommand()).toBe(
       `openshell provider profile import -f ${vertexProviderProfileFile} --global`,
@@ -283,21 +297,24 @@ describe("gateway connections", () => {
     );
   });
 
-  it("combines gateway registration, profile import, provider, and inference commands", () => {
+  it("combines gateway registration, profile download/import, provider, and inference commands", () => {
     const script = buildOneTimeSetupScript(gateway);
 
     expect(script).toContain(buildGatewayAddCommand(gateway));
+    expect(script).toContain(buildProviderProfileDownloadCommand());
     expect(script).toContain(buildProviderProfileImportCommand());
     expect(script).toContain(buildProviderCreateCommand());
     expect(script).toContain(buildInferenceSetCommand());
     expect(script).not.toContain("cat >");
     const gatewayAt = script?.indexOf("openshell gateway add") ?? -1;
+    const profileDownloadAt = script?.indexOf("curl -LsSfO") ?? -1;
     const profileImportAt =
       script?.indexOf("openshell provider profile import") ?? -1;
     const providerAt = script?.indexOf("openshell provider create") ?? -1;
     const inferenceAt = script?.indexOf("openshell inference set") ?? -1;
     expect(gatewayAt).toBeGreaterThanOrEqual(0);
-    expect(gatewayAt).toBeLessThan(profileImportAt);
+    expect(gatewayAt).toBeLessThan(profileDownloadAt);
+    expect(profileDownloadAt).toBeLessThan(profileImportAt);
     expect(profileImportAt).toBeLessThan(providerAt);
     expect(providerAt).toBeLessThan(inferenceAt);
   });
