@@ -49,6 +49,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { Link, useNavigate } from "react-router";
 import { useId, useState } from "react";
 
+import styles from "./homepage.module.css";
 import { externalLinkUrls } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   HomepagePlatformOverview,
@@ -698,7 +699,7 @@ function LearnCard() {
             alignItems={{ default: "alignItemsFlexStart" }}
             gap={{ default: "gapMd" }}
           >
-            <FlexItem>
+            <FlexItem className={styles.learnIcon}>
               <CodeIcon />
             </FlexItem>
             <FlexItem flex={{ default: "flex_1" }}>
@@ -711,7 +712,7 @@ function LearnCard() {
               >
                 <FormattedMessage {...messages.homepageHyperShellRepository} />
               </Button>
-              <Content component="small">
+              <Content className={styles.learnDescription} component="small">
                 <FormattedMessage
                   {...messages.homepageHyperShellRepositoryDescription}
                 />
@@ -724,7 +725,7 @@ function LearnCard() {
             alignItems={{ default: "alignItemsFlexStart" }}
             gap={{ default: "gapMd" }}
           >
-            <FlexItem>
+            <FlexItem className={styles.learnIcon}>
               <BookOpenIcon />
             </FlexItem>
             <FlexItem flex={{ default: "flex_1" }}>
@@ -737,7 +738,7 @@ function LearnCard() {
               >
                 <FormattedMessage {...messages.homepageOpenShellDocs} />
               </Button>
-              <Content component="small">
+              <Content className={styles.learnDescription} component="small">
                 <FormattedMessage
                   {...messages.homepageOpenShellDocsDescription}
                 />
@@ -750,7 +751,7 @@ function LearnCard() {
             alignItems={{ default: "alignItemsFlexStart" }}
             gap={{ default: "gapMd" }}
           >
-            <FlexItem>
+            <FlexItem className={styles.learnIcon}>
               <TerminalIcon />
             </FlexItem>
             <FlexItem flex={{ default: "flex_1" }}>
@@ -763,7 +764,7 @@ function LearnCard() {
               >
                 <FormattedMessage {...messages.homepageOpenShellCli} />
               </Button>
-              <Content component="small">
+              <Content className={styles.learnDescription} component="small">
                 <FormattedMessage
                   {...messages.homepageOpenShellCliDescription}
                 />
