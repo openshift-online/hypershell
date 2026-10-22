@@ -189,3 +189,28 @@ func TestEnsureAndDeleteVaultTenantMount(t *testing.T) {
 		t.Fatal("expected mount disable to be called")
 	}
 }
+
+// TestIsVaultBacked locks the contract the delete path depends on: a gateway stored with NO
+// credential_driver (NULL -> empty string via the getter) still resolves to vault, so its
+// per-tenant mount must be reclaimed on delete. Regression guard for the leak where a nil
+// CredentialDriver skipped mount deletion (amarin review).
+func TestIsVaultBacked(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		want bool
+	}{
+		{"empty (NULL default) is vault-backed", "", true},
+		{"empty-type object is vault-backed", `{}`, true},
+		{"explicit vault is vault-backed", `{"type":"vault"}`, true},
+		{"kek-db is not vault-backed", `{"type":"kek-db"}`, false},
+		{"kubernetes-secrets is not vault-backed", `{"type":"kubernetes-secrets"}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsVaultBacked(tc.json); got != tc.want {
+				t.Errorf("IsVaultBacked(%q) = %v; want %v", tc.json, got, tc.want)
+			}
+		})
+	}
+}

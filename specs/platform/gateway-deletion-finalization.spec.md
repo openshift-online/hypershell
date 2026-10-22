@@ -345,6 +345,12 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 - AND a failed mount deletion SHALL be a non-fatal signal that a later reconcile retries,
   not a fatal teardown error
 - AND it SHALL NOT record a `VaultCredentialPath` orphan
+- AND this SHALL hold even when the gateway was created with **no** `credential_driver`
+  (stored NULL): it still resolves to vault by default, so it has a per-tenant mount to
+  reclaim - the delete path keys off the resolved driver, not a non-null field
+- AND if the namespace is instead reclaimed by the namespace garbage collector (orphaned past
+  grace, its Gateway record already gone), the reaper SHALL also delete the per-tenant mount,
+  best-effort, so no engine leaks on that path either
 
 #### Scenario: GTW-DEL-07.04 -- Invalid stored identity does not silently orphan the client
 

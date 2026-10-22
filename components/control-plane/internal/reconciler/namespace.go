@@ -286,6 +286,19 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	}
 	cancel()
 
+	// Reclaim the gateway's per-tenant Vault mount before reaping the namespace
+	// (HYPERSHELL-369). This is the safety-net path: a normally-deleted gateway drops its
+	// mount in the event-driven delete flow, but a namespace orphaned past grace (its Gateway
+	// record already gone) would otherwise leak openshell-gw/<ns> in Vault. The record is gone,
+	// so resolve the mount from the namespace and the Vault conventions (empty driver). Best
+	// effort and idempotent: a missing mount, or a cluster with no provider Vault, is a no-op
+	// or a logged warning and never blocks the reap.
+	mountCtx, cancelMount := context.WithTimeout(ctx, namespaceOperationTimeout)
+	if err := gateway.DeleteVaultTenantMount(mountCtx, r.client, gateway.ReconcileOpts{ControlPlaneNamespace: r.cpNamespace}, ns.Name, ""); err != nil {
+		log.Printf("WARN namespace gc: %s: delete vault tenant mount (best-effort): %v", ns.Name, err)
+	}
+	cancelMount()
+
 	deleteCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 	defer cancel()
 	if _, err := gateway.DeleteManagedNamespace(deleteCtx, r.client, ns.Name, r.cpNamespace); err != nil {

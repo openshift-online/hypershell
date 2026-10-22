@@ -338,8 +338,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// the error so the delete-reconcile retries; a left-behind mount holds only
 			// unreferenced, un-listable entries (the gateway database is already dropped).
 			// See openshell-gateway-credentials.spec.md (Provider Credential Lifecycle on Deletion).
-			if gw.CredentialDriver != nil && gateway.IsVaultBacked(*gw.CredentialDriver) {
-				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace, *gw.CredentialDriver); err != nil {
+			//
+			// Use the nil-safe getter, NOT a `CredentialDriver != nil` guard: a gateway created
+			// with no credential_driver is stored as NULL yet still resolves to vault (the flat
+			// default), so it has an openshell-gw/<ns> mount to reclaim. IsVaultBacked("") is true.
+			if gateway.IsVaultBacked(gw.GetCredentialDriver()) {
+				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace, gw.GetCredentialDriver()); err != nil {
 					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
 						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion; it may remain and the delete will be retried: %v", gateway.VaultMountForNamespace(namespace), err))
 					deleteErrs = append(deleteErrs, fmt.Errorf("delete vault tenant mount for %s: %w", namespace, err))
