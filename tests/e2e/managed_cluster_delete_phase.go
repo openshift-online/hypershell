@@ -61,10 +61,23 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 	detached, err := s.admin.Gateways().Get(ctx, gw.ID)
 	s.Require().NoError(err, "get gateway after cluster delete")
 	s.Assert().Equal(secondClusterID, detached.ClusterID, "detached gateway keeps its (now-dangling) cluster_id rather than being silently reassigned")
-	// Observable marker captured AFTER detachment: re-attachment must drive a
-	// reconcile that advances past this, which a gateway merely staying Running
-	// (or the create-time generation) would not prove.
-	detachedGeneration := detached.ObservedGeneration
+
+	// Drive a deliberate desired-spec change WHILE the cluster is absent so restore
+	// has a concrete reconcile to observe. Re-registration alone changes no desired
+	// field, so it never bumps generation, and observed_generation can never exceed
+	// generation (PLAT-DATA-06) - an "advanced past the old value" check would be
+	// impossible. Patch a benign field (external_dns); a partial patch that leaves
+	// cluster_id untouched is not a reassignment, so it is accepted despite the
+	// dangling cluster_id. The change cannot reconcile while detached, so
+	// observed_generation stays behind the bumped generation until the cluster returns.
+	pendingDNS := fmt.Sprintf("e2e-restore-%s.example.com", s.runID)
+	status, body, err = s.admin.RawJSON(ctx, http.MethodPatch, "/gateways/"+gw.ID, map[string]string{"external_dns": pendingDNS})
+	s.Require().NoError(err, "patch a benign desired field on the detached gateway")
+	s.Require().Truef(status == http.StatusOK, "patch external_dns on detached gateway: status %d (body: %s)", status, string(body))
+	pending, err := s.admin.Gateways().Get(ctx, gw.ID)
+	s.Require().NoError(err, "get gateway after the pending-change patch")
+	pendingGeneration := pending.Generation
+	s.Require().Greaterf(pendingGeneration, detached.Generation, "patch must bump the gateway generation (was %d, now %d)", detached.Generation, pendingGeneration)
 
 	// E2E-COV-06.02: the second control plane's next /registration restores the
 	// same cluster_id, and the gateway resumes reconciling.
@@ -87,10 +100,11 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 		if err != nil {
 			return false, nil
 		}
-		// Require a reconcile strictly newer than the post-detachment marker. A
-		// gateway that merely stayed Running is not proof of re-attachment.
-		return current.ObservedGeneration > detachedGeneration, nil
-	}), "gateway reconciles again (observed generation advances past the detached marker) after the cluster re-registers")
+		// The pending desired change made while detached reconciles only after the
+		// cluster returns, so observed_generation catches up to the bumped
+		// generation. A gateway that merely stayed Running never reaches it.
+		return current.ObservedGeneration >= pendingGeneration, nil
+	}), "gateway applies the pending change after re-registration (observed_generation reaches the generation bumped while detached)")
 }
 
 // findManagedClusterIDByName resolves name's id through /managed_clusters.
