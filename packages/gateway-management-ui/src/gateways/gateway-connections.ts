@@ -147,7 +147,7 @@ export const vertexProviderProfileFile = "google-vertex-ai.yaml";
  * locates the profile file" required by CLI-GWC-01 / WEB-UIEX-05 step 1).
  */
 export const providerProfileDocsUrl =
-  "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles";
+  externalLinkUrls.openShellProviderProfileDocs;
 
 /**
  * Public source for the Vertex AI example's provider profile file. Keep this
@@ -155,7 +155,7 @@ export const providerProfileDocsUrl =
  * components/cli/pkg/gatewayconnect/gatewayconnect.go.
  */
 export const vertexProviderProfileUrl =
-  "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml";
+  externalLinkUrls.openShellVertexProviderProfile;
 
 /**
  * Builds the command that downloads the provider profile file, satisfying the
