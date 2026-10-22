@@ -1,13 +1,13 @@
 # Homepage
 
 **Status:** Active
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Applies to:** `components/web-console` SPA and BFF, `packages/gateway-management-ui`, `packages/operational-dashboard-ui`, `components/api-server` placement contract
 **Tracks:** [GitHub issue 662](https://github.com/openshift-online/hypershell/issues/662), [HYPERSHELL-358](https://redhat.atlassian.net/browse/HYPERSHELL-358)
 
 ## Purpose
 
-Define the authenticated HyperShell homepage, its route relationship to the gateway list, the authorized data sources for every dynamic value, and the route and external-link registries used by the page. The homepage is the normal entry point for the web console. It gives users a concise gateway-health view, entry to gateway creation and dashboards, configured support contact, and curated external learning links. The production surface follows the approved design at `specs/web-console/mockups/homepage/homepage.tsx`, reviewed through the `Mockups/Homepage` and `Parity/Homepage` Storybook stories.
+Define the authenticated HyperShell homepage, its route relationship to the gateway list, the authorized data sources for every dynamic value, optional user-facing announcements, and the route and external-link registries used by the page. The homepage is the normal entry point for the web console. It gives users a concise gateway-health view, entry to gateway creation and dashboards, configured support contact, and curated external learning links. The production surface follows the approved design at `specs/web-console/mockups/homepage/homepage.tsx`, reviewed through the `Mockups/Homepage` and `Parity/Homepage` Storybook stories.
 
 ## Requirements
 
@@ -64,6 +64,8 @@ A static or unit check SHALL reject new hard-coded production path literals for 
 ### Requirement: WEB-HOME-03 -- Homepage Layout
 
 The homepage SHALL follow the approved `Parity/Homepage` surface. On extra-large viewports it SHALL use a two-column grid whose first column is twice as wide as the second. Column one SHALL contain the primary CTA card, Gateway health, and the configured support-channel card. Column two SHALL contain the role-dependent dashboard or platform-overview card and Learn and explore. Learn and explore SHALL list HyperShell repository, OpenShell docs, and OpenShell CLI links in one column.
+
+When an announcement is configured, the homepage SHALL render an inline PatternFly info alert above the two-column grid. When no announcement is configured, the homepage SHALL render no alert.
 
 The production page SHALL preserve the approved mockup's icon choices, descriptions, card hierarchy, spacing, responsive stacking, and PatternFly dark-mode chart text treatment. It SHALL NOT include Platform pulse.
 
@@ -140,6 +142,8 @@ The Gateway health card SHALL show a status alert, a healthy-count progress bar,
 
 When no gateway needs attention, the card SHALL show an all-healthy state and omit the attention list. When the summary source fails, only that card SHALL show a localized unavailable state and recovery guidance.
 
+The all-healthy message SHALL use localized plurals: no gateways yet, one healthy gateway, or all healthy gateways.
+
 #### Scenario: WEB-HOME-06.01 -- Attention entries are data driven
 
 - GIVEN the summary response contains two gateways that need attention
@@ -154,6 +158,16 @@ When no gateway needs attention, the card SHALL show an all-healthy state and om
 - THEN the card SHALL report that all five gateways are healthy
 - AND no attention entry SHALL be rendered
 
+#### Scenario: WEB-HOME-06.04 -- Healthy-message plurals match the count
+
+- GIVEN the summary response contains exactly one gateway and no attention entries
+- WHEN the homepage renders
+- THEN the card SHALL report that one gateway is healthy
+
+- GIVEN the summary response contains no gateways
+- WHEN the homepage renders
+- THEN the card SHALL report that there are no gateways yet
+
 #### Scenario: WEB-HOME-06.03 -- Gateway source failure is isolated
 
 - GIVEN `GET /api/homepage/summary` fails
@@ -163,7 +177,7 @@ When no gateway needs attention, the card SHALL show an all-healthy state and om
 
 ### Requirement: WEB-HOME-07 -- Platform Overview
 
-Platform overview SHALL show a gateway status donut and an active-sandbox status donut. Each donut SHALL show the total in its center, status labels and counts in its legend, and colors aligned with the approved status treatment. The BFF SHALL derive gateway and sandbox counts from authorized aggregate sources; the browser SHALL NOT combine paginated list pages to synthesize platform totals.
+Platform overview SHALL show a gateway status donut and an active-sandbox status donut. Each donut SHALL show the total in its center, status labels and counts in its legend, and colors aligned with the approved status treatment. Running gateways and active sandboxes SHALL use the PatternFly success color. The BFF SHALL derive gateway and sandbox counts from authorized aggregate sources; the browser SHALL NOT combine paginated list pages to synthesize platform totals.
 
 Each donut SHALL omit legend entries whose count is zero. When a donut total is zero, it SHALL show only the zero total and no legend. Legend text SHALL remain normal body-text size and SHALL NOT scale as the card or window grows.
 
@@ -195,12 +209,15 @@ When one platform-overview source fails, the affected chart or cluster section S
 
 Platform overview SHALL show cluster availability as a healthy-cluster count, progress bar, and details for unhealthy clusters. The BFF SHALL derive total and healthy cluster counts and unhealthy-cluster details from authorized platform-inventory data. Cluster names, reasons, and status SHALL come from the response.
 
+An unavailable cluster SHALL render a warning-status icon.
+
 #### Scenario: WEB-HOME-08.01 -- Unhealthy cluster details are data driven
 
 - GIVEN the platform-overview response reports five of six clusters healthy and one unreachable cluster
 - WHEN an administrator opens the homepage
 - THEN the progress SHALL show five of six
 - AND the unhealthy cluster SHALL show the API-supplied name and reason
+- AND the unavailable cluster icon SHALL use the warning status
 
 ### Requirement: WEB-HOME-09 -- Support Channel
 
@@ -240,6 +257,8 @@ Quick create SHALL create a real Gateway through the existing gateway operations
 
 Quick Create SHALL be hidden while placement availability is loading or unavailable. It SHALL NOT submit the public IBM intent merely as a silent fallback.
 
+The Quick Create dialog SHALL describe the placement that will be used. In local-kind mode it SHALL state that the gateway will be created on `local-kind` with a generated name. For public IBM placement it SHALL state that the gateway will be created on IBM Cloud public with a generated name.
+
 On success, the workflow SHALL invalidate gateway queries and navigate to the created gateway detail route. On failure, the modal SHALL remain open, show a useful localized error, and allow retry or cancel. A name-conflict response SHALL generate a new unique candidate and retry a bounded number of times.
 
 #### Scenario: WEB-HOME-12.01 -- Quick create submits local-kind placement
@@ -276,6 +295,16 @@ On success, the workflow SHALL invalidate gateway queries and navigate to the cr
 - THEN the modal SHALL remain open
 - AND a useful localized error SHALL be shown
 - AND retry and cancel SHALL remain available
+
+#### Scenario: WEB-HOME-12.06 -- Dialog copy matches placement
+
+- GIVEN the BFF reports a connected `local-kind` cluster
+- WHEN the user opens Quick create
+- THEN the dialog SHALL say that the gateway will be created on `local-kind` with a generated name
+
+- GIVEN the BFF reports an eligible public IBM cluster without Kata
+- WHEN the user opens Quick create
+- THEN the dialog SHALL say that the gateway will be created on IBM Cloud public with a generated name
 
 ### Requirement: WEB-HOME-13 -- Quick Create Name Generation
 
@@ -335,7 +364,7 @@ The command SHALL be documented in the existing command documentation and covere
 
 ### Requirement: WEB-HOME-16 -- Verification
 
-The implementation SHALL include focused tests for route changes, route-registry usage, role-dependent rendering, query gating, API-backed values, isolated unavailable states, Quick create, name generation, external-link registry integrity, and link-checker status handling. The web-console format, architecture, lint, typecheck, unit-test, build, i18n, and Storybook checks SHALL pass.
+The implementation SHALL include focused tests for route changes, route-registry usage, role-dependent rendering, query gating, API-backed values, isolated unavailable states, Quick create, name generation, homepage announcements, external-link registry integrity, and link-checker status handling. The web-console format, architecture, lint, typecheck, unit-test, build, i18n, and Storybook checks SHALL pass.
 
 The homepage is a production page with an approved mockup. The repository UI completion gate SHALL be executed. When visual comparison is unavailable in the current run, the gate SHALL complete without visual review, skip screenshot capture and comparison, record that capability reason, and continue all non-parity checks.
 
@@ -352,6 +381,25 @@ The homepage is a production page with an approved mockup. The repository UI com
 - THEN screenshot capture and comparison SHALL be skipped
 - AND the handoff SHALL record that visual review was unavailable
 - AND all non-parity checks SHALL still run
+
+### Requirement: WEB-HOME-17 -- Homepage Announcement
+
+The homepage announcement SHALL be controlled by an explicit application-owned static source. The source SHALL remain `null` when no announcement is needed, and publishing an announcement SHALL require assigning localized title and body message descriptors to that source. The source SHALL include maintainable instructions that explain how to publish and later hide an announcement.
+
+The production Storybook story for the announcement SHALL use the same approved scheduled-downtime example as the corresponding mockup story.
+
+#### Scenario: WEB-HOME-17.01 -- No announcement is hidden
+
+- GIVEN the announcement source is `null`
+- WHEN the homepage renders
+- THEN no announcement alert SHALL be rendered
+
+#### Scenario: WEB-HOME-17.02 -- Configured announcement is visible
+
+- GIVEN the announcement source contains localized title and body messages
+- WHEN the homepage renders
+- THEN an inline info alert SHALL appear above the homepage grid
+- AND it SHALL show the configured title and body
 
 ## Non-Goals
 
