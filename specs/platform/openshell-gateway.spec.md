@@ -794,29 +794,36 @@ Control Plane
 
 ---
 
-### Requirement: OSG-CORE-18 -- Caller Driver Config Opt-In
+### Requirement: OSG-CORE-18 -- Caller Driver Config
 
-The control plane SHALL let a cluster operator opt every gateway on the cluster in to OpenShell **caller driver config** through the `GATEWAY_ALLOW_DRIVER_CONFIG` environment variable on the control-plane deployment. Caller driver config is the per-sandbox compute driver JSON a caller passes on sandbox create (`openshell sandbox create --driver-config-json`, or the console's driver config field). It changes how the sandbox pod is built beyond the CPU and memory fields, so it SHALL stay off unless the operator sets the variable to a true value. External resources a caller attaches still require the chart's operator approval labels (`server.drivers.kubernetes.resourceAdmission`).
+Every gateway SHALL accept OpenShell **caller driver config** unless the cluster operator turns it off with `GATEWAY_ALLOW_DRIVER_CONFIG=false` on the control-plane deployment. Caller driver config is the per-sandbox compute driver JSON a caller passes on sandbox create (`openshell sandbox create --driver-config-json`, or the console's driver config field). It changes how the sandbox pod is built beyond the CPU and memory fields; a cluster that must not let callers do that sets the variable to `false`. External resources a caller attaches still require the chart's operator approval labels (`server.drivers.kubernetes.resourceAdmission`, enabled by default).
 
 The setting is cluster-wide, like `GATEWAY_SANDBOX_RUNTIME_CLASS`; per-gateway selection is not supported. A changed value reaches an existing gateway on that gateway's next Helm upgrade, which runs when its desired state changes. The controller's ClusterRole already grants every verb on `persistentvolumeclaims`, so it can grant the chart's extra sandbox Role rule.
 
 **Implementation:** `internal/config/config.go` (`AllowDriverConfig`), `internal/helm/values.go`
 
-#### Scenario: OSG-CORE-18.01 -- Driver config refused by default
+#### Scenario: OSG-CORE-18.01 -- Driver config accepted by default
 
-- GIVEN `GATEWAY_ALLOW_DRIVER_CONFIG` is unset, empty, or not a boolean
-- WHEN the GatewayReconciler renders a gateway's Helm values
-- THEN it SHALL omit `server.drivers.kubernetes.allowDriverConfig`
-- AND the rendered `gateway.toml` SHALL contain `allow_driver_config = false` under `[openshell.drivers.kubernetes]`
-- AND the gateway SHALL refuse a sandbox create that carries caller driver config
-
-#### Scenario: OSG-CORE-18.02 -- Operator opts the cluster in
-
-- GIVEN `GATEWAY_ALLOW_DRIVER_CONFIG=true` on the control-plane deployment
+- GIVEN `GATEWAY_ALLOW_DRIVER_CONFIG` is unset, empty, or a true boolean
 - WHEN the GatewayReconciler renders a gateway's Helm values
 - THEN it SHALL set `server.drivers.kubernetes.allowDriverConfig: true`
-- AND the rendered `gateway.toml` SHALL contain `allow_driver_config = true`
+- AND the rendered `gateway.toml` SHALL contain `allow_driver_config = true` under `[openshell.drivers.kubernetes]`
 - AND the chart's sandbox Role SHALL grant `get` on `persistentvolumeclaims` in the sandbox namespace
+
+#### Scenario: OSG-CORE-18.02 -- Operator turns driver config off
+
+- GIVEN `GATEWAY_ALLOW_DRIVER_CONFIG` is a false boolean (`false`, `0`) on the control-plane deployment
+- WHEN the GatewayReconciler renders a gateway's Helm values
+- THEN it SHALL omit `server.drivers.kubernetes.allowDriverConfig`
+- AND the rendered `gateway.toml` SHALL contain `allow_driver_config = false`
+- AND the gateway SHALL refuse a sandbox create that carries caller driver config
+
+#### Scenario: OSG-CORE-18.03 -- Invalid value fails startup
+
+- GIVEN `GATEWAY_ALLOW_DRIVER_CONFIG` is set to a value that is not a boolean
+- WHEN the control plane starts
+- THEN configuration loading SHALL fail with an error naming `GATEWAY_ALLOW_DRIVER_CONFIG`
+- AND the control plane SHALL NOT fall back to the default, so a mistyped `false` never leaves driver config on
 
 ---
 
@@ -854,7 +861,7 @@ The setting is cluster-wide, like `GATEWAY_SANDBOX_RUNTIME_CLASS`; per-gateway s
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
-| `GATEWAY_ALLOW_DRIVER_CONFIG` | `false` | `true` lets callers of every gateway on the cluster pass per-sandbox compute driver config. Passed to the chart as `server.drivers.kubernetes.allowDriverConfig`; omitted when off. An unparsable value logs a warning and stays off. See OSG-CORE-18. |
+| `GATEWAY_ALLOW_DRIVER_CONFIG` | `true` | Whether callers of every gateway on the cluster may pass per-sandbox compute driver config. `false` turns it off. Passed to the chart as `server.drivers.kubernetes.allowDriverConfig`; omitted when off. A value that is not a boolean fails controller startup. See OSG-CORE-18. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
@@ -985,7 +992,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 |---|---|---|
 | `sandbox.image.{repository,tag,digest}` | Vendored chart default for `[openshell.drivers.kubernetes].default_image`; e2e and Kind preload track it through `OPENSHELL_SANDBOX_IMAGE` | `charts/openshell/values.yaml`, `scripts/sync_openshell_version.py` |
 | `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS` env var; omitted from values when unset. The chart conditionally renders this into `gateway.toml` `default_runtime_class_name` and sets `runtimeClassName` on sandbox pods | `internal/helm/values.go` |
-| `server.drivers.kubernetes.allowDriverConfig` | `GATEWAY_ALLOW_DRIVER_CONFIG` env var; set only when true (OSG-CORE-18). The chart renders it into `gateway.toml` `allow_driver_config` and adds a sandbox Role rule for `get` on `persistentvolumeclaims` | `internal/helm/values.go` |
+| `server.drivers.kubernetes.allowDriverConfig` | `GATEWAY_ALLOW_DRIVER_CONFIG` env var, on by default; set only when true (OSG-CORE-18). The chart renders it into `gateway.toml` `allow_driver_config` and adds a sandbox Role rule for `get` on `persistentvolumeclaims` | `internal/helm/values.go` |
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource; substituted into cert-manager Certificate SANs at reconcile time | `internal/reconciler/gateway_reconciler.go` |

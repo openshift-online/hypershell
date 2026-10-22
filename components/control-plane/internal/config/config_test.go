@@ -198,23 +198,25 @@ func TestLoadGatewayResources(t *testing.T) {
 	})
 }
 
-// TestLoadAllowDriverConfig covers GATEWAY_ALLOW_DRIVER_CONFIG: off when unset,
-// empty, false, or unparsable, so a typo never opens caller driver config; on
-// only for a true boolean.
-// Verifies: OSG-CORE-18.01, OSG-CORE-18.02
+// TestLoadAllowDriverConfig covers GATEWAY_ALLOW_DRIVER_CONFIG: on when unset
+// or empty, off only for an explicit false value, and an unparsable value fails
+// startup so a mistyped "false" never leaves driver config enabled.
+// Verifies: OSG-CORE-18.01, OSG-CORE-18.02, OSG-CORE-18.03
 func TestLoadAllowDriverConfig(t *testing.T) {
 	cases := []struct {
 		name     string
 		envValue string
 		envUnset bool
 		want     bool
+		wantErr  bool
 	}{
-		{name: "unset stays off", envUnset: true, want: false},
-		{name: "empty stays off", envValue: "", want: false},
-		{name: "false stays off", envValue: "false", want: false},
-		{name: "unparsable stays off", envValue: "yes-please", want: false},
-		{name: "true turns on", envValue: "true", want: true},
-		{name: "1 turns on", envValue: "1", want: true},
+		{name: "unset is on", envUnset: true, want: true},
+		{name: "empty is on", envValue: "", want: true},
+		{name: "true is on", envValue: "true", want: true},
+		{name: "false turns off", envValue: "false", want: false},
+		{name: "0 turns off", envValue: "0", want: false},
+		{name: "padded false turns off", envValue: " false ", want: false},
+		{name: "unparsable fails startup", envValue: "flase", wantErr: true},
 	}
 
 	for _, tc := range cases {
@@ -228,6 +230,12 @@ func TestLoadAllowDriverConfig(t *testing.T) {
 				t.Setenv("GATEWAY_ALLOW_DRIVER_CONFIG", tc.envValue)
 			}
 			cfg, err := Load()
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "GATEWAY_ALLOW_DRIVER_CONFIG") {
+					t.Fatalf("GATEWAY_ALLOW_DRIVER_CONFIG=%q: Load() error = %v, want GATEWAY_ALLOW_DRIVER_CONFIG error", tc.envValue, err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Load(): %v", err)
 			}

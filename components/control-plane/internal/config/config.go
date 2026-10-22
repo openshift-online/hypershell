@@ -148,7 +148,8 @@ type Config struct {
 
 	// AllowDriverConfig lets callers of every gateway on this cluster pass
 	// per-sandbox compute driver config (OpenShell allow_driver_config).
-	// Sourced from GATEWAY_ALLOW_DRIVER_CONFIG; off when unset or unparsable.
+	// Sourced from GATEWAY_ALLOW_DRIVER_CONFIG; on when unset, off for "false".
+	// An unparsable value fails startup.
 	AllowDriverConfig bool
 
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
@@ -218,7 +219,7 @@ func Load() (*Config, error) {
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
-		AllowDriverConfig:       getEnvBool("GATEWAY_ALLOW_DRIVER_CONFIG", false),
+		AllowDriverConfig:       true,
 
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
 		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
@@ -255,6 +256,15 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
 		}
 		cfg.GatewayResources = &rr
+	}
+	// An invalid GATEWAY_ALLOW_DRIVER_CONFIG fails startup too: with the
+	// default on, falling back would turn a mistyped "false" into enabled.
+	if v := strings.TrimSpace(os.Getenv("GATEWAY_ALLOW_DRIVER_CONFIG")); v != "" {
+		allow, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_ALLOW_DRIVER_CONFIG %q: want true or false", v)
+		}
+		cfg.AllowDriverConfig = allow
 	}
 
 	// Validate Helm configuration
