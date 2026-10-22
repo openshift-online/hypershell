@@ -135,6 +135,9 @@ type GatewayReconciler struct {
 	// sandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
 	// sandbox pod (GATEWAY_SANDBOX_RUNTIME_CLASS); empty uses the cluster default.
 	sandboxRuntimeClass string
+	// allowDriverConfig lets callers pass per-sandbox driver config
+	// (GATEWAY_ALLOW_DRIVER_CONFIG); false keeps the chart default (refused).
+	allowDriverConfig bool
 }
 
 func NewGatewayReconciler(
@@ -151,6 +154,7 @@ func NewGatewayReconciler(
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
+	allowDriverConfig bool,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -184,8 +188,8 @@ func NewGatewayReconciler(
 		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
 	}
 
-	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s keycloak=%v ingress=%s ca-issuer=%s",
-		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, kcClient != nil, ingressBaseDomain, externalCAIssuerName)
+	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s keycloak=%v ingress=%s ca-issuer=%s allowDriverConfig=%v",
+		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, kcClient != nil, ingressBaseDomain, externalCAIssuerName, allowDriverConfig)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -208,6 +212,7 @@ func NewGatewayReconciler(
 		clusterID:             clusterID,
 		gatewayResources:      gatewayResources,
 		sandboxRuntimeClass:   sandboxRuntimeClass,
+		allowDriverConfig:     allowDriverConfig,
 	}, nil
 }
 
@@ -551,6 +556,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IngressBaseDomain:     r.ingressBaseDomain,
 		GatewayResources:      r.gatewayResources,
 		SandboxRuntimeClass:   r.sandboxRuntimeClass,
+		AllowDriverConfig:     r.allowDriverConfig,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)

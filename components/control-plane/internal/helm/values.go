@@ -108,6 +108,10 @@ type ValuesBuilder struct {
 	// by this gateway. Empty string omits the field (cluster default, typically runc).
 	// Set to "kata" or "kata-remote" to run sandboxes inside lightweight VMs.
 	SandboxRuntimeClass string
+	// AllowDriverConfig sets server.drivers.kubernetes.allowDriverConfig, so the
+	// gateway accepts per-sandbox compute driver config from callers. False
+	// omits the field and keeps the chart default (refused).
+	AllowDriverConfig bool
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -200,6 +204,9 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, b.Namespace, "server", "sandboxNamespace")
 	if b.SandboxRuntimeClass != "" {
 		setNestedValue(values, b.SandboxRuntimeClass, "server", "defaultRuntimeClassName")
+	}
+	if b.AllowDriverConfig {
+		setNestedValue(values, true, "server", "drivers", "kubernetes", "allowDriverConfig")
 	}
 
 	// Server DNS names for TLS certificate SANs

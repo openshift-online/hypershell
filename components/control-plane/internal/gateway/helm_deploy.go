@@ -59,6 +59,7 @@ func deployGatewayViaHelm(
 		HasVaultCA:                 hasVaultCA,
 		Resources:                  opts.GatewayResources,
 		SandboxRuntimeClass:        opts.SandboxRuntimeClass,
+		AllowDriverConfig:          opts.AllowDriverConfig,
 	}
 
 	values, err := valuesBuilder.Build()

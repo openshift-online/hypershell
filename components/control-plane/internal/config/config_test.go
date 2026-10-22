@@ -197,3 +197,43 @@ func TestLoadGatewayResources(t *testing.T) {
 		}
 	})
 }
+
+// TestLoadAllowDriverConfig covers GATEWAY_ALLOW_DRIVER_CONFIG: off when unset,
+// empty, false, or unparsable, so a typo never opens caller driver config; on
+// only for a true boolean.
+// Verifies: OSG-CORE-18.01, OSG-CORE-18.02
+func TestLoadAllowDriverConfig(t *testing.T) {
+	cases := []struct {
+		name     string
+		envValue string
+		envUnset bool
+		want     bool
+	}{
+		{name: "unset stays off", envUnset: true, want: false},
+		{name: "empty stays off", envValue: "", want: false},
+		{name: "false stays off", envValue: "false", want: false},
+		{name: "unparsable stays off", envValue: "yes-please", want: false},
+		{name: "true turns on", envValue: "true", want: true},
+		{name: "1 turns on", envValue: "1", want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			if tc.envUnset {
+				if err := os.Unsetenv("GATEWAY_ALLOW_DRIVER_CONFIG"); err != nil {
+					t.Fatalf("unset GATEWAY_ALLOW_DRIVER_CONFIG: %v", err)
+				}
+			} else {
+				t.Setenv("GATEWAY_ALLOW_DRIVER_CONFIG", tc.envValue)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load(): %v", err)
+			}
+			if cfg.AllowDriverConfig != tc.want {
+				t.Fatalf("GATEWAY_ALLOW_DRIVER_CONFIG=%q: AllowDriverConfig = %v, want %v", tc.envValue, cfg.AllowDriverConfig, tc.want)
+			}
+		})
+	}
+}

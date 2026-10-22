@@ -146,6 +146,11 @@ type Config struct {
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
 
+	// AllowDriverConfig lets callers of every gateway on this cluster pass
+	// per-sandbox compute driver config (OpenShell allow_driver_config).
+	// Sourced from GATEWAY_ALLOW_DRIVER_CONFIG; off when unset or unparsable.
+	AllowDriverConfig bool
+
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
 	// reads repository subtrees over the GitHub API with the platform GitHub App
@@ -213,6 +218,7 @@ func Load() (*Config, error) {
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
+		AllowDriverConfig:       getEnvBool("GATEWAY_ALLOW_DRIVER_CONFIG", false),
 
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
 		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),

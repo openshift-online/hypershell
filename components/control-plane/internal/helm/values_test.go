@@ -330,6 +330,109 @@ func TestBuild_SandboxRuntimeClass(t *testing.T) {
 	}
 }
 
+// TestBuild_AllowDriverConfig verifies that AllowDriverConfig sets
+// server.drivers.kubernetes.allowDriverConfig and that the default omits it,
+// leaving the chart's refusal in place.
+// Verifies: OSG-CORE-18.01, OSG-CORE-18.02
+func TestBuild_AllowDriverConfig(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	builder := ValuesBuilder{
+		Gateway:   GatewayConfig{Image: "quay.io/test/gateway:v1"},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "drivers"); got != nil {
+		t.Errorf("server.drivers present when AllowDriverConfig is false: %v", got)
+	}
+
+	builder.AllowDriverConfig = true
+	values, err = builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "drivers", "kubernetes", "allowDriverConfig"); got != true {
+		t.Errorf("server.drivers.kubernetes.allowDriverConfig = %v, want true", got)
+	}
+}
+
+// TestBuild_AllowDriverConfigRendersInChart renders the vendored chart with
+// AllowDriverConfig off and on. It checks the gateway.toml line and the sandbox
+// Role's persistentvolumeclaims rule, since a key the chart does not read
+// silently no-ops. Skipped without helm.
+// Verifies: OSG-CORE-18.01, OSG-CORE-18.02
+func TestBuild_AllowDriverConfigRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	render := func(t *testing.T, allow bool) string {
+		t.Helper()
+		builder := ValuesBuilder{
+			Gateway: GatewayConfig{
+				Image:           "quay.io/test/gateway:v1",
+				SupervisorImage: "quay.io/test/supervisor:v1",
+			},
+			Namespace:         "test-ns",
+			AllowDriverConfig: allow,
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		raw, err := json.Marshal(values)
+		if err != nil {
+			t.Fatalf("marshal values: %v", err)
+		}
+		valuesFile := filepath.Join(t.TempDir(), "values.json")
+		if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+			t.Fatalf("write values: %v", err)
+		}
+		out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+			"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+		if err != nil {
+			t.Fatalf("helm template: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	pvcRule := `resources: ["persistentvolumeclaims"]`
+
+	off := render(t, false)
+	if !strings.Contains(off, "allow_driver_config = false") {
+		t.Errorf("default render does not contain %q", "allow_driver_config = false")
+	}
+	if strings.Contains(off, pvcRule) {
+		t.Errorf("default render grants %s; want it only when driver config is allowed", pvcRule)
+	}
+
+	on := render(t, true)
+	if !strings.Contains(on, "allow_driver_config = true") {
+		t.Errorf("opt-in render does not contain %q", "allow_driver_config = true")
+	}
+	if !strings.Contains(on, pvcRule) {
+		t.Errorf("opt-in render does not grant %s", pvcRule)
+	}
+}
+
 // TestBuild_SandboxRuntimeClassRendersInChart guards the value path end-to-end:
 // renders the vendored chart with SandboxRuntimeClass set and asserts
 // default_runtime_class_name reaches the gateway config. Skipped without helm.

@@ -308,6 +308,10 @@ type ReconcileOpts struct {
 	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
 	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
 	SandboxRuntimeClass string
+	// AllowDriverConfig lets callers of this gateway pass per-sandbox compute
+	// driver config (GATEWAY_ALLOW_DRIVER_CONFIG). False keeps the chart
+	// default, where the gateway refuses it.
+	AllowDriverConfig bool
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

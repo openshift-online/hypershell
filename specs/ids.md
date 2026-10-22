@@ -117,7 +117,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `OSG-CON` | `platform/openshell-gateway-console.spec.md` | 9 |
-| `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
+| `OSG-CORE` | `platform/openshell-gateway.spec.md` | 18 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
 | `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 4 |

@@ -377,6 +377,7 @@ func main() {
 			clusterID,
 			cfg.GatewayResources,
 			cfg.SandboxRuntimeClass,
+			cfg.AllowDriverConfig,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
