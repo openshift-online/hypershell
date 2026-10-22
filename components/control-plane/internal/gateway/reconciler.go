@@ -1209,8 +1209,14 @@ func reconcileCredentialDriverResources(
 		// ownership conflict ("app.kubernetes.io/managed-by must equal Helm"). This
 		// reconcile runs before the chart deploy, so remove a stale Role/RoleBinding
 		// left by an older control plane that created them directly; the chart then
-		// creates and owns them. A Helm-owned Role is left untouched.
-		deleteControlPlaneOwnedCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+		// creates and owns them. Clean the SAME namespace the old control plane
+		// wrote to (the configured credential namespace, not just the tenant
+		// namespace), so the custom-namespace upgrade path is covered too.
+		credNS := nsConfig.Name
+		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
+			credNS = driver.KubernetesSecrets.Namespace
+		}
+		deleteControlPlaneOwnedCredentialSecretsRBAC(ctx, dynamicClient, credNS)
 	} else {
 		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
 	}
@@ -1238,12 +1244,25 @@ func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Inte
 	}
 }
 
-// deleteControlPlaneOwnedCredentialSecretsRBAC removes a credential-secrets Role
-// and RoleBinding in namespace that an older control plane created directly
-// (labeled app.kubernetes.io/managed-by=hypershell-control-plane), so the gateway
-// Helm chart can create and own them without an ownership conflict. A Helm-owned
-// Role (or the absence of one) is left untouched, so this is safe to call on every
-// reconcile and a no-op once the chart owns the RBAC.
+// isLegacyControlPlaneOwned reports whether obj carries the exact ownership labels
+// the control plane set on the credential-secrets Role/RoleBinding it used to
+// create directly, before the gateway Helm chart took ownership. Only objects
+// matching these are safe for the migration cleanup to delete; a Helm-owned,
+// foreign-owned, or unlabeled object does NOT match and is left alone.
+func isLegacyControlPlaneOwned(obj *unstructured.Unstructured) bool {
+	labels := obj.GetLabels()
+	return labels["app.kubernetes.io/managed-by"] == "hypershell-control-plane" &&
+		labels["hypershell.redhat.io/managed"] == "true"
+}
+
+// deleteControlPlaneOwnedCredentialSecretsRBAC removes the credential-secrets Role
+// and RoleBinding in namespace IFF an older control plane created them directly
+// (they carry the legacy hypershell-control-plane ownership labels), so the gateway
+// Helm chart can create and own them without an ownership conflict. The Role and
+// RoleBinding are inspected INDEPENDENTLY, so a partial stale state (only one of
+// the two left behind) is fully cleaned; a Helm-owned, foreign-owned, unlabeled,
+// or absent object is left untouched. Safe to call on every reconcile and a no-op
+// once the chart owns the RBAC.
 func deleteControlPlaneOwnedCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) {
 	roleGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
@@ -1257,26 +1276,28 @@ func deleteControlPlaneOwnedCredentialSecretsRBAC(ctx context.Context, dynamicCl
 	}
 
 	name := "openshell-gateway-credential-secrets"
-	role, err := dynamicClient.Resource(roleGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleBindingGVR, namespace, name, "RoleBinding")
+	deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleGVR, namespace, name, "Role")
+}
+
+// deleteIfLegacyControlPlaneOwned deletes the named resource only when it exists
+// and carries the legacy control-plane ownership labels (see isLegacyControlPlaneOwned).
+func deleteIfLegacyControlPlaneOwned(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource, namespace, name, kind string) {
+	obj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to read credential secrets Role in %s: %v", namespace, err)
+			log.Printf("WARN failed to read credential secrets %s in %s: %v", kind, namespace, err)
 		}
 		return
 	}
-	// Leave a Helm-managed Role (the chart's own copy) alone; only clear a stale
-	// control-plane-created Role that would block the chart's install.
-	if role.GetLabels()["app.kubernetes.io/managed-by"] == "Helm" {
+	if !isLegacyControlPlaneOwned(obj) {
+		return // Helm-owned, foreign-owned, or unlabeled: not the control plane's to delete.
+	}
+	if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete stale control-plane credential secrets %s in %s: %v", kind, namespace, err)
 		return
 	}
-
-	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete stale control-plane credential secrets RoleBinding in %s: %v", namespace, err)
-	}
-	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete stale control-plane credential secrets Role in %s: %v", namespace, err)
-	}
-	log.Printf("INFO removed stale control-plane-owned credential secrets RBAC in %s so the gateway chart can own it", namespace)
+	log.Printf("INFO removed stale control-plane-owned credential secrets %s in %s so the gateway chart can own it", kind, namespace)
 }
 
 func DetectOpenShift(clientset *kubernetes.Clientset) bool {

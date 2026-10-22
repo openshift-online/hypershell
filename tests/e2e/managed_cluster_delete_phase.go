@@ -33,7 +33,10 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 		t.Skipf("could not place a throwaway gateway on cluster %q after several attempts; random placement never selected it", secondName)
 	}
 	s.trackGateway(gw.ID)
-	baselineGeneration := gw.ObservedGeneration
+	// Fully reconcile the gateway to Running BEFORE deleting its cluster, so the
+	// post-detachment marker captured below reflects the detached state rather
+	// than in-flight initial provisioning.
+	s.waitGatewayRunning(t, gw.ID)
 
 	// DELETE /managed_clusters/{id} requires platform:admin (any record other
 	// than the caller's own self-registered cluster); grant it rather than
@@ -58,6 +61,10 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 	detached, err := s.admin.Gateways().Get(ctx, gw.ID)
 	s.Require().NoError(err, "get gateway after cluster delete")
 	s.Assert().Equal(secondClusterID, detached.ClusterID, "detached gateway keeps its (now-dangling) cluster_id rather than being silently reassigned")
+	// Observable marker captured AFTER detachment: re-attachment must drive a
+	// reconcile that advances past this, which a gateway merely staying Running
+	// (or the create-time generation) would not prove.
+	detachedGeneration := detached.ObservedGeneration
 
 	// E2E-COV-06.02: the second control plane's next /registration restores the
 	// same cluster_id, and the gateway resumes reconciling.
@@ -80,8 +87,10 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 		if err != nil {
 			return false, nil
 		}
-		return current.ObservedGeneration > baselineGeneration || current.Phase == "Running", nil
-	}), "gateway resumes reconciling after the cluster re-registers")
+		// Require a reconcile strictly newer than the post-detachment marker. A
+		// gateway that merely stayed Running is not proof of re-attachment.
+		return current.ObservedGeneration > detachedGeneration, nil
+	}), "gateway reconciles again (observed generation advances past the detached marker) after the cluster re-registers")
 }
 
 // findManagedClusterIDByName resolves name's id through /managed_clusters.

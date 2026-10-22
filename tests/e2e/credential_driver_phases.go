@@ -186,7 +186,11 @@ func (s *E2ESuite) assertVaultDriverQualification(t *testing.T) {
 	s.Require().NotEmpty(vaultRole, "E2E_QUALIFY_VAULT=1 requires E2E_VAULT_ROLE")
 
 	ctx := t.Context()
-	gw := s.createGatewayWithCredentialDriver(t, "e2e-cred-vault-"+s.runID, `{"type":"vault"}`)
+	// Exercise the SUPPLIED Vault backend, not the convention default: put the
+	// requested address and role into credential_driver.vault so the rendered
+	// gateway config points at E2E_VAULT_ADDR/E2E_VAULT_ROLE.
+	credDriver := fmt.Sprintf(`{"type":"vault","vault":{"address":%q,"role":%q}}`, vaultAddr, vaultRole)
+	gw := s.createGatewayWithCredentialDriver(t, "e2e-cred-vault-"+s.runID, credDriver)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
 	ns := running.Namespace
@@ -194,6 +198,8 @@ func (s *E2ESuite) assertVaultDriverQualification(t *testing.T) {
 	toml := s.gatewayConfigTOML(t, ns)
 	s.Assert().Contains(toml, `credential_drivers = ["vault"]`, "gateway.toml declares the vault driver")
 	s.Assert().NotContains(toml, "[openshell.gateway.credential_storage]", "gateway.toml omits the KEK credential_storage section")
+	s.Assert().Contains(toml, vaultAddr, "gateway.toml uses the supplied Vault address (E2E_VAULT_ADDR), not the convention default")
+	s.Assert().Contains(toml, vaultRole, "gateway.toml uses the supplied Vault role (E2E_VAULT_ROLE), not the convention default")
 
 	dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(ctx, "openshell-gateway", metav1.GetOptions{})
 	s.Require().NoError(err, "get gateway deployment for vault SA token volume")
