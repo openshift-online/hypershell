@@ -42,6 +42,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -151,7 +152,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 22 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 23 |
 
 ### SEC
 

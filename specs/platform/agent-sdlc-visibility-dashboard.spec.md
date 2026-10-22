@@ -48,7 +48,7 @@ adapter with no domain or UI change.
 
 | Fact | Reachable | Notes |
 | --- | --- | --- |
-| Current phase / column, blocked and paused set | Yes (easy) | GitHub issues-by-label on the product repo, one query |
+| Current phase / column, blocked and paused set | Yes (easy) | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23) |
 | Which bundle on which hub cluster | Yes (easy) | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution) |
 | Bundle contents (tracked issues + one-off PRs) | Yes (medium) | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
 | State over time, aging, rework count | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today |
@@ -797,7 +797,11 @@ issues and other pull requests, a tracked issue delivered by multiple PRs in one
 bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
 resolved bundle, a shipped record whose merge time precedes the oldest resolved bundle's
 build date landing in a released row rather than Unreleased with no additional GitHub call
-(the compare-window horizon regression, SDLC-VIS-22), rework-from-timeline counting) and
+(the compare-window horizon regression, SDLC-VIS-22), rework-from-timeline counting,
+an allowed-only issue (carrying `agent/allowed` with no `agent/execution-record`) landing
+in Intake with PhaseSince from the `agent/allowed` labeled event, and an inert Jira-origin
+record (carrying `agent/execution-record` but not `agent/allowed`) absent from the listing
+(the ingestion filter regression, SDLC-VIS-23)) and
 for the `SdlcStateProvider` port
 with its GitHub adapter; UI tests for the wire mapper, the tab shell and shared
 freight-bar coupling, the aging-board position and SLE line, the rework meter encoding,
@@ -815,6 +819,83 @@ loading, stale, empty-lane, and mid-flight states using a mock SDLC port.
 - THEN it SHALL show the aging board, the rework meters, the escalation lane, and
   the release x hub-cluster matrix with its bundle contents grouped into tracked
   issues and other pull requests, including the Unreleased row
+
+### Requirement: SDLC-VIS-23 -- Ingestion Filter Uses the Authorization Gate
+
+The GitHub-label adapter SHALL use `agent/allowed` as the ingestion filter for the
+SDLC board listing query, replacing the `agent/execution-record` marker. The listing
+SHALL request `GET /repos/{repo}/issues?labels=agent/allowed&state=all&...` so that
+every authorized issue (any state) is ingested regardless of whether an execution
+record marker exists. The Intake phase entry marker SHALL be `agent/allowed`, so an
+issue carrying only `agent/allowed` and no further funnel label resolves to Intake
+with its time-in-phase measured from when the `agent/allowed` label was applied.
+
+`agent/allowed` is the human authorization gate that admits an issue to autonomous
+development (`specs/standards/sdlc/jira-github-sync.spec.md`, SDLC-JIRA-01). It is
+the true entrance to the funnel: the moment a human authorizes a work item is the
+moment it enters the funnel, not the later bookkeeping step that applies
+`agent/execution-record`.
+
+The two labels have overlapping but distinct scopes. Switching the filter is NOT a
+strict superset:
+
+| State | Old filter (`agent/execution-record`) | New filter (`agent/allowed`) |
+| --- | --- | --- |
+| Pre-ingest GitHub-origin item (authorized, not yet ingested) | Not shown | Shown (the intended fix) |
+| Inert Jira-origin execution record (ingested, not yet authorized) | Shown | Not shown (deliberately excluded) |
+| Authorized execution record (both labels present) | Shown | Shown |
+
+The exclusion of inert Jira-origin records is deliberate: an inert record is
+un-authorized and cannot be acted upon by the funnel (SDLC-JIRA-01). Showing it on
+the board would place inert, un-actionable work in the funnel view alongside
+authorized work, which misrepresents the funnel's actual scope. The board answers
+"what is in the authorized funnel?", and an inert record is not in the authorized
+funnel.
+
+Every issue that carries `agent/execution-record` AND `agent/allowed` continues to
+appear and resolve to its current phase, so no currently authorized and actionable
+issue is dropped.
+
+This change adds no new GitHub API calls and requires no change to the refresh
+cadence: it is a one-label swap in the existing listing query plus the Intake
+entry marker (SDLC-VIS-04).
+
+#### Scenario: SDLC-VIS-23.01 -- Allowed-only issue appears in Intake
+
+- GIVEN a GitHub issue carrying `agent/allowed` and a scope label but no
+  `agent/execution-record`
+- WHEN the SDLC board renders
+- THEN the issue SHALL appear in the Intake column
+
+#### Scenario: SDLC-VIS-23.02 -- PhaseSince from the authorization event
+
+- GIVEN an allowed-only issue (no further funnel label)
+- WHEN the adapter computes its PhaseSince
+- THEN PhaseSince SHALL equal the timestamp of the `agent/allowed` labeled event
+
+#### Scenario: SDLC-VIS-23.03 -- Authorized execution records continue to resolve
+
+- GIVEN an issue carrying both `agent/allowed` and `agent/execution-record` along
+  with a funnel phase label (for example `agent/reviewable-spec`)
+- WHEN the SDLC board renders
+- THEN the issue SHALL resolve to its current phase (Spec in this example)
+- AND its time-in-phase and rework count SHALL be unchanged
+
+#### Scenario: SDLC-VIS-23.04 -- No increase in GitHub API calls
+
+- GIVEN the SDLC plane refreshes
+- WHEN it lists in-scope issues
+- THEN the number of GitHub API calls SHALL be the same as before the filter change
+- AND the refresh cadence SHALL be unchanged
+
+#### Scenario: SDLC-VIS-23.05 -- Inert Jira-origin record excluded from the board
+
+- GIVEN a Jira-origin execution record carrying `agent/execution-record` and a scope
+  label but NOT `agent/allowed`
+- WHEN the SDLC board renders
+- THEN the record SHALL NOT appear on the board
+- AND this exclusion is deliberate: the board uses the authorization gate as the
+  funnel entrance, and an inert record is not authorized
 
 ## Non-Goals
 

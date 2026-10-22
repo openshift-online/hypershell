@@ -47,7 +47,7 @@ const (
 // these; a future Jira adapter maps Jira status/labels to the same domain phases
 // behind the same port, with no change here (SDLC-VIS-02).
 const (
-	labelExecutionRecord = "agent/execution-record"
+	labelAllowed         = "agent/allowed"
 	labelWorkable        = "agent/workable"
 	labelReviewableSpec  = "agent/reviewable-spec"
 	labelSpecRejected    = "agent/review-spec-rejected"
@@ -392,7 +392,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	// issues to bundles (bundle contents are the bundle's PR set, below) and adds no
 	// GitHub calls beyond the resolver's own cached lookups.
 	recByNumber := map[int]SdlcRecord{}
-	issueByPR := map[int]int{} // PR number -> tracked execution-record issue number
+	issueByPR := map[int]int{} // PR number -> tracked work-item issue number
 	for _, rec := range shipped {
 		recByNumber[rec.Number] = rec
 		if s.issues == nil {

@@ -1509,7 +1509,7 @@
   },
   "app.gateway.connection.copySetupCommand": {
     "defaultMessage": "Copy the one-time setup commands",
-    "description": "Accessible label for copying the gateway registration, provider creation, and model selection commands."
+    "description": "Accessible label for copying the gateway registration, provider profile import, provider creation, and model selection commands."
   },
   "app.gateway.connection.editEditor": {
     "defaultMessage": "Editor",
@@ -1571,6 +1571,22 @@
     "defaultMessage": "Log in and configure",
     "description": "Sub-header for the login and configuration command within one-time setup."
   },
+  "app.gateway.connection.profileImportDocsLink": {
+    "defaultMessage": "View provider profile documentation",
+    "description": "Link text pointing to the OpenShell provider profile documentation."
+  },
+  "app.gateway.connection.profileImportDocsLinkNewTab": {
+    "defaultMessage": "View provider profile documentation (opens in a new tab)",
+    "description": "Accessible name for the provider profile documentation link, including that it opens in a new tab."
+  },
+  "app.gateway.connection.profileImportScopeNote": {
+    "defaultMessage": "The profile import command above uses --global scope. This must match the scope used by the provider create command below (its --global-profile flag here): a scope mismatch reproduces a \"provider profile not found\" error even after the profile has been imported.",
+    "description": "Explains that the provider profile import scope and the provider create scope must match."
+  },
+  "app.gateway.connection.profileImportScopeTitle": {
+    "defaultMessage": "Provider profile scope",
+    "description": "Toggle text for the expandable section explaining provider profile import scope."
+  },
   "app.gateway.connection.sandbox.description": {
     "defaultMessage": "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
     "description": "Supporting text for the create-sandbox connection step."
@@ -1588,7 +1604,7 @@
     "description": "Title for the connect-to-sandbox connection step."
   },
   "app.gateway.connection.setup.description": {
-    "defaultMessage": "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
+    "defaultMessage": "Run these commands in order to register the gateway, import the provider profile, add the Claude on Vertex AI provider, and select the model.",
     "description": "Supporting text for the one-time setup connection step."
   },
   "app.gateway.connection.setup.title": {
