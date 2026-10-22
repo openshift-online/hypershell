@@ -181,29 +181,26 @@ func (s *E2ESuite) assertInstallProducesMatchingCLI(t *testing.T, installerVersi
 	s.Assert().Truef(openshellCLIMatchesVersion(versionOut, gatewayVersion), "installed CLI %q does not match deployed gateway version %q", strings.TrimSpace(versionOut), gatewayVersion)
 }
 
-// assertProviderCreateCommand executes the flags buildProviderCreateCommand
-// renders against the connected primary gateway (E2E-COV-05.03), gated on real
-// GCP Application Default Credentials because --from-gcloud-adc has none that
-// are credential-free; invoked as structured CLI args (s.cli execs the binary
-// directly, not through a shell) rather than the rendered shell text.
+// assertProviderCreateCommand runs the provider-create path end to end against the
+// connected primary gateway (E2E-COV-05.03). The spec explicitly accepts a
+// credential-free equivalent of the UI's --from-gcloud-adc command, so this uses
+// --runtime-credentials (the provider's credentials are resolved at runtime by the
+// gateway/sandbox). That needs no cloud credentials, so the subtest runs
+// unconditionally on the Kind merge gate instead of skipping. s.cli execs the
+// binary's argv directly, not through a shell.
 func (s *E2ESuite) assertProviderCreateCommand(t *testing.T) {
-	projectID := os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID")
-	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" || projectID == "" {
-		t.Skip("provider-create parity requires GOOGLE_APPLICATION_CREDENTIALS (gcloud ADC) and ANTHROPIC_VERTEX_PROJECT_ID; neither --from-gcloud-adc nor a credential-free equivalent is available")
-	}
 	providerName := "e2e-parity-" + s.runID
-	// s.cli execs the openshell binary's argv directly rather than through a
-	// shell, so the UI-rendered command is executed as these equivalent
-	// structured args rather than its literal backslash-continued text.
-	s.runner.Show("%s  # executed as structured CLI args", buildProviderCreateCommand(providerName))
+	// For reference, log the command the UI renders; the suite executes the
+	// credential-free equivalent below.
+	s.runner.Show("%s  # UI-rendered form; the suite runs the --runtime-credentials equivalent", buildProviderCreateCommand(providerName))
 	out, err := s.cli(t, s.primaryLocalName, "provider", "create",
 		"--name", providerName,
 		"--type", "google-vertex-ai",
-		"--from-gcloud-adc",
-		"--config", "VERTEX_AI_PROJECT_ID="+projectID,
+		"--runtime-credentials",
+		"--config", "VERTEX_AI_PROJECT_ID=e2e-parity",
 		"--config", "VERTEX_AI_REGION=global",
 	)
-	s.Require().NoErrorf(err, "UI-rendered provider create command: %s", out)
+	s.Require().NoErrorf(err, "credential-free provider create (E2E-COV-05.03): %s", out)
 	defer func() { _, _ = s.cli(t, s.primaryLocalName, "provider", "delete", providerName) }()
 
 	out, err = s.cli(t, s.primaryLocalName, "provider", "get", providerName)

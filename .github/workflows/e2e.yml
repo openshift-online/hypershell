@@ -724,32 +724,6 @@ jobs:
       # Any future Go suite step that stops or restarts the control plane must
       # wait for E2E_DISRUPTIVE_GATE_FILE. On merge_group only the Go suite runs.
       # E2E_MODE=short applies to the console suite only.
-      # Provider-create parity (P2.11, E2E-COV-05.03) runs `provider create
-      # --from-gcloud-adc`, which needs real GCP Application Default Credentials.
-      # Materialize the scoped CI secret into a file and export it so the parity
-      # subtest runs on this merge gate. When the secret/variable are absent (for
-      # example on forks), the subtest skips rather than failing.
-      - name: Provision provider-create GCP credentials
-        env:
-          E2E_GCP_ADC_JSON: ${{ secrets.E2E_GCP_ADC_JSON }}
-          E2E_VERTEX_PROJECT_ID: ${{ vars.E2E_VERTEX_PROJECT_ID }}
-          # Fork PRs cannot receive repository secrets; every other event (push,
-          # merge_group, same-repo PR) is a trusted gate that MUST run the coverage.
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
-        run: |
-          if [ -n "${E2E_GCP_ADC_JSON}" ] && [ -n "${E2E_VERTEX_PROJECT_ID}" ]; then
-            adc="${RUNNER_TEMP}/gcp-adc.json"
-            printf '%s' "${E2E_GCP_ADC_JSON}" > "${adc}"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=${adc}" >> "${GITHUB_ENV}"
-            echo "ANTHROPIC_VERTEX_PROJECT_ID=${E2E_VERTEX_PROJECT_ID}" >> "${GITHUB_ENV}"
-            echo "provider-create parity will run (scoped GCP ADC provisioned)"
-          elif [ "${IS_FORK_PR}" = "true" ]; then
-            echo "fork PR cannot receive secrets; provider-create parity (E2E-COV-05.03) will skip"
-          else
-            echo "::error::E2E_GCP_ADC_JSON secret and E2E_VERTEX_PROJECT_ID variable are not configured. E2E-COV-05.03 (provider-create) is a required ungated phase and must run on this trusted gate; configure them in repository settings."
-            exit 1
-          fi
-
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
@@ -993,30 +967,6 @@ jobs:
         uses: ./.github/actions/openshift-cluster-login
         with:
           role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
-
-      # See the Kind job: provider-create parity (E2E-COV-05.03) needs scoped GCP
-      # ADC; provision it when the secret/variable are set, otherwise the subtest
-      # skips.
-      - name: Provision provider-create GCP credentials
-        env:
-          E2E_GCP_ADC_JSON: ${{ secrets.E2E_GCP_ADC_JSON }}
-          E2E_VERTEX_PROJECT_ID: ${{ vars.E2E_VERTEX_PROJECT_ID }}
-          # Fork PRs cannot receive repository secrets; every other event (push,
-          # merge_group, same-repo PR) is a trusted gate that MUST run the coverage.
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
-        run: |
-          if [ -n "${E2E_GCP_ADC_JSON}" ] && [ -n "${E2E_VERTEX_PROJECT_ID}" ]; then
-            adc="${RUNNER_TEMP}/gcp-adc.json"
-            printf '%s' "${E2E_GCP_ADC_JSON}" > "${adc}"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=${adc}" >> "${GITHUB_ENV}"
-            echo "ANTHROPIC_VERTEX_PROJECT_ID=${E2E_VERTEX_PROJECT_ID}" >> "${GITHUB_ENV}"
-            echo "provider-create parity will run (scoped GCP ADC provisioned)"
-          elif [ "${IS_FORK_PR}" = "true" ]; then
-            echo "fork PR cannot receive secrets; provider-create parity (E2E-COV-05.03) will skip"
-          else
-            echo "::error::E2E_GCP_ADC_JSON secret and E2E_VERTEX_PROJECT_ID variable are not configured. E2E-COV-05.03 (provider-create) is a required ungated phase and must run on this trusted gate; configure them in repository settings."
-            exit 1
-          fi
 
       - name: Run OpenShift e2e suite
         id: e2e-suite
