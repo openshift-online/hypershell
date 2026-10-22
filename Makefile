@@ -153,6 +153,7 @@ help:
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
 	@echo "    check-deploy-orphans     Verify every deploy/base manifest is referenced by a kustomization"
+	@echo "    check-mergify-scopes     Verify the Mergify scope graph and tracked-file coverage"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -292,8 +293,18 @@ traceability:
 check-cli-drift: generate-tui-check
 	scripts/generate-cli.sh --check
 
+.PHONY: test-mergify-scopes-policy
+test-mergify-scopes-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_mergify_scopes.py
+
+.PHONY: check-mergify-scopes
+# Mergify dependency-aware scope graph and tracked-file coverage audit
+# (specs/platform/mergify-parallel-merge-queue.spec.md, CICD-MRG-03/08/09).
+check-mergify-scopes: test-mergify-scopes-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_mergify_scopes.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-mergify-scopes test-release-bundle
 
 # ============================================================================
 # Git hooks
