@@ -24,10 +24,11 @@ type ImageDefaults interface {
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
 // directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to the sha-71335e5 build for reproducibility; bump
-// deliberately when adopting a new dashboard contract. Overridable via
+// Pinned by digest to dashboard release v0.1.1 (gateway line 0.1) for
+// reproducibility; the update-openshell skill moves it to the newest release
+// of the gateway's release line. Overridable via
 // HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927"
+const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:880cd6b6ce87faf99d7edd55b660a11248c4c7a3c38438592556b89af13b3f2f"
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
