@@ -123,23 +123,27 @@ jobs:
       sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
       web_console: ${{ needs.detect-changes.outputs.web_console }}
 
+  # Runs concurrently with unit (needs only change detection) and is NOT part
+  # of the Tests CI Gate (CICD-MRG-05). CICD-MRG-06: the e2e job below is the
+  # operative E2E suppression for the merge path. It skips this expensive call on
+  # same-repo Mergify temporary queue PRs, whose head branch carries Mergify's
+  # queue_branch_prefix. The default prefix is `mergify/merge-queue/`
+  # (docs.mergify.com/merge-queue/rules/, verified 2026-10-22); the legacy
+  # `tmp-mergify/merge-queue/` variant is matched too so a prefix change across
+  # Mergify versions does not quietly re-enable E2E on queue PRs. The prefix is
+  # trusted only on same-repo PRs so a fork PR cannot self-suppress by spoofing
+  # it. head_ref is empty for push/workflow_dispatch, so ordinary PRs, push to
+  # main, and manual dispatch still run E2E (draft status alone does not
+  # suppress it). The merge_group guard is a defensive no-op: this repo uses
+  # Mergify's draft-PR queue, not GitHub's native merge queue, so merge_group
+  # never fires here. If the prefix were ever wrong the failure is fail-open and
+  # visible (E2E simply runs and reports as checks), never a silent merge break.
+  #
+  # Keep the `id-token: write` grant close under `name: E2E`:
+  # scripts/ci/ephemeral-ci-secrets_test.sh locks that the E2E caller grants it,
+  # so do not reinsert a comment block between the job name and the permissions.
   e2e:
     name: E2E
-    # Runs concurrently with unit (needs only change detection) and is NOT part
-    # of the Tests CI Gate (CICD-MRG-05). CICD-MRG-06: this is the operative E2E
-    # suppression for the merge path. It skips this expensive call on same-repo
-    # Mergify temporary queue PRs, whose head branch carries Mergify's
-    # queue_branch_prefix. The default prefix is `mergify/merge-queue/`
-    # (docs.mergify.com/merge-queue/rules/, verified 2026-10-22); the legacy
-    # `tmp-mergify/merge-queue/` variant is matched too so a prefix change across
-    # Mergify versions does not quietly re-enable E2E on queue PRs. The prefix is
-    # trusted only on same-repo PRs so a fork PR cannot self-suppress by spoofing
-    # it. head_ref is empty for push/workflow_dispatch, so ordinary PRs, push to
-    # main, and manual dispatch still run E2E (draft status alone does not
-    # suppress it). The merge_group guard is a defensive no-op: this repo uses
-    # Mergify's draft-PR queue, not GitHub's native merge queue, so merge_group
-    # never fires here. If the prefix were ever wrong the failure is fail-open and
-    # visible (E2E simply runs and reports as checks), never a silent merge break.
     if: >-
       github.event_name != 'merge_group' &&
       !(github.event.pull_request.head.repo.full_name == github.repository &&

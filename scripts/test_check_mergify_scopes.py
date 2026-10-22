@@ -170,6 +170,53 @@ class CoverageAuditHelpersTest(unittest.TestCase):
         self.assertFalse(mod.matches_any("components/new-service/x.go", allowlist))
 
 
+class SharedGroupDriftGuardTest(unittest.TestCase):
+    def test_real_config_has_no_drift(self):
+        # The committed .mergify.yml must satisfy every shared input group.
+        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        self.assertEqual([], mod.shared_group_errors(scopes))
+
+    def test_missing_shared_pattern_in_one_member_is_flagged(self):
+        # Drop a single shared deployment input from one member scope and confirm
+        # the guard reports it (silent drift becomes a loud failure).
+        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        scopes["api-server"]["include"].remove("charts/**")
+        errors = mod.shared_group_errors(scopes)
+        self.assertTrue(errors)
+        self.assertTrue(any("api-server" in e and "charts/**" in e for e in errors))
+
+    def test_group_members_are_known_scopes(self):
+        # Every scope named in a shared group must be a real scope.
+        for members, _ in list(mod.SHARED_INCLUDE_GROUPS.values()) + list(
+            mod.SHARED_EXCLUDE_GROUPS.values()
+        ):
+            self.assertLessEqual(members, mod.EXPECTED_SCOPES)
+
+
+class LoadComponentPathsTest(unittest.TestCase):
+    def test_skips_non_dict_top_level_values(self):
+        # A future metadata key (e.g. "$schema": "...") must not raise on .get.
+        import json
+        import tempfile
+        from pathlib import Path as _Path
+
+        original = mod.COMPONENT_PATHS_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = _Path(tmp) / "component-paths.json"
+                path.write_text(
+                    json.dumps(
+                        {"$schema": "https://example/schema.json", "cli": {"paths": ["x"]}}
+                    ),
+                    encoding="utf-8",
+                )
+                mod.COMPONENT_PATHS_PATH = path
+                result = mod.load_component_paths()
+            self.assertEqual({"cli": ["x"]}, result)
+        finally:
+            mod.COMPONENT_PATHS_PATH = original
+
+
 class RealConfigIntegrationTest(unittest.TestCase):
     def test_check_passes_on_repository(self):
         # The full check (scenarios, detector alignment, coverage) must pass on

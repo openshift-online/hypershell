@@ -44,6 +44,15 @@ merge_queue:
 scopes:
   source:
     files:
+      # Producer inputs that affect several consumers (the deployment/release set,
+      # the OpenAPI contract, the CLI/SDK/frontend toolchains) are repeated in
+      # each consumer's include list on purpose: Mergify scope lists are flat and
+      # a YAML anchor/alias replaces a whole value, so it cannot splice a shared
+      # block into part of a list. To stop that duplication from drifting, the
+      # shared groups are declared once in scripts/check_mergify_scopes.py and it
+      # fails if any member scope is missing a shared pattern -- keep the two in
+      # sync when adding a shared input (CICD-MRG-03).
+      #
       # CICD-MRG-03 consumer scopes. Each excludes the known informational
       # files so a README/AGENTS/CLAUDE edit under a runtime directory does not
       # select that runtime lane; Markdown is NOT blanket-excluded because it

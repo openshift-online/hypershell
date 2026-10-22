@@ -222,6 +222,167 @@ EXPECTED_SCOPES: frozenset[str] = frozenset(
 )
 
 
+# Shared input groups (CICD-MRG-03 drift guard). Mergify scope include/exclude
+# lists are flat, and a YAML anchor/alias replaces a whole value -- it cannot
+# splice a shared block into part of a larger list. So the producer inputs that
+# must appear in several consumer scopes (a deployment change rebuilding every
+# runtime lane, the OpenAPI contract propagating to its consumers, and so on) are
+# necessarily duplicated across include lists. The risk the review called out is
+# silent drift: an owner adds an input to one lane's list but forgets the others,
+# and a later change to that file then rebuilds only one lane while the parallel
+# lanes merge without revalidating. These groups make the coupling explicit and
+# machine-checked: every member scope must contain every pattern in the group, so
+# a half-applied edit fails this check loudly instead of drifting. Adding a shared
+# input means adding it to the group's tuple AND to each member scope's list.
+#
+# Each entry maps a human label to (member scopes, required patterns).
+SHARED_INCLUDE_GROUPS: dict[str, tuple[frozenset[str], tuple[str, ...]]] = {
+    "deployment/release inputs": (
+        frozenset(
+            {
+                "api-server",
+                "cli",
+                "control-plane",
+                "web-console",
+                "fleet-dashboard",
+                "agents",
+                "deployment",
+            }
+        ),
+        (
+            "deploy/**",
+            "charts/**",
+            "dashboards/**",
+            "OPENSHELL_VERSION",
+            "scripts/cluster/**",
+            "scripts/kind/**",
+            "scripts/gen-postgres-tls*",
+            "scripts/install-openshell*",
+            "scripts/sync_openshell_version.py",
+            "scripts/test_sync_openshell_version.py",
+            "scripts/check_deploy_orphans.py",
+            "scripts/test_check_deploy_orphans.py",
+            "scripts/test_gitops_manifests.py",
+            "pipelines/**",
+            "scripts/release_bundle.py",
+            "scripts/test_release_bundle.py",
+            "scripts/render_release_bundle_pipeline.py",
+        ),
+    ),
+    "API contract/generation inputs": (
+        frozenset(
+            {"cli", "control-plane", "sdk-typescript", "sdk-go", "web-console", "agents"}
+        ),
+        (
+            "components/api-server/openapi/**",
+            "components/api-server/Dockerfile.openapi",
+            "components/api-server/Makefile",
+        ),
+    ),
+    "CLI toolchain inputs": (
+        frozenset({"cli", "control-plane", "agents"}),
+        (
+            "scripts/generate-cli.sh",
+            "scripts/generate-tui.sh",
+            "scripts/trex-checkout.sh",
+            "scripts/rh-trex-ai.ref",
+            "scripts/lib/**",
+        ),
+    ),
+    "SDK generator inputs": (
+        frozenset({"sdk-typescript", "sdk-go", "web-console"}),
+        (
+            "scripts/sdk-generator/**",
+            "scripts/openapi-ir/**",
+        ),
+    ),
+    "frontend toolchain inputs": (
+        frozenset({"sdk-typescript", "web-console", "fleet-dashboard", "architecture-site"}),
+        (
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            ".node-version",
+            "scripts/bootstrap_pnpm.sh",
+        ),
+    ),
+    "brand asset inputs": (
+        frozenset({"web-console", "fleet-dashboard"}),
+        ("images/brand/**",),
+    ),
+    # Per-component Tekton pipelines are shared by the component itself and every
+    # downstream consumer that embeds or builds on it, so a pipeline change
+    # revalidates all of those lanes.
+    "api-server Tekton pipeline inputs": (
+        frozenset({"api-server", "control-plane"}),
+        (".tekton/hypershell-api-server-*",),
+    ),
+    "cli Tekton pipeline inputs": (
+        frozenset({"cli", "control-plane", "agents"}),
+        (".tekton/hypershell-cli-*",),
+    ),
+}
+
+# Shared exclude groups, same drift guard applied to exclude lists.
+SHARED_EXCLUDE_GROUPS: dict[str, tuple[frozenset[str], tuple[str, ...]]] = {
+    "informational-file excludes": (
+        frozenset(
+            {
+                "api-server",
+                "cli",
+                "control-plane",
+                "sdk-typescript",
+                "sdk-go",
+                "web-console",
+                "fleet-dashboard",
+                "agents",
+                "deployment",
+                "test-infrastructure",
+                "architecture-site",
+            }
+        ),
+        (
+            "**/README.md",
+            "**/AGENTS.md",
+            "**/CLAUDE.md",
+        ),
+    ),
+}
+
+
+def shared_group_errors(scopes: dict[str, dict[str, list[str]]]) -> list[str]:
+    """Verify every shared input group is present in all its member scopes.
+
+    Turns the unavoidable duplication of producer inputs across flat Mergify
+    scope lists into a checked invariant, so a shared input added to one lane but
+    not the others fails loudly instead of drifting silently (CICD-MRG-03).
+    """
+    errors: list[str] = []
+    for section, groups in (
+        ("include", SHARED_INCLUDE_GROUPS),
+        ("exclude", SHARED_EXCLUDE_GROUPS),
+    ):
+        for label, (members, patterns) in groups.items():
+            for scope in sorted(members):
+                spec = scopes.get(scope)
+                if spec is None:
+                    errors.append(
+                        f"shared {section} group {label!r} references unknown scope "
+                        f"{scope!r}"
+                    )
+                    continue
+                present = set(spec[section])
+                missing = [pattern for pattern in patterns if pattern not in present]
+                if missing:
+                    errors.append(
+                        f"scope {scope!r} {section} is missing shared {label!r} "
+                        f"patterns {missing} (CICD-MRG-03 drift guard): shared "
+                        f"inputs must stay identical across every member scope so a "
+                        f"producer change revalidates all affected lanes."
+                    )
+    return errors
+
+
 def scopes_for(
     path: str, scopes: dict[str, dict[str, list[str]]]
 ) -> set[str]:
@@ -313,7 +474,14 @@ DETECTOR_EXPECTATIONS: list[tuple[str, str]] = [
 
 def load_component_paths() -> dict[str, list[str]]:
     config = json.loads(COMPONENT_PATHS_PATH.read_text(encoding="utf-8"))
-    return {name: entry.get("paths", []) for name, entry in config.items()}
+    # Skip non-dict top-level values (for example a future "$schema" string) so a
+    # metadata key cannot raise an opaque AttributeError on ``.get``. Only mapping
+    # entries describe a component's paths.
+    return {
+        name: entry.get("paths", [])
+        for name, entry in config.items()
+        if isinstance(entry, dict)
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -389,6 +557,11 @@ def main() -> int:
     if not barriers:
         print("No barrier_files parsed from .mergify.yml.")
         return 1
+
+    # 0. Shared-input drift guard (CICD-MRG-03). Run before the scenario table so
+    # a half-applied shared edit is reported against the group, not just as a
+    # changed scenario outcome.
+    errors.extend(shared_group_errors(scopes))
 
     # 1. Scenario table.
     for path, expected in SCENARIOS:
