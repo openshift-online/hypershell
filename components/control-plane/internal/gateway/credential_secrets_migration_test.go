@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -10,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 const credSecretsName = "openshell-gateway-credential-secrets"
@@ -128,7 +130,9 @@ func TestDeleteControlPlaneOwnedCredentialSecretsRBAC(t *testing.T) {
 			}
 			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), credSecretsRBACListKinds(), seed...)
 
-			deleteControlPlaneOwnedCredentialSecretsRBAC(context.Background(), dc, ns)
+			if err := deleteControlPlaneOwnedCredentialSecretsRBAC(context.Background(), dc, ns); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
 			if got := exists(t, dc, credSecretsRoleGVR, ns); got != tc.wantRole {
 				t.Errorf("Role present = %v, want %v", got, tc.wantRole)
@@ -137,5 +141,21 @@ func TestDeleteControlPlaneOwnedCredentialSecretsRBAC(t *testing.T) {
 				t.Errorf("RoleBinding present = %v, want %v", got, tc.wantRoleBinding)
 			}
 		})
+	}
+}
+
+// TestCredentialSecretsMigrationPropagatesErrors verifies a Kubernetes read or
+// delete failure is returned (not swallowed) so the reconcile retries rather than
+// proceeding to an opaque Helm ownership conflict.
+func TestCredentialSecretsMigrationPropagatesErrors(t *testing.T) {
+	const ns = "openshell-tenant"
+	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), credSecretsRBACListKinds())
+	dc.PrependReactor("get", "roles", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("simulated API outage")
+	})
+
+	err := deleteControlPlaneOwnedCredentialSecretsRBAC(context.Background(), dc, ns)
+	if err == nil {
+		t.Fatal("expected the read failure to propagate, got nil")
 	}
 }

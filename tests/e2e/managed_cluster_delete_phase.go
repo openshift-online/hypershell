@@ -79,6 +79,26 @@ func (s *E2ESuite) assertManagedClusterDeleteAndReRegister(t *testing.T) {
 	pendingGeneration := pending.Generation
 	s.Require().Greaterf(pendingGeneration, detached.Generation, "patch must bump the gateway generation (was %d, now %d)", detached.Generation, pendingGeneration)
 
+	// Detachment proof: while the cluster record is still 404, the pending change
+	// MUST NOT reconcile. Deleting the record does not by itself tear down an
+	// already-open WatchGateways stream, so if observed_generation reaches
+	// pendingGeneration while /managed_clusters/{id} still 404s, the control plane
+	// applied the change through a stale watch and deregistration failed to
+	// invalidate it (a platform bug). Assert "stays below" for a bounded window,
+	// stopping early if the heartbeat re-registers the cluster first.
+	detachWindow := durationSecondsEnv("E2E_MANAGED_CLUSTER_DETACH_WINDOW", 20*time.Second)
+	for deadline := time.Now().Add(detachWindow); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		st, _, getErr := s.admin.RawJSON(ctx, http.MethodGet, "/managed_clusters/"+secondClusterID, nil)
+		if getErr == nil && st != http.StatusNotFound {
+			break // re-registered already (async heartbeat); detachment window is over
+		}
+		cur, err := s.admin.Gateways().Get(ctx, gw.ID)
+		s.Require().NoError(err, "get gateway during the detach window")
+		s.Require().Lessf(cur.ObservedGeneration, pendingGeneration,
+			"detached gateway must not reconcile the pending change while its cluster is deregistered (observed=%d, pending=%d); deregistration must invalidate active watches",
+			cur.ObservedGeneration, pendingGeneration)
+	}
+
 	// E2E-COV-06.02: the second control plane's next /registration restores the
 	// same cluster_id, and the gateway resumes reconciling.
 	restoreTimeout := durationSecondsEnv("E2E_MANAGED_CLUSTER_RESTORE_TIMEOUT", 5*time.Minute)

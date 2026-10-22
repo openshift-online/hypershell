@@ -118,11 +118,7 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 		if err != nil {
 			return false, nil // transient; keep polling
 		}
-		claims, err := decodeJWTClaims(tok.AccessToken)
-		if err != nil {
-			return false, nil
-		}
-		if claimsHaveGatewayRole(claims, "openshell-user") {
+		if driver.TokenHasRole(tok.AccessToken, "openshell-user") {
 			return false, nil // revoke not yet propagated
 		}
 		postRevokeTok = tok
@@ -144,18 +140,31 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 	}, postRevokeTok.AccessToken)
 	deniedName := fmt.Sprintf("revoked-%06d", time.Now().UnixNano()%1000000)
 	out, err = s.cli(t, deniedLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", deniedName)
-	s.Assert().Errorf(err, "sandbox create with a revoked (role-less) token must be denied (output: %s)", out)
+	s.Require().Errorf(err, "sandbox create with a revoked (role-less) token must fail (output: %s)", out)
+	s.Assert().Truef(isAuthorizationDenial(out), "the revoked sandbox create must be refused as an authorization error, not a transient failure (output: %s)", out)
+	// Prove nothing slipped through: the gateway's active sandbox count stays zero.
+	s.pollActiveSandboxCount(t, gw.ID, 0)
 
 	s.deleteGatewayAndWaitGC(t, gw.ID, ref.Namespace)
 }
 
-// claimsHaveGatewayRole reports whether decoded per-gateway token claims carry
-// role under the hypershell.roles claim.
-func claimsHaveGatewayRole(claims map[string]any, role string) bool {
-	hypershell, _ := claims["hypershell"].(map[string]any)
-	roles, _ := hypershell["roles"].([]any)
-	for _, value := range roles {
-		if r, ok := value.(string); ok && r == role {
+// isAuthorizationDenial reports whether CLI output denotes an authorization
+// refusal (forbidden / unauthorized / permission denied) rather than a transient
+// connection or gateway error, so a revoke check cannot pass on an unrelated
+// failure.
+func isAuthorizationDenial(output string) bool {
+	lower := strings.ToLower(stripANSI(output))
+	for _, marker := range []string{
+		"forbidden",
+		"unauthorized",
+		"permission denied",
+		"permissiondenied",
+		"not authorized",
+		"access denied",
+		"status 403",
+		" 403",
+	} {
+		if strings.Contains(lower, marker) {
 			return true
 		}
 	}

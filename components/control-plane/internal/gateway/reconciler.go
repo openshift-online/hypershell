@@ -1216,7 +1216,9 @@ func reconcileCredentialDriverResources(
 		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
 			credNS = driver.KubernetesSecrets.Namespace
 		}
-		deleteControlPlaneOwnedCredentialSecretsRBAC(ctx, dynamicClient, credNS)
+		if err := deleteControlPlaneOwnedCredentialSecretsRBAC(ctx, dynamicClient, credNS); err != nil {
+			return fmt.Errorf("clean stale control-plane credential secrets RBAC in %s: %w", credNS, err)
+		}
 	} else {
 		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
 	}
@@ -1263,7 +1265,12 @@ func isLegacyControlPlaneOwned(obj *unstructured.Unstructured) bool {
 // the two left behind) is fully cleaned; a Helm-owned, foreign-owned, unlabeled,
 // or absent object is left untouched. Safe to call on every reconcile and a no-op
 // once the chart owns the RBAC.
-func deleteControlPlaneOwnedCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) {
+//
+// Failures on either resource are aggregated and returned (not swallowed) so the
+// caller propagates them and the reconcile retries: a discarded error would leave
+// a stale control-plane-owned object and turn the migration into an opaque Helm
+// ownership conflict at deploy time.
+func deleteControlPlaneOwnedCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
 	roleGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -1276,28 +1283,32 @@ func deleteControlPlaneOwnedCredentialSecretsRBAC(ctx context.Context, dynamicCl
 	}
 
 	name := "openshell-gateway-credential-secrets"
-	deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleBindingGVR, namespace, name, "RoleBinding")
-	deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleGVR, namespace, name, "Role")
+	return errors.Join(
+		deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleBindingGVR, namespace, name, "RoleBinding"),
+		deleteIfLegacyControlPlaneOwned(ctx, dynamicClient, roleGVR, namespace, name, "Role"),
+	)
 }
 
 // deleteIfLegacyControlPlaneOwned deletes the named resource only when it exists
-// and carries the legacy control-plane ownership labels (see isLegacyControlPlaneOwned).
-func deleteIfLegacyControlPlaneOwned(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource, namespace, name, kind string) {
+// and carries the legacy control-plane ownership labels (see isLegacyControlPlaneOwned),
+// returning any read or delete failure so the migration can be retried. A missing
+// resource, or one owned by Helm/another manager, is a no-op and returns nil.
+func deleteIfLegacyControlPlaneOwned(ctx context.Context, dynamicClient dynamic.Interface, gvr schema.GroupVersionResource, namespace, name, kind string) error {
 	obj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to read credential secrets %s in %s: %v", kind, namespace, err)
+		if k8serrors.IsNotFound(err) {
+			return nil
 		}
-		return
+		return fmt.Errorf("read credential secrets %s in %s: %w", kind, namespace, err)
 	}
 	if !isLegacyControlPlaneOwned(obj) {
-		return // Helm-owned, foreign-owned, or unlabeled: not the control plane's to delete.
+		return nil // Helm-owned, foreign-owned, or unlabeled: not the control plane's to delete.
 	}
 	if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete stale control-plane credential secrets %s in %s: %v", kind, namespace, err)
-		return
+		return fmt.Errorf("delete stale control-plane credential secrets %s in %s: %w", kind, namespace, err)
 	}
 	log.Printf("INFO removed stale control-plane-owned credential secrets %s in %s so the gateway chart can own it", kind, namespace)
+	return nil
 }
 
 func DetectOpenShift(clientset *kubernetes.Clientset) bool {
