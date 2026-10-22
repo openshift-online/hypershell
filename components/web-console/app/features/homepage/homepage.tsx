@@ -57,6 +57,10 @@ import type {
 import { messages } from "../../i18n/messages";
 import { gatewayDetailPath, routePaths } from "../../../shared/routes";
 import {
+  homepageAnnouncement,
+  type HomepageAnnouncement,
+} from "./announcement";
+import {
   useHomepagePlatformOverview,
   useHomepageSummary,
   useQuickCreateGateway,
@@ -810,6 +814,7 @@ function SupportCard() {
 }
 
 export function HomepagePageSurface({
+  announcement = homepageAnnouncement,
   isAdmin,
   platformOverview,
   platformOverviewIsLoading,
@@ -823,6 +828,7 @@ export function HomepagePageSurface({
   summary,
   summaryIsLoading,
 }: Readonly<{
+  announcement?: HomepageAnnouncement | null;
   isAdmin: boolean;
   platformOverview?: HomepagePlatformOverview;
   platformOverviewIsLoading: boolean;
@@ -846,6 +852,16 @@ export function HomepagePageSurface({
       }}
       variant="secondary"
     >
+      {announcement ? (
+        <Alert
+          className="pf-v6-u-mb-lg"
+          isInline
+          title={<FormattedMessage {...announcement.title} />}
+          variant="info"
+        >
+          <FormattedMessage {...announcement.body} />
+        </Alert>
+      ) : null}
       <Grid hasGutter>
         <GridItem xl={8}>
           <Stack hasGutter>
@@ -919,6 +935,7 @@ export function HomepagePage() {
 
   return (
     <HomepagePageSurface
+      announcement={homepageAnnouncement}
       isAdmin={hasDashboardAdminRole(sessionQuery.data?.roles ?? [])}
       platformOverview={platformOverviewQuery.data}
       platformOverviewIsLoading={platformOverviewQuery.isPending}

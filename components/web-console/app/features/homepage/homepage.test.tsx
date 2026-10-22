@@ -8,6 +8,10 @@ import type {
   HomepageSummary,
 } from "../../adapters/api/homepage";
 import { englishMessages } from "../../i18n/catalog";
+import {
+  homepageAnnouncementExample,
+  type HomepageAnnouncement,
+} from "./announcement";
 import { HomepagePageSurface } from "./homepage";
 
 vi.mock("./use-homepage", () => ({
@@ -67,6 +71,7 @@ const overview: HomepagePlatformOverview = {
 };
 
 function renderSurface({
+  announcement,
   isAdmin = true,
   platformOverview = overview,
   sessionIsLoading = false,
@@ -76,6 +81,7 @@ function renderSurface({
   quickCreateOpen = false,
   quickCreateUnavailable = false,
 }: {
+  announcement?: HomepageAnnouncement | null;
   isAdmin?: boolean;
   platformOverview?: HomepagePlatformOverview;
   sessionIsLoading?: boolean;
@@ -89,6 +95,7 @@ function renderSurface({
     <IntlProvider locale="en" messages={englishMessages}>
       <MemoryRouter>
         <HomepagePageSurface
+          announcement={announcement}
           isAdmin={isAdmin}
           platformOverview={platformOverview}
           platformOverviewIsLoading={false}
@@ -110,6 +117,23 @@ function renderSurface({
 }
 
 describe("HomepagePageSurface", () => {
+  it("renders a configured homepage announcement", () => {
+    renderSurface({ announcement: homepageAnnouncementExample });
+
+    expect(screen.getByText("Scheduled downtime")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "HyperShell will be unavailable on Oct 24 from 02:00 to 03:00 CT while we upgrade the platform.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("hides the homepage announcement by default", () => {
+    renderSurface();
+
+    expect(screen.queryByText("Scheduled downtime")).toBeNull();
+  });
+
   it("renders API-backed summary and platform values", () => {
     renderSurface();
 

@@ -6,6 +6,11 @@ import type {
   HomepagePlatformOverview,
   HomepageSummary,
 } from "../../adapters/api/homepage";
+import {
+  homepageAnnouncement,
+  homepageAnnouncementExample,
+  type HomepageAnnouncement,
+} from "./announcement";
 import { HomepagePageSurface } from "./homepage";
 
 const summary: HomepageSummary = {
@@ -60,11 +65,18 @@ const platformOverview: HomepagePlatformOverview = {
   },
 };
 
-function HomepagePreview({ isAdmin = true }: Readonly<{ isAdmin?: boolean }>) {
+function HomepagePreview({
+  announcement = homepageAnnouncement,
+  isAdmin = true,
+}: Readonly<{
+  announcement?: HomepageAnnouncement | null;
+  isAdmin?: boolean;
+}>) {
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   return (
     <MemoryRouter>
       <HomepagePageSurface
+        announcement={announcement}
         isAdmin={isAdmin}
         platformOverview={platformOverview}
         platformOverviewIsLoading={false}
@@ -87,13 +99,19 @@ const meta = {
   title: "Production/Homepage",
   component: HomepagePreview,
   parameters: { layout: "fullscreen" },
-  render: ({ isAdmin }) => <HomepagePreview isAdmin={isAdmin} />,
+  render: ({ isAdmin, announcement }) => (
+    <HomepagePreview announcement={announcement} isAdmin={isAdmin} />
+  ),
 } satisfies Meta<typeof HomepagePreview>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = { args: { isAdmin: true } };
+
+export const Announcement: Story = {
+  args: { announcement: homepageAnnouncementExample, isAdmin: true },
+};
 
 export const NonAdministrator: Story = {
   args: { isAdmin: false },

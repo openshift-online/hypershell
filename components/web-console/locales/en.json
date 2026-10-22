@@ -2179,6 +2179,14 @@
     "defaultMessage": "View my gateways",
     "description": "Action in the gateway health card."
   },
+  "app.homepage.announcement.example.body": {
+    "defaultMessage": "HyperShell will be unavailable on Oct 24 from 02:00 to 03:00 CT while we upgrade the platform.",
+    "description": "Body of the example homepage announcement."
+  },
+  "app.homepage.announcement.example.title": {
+    "defaultMessage": "Scheduled downtime",
+    "description": "Title of the example homepage announcement."
+  },
   "app.homepage.dashboard.body": {
     "defaultMessage": "Track your gateways, sandbox activity, and reliability in one place.",
     "description": "Body of the non-administrator dashboard card."
