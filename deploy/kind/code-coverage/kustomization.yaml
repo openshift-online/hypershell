@@ -1,0 +1,99 @@
+# KIND / LOCAL DEV ONLY - DO NOT USE IN PRODUCTION
+# Coverage collection for KIND_COVERAGE=true make kind-up
+# (specs/platform/local-development.spec.md DEV-LOC-18).
+#
+# The images are built with coverage instrumentation by scripts/kind/build-images.sh.
+# This component gives every instrumented process a shared volume to write to:
+#   - Go binaries (API server, its migrate init container, controller) write
+#     covmeta/covcounters files to GOCOVERDIR=/coverage.
+#   - The web console BFF writes V8 coverage JSON to NODE_V8_COVERAGE=/coverage/node.
+# Both runtimes write their data only when the process exits cleanly, so the
+# grace period leaves room for a graceful shutdown. make coverage collects the
+# files from the Kind node after stopping the pods.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - pvc.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        template:
+          spec:
+            terminationGracePeriodSeconds: 90
+            volumes:
+              - name: coverage
+                persistentVolumeClaim:
+                  claimName: hypershell-coverage
+            initContainers:
+              - name: migrate
+                env:
+                  - name: GOCOVERDIR
+                    value: /coverage
+                volumeMounts:
+                  - name: coverage
+                    mountPath: /coverage
+            containers:
+              - name: api-server
+                env:
+                  - name: GOCOVERDIR
+                    value: /coverage
+                volumeMounts:
+                  - name: coverage
+                    mountPath: /coverage
+  - target:
+      kind: Deployment
+      name: hypershell-controller
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        template:
+          spec:
+            terminationGracePeriodSeconds: 90
+            volumes:
+              - name: coverage
+                persistentVolumeClaim:
+                  claimName: hypershell-coverage
+            containers:
+              - name: controller
+                env:
+                  - name: GOCOVERDIR
+                    value: /coverage
+                volumeMounts:
+                  - name: coverage
+                    mountPath: /coverage
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        template:
+          spec:
+            terminationGracePeriodSeconds: 90
+            volumes:
+              - name: coverage
+                persistentVolumeClaim:
+                  claimName: hypershell-coverage
+            containers:
+              - name: web-console
+                env:
+                  - name: NODE_V8_COVERAGE
+                    value: /coverage/node
+                volumeMounts:
+                  - name: coverage
+                    mountPath: /coverage

@@ -749,6 +749,69 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 - AND `OTEL_EXPORTER_OTLP_ENDPOINT` SHALL be left unset on the web-console Deployment
 - AND the web console BFF SHALL start with tracing disabled without failing readiness
 
+### Requirement: DEV-LOC-18 -- Coverage Instrumentation
+
+The system SHALL let a developer measure which code the unit tests and the e2e suites run, and merge both into one report.
+
+When `KIND_COVERAGE=true` is set, `make kind-up` SHALL build every component image locally (it implies `LOCAL_IMAGES=true`) with coverage instrumentation:
+
+| Component | Build option | Runtime output |
+|-----------|--------------|----------------|
+| API server (and its `migrate` init container) | `GO_COVERAGE=true`: `go build -cover -covermode=atomic -coverpkg=<module>/...` | `GOCOVERDIR=/coverage` |
+| Control plane | `GO_COVERAGE=true` | `GOCOVERDIR=/coverage` |
+| Web console | `BFF_SOURCE_MAPS=true`: the BFF is compiled with inline source maps | `NODE_V8_COVERAGE=/coverage/node` |
+
+The build options SHALL default to off, so release and Konflux builds are unchanged. The kustomize component `deploy/kind/code-coverage` SHALL add a shared `hypershell-coverage` volume, the output environment variables, and a termination grace period long enough for a graceful shutdown, because Go and Node write coverage data only when the process exits cleanly. A component swap (`make kind-<component>-up`) with `KIND_COVERAGE=true` SHALL build the instrumented image.
+
+`make coverage` SHALL:
+
+1. Restart the instrumented pods with an empty coverage volume.
+2. Run the Go unit tests (API server, control plane, CLI) with coverage profiles, and the frontend unit tests with vitest coverage over all source files of each package.
+3. Run `make e2e` and `make e2e-console` against the cluster.
+4. Stop the instrumented pods, copy the coverage data off the Kind node, and start the pods again with their previous replica counts.
+5. Write `coverage/report/summary.md` with unit, e2e and combined coverage per component and per Go package, an HTML report per Go component, and an HTML report of the BFF e2e coverage.
+
+A failing test step SHALL NOT stop the run: the report SHALL still be built and `make coverage` SHALL exit non-zero. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount the coverage volume (implies `LOCAL_IMAGES=true`) |
+| `COVERAGE_DIR` | `coverage` | `make coverage` output directory |
+| `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
+| `COVERAGE_E2E` | `true` | Run `make e2e` and collect cluster data; `false` runs unit tests only and needs no cluster |
+| `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+
+#### Scenario: DEV-LOC-18.01 -- Instrumented Deployment
+- GIVEN `KIND_COVERAGE=true` is set
+- WHEN the developer runs `make kind-up`
+- THEN the API server and control plane images SHALL be built with `GO_COVERAGE=true` and the web console image with `BFF_SOURCE_MAPS=true`
+- AND the API server, its `migrate` init container and the controller SHALL run with `GOCOVERDIR=/coverage`
+- AND the web console SHALL run with `NODE_V8_COVERAGE=/coverage/node`
+- AND all three SHALL mount the `hypershell-coverage` volume
+
+#### Scenario: DEV-LOC-18.02 -- Coverage Off by Default
+- GIVEN `KIND_COVERAGE` is unset
+- WHEN the developer runs `make kind-up`
+- THEN no coverage build option SHALL be passed and the coverage component SHALL NOT be applied
+
+#### Scenario: DEV-LOC-18.03 -- Combined Report
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN unit and e2e coverage SHALL be collected and merged
+- AND `coverage/report/summary.md` SHALL show unit, e2e and combined coverage per component and per Go package
+- AND a block executed by either run SHALL count as covered once
+
+#### Scenario: DEV-LOC-18.04 -- Cluster Without Coverage
+- GIVEN no cluster, or a cluster deployed without `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN the command SHALL fail before running any test and tell the developer to run `KIND_COVERAGE=true make kind-up`
+- AND with `COVERAGE_E2E=false` it SHALL run the unit tests and build the report without a cluster
+
+#### Scenario: DEV-LOC-18.05 -- Failing Test Step
+- GIVEN a test step fails during `make coverage`
+- THEN the remaining steps SHALL still run and the report SHALL still be built
+- AND `make coverage` SHALL exit non-zero and name the failed steps
+
 ## Environment Variable Reference
 
 | Env Var | Default | Description |
@@ -776,6 +839,7 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount the coverage volume (implies `LOCAL_IMAGES=true`); see DEV-LOC-18 |
 | `KIND_JAEGER` | (unset) | Set to `true` to deploy Jaeger all-in-one for distributed tracing (OTLP gRPC `4317` + HTTP `4318`) and export web console traces to it |
 
 ## Make Targets Summary
@@ -796,6 +860,8 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
+| `make coverage` | Run Go and frontend unit tests with coverage, then `make e2e` and `make e2e-console` against a `KIND_COVERAGE=true` cluster, collect the cluster data and write a combined report to `coverage/report/` (DEV-LOC-18) |
+| `make coverage-report` | Rebuild `coverage/report/` from the data of the last `make coverage` run |
 
 ## Design Decisions
 
