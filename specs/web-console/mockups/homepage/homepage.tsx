@@ -53,6 +53,7 @@ import { ChartDonut } from "@patternfly/react-charts/victory";
 
 import { useId, useState } from "react";
 
+import { externalLinkUrls } from "../../../../packages/gateway-management-ui/src/application/external-links";
 import { MockupTemplate } from "../shell/mockup-template";
 
 export type HomepageState =
@@ -678,7 +679,7 @@ function SlackCard() {
           <FlexItem>
             <Button
               component="a"
-              href="https://app.slack.com/client/E030G10V24F/C0BR5DM47Q9"
+              href={externalLinkUrls.supportSlackChannel}
               target="_blank"
               variant="primary"
             >
