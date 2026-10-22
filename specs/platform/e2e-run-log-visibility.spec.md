@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Applies to:** `components/fleet-dashboard` BFF (new e2e-run plane, Loki source, live stream), `packages/fleet-dashboard-ui` (e2e-run view, domain and presentation)
-**Tracks:** [HYPERSHELL-402](https://redhat.atlassian.net/browse/HYPERSHELL-402)
+**Tracks:** [HYPERSHELL-402](https://redhat.atlassian.net/browse/HYPERSHELL-402), [HYPERSHELL-448](https://redhat.atlassian.net/browse/HYPERSHELL-448) (paginated + live-streamed raw logs)
 
 ## Purpose
 
@@ -33,11 +33,11 @@ URL is specified separately in
 
 | Concern | Promotion gate (existing) | E2E run view (this spec) |
 | --- | --- | --- |
-| BFF plane | `/api/promotion` | new `/api/e2e/runs`, `/api/e2e/runs/{id}`, `/api/e2e/stream` |
+| BFF plane | `/api/promotion` | new `/api/e2e/runs`, `/api/e2e/runs/{id}`, `/api/e2e/runs/{id}/logs`, `/api/e2e/stream` |
 | Source | `pkg/sources/promotion.go` (Kubernetes dynamic client) | new Loki source (`query_range` history + `tail` live) |
 | Transport | cached JSON snapshot + client poll | snapshot + server-streamed live updates (SSE / authenticated streaming fetch) |
 | UI | gate badge + Argo/analysis deep links | recent runs, ordered steps, selectable inline log pane, live/disconnected/history-truncated states |
-| Port method | `FleetApi.getPromotion` | `FleetApi.getE2eRuns` / `getE2eRun` / `streamE2eRun` |
+| Port method | `FleetApi.getPromotion` | `FleetApi.getE2eRuns` / `getE2eRun` / `getE2eRunLogs` / `streamE2eRun` |
 
 ### Cross-repo contract (consumed, not owned)
 
@@ -53,8 +53,13 @@ URL is specified separately in
 ### Requirement: E2E-LOG-01 -- BFF E2E Run Planes
 
 The fleet-dashboard BFF SHALL expose read-only e2e-run endpoints: recent runs
-(`GET /api/e2e/runs`), a single run's detail and step/log history
-(`GET /api/e2e/runs/{id}`), and a live stream (`GET /api/e2e/stream`). The exact
+(`GET /api/e2e/runs`), a single run's detail with its ordered steps and verdict
+(`GET /api/e2e/runs/{id}`), a paginated raw-log history for one run
+(`GET /api/e2e/runs/{id}/logs`, see E2E-LOG-19), and a live stream
+(`GET /api/e2e/stream`). The run-detail endpoint SHALL serve steps and verdict
+from the small lifecycle query and SHALL NOT embed the full raw-log history (see
+E2E-LOG-20); the raw-log history SHALL be read a bounded page at a time through
+the logs endpoint. The exact
 route shapes MAY be adapted to the deployed identity, but a run SHALL be addressed
 by an identifier that includes its tenant/namespace so run ids cannot collide across
 clusters. The snapshot planes SHALL use the existing `pkg/cache.Source` freshness
@@ -96,8 +101,10 @@ firewall (`pkg/config`) and the "separate configuration from code" convention. A
 minimum: `FD_E2E_LOKI_URL` (the internal Loki base URL, for example
 `http://e2e-loki.hypershell-observability.svc:3100`; empty disables the feature),
 `FD_E2E_LOKI_TENANTS` (comma-separated allowlist of permitted tenants),
-`FD_E2E_HISTORY_WINDOW` (lookback, default `168h`), and `FD_E2E_RECENT_RUN_LIMIT`
-(default `20`). The deployment configuration carries the actual fleet identities;
+`FD_E2E_HISTORY_WINDOW` (lookback, default `168h`), `FD_E2E_RECENT_RUN_LIMIT`
+(default `20`), and `FD_E2E_LOG_PAGE_SIZE` (the raw-log history page size, default
+`150`, bounded by a server-side maximum so a client cannot re-introduce the
+all-at-once timeout; see E2E-LOG-19). The deployment configuration carries the actual fleet identities;
 the binary SHALL carry none. Changing an endpoint, tenant allowlist, window, or
 limit SHALL NOT require a code change.
 
@@ -370,7 +377,15 @@ environment. It SHALL list the most recent runs newest-first, each showing revis
 attempt, start/end/duration, overall verdict, and the live/disconnected/
 history-truncated state. Selecting a run SHALL show its ordered steps with
 passed/failed/skipped/not-run/running state, per-step durations, and a selectable
-inline log pane. The view SHALL offer follow/pause, bounded rendering of long logs,
+inline log pane. The ordered steps and verdict SHALL render as soon as the small
+lifecycle query resolves, independently of the raw-log history, so a slow or failed
+log fetch never blanks the panel (see E2E-LOG-20). The log pane SHALL load raw
+logs a bounded page at a time by infinite scroll rather than in one fetch
+(see E2E-LOG-19, E2E-LOG-22): it SHALL render the most recent page first, load
+older pages automatically as the operator scrolls toward the oldest end with a
+visible loading indicator, and preserve the operator's scroll position when older
+lines are prepended, without a "Load more" button. The view SHALL offer
+follow/pause, bounded rendering of long logs,
 a choice between a selected step's logs and the whole run's logs, and retained
 history after the Pod is deleted. New runs, steps, and log lines SHALL arrive live.
 A run's explicit failed/unknown state SHALL be preserved even when the Argo
@@ -403,7 +418,10 @@ as supporting context; an unknown or ambiguous instance SHALL fall back to clust
 and namespace. Search SHALL include instance names and bundle versions.
 
 History queries SHALL isolate lifecycle events from the bounded log window so
-chatty output cannot evict the run verdict or steps. The stream SHALL subscribe
+chatty output cannot evict the run verdict or steps. Raw-log history SHALL be read
+by cursor-paged queries whose per-page size stays well below the Loki query
+timeout, never by a single all-at-once query over the whole run (see E2E-LOG-19).
+The stream SHALL subscribe
 before fetching backfill to avoid a snapshot-to-tail race, deduplicate sequence
 overlap, and surface truncated history or dropped events.
 
@@ -510,11 +528,19 @@ The repository SHALL include tests that validate behavior without a live fleet,
 using fixtures for the structured event stream and the Loki responses. BFF tests
 SHALL exercise mocked HTTP `query_range` and WebSocket `tail`, the snapshot/tail gap
 and reconnect/backfill, dropped messages, tenant allowlisting, bounded history and
-buffers, cancellation, and expired authorization. UI tests SHALL cover event
+buffers, cancellation, and expired authorization. They SHALL also exercise raw-log
+pagination: a multi-page walk that terminates when `hasMore` is false, a page
+boundary where entries share a nanosecond timestamp proving none are dropped or
+duplicated, the `limit` clamp, and run detail that still returns steps when the
+raw-log query errors (non-fatal logs, E2E-LOG-20). UI tests SHALL cover event
 reduction and ordering, duplicate and reconnect behavior, parallel steps, the
 skipped-versus-not-run distinction, missing terminal records, malformed messages,
 output escaping, auth/session expiry, recent attempts, exact-SHA correlation, live
-steps and logs, reconnect state, failure, and retained history.
+steps and logs, reconnect state, failure, and retained history. UI tests SHALL also
+cover infinite scroll: the older-page load firing from the scroll observer rather
+than a click, the loading indicator while a page is in flight, preserved scroll
+position on prepend, stopping at `hasMoreOlder` false, and merging live-streamed
+lines without duplicating the history-to-live seam.
 
 #### Scenario: E2E-LOG-17.01 -- BFF gap and reconnect are tested
 
@@ -531,7 +557,8 @@ steps and logs, reconnect state, failure, and retained history.
 ### Requirement: E2E-LOG-18 -- Documentation and GitOps Linkage
 
 The change SHALL document the config variables (`FD_E2E_LOKI_URL`,
-`FD_E2E_LOKI_TENANTS`, `FD_E2E_HISTORY_WINDOW`, `FD_E2E_RECENT_RUN_LIMIT`), the
+`FD_E2E_LOKI_TENANTS`, `FD_E2E_HISTORY_WINDOW`, `FD_E2E_RECENT_RUN_LIMIT`,
+`FD_E2E_LOG_PAGE_SIZE`), the
 consumed event schema (`hypershell.e2e.v1`), the existing suite launch-command
 compatibility, and the retention and limits. The pull request SHALL link the
 hypershell-gitops logging/configuration integration. The feature SHALL NOT be
@@ -544,6 +571,152 @@ built and hypershell-gitops pins them.
 - WHEN the work is reported
 - THEN it SHALL NOT be claimed deployed or live
 - AND the PR SHALL link the hypershell-gitops integration
+
+### Requirement: E2E-LOG-19 -- Paginated Raw-Log History
+
+Raw-log history for one run SHALL be read through a dedicated, cursor-paged
+endpoint (`GET /api/e2e/runs/{id}/logs`), never by a single all-at-once query over
+the whole run, so every request stays well below the Loki query timeout even on a
+single-CPU Loki. The endpoint SHALL reuse the exact run address, tenant allowlist,
+and authorization as `GET /api/e2e/runs/{id}` (the same `ErrRunNotFound` on an
+unknown tenant), and SHALL wrap each page in the `pkg/cache` freshness envelope.
+
+A page SHALL be requested with an optional `before` cursor (a nanosecond timestamp,
+exclusive upper bound; omitted means the newest page) and an optional `limit`
+(default `FD_E2E_LOG_PAGE_SIZE`, clamped to a server-side maximum so a client
+cannot re-introduce the timeout). The source SHALL issue one bounded raw-log
+`query_range` per page over the configured history window, read `direction=backward`
+(newest first) and reverse to chronological-ascending for display, and return the
+page together with a `nextCursor` (the oldest timestamp in the page) and a `hasMore`
+signal (the page was full). Because Loki has no opaque offset token and multiple
+entries can share one nanosecond timestamp, the server SHALL de-duplicate across a
+page boundary (for example by querying with a one-nanosecond inclusive overlap and
+de-duping on `(timestampNs, line)`, or by a stable per-entry `sequence`) so a page
+boundary neither drops nor duplicates an entry; it SHALL NOT assume unique
+timestamps. Paginated collection reads SHALL conform to the trust-and-performance
+collection contract (`specs/standards/ui/trust-performance.spec.md`): one request
+per page, a bound that does not grow with the number of rendered lines.
+
+#### Scenario: E2E-LOG-19.01 -- Newest page then older pages by cursor
+
+- GIVEN a chatty run with more log lines than one page
+- WHEN a client requests `GET /api/e2e/runs/{id}/logs` with no cursor, then again with the returned `nextCursor`
+- THEN the first response SHALL return the most recent page with `hasMore` true and a `nextCursor`
+- AND the second response SHALL return the immediately older page, continuing until `hasMore` is false
+
+#### Scenario: E2E-LOG-19.02 -- Shared-timestamp boundary is neither dropped nor duplicated
+
+- GIVEN two log entries that share the exact same nanosecond timestamp across a page boundary
+- WHEN the client pages across that boundary
+- THEN both entries SHALL appear exactly once across the two pages, with none dropped or duplicated
+
+#### Scenario: E2E-LOG-19.03 -- Limit is clamped
+
+- GIVEN a client requests a `limit` above the server-side maximum
+- WHEN the endpoint serves the page
+- THEN it SHALL clamp the page to the maximum rather than issue an unbounded query
+
+#### Scenario: E2E-LOG-19.04 -- Logs endpoint honors the tenant allowlist
+
+- GIVEN a run id whose tenant is not in the allowlist
+- WHEN a client requests `GET /api/e2e/runs/{id}/logs`
+- THEN the BFF SHALL respond `ErrRunNotFound`, the same as the run-detail endpoint
+
+### Requirement: E2E-LOG-20 -- Run Detail Decoupled From Raw Logs
+
+A failure or timeout of the raw-log query SHALL NOT fail the whole run detail.
+`GET /api/e2e/runs/{id}` SHALL return the run's ordered steps and verdict from the
+small, always-fast lifecycle query even when the raw-log read errors, and SHALL
+mark logs degraded rather than return `ErrLogBackendUnavailable` for the whole
+detail. The genuine backend-unavailable state (E2E-LOG-10) SHALL be reserved for
+the case where even the lifecycle/steps query cannot load. This supersedes the
+earlier behavior in which one slow raw-log query blanked the entire detail panel,
+including the steps that were cheap to compute.
+
+#### Scenario: E2E-LOG-20.01 -- Steps render when the raw-log query fails
+
+- GIVEN the lifecycle query succeeds but the raw-log query errors or times out
+- WHEN a client requests `GET /api/e2e/runs/{id}`
+- THEN the response SHALL carry the ordered steps and verdict
+- AND it SHALL mark logs degraded rather than fail the whole detail
+
+#### Scenario: E2E-LOG-20.02 -- Backend-unavailable only when steps cannot load
+
+- GIVEN even the lifecycle/steps query cannot load
+- WHEN the detail is served
+- THEN the view SHALL show the backend-unavailable state (E2E-LOG-10), distinct from a logs-only degradation
+
+### Requirement: E2E-LOG-21 -- Live Log Lines on the Stream, In-Progress Only
+
+The live stream SHALL carry individual raw log lines for an in-progress run so the
+browser appends them to the same rendered log list it paginates. The existing SSE
+framing SHALL gain a `log` frame kind, in addition to the current `event`,
+`status`, and `heartbeat` kinds, carrying one raw log line with its `sequence` and
+`timestamp`. The BFF SHALL open a live tail for a run only while that run is in
+progress (no `run_finished` / no `endedAt`); a completed run SHALL be read by
+pagination alone, because Loki `tail` does not replay history and tailing a finished
+run would render nothing. On handoff, the newest history page and the live stream
+SHALL be reconciled by `sequence` (or `(timestampNs, line)`) so the seam between the
+last history line and the first live line neither drops nor duplicates a line,
+consistent with the snapshot-to-tail bridge (E2E-LOG-06).
+
+#### Scenario: E2E-LOG-21.01 -- Live log frames append for an in-progress run
+
+- GIVEN a run that is still in progress and emitting log lines
+- WHEN a browser subscribes to `GET /api/e2e/stream` for that run
+- THEN the BFF SHALL deliver new lines as `log` frames carrying `sequence` and `timestamp`
+- AND the browser SHALL append them to the same log list it paginates
+
+#### Scenario: E2E-LOG-21.02 -- No live tail for a finished run
+
+- GIVEN a completed run (its terminal record is present)
+- WHEN its logs are viewed
+- THEN the view SHALL read them by pagination only and SHALL NOT open a live tail that would render nothing
+
+#### Scenario: E2E-LOG-21.03 -- History-to-live seam is de-duplicated
+
+- GIVEN the newest history page overlaps the first live lines
+- WHEN the browser hands off from history to the live stream
+- THEN the overlap SHALL be de-duplicated by `sequence` so no line is dropped or duplicated at the seam
+
+### Requirement: E2E-LOG-22 -- Infinite-Scroll Log Rendering and Degraded Log Pane
+
+The log pane SHALL load older history by scroll position, not by a button: a
+sentinel at the top of the scroll container SHALL trigger the next older page when
+it enters view, guarded so only one page is in flight and stopping when no older
+page remains. While an older page is in flight, the pane SHALL render an accessible
+loading indicator; when older lines are prepended, the pane SHALL preserve the
+operator's visual position so the viewport does not jump. For an in-progress run,
+live-appended lines SHALL keep the view pinned to the bottom while the operator is
+at the bottom (auto-follow); if the operator scrolls up, auto-follow SHALL stop and
+a "jump to latest" affordance SHALL appear. The in-memory log buffer and rendered
+rows SHALL be bounded so a very long run does not grow the DOM or heap without
+bound. When steps load but logs are unavailable, the pane SHALL show an inline,
+non-blocking notice on the log pane only; it SHALL NOT blank the whole panel, and it
+SHALL reserve the full backend-unavailable message for the case where even steps
+cannot load (E2E-LOG-20). The scroll position, loading flag, auto-follow state, and
+log buffer are transient view state and SHALL NOT be encoded in the URL, consistent
+with `glass-url-addressable-navigation.spec.md`.
+
+#### Scenario: E2E-LOG-22.01 -- Older pages auto-load on scroll with an indicator
+
+- GIVEN a run whose log history spans several pages
+- WHEN the operator scrolls toward the oldest end
+- THEN the next older page SHALL load automatically with a visible loading indicator and no "Load more" button
+- AND the operator's scroll position SHALL be preserved when older lines are prepended
+
+#### Scenario: E2E-LOG-22.02 -- Auto-follow for an in-progress run
+
+- GIVEN an in-progress run streaming new lines while the operator is at the bottom
+- WHEN new lines arrive
+- THEN the view SHALL stay pinned to the bottom
+- AND if the operator scrolls up, auto-follow SHALL stop and a "jump to latest" affordance SHALL appear
+
+#### Scenario: E2E-LOG-22.03 -- Degraded log pane does not blank the panel
+
+- GIVEN steps load but the raw-log history is unavailable
+- WHEN the panel renders
+- THEN it SHALL show the steps with an inline notice on the log pane only, not the full backend-unavailable message
 
 ## Non-Goals
 
