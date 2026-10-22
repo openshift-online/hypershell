@@ -65,6 +65,8 @@ class Totals:
 @dataclass
 class GoCoverage:
     blocks: dict[str, Block] = field(default_factory=dict)
+    # Components that appear in the e2e data. The others show "not run".
+    e2e_components: set[str] = field(default_factory=set)
 
     def load(self, profile: Path, source: str) -> None:
         """Merge a Go cover profile; source is 'unit' or 'e2e'."""
@@ -76,6 +78,9 @@ class GoCoverage:
             block = self.blocks.setdefault(key, Block(stmts=int(stmts)))
             if int(count) > 0:
                 setattr(block, source, True)
+            package = package_of(key)
+            if source == "e2e" and package is not None:
+                self.e2e_components.add(package.split("/", 1)[0])
 
 
 def package_of(key: str) -> str | None:
@@ -137,9 +142,14 @@ def pct(part: int, whole: int) -> str:
     return f"{100 * part / whole:.1f}%" if whole else "-"
 
 
-def go_section(cov: GoCoverage, has_e2e: bool) -> list[str]:
+def go_section(cov: GoCoverage) -> list[str]:
     packages, written, generated = summarize(cov)
-    e2e_cell = (lambda t: pct(t.e2e, t.stmts)) if has_e2e else (lambda t: "not run")
+
+    def e2e_cell(name: str, t: Totals) -> str:
+        """E2E coverage, or "not run" when no e2e data reached that component."""
+        component = name.split("/", 1)[0]
+        return pct(t.e2e, t.stmts) if component in cov.e2e_components else "not run"
+
     out = [
         "## Go services",
         "",
@@ -152,8 +162,7 @@ def go_section(cov: GoCoverage, has_e2e: bool) -> list[str]:
         t = written.get(component)
         if t is None:
             continue
-        # The CLI never runs inside the cluster, so e2e cannot reach it.
-        e2e = "not run" if component == "cli" else e2e_cell(t)
+        e2e = e2e_cell(component, t)
         out.append(f"| {component} | {t.stmts} | {pct(t.unit, t.stmts)} | {e2e} | **{pct(t.both, t.stmts)}** |")
     if generated:
         out += ["", "Generated code (reported apart):", "", "| Component | Statements | Unit + e2e |", "|---|---|---|"]
@@ -169,7 +178,7 @@ def go_section(cov: GoCoverage, has_e2e: bool) -> list[str]:
     rows = [(p, t) for p, t in packages.items() if not is_generated(p) and t.stmts]
     rows.sort(key=lambda r: (r[1].both / r[1].stmts, r[0]))
     for package, t in rows:
-        e2e = "not run" if package.startswith("cli/") else e2e_cell(t)
+        e2e = e2e_cell(package, t)
         out.append(f"| {package} | {t.stmts} | {pct(t.unit, t.stmts)} | {e2e} | {pct(t.both, t.stmts)} |")
     return out
 
@@ -214,13 +223,13 @@ def build_report(coverage_dir: Path) -> str:
         profile = coverage_dir / "unit" / "go" / f"{component}.out"
         if profile.is_file():
             cov.load(profile, "unit")
+    # Cluster services and the hsctl smoke test, merged by covdata textfmt.
     e2e_profile = coverage_dir / "e2e" / "go.out"
-    has_e2e = e2e_profile.is_file()
-    if has_e2e:
+    if e2e_profile.is_file():
         cov.load(e2e_profile, "e2e")
     write_merged_profiles(cov, coverage_dir / "report" / "go")
     lines = ["# HyperShell coverage report", ""]
-    lines += go_section(cov, has_e2e)
+    lines += go_section(cov)
     lines += [""]
     lines += frontend_section(coverage_dir / "unit" / "frontend", coverage_dir / "e2e" / "bff-summary.json")
     return "\n".join(lines) + "\n"

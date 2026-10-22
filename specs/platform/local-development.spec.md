@@ -767,7 +767,7 @@ The build options SHALL default to off, so release and Konflux builds are unchan
 
 1. Restart the instrumented pods with an empty coverage volume.
 2. Run the Go unit tests (API server, control plane, CLI) with coverage profiles, and the frontend unit tests with vitest coverage over all source files of each package.
-3. Run `make e2e` and `make e2e-console` against the cluster.
+3. Run `make e2e`, the `hsctl` smoke test (`tests/e2e/e2e-hsctl.sh`) with a coverage-instrumented `hsctl` binary, and `make e2e-console` against the cluster. `hsctl` runs on the developer's machine, so its coverage SHALL go to a local `GOCOVERDIR` and be merged with the cluster data.
 4. Stop the instrumented pods, copy the coverage data off the Kind node, and start the pods again with their previous replica counts.
 5. Write `coverage/report/summary.md` with unit, e2e and combined coverage per component and per Go package, an HTML report per Go component, and an HTML report of the BFF e2e coverage.
 
@@ -779,6 +779,7 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built and 
 | `COVERAGE_DIR` | `coverage` | `make coverage` output directory |
 | `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
 | `COVERAGE_E2E` | `true` | Run `make e2e` and collect cluster data; `false` runs unit tests only and needs no cluster |
+| `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with a coverage-instrumented `hsctl` |
 | `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
 
 #### Scenario: DEV-LOC-18.01 -- Instrumented Deployment
@@ -811,6 +812,13 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built and 
 - GIVEN a test step fails during `make coverage`
 - THEN the remaining steps SHALL still run and the report SHALL still be built
 - AND `make coverage` SHALL exit non-zero and name the failed steps
+
+#### Scenario: DEV-LOC-18.06 -- CLI End-to-End Coverage
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN an `hsctl` binary SHALL be built with `go build -cover` and used for `tests/e2e/e2e-hsctl.sh`
+- AND the CLI row of the report SHALL show e2e and combined coverage instead of "not run"
+- AND the smoke test SHALL NOT change the developer's own `hsctl` configuration
 
 ## Environment Variable Reference
 
@@ -860,7 +868,7 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
-| `make coverage` | Run Go and frontend unit tests with coverage, then `make e2e` and `make e2e-console` against a `KIND_COVERAGE=true` cluster, collect the cluster data and write a combined report to `coverage/report/` (DEV-LOC-18) |
+| `make coverage` | Run Go and frontend unit tests with coverage, then `make e2e`, the `hsctl` smoke test and `make e2e-console` against a `KIND_COVERAGE=true` cluster, collect the cluster data and write a combined report to `coverage/report/` (DEV-LOC-18) |
 | `make coverage-report` | Rebuild `coverage/report/` from the data of the last `make coverage` run |
 
 ## Design Decisions

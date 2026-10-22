@@ -12,6 +12,7 @@
 #   COVERAGE_DIR           Output directory (default: <repo>/coverage)
 #   COVERAGE_UNIT          Run Go and frontend unit tests (default: true)
 #   COVERAGE_E2E           Run the Go e2e suite and collect cluster data (default: true)
+#   COVERAGE_HSCTL_E2E     Also run the hsctl smoke test with a -cover hsctl (default: true)
 #   COVERAGE_CONSOLE_E2E   Also run the Playwright console suite (default: true)
 #
 # Steps:
@@ -19,7 +20,8 @@
 #      report covers this run only.
 #   2. Go unit tests (api-server, control-plane, cli) with -coverprofile, and
 #      frontend unit tests with vitest coverage over all source files.
-#   3. make e2e and make e2e-console against the cluster.
+#   3. make e2e, the hsctl smoke test (tests/e2e/e2e-hsctl.sh) with a
+#      coverage-instrumented hsctl, and make e2e-console against the cluster.
 #   4. Stop the pods (Go and Node write coverage on a clean exit), copy the
 #      data off the Kind node, and start the pods again.
 #   5. Convert and merge everything into coverage/report/.
@@ -37,6 +39,7 @@ set +e
 : "${COVERAGE_DIR:=${REPO_ROOT}/coverage}"
 : "${COVERAGE_UNIT:=true}"
 : "${COVERAGE_E2E:=true}"
+: "${COVERAGE_HSCTL_E2E:=true}"
 : "${COVERAGE_CONSOLE_E2E:=true}"
 
 FAILED=()
@@ -112,10 +115,30 @@ run_unit_tests() {
   frontend_unit operational-dashboard-ui packages/operational-dashboard-ui 'src/**/*.{ts,tsx}'
 }
 
+# run_hsctl_e2e: hsctl runs on this machine, not in the cluster, so its coverage
+# goes to a local GOCOVERDIR instead of the cluster volume. The smoke test keeps
+# its hsctl config in a temporary file, so the user's own login is untouched.
+run_hsctl_e2e() {
+  local bin="${COVERAGE_DIR}/e2e/hsctl-bin/hsctl"
+  local data="${COVERAGE_DIR}/e2e/raw/hsctl"
+  mkdir -p "$(dirname "${bin}")" "${data}"
+  run_step "build-hsctl-cover" in_dir components/cli env CGO_ENABLED=0 \
+    go build -cover -covermode=atomic \
+    -coverpkg=github.com/openshift-online/hypershell/components/cli/... \
+    -o "${bin}" ./cmd/hsctl
+  if [[ ! -x "${bin}" ]]; then
+    return
+  fi
+  run_step "e2e-hsctl" env HSCTL="${bin}" GOCOVERDIR="${data}" bash tests/e2e/e2e-hsctl.sh
+}
+
 run_e2e_tests() {
   # -count=1: the suite tests live cluster state, so a cached result from an
   # earlier run would skip it and leave no e2e coverage.
   run_step "e2e-go" env GOFLAGS="-count=1 ${GOFLAGS:-}" make e2e
+  if [[ "${COVERAGE_HSCTL_E2E}" == "true" ]]; then
+    run_hsctl_e2e
+  fi
   if [[ "${COVERAGE_CONSOLE_E2E}" == "true" ]]; then
     run_step "e2e-console" make e2e-console
   fi
@@ -124,8 +147,17 @@ run_e2e_tests() {
 build_report() {
   header "Building coverage report"
   local raw="${COVERAGE_DIR}/e2e/raw"
-  if compgen -G "${raw}/go/covmeta.*" >/dev/null; then
-    go tool covdata textfmt -i="${raw}/go" -o="${COVERAGE_DIR}/e2e/go.out" ||
+  # Cluster services (raw/go) and hsctl (raw/hsctl) merge into one e2e profile.
+  local dir go_dirs=()
+  for dir in "${raw}/go" "${raw}/hsctl"; do
+    if compgen -G "${dir}/covmeta.*" >/dev/null; then
+      go_dirs+=("${dir}")
+    fi
+  done
+  if [[ ${#go_dirs[@]} -gt 0 ]]; then
+    local inputs
+    inputs="$(IFS=,; echo "${go_dirs[*]}")"
+    go tool covdata textfmt -i="${inputs}" -o="${COVERAGE_DIR}/e2e/go.out" ||
       FAILED+=("report-go-e2e")
   fi
   if compgen -G "${raw}/node/*.json" >/dev/null && [[ -d "${COVERAGE_DIR}/e2e/bff-dist" ]]; then
