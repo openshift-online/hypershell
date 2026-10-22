@@ -107,20 +107,59 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 	// E2E-COV-02.02: revoking the binding removes access.
 	s.Require().NoError(s.admin.RoleBindings().Delete(ctx, binding.ID), "owner revokes the role binding")
 
-	// Revocation propagates to Keycloak asynchronously, so poll until minting a
-	// per-gateway openshell-user token for the second user fails rather than
-	// checking once right after the delete. Every role-gated gateway operation,
-	// including sandbox create, requires a token carrying openshell-user; once
-	// minting one reliably fails, every such operation is denied by construction.
-	// A CLI-level denial check would only re-test the already-issued grant token's
-	// natural expiry, not the revoke itself, so it is not repeated here.
+	// Revocation propagates to Keycloak asynchronously. Poll a FRESH per-gateway
+	// token (minted without requiring any role) until its claims no longer carry
+	// openshell-user; this proves the revoke took effect rather than accepting any
+	// transient token error. Reusing the already-issued grant token would only test
+	// that token's natural expiry, not the revoke.
+	var postRevokeTok driver.Token
 	revokeErr := harness.Poll(ctx, 2*time.Second, durationSecondsEnv("E2E_ROLE_REVOKE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
-		_, tokErr := s.driver.AcquireGatewayTokenWithRole(ctx, s.devCreds(), clientID, "openshell-user")
-		return tokErr != nil, nil
+		tok, err := s.driver.AcquireGatewayToken(ctx, s.devCreds(), clientID)
+		if err != nil {
+			return false, nil // transient; keep polling
+		}
+		claims, err := decodeJWTClaims(tok.AccessToken)
+		if err != nil {
+			return false, nil
+		}
+		if claimsHaveGatewayRole(claims, "openshell-user") {
+			return false, nil // revoke not yet propagated
+		}
+		postRevokeTok = tok
+		return true, nil
 	})
-	s.Require().NoError(revokeErr, "second user's per-gateway token must not carry openshell-user after revoke")
+	s.Require().NoError(revokeErr, "second user's fresh per-gateway token must drop openshell-user after revoke")
+
+	// E2E-COV-02.02: prove the denial end to end - a sandbox create with the
+	// role-less token must be refused, not just that the role is gone from claims.
+	deniedLocal := cliLocalName(ref.Namespace) + "-revoked-viewer"
+	s.registerGatewayCLI(t, cliGatewayMetadata{
+		Name:            deniedLocal,
+		GatewayEndpoint: endpoint,
+		IsRemote:        true,
+		AuthMode:        "oidc",
+		OIDCIssuer:      envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"),
+		OIDCClientID:    clientID,
+		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
+	}, postRevokeTok.AccessToken)
+	deniedName := fmt.Sprintf("revoked-%06d", time.Now().UnixNano()%1000000)
+	out, err = s.cli(t, deniedLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", deniedName)
+	s.Assert().Errorf(err, "sandbox create with a revoked (role-less) token must be denied (output: %s)", out)
 
 	s.deleteGatewayAndWaitGC(t, gw.ID, ref.Namespace)
+}
+
+// claimsHaveGatewayRole reports whether decoded per-gateway token claims carry
+// role under the hypershell.roles claim.
+func claimsHaveGatewayRole(claims map[string]any, role string) bool {
+	hypershell, _ := claims["hypershell"].(map[string]any)
+	roles, _ := hypershell["roles"].([]any)
+	for _, value := range roles {
+		if r, ok := value.(string); ok && r == role {
+			return true
+		}
+	}
+	return false
 }
 
 // findUserIDByUsername resolves username's id through the admin /users inventory.

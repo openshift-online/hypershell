@@ -39,6 +39,9 @@ func (d matrixInfraDriver) AcquireOIDCToken(ctx context.Context, credentials dri
 func (d matrixInfraDriver) AcquireGatewayTokenWithRole(ctx context.Context, credentials driver.Credentials, clientID, role string) (driver.Token, error) {
 	return d.hub.AcquireGatewayTokenWithRole(ctx, credentials, clientID, role)
 }
+func (d matrixInfraDriver) AcquireGatewayToken(ctx context.Context, credentials driver.Credentials, clientID string) (driver.Token, error) {
+	return d.hub.AcquireGatewayToken(ctx, credentials, clientID)
+}
 func (d matrixInfraDriver) ValidateGatewayDeviceAuthorization(ctx context.Context, clientID string) error {
 	return d.hub.ValidateGatewayDeviceAuthorization(ctx, clientID)
 }
