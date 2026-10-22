@@ -153,7 +153,9 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
 | `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
 | `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
-| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`openshell-gateway`, `openshell-supervisor`, `openshell-sandbox-runtime`) | Pin; grep after the bump |
+| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | Stamped by `make sync-openshell-version` since 2026-10; still grep after the bump |
+| `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
+| Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
@@ -280,6 +282,19 @@ be investigated rather than retaining the old pin silently.
 
    # Read NVIDIA release notes for the base and any versions in the range
    gh api repos/NVIDIA/OpenShell/releases/tags/$BASE --jq '.name, .body'
+   ```
+
+   Also diff the proto and chart files between the two midstream tags. Do not
+   use the GitHub compare API for this: it stops at 300 files and drops most
+   of them. Use a scratch clone:
+
+   ```bash
+   git init -q /tmp/os && cd /tmp/os
+   git fetch -q --depth 400 https://github.com/opendatahub-io/openshell.git \
+     tag <CURRENT_TAG> tag <TARGET_TAG>
+   git diff --stat <CURRENT_TAG> <TARGET_TAG> -- '*.proto' deploy/helm
+   # Removed non-comment lines in a proto = possible breaking change (Step 3b)
+   git diff <CURRENT_TAG> <TARGET_TAG> -- proto/ | grep -E '^-[^-]' | grep -v '^-\s*//'
    ```
 
    Classify each change against the [Contract surfaces](#contract-surfaces-to-triage).
@@ -450,6 +465,32 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.5-rhaiv.0 (2026-10-22, v0.1.3-rhaiv.3 -> v0.1.5-rhaiv.0, no-arg run = latest stable):**
+  Pins and chart bumped. `go build/vet/test` and `make check` pass with no code changes.
+  Live e2e NOT run.
+  - **Step 0:** issue #366's latest human comment still names no version; skipped.
+  - **Triage method:** the GitHub compare API caps at 300 files and hid most proto
+    changes. Fetch both midstream tags into a scratch clone
+    (`git fetch --depth 400 <repo> tag <old> tag <new>`) and run
+    `git diff --stat <old> <new> -- '*.proto' deploy/helm` instead.
+  - **Proto:** `openshell.proto` grew ~260 lines, but only additions (new config-push
+    RPC `PeerNotifyConfigUpdate`, token-grant and endpoint-failure messages). The only
+    removed lines were comments. Console image unchanged.
+  - **Pod label/annotation allowlist (NVIDIA #4497) and reserved
+    `internal.openshell.ai/` prefix (#4626):** not affected. HyperShell's
+    `SandboxTemplate` kind has no labels or annotations fields, and nothing in the
+    repo sets OpenShell `SandboxTemplate.labels/annotations`. The external console
+    image was not checked; verify sandbox create from the console live.
+  - **OCSF file rename `.log` -> `.jsonl` (#4263):** no HyperShell collector matches
+    `openshell-ocsf.*`; nothing to change.
+  - **Chart:** gateway container gains `seccompProfile: RuntimeDefault` (Kind supports
+    it, unlike AppArmor). The certgen hook now reads `pkiInitJob.securityContext` with
+    `runAsNonRoot: true`; safe because the gateway image runs as `User=1000:1000`
+    (checked from the image config blob). New optional `server.dataStorageSize` /
+    `dataStorageClass` values, not adopted. No RBAC template changes.
+  - **Not adopted (opt-in features):** supervisor config push
+    (`config_delivery_mode = "push"`), OCSF-over-OTLP export, gRPC server reflection.
 
 - **Skill correction (2026-10-16, workload-image pin drift):** The skill still
   pointed to an unused `defaultSandboxImage` Go constant and the old community
