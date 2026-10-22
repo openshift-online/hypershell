@@ -156,7 +156,7 @@ PR opened/updated
     ├── scripts/kind/set-component-images.sh (swap in Konflux-built images by digest)
     │
     ├── bash tests/e2e/run-parallel.sh: E2E_INFRA_DRIVER=kind go -C tests/e2e test . -run TestE2E
-    │     -v -timeout 20m and, outside merge_group, e2e-console.sh (E2E_MODE=short) concurrently
+    │     -v -timeout 20m and e2e-console.sh (E2E_MODE=short) concurrently (e2e stage suppressed on merge_group)
     │
     ├── [on failure: collect diagnostic artifacts]
     │
@@ -1240,7 +1240,6 @@ On `pull_request` and push to `main` (not on `merge_group` or Mergify queue PRs,
 - THEN both suites SHALL start at the same time against the same cluster
 - AND any Go suite step that stops or restarts the control plane SHALL wait until the console suite has exited before it does so
 - AND the step SHALL fail if either suite exits non-zero, with each suite's output replayed from its own log and a result line per suite
-- AND on `merge_group` only the Go suite SHALL run
 
 #### Scenario: E2E-CORE-25.03 -- OpenShift E2E Needs Deploy OpenShift Environment
 
