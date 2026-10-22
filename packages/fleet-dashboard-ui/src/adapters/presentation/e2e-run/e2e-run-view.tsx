@@ -881,6 +881,18 @@ function LogPane({
     }
   }, [following, lastSequence, rendered.length, selectedStepId, search]);
 
+  // triggerLoadOlder sets anchor.current before the fetch, and the layout effect
+  // above clears it once older lines are prepended. When a page adds no lines (a
+  // stale or failed older-page fetch), lastSequence and rendered.length do not
+  // change, so that effect never runs and the anchor would stay set, freezing
+  // auto-follow (onScroll returns early while an anchor is pending). Clear a
+  // dangling anchor when the older-page load finishes so scrolling resumes follow.
+  useEffect(() => {
+    if (!loadingOlder) {
+      anchor.current = null;
+    }
+  }, [loadingOlder]);
+
   // Dropping out of follow when the operator scrolls up reveals the jump-to-latest
   // affordance; returning to the bottom resumes auto-follow (E2E-LOG-22).
   const onScroll = useCallback(() => {

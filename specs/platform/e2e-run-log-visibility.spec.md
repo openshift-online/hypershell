@@ -33,7 +33,7 @@ URL is specified separately in
 
 | Concern | Promotion gate (existing) | E2E run view (this spec) |
 | --- | --- | --- |
-| BFF plane | `/api/promotion` | new `/api/e2e/runs`, `/api/e2e/runs/{id}`, `/api/e2e/runs/{id}/logs`, `/api/e2e/stream` |
+| BFF plane | `/api/promotion` | new `/api/e2e/runs`, `/api/e2e/runs/{id}`, `/api/e2e/logs?run=<id>`, `/api/e2e/stream` |
 | Source | `pkg/sources/promotion.go` (Kubernetes dynamic client) | new Loki source (`query_range` history + `tail` live) |
 | Transport | cached JSON snapshot + client poll | snapshot + server-streamed live updates (SSE / authenticated streaming fetch) |
 | UI | gate badge + Argo/analysis deep links | recent runs, ordered steps, selectable inline log pane, live/disconnected/history-truncated states |
@@ -55,7 +55,7 @@ URL is specified separately in
 The fleet-dashboard BFF SHALL expose read-only e2e-run endpoints: recent runs
 (`GET /api/e2e/runs`), a single run's detail with its ordered steps and verdict
 (`GET /api/e2e/runs/{id}`), a paginated raw-log history for one run
-(`GET /api/e2e/runs/{id}/logs`, see E2E-LOG-19), and a live stream
+(`GET /api/e2e/logs?run=<id>`, see E2E-LOG-19), and a live stream
 (`GET /api/e2e/stream`). The run-detail endpoint SHALL serve steps and verdict
 from the small lifecycle query and SHALL NOT embed the full raw-log history (see
 E2E-LOG-20); the raw-log history SHALL be read a bounded page at a time through
@@ -575,11 +575,16 @@ built and hypershell-gitops pins them.
 ### Requirement: E2E-LOG-19 -- Paginated Raw-Log History
 
 Raw-log history for one run SHALL be read through a dedicated, cursor-paged
-endpoint (`GET /api/e2e/runs/{id}/logs`), never by a single all-at-once query over
-the whole run, so every request stays well below the Loki query timeout even on a
-single-CPU Loki. The endpoint SHALL reuse the exact run address, tenant allowlist,
-and authorization as `GET /api/e2e/runs/{id}` (the same `ErrRunNotFound` on an
-unknown tenant), and SHALL wrap each page in the `pkg/cache` freshness envelope.
+endpoint (`GET /api/e2e/logs?run=<id>&before=<ts>&limit=<n>`), never by a single
+all-at-once query over the whole run, so every request stays well below the Loki
+query timeout even on a single-CPU Loki. The run id rides a `run` query value
+rather than a path segment because a `ServeMux` trailing wildcard (the multi-segment
+`tenant/namespace/runId` address) must be the final path segment, so it cannot be
+followed by a literal `/logs`; this mirrors the live-stream endpoint
+(`GET /api/e2e/stream?run=<id>`). The endpoint SHALL reuse the exact run address,
+tenant allowlist, and authorization as `GET /api/e2e/runs/{id}` (the same
+`ErrRunNotFound` on an unknown tenant), and SHALL wrap each page in the `pkg/cache`
+freshness envelope.
 
 A page SHALL be requested with an optional `before` cursor (a nanosecond timestamp,
 exclusive upper bound; omitted means the newest page) and an optional `limit`
@@ -600,7 +605,7 @@ per page, a bound that does not grow with the number of rendered lines.
 #### Scenario: E2E-LOG-19.01 -- Newest page then older pages by cursor
 
 - GIVEN a chatty run with more log lines than one page
-- WHEN a client requests `GET /api/e2e/runs/{id}/logs` with no cursor, then again with the returned `nextCursor`
+- WHEN a client requests `GET /api/e2e/logs?run=<id>` with no cursor, then again with the returned `nextCursor`
 - THEN the first response SHALL return the most recent page with `hasMore` true and a `nextCursor`
 - AND the second response SHALL return the immediately older page, continuing until `hasMore` is false
 
@@ -619,7 +624,7 @@ per page, a bound that does not grow with the number of rendered lines.
 #### Scenario: E2E-LOG-19.04 -- Logs endpoint honors the tenant allowlist
 
 - GIVEN a run id whose tenant is not in the allowlist
-- WHEN a client requests `GET /api/e2e/runs/{id}/logs`
+- WHEN a client requests `GET /api/e2e/logs?run=<id>`
 - THEN the BFF SHALL respond `ErrRunNotFound`, the same as the run-detail endpoint
 
 ### Requirement: E2E-LOG-20 -- Run Detail Decoupled From Raw Logs

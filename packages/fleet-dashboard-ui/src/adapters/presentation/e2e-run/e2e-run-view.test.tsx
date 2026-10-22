@@ -840,6 +840,53 @@ describe("log pagination and degraded log pane", () => {
     expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
   });
 
+  // A stale older-page fetch terminates paging and keeps the loaded lines; the
+  // scroll anchor is cleared so follow is not frozen after a no-new-lines page.
+  // Verifies: E2E-LOG-22.01
+  it("stops paging and keeps loaded lines when an older page comes back stale", async () => {
+    const user = userEvent.setup();
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(5), logLine(6)],
+          nextCursor: "500",
+          hasMore: true,
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: true,
+        error: "e2e log backend unavailable",
+      });
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs,
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // The newest page loaded on open.
+    await screen.findByText("m6");
+
+    // Scrolling the sentinel into view fetches the older page, which is stale.
+    scrollSentinelIntoView();
+    await waitFor(() => {
+      expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+    });
+
+    // The already-loaded lines are kept, not blanked, and the panel still renders
+    // its steps (the whole-panel backend-unavailable state is not shown).
+    expect(screen.getByText("m6")).toBeDefined();
+    expect(
+      screen.queryByText("Run details are unavailable right now."),
+    ).toBeNull();
+  });
+
   // Verifies: E2E-LOG-22.03, E2E-LOG-20
   it("shows a log-pane-only degraded notice when logs fail but steps load", async () => {
     const user = userEvent.setup();
