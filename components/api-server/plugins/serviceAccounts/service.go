@@ -155,6 +155,14 @@ type CreateInput struct {
 	ExpiresAt      *time.Time
 }
 
+// RoleUpdateInput is the mutable subset of an OpenShellGatewayServiceAccount:
+// the OpenShell role and, optionally, the description. A nil Description
+// leaves the stored description unchanged.
+type RoleUpdateInput struct {
+	Role        string
+	Description *string
+}
+
 type CreateResult struct {
 	Account    *OpenShellGatewayServiceAccount
 	Credential Credential
@@ -166,6 +174,7 @@ type Service interface {
 	Get(context.Context, string, string, string) (*OpenShellGatewayServiceAccount, Connection, *APIError)
 	List(context.Context, string, string, ListOptions) ([]OpenShellGatewayServiceAccount, int64, Access, *APIError)
 	Revoke(context.Context, string, string, string) (*OpenShellGatewayServiceAccount, bool, *APIError)
+	UpdateRole(context.Context, string, string, string, RoleUpdateInput) (*OpenShellGatewayServiceAccount, bool, *APIError)
 	Delete(context.Context, string, string, string) (*OpenShellGatewayServiceAccount, bool, *APIError)
 	CleanupGateway(context.Context, string, func(context.Context) error) error
 	ReconcileOnce(context.Context) error
@@ -433,6 +442,110 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 	if err := s.dao.Update(ctx, account); err != nil {
 		account.Status = StatusRevoking
 		account.RevokedAt = nil
+		return account, false, nil
+	}
+	return account, true, nil
+}
+
+// UpdateRole changes the OpenShell role and optionally the description of an
+// existing service account in place. The requested role is capped at the
+// creator's current gateway binding (not the actor's): the reconciliation
+// sweep re-derives that ceiling from the creator on every pass, so an
+// actor-granted role above it would be reverted within one interval. The new
+// desired state is persisted before the Keycloak call so a crash between the
+// two is converged by the ordinary drift sweep. The returned bool reports
+// synchronous convergence: true yields a 200, false a 202 with the account in
+// a state the background reconciler will settle.
+func (s *service) UpdateRole(ctx context.Context, gatewayID, id, userID string, input RoleUpdateInput) (*OpenShellGatewayServiceAccount, bool, *APIError) {
+	if _, problem := s.visibleAccount(ctx, gatewayID, id, userID); problem != nil {
+		return nil, false, problem
+	}
+	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
+	if lockErr != nil {
+		return nil, false, internalProblem()
+	}
+	defer unlock()
+	// Re-read under the lock so the update acts on committed state, not the
+	// snapshot observed before the lock was held.
+	account, problem := s.lockedAccount(ctx, gatewayID, id)
+	if problem != nil {
+		return nil, false, problem
+	}
+	if account.Status != StatusReady && account.Status != StatusDegraded {
+		return nil, false, &APIError{Status: http.StatusConflict, Code: "service_account_not_mutable", Message: "Only a ready or degraded service account can change its role"}
+	}
+	// The ceiling comes from the creator's current binding, mirroring the drift
+	// sweep's creator-cap invariant, so a granted role can never exceed what the
+	// sweep would preserve.
+	creatorAccess, err := s.access(ctx, gatewayID, account.CreatedByUserID)
+	if err != nil {
+		return nil, false, internalProblem()
+	}
+	if problem := validateRoleUpdateInput(&input, creatorAccess); problem != nil {
+		return nil, false, problem
+	}
+	gateway, oidc, problem := s.readyGateway(ctx, gatewayID)
+	if problem != nil {
+		return nil, false, problem
+	}
+
+	previousRole := account.Role
+	// The description is not projected into Keycloak (the client display name is
+	// the service-account name), so a description-only edit needs no provider
+	// call and cannot cause a token-issuance blip.
+	roleUnchanged := input.Role == account.Role
+	account.Role = input.Role
+	if input.Description != nil {
+		account.Description = input.Description
+	}
+	// Persist the desired state first. A crash after this write is converged by
+	// the ordinary drift sweep: the row is ready, so ListDrift returns it and
+	// reconcileOne drives Keycloak toward the persisted role.
+	if err := s.dao.Update(ctx, account); err != nil {
+		return nil, false, serviceUnavailableProblem("The role update request could not be stored")
+	}
+	if err := s.auditRoleUpdate(ctx, account, userID, "started", previousRole); err != nil {
+		return account, false, nil
+	}
+	if roleUnchanged {
+		if err := s.auditRoleUpdate(ctx, account, userID, "succeeded", previousRole); err != nil {
+			return account, false, nil
+		}
+		return account, true, nil
+	}
+	if s.provisioner == nil || !s.provisioner.Configured() {
+		account.Status = StatusDegraded
+		reason := "keycloak_role_update_pending"
+		account.LastError = &reason
+		_ = s.dao.Update(ctx, account)
+		return account, false, nil
+	}
+	spec := serviceAccountSpec(account, gateway, oidc)
+	if err := s.provisioner.ReconcileServiceAccount(ctx, spec, account.KeycloakClientUUID, account.Subject, true); err != nil {
+		if errors.Is(err, ErrProvisionerNotFound) {
+			// Mirror the reconciler's convention for a vanished client: the account
+			// is broken beyond what a role update can repair and needs replacement.
+			account.Status = StatusError
+			reason := "keycloak_client_missing"
+			account.LastError = &reason
+			_ = s.dao.Update(ctx, account)
+			return account, false, nil
+		}
+		// The desired role is already persisted; report the uncertainty and let
+		// the background sweep converge the managed client.
+		account.Status = StatusDegraded
+		reason := "keycloak_role_update_pending"
+		account.LastError = &reason
+		_ = s.dao.Update(ctx, account)
+		_ = s.auditRoleUpdate(ctx, account, userID, "failed", previousRole)
+		return account, false, nil
+	}
+	account.Status = StatusReady
+	account.LastError = nil
+	if err := s.auditRoleUpdate(ctx, account, userID, "succeeded", previousRole); err != nil {
+		return account, false, nil
+	}
+	if err := s.dao.Update(ctx, account); err != nil {
 		return account, false, nil
 	}
 	return account, true, nil
@@ -999,6 +1112,19 @@ func (s *service) gateway(ctx context.Context, gatewayID string, requireOIDC boo
 	return gateway, oidc, nil
 }
 
+func validateRoleUpdateInput(input *RoleUpdateInput, creatorAccess Access) *APIError {
+	if input.Role != RoleUser && input.Role != RoleAdmin {
+		return validationProblem("role must be openshell-user or openshell-admin")
+	}
+	if !roleAllowed(input.Role, creatorAccess.AllowedRoles) {
+		return &APIError{Status: http.StatusForbidden, Code: "role_not_allowed", Message: "The requested role exceeds the service account creator's gateway role"}
+	}
+	if input.Description != nil && len(*input.Description) > 1024 {
+		return validationProblem("description must not exceed 1024 characters")
+	}
+	return nil
+}
+
 func validateCreateInput(input *CreateInput, access Access, now time.Time) *APIError {
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || len(input.Name) > 128 {
@@ -1070,6 +1196,18 @@ func (s *service) audit(ctx context.Context, account *OpenShellGatewayServiceAcc
 		ServiceAccountID: account.ID, GatewayID: account.GatewayID,
 		ActorUserID: actor, CreatorUserID: account.CreatedByUserID,
 		Action: action, Outcome: outcome, Role: account.Role, ExpiresAt: account.ExpiresAt,
+		CorrelationID: logger.GetOperationID(ctx),
+	})
+}
+
+// auditRoleUpdate records a role-change event. Role is the new (already
+// persisted) role; PreviousRole preserves the value the change replaced.
+func (s *service) auditRoleUpdate(ctx context.Context, account *OpenShellGatewayServiceAccount, actor, outcome, previousRole string) error {
+	return s.dao.CreateAudit(ctx, &AuditEvent{
+		ServiceAccountID: account.ID, GatewayID: account.GatewayID,
+		ActorUserID: actor, CreatorUserID: account.CreatedByUserID,
+		Action: "update_role", Outcome: outcome, Role: account.Role,
+		PreviousRole: &previousRole, ExpiresAt: account.ExpiresAt,
 		CorrelationID: logger.GetOperationID(ctx),
 	})
 }

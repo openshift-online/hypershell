@@ -420,6 +420,7 @@ export function ServiceAccountsPage({
             renderRowAction={(account) => (
               <ServiceAccountRowActions
                 account={account}
+                capabilities={page.capabilities}
                 gatewayId={gatewayId}
               />
             )}

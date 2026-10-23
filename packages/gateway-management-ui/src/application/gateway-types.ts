@@ -213,6 +213,11 @@ export interface OpenShellGatewayServiceAccountCreateInput {
   role: OpenShellGatewayServiceAccountRole;
 }
 
+export interface OpenShellGatewayServiceAccountRoleUpdateInput {
+  description?: string;
+  role: OpenShellGatewayServiceAccountRole;
+}
+
 export type OpenShellGatewayServiceAccountSortField =
   "created_at" | "expires_at" | "name" | "role" | "status";
 
@@ -303,7 +308,8 @@ export const defaultGatewayAccessListRequest: Readonly<GatewayAccessListRequest>
 export type GatewayFailureKind =
   "cancelled" | "conflict" | "denied" | "not-found" | "unavailable" | "unknown";
 
-export type GatewayFailureCode = "service-account-name-exists";
+export type GatewayFailureCode =
+  "role-not-allowed" | "service-account-name-exists";
 
 export class GatewayOperationError extends Error {
   readonly code?: GatewayFailureCode;
@@ -415,6 +421,12 @@ export interface GatewayControlPlane {
     serviceAccountId: string,
     context: GatewayInvocationContext,
   ): Promise<OpenShellGatewayServiceAccountRecord>;
+  updateOpenShellGatewayServiceAccountRole(
+    gatewayId: string,
+    serviceAccountId: string,
+    input: OpenShellGatewayServiceAccountRoleUpdateInput,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
 }
 
 /** Driving entry port used by the Gateway UI presentation adapters. */
@@ -499,6 +511,12 @@ export interface GatewayOperations {
   revokeOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
+  updateOpenShellGatewayServiceAccountRole(
+    gatewayId: string,
+    serviceAccountId: string,
+    input: OpenShellGatewayServiceAccountRoleUpdateInput,
     signal?: AbortSignal,
   ): Promise<OpenShellGatewayServiceAccountRecord>;
 }

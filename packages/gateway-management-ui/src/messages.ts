@@ -906,6 +906,54 @@ export const messages = defineMessages({
     defaultMessage: "Description (optional)",
     description: "Label for an optional service-account description.",
   },
+  editServiceAccountRole: {
+    id: "app.gateway.serviceAccounts.editRole.action",
+    defaultMessage: "Edit role",
+    description: "Row action that opens the in-place role edit dialog.",
+  },
+  editServiceAccountRoleSave: {
+    id: "app.gateway.serviceAccounts.editRole.save",
+    defaultMessage: "Save changes",
+    description:
+      "Confirmation button for the service-account role edit dialog.",
+  },
+  editServiceAccountRoleTitle: {
+    id: "app.gateway.serviceAccounts.editRole.title",
+    defaultMessage: "Edit {serviceAccountName}",
+    description: "Title of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleIntroduction: {
+    id: "app.gateway.serviceAccounts.editRole.introduction",
+    defaultMessage:
+      "Change the OpenShell role or description of {serviceAccountName}. Its client credentials are unchanged.",
+    description: "Introduction of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleEffect: {
+    id: "app.gateway.serviceAccounts.editRole.effect.title",
+    defaultMessage: "When the change takes effect",
+    description:
+      "Heading for the token-lag explanation in the role edit dialog.",
+  },
+  editServiceAccountRoleEffectBody: {
+    id: "app.gateway.serviceAccounts.editRole.effect.body",
+    defaultMessage:
+      "The next token exchange reflects the new role. Access tokens issued before the change keep the prior role until they expire (at most a few minutes).",
+    description:
+      "Token-lag explanation in the service-account role edit dialog.",
+  },
+  serviceAccountRoleNotAllowed: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.title",
+    defaultMessage: "The requested role is not permitted",
+    description:
+      "Title shown when a role update exceeds the creator's gateway role.",
+  },
+  serviceAccountRoleNotAllowedBody: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.body",
+    defaultMessage:
+      "A service account is capped by its creator's current gateway role, so this account cannot receive that role.",
+    description:
+      "Guidance shown when a role update exceeds the creator's gateway role.",
+  },
   clientId: {
     id: "app.gateway.serviceAccounts.clientId",
     defaultMessage: "Client ID",

@@ -1101,6 +1101,121 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:#/schemas/OpenShellGatewayServiceAccountListItem",
+      "kind": "collection",
+      "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
+      "label": "OpenShellGatewayServiceAccountListItem",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "client_id",
+          "label": "CLIENT ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "created_by_user_id",
+          "label": "CREATED BY USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "credential_type",
+          "label": "CREDENTIAL TYPE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "description",
+          "label": "DESCRIPTION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "expires_at",
+          "label": "EXPIRES AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "last_error",
+          "label": "LAST ERROR",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "revoked_at",
+          "label": "REVOKED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id",
+        "service_account_id"
+      ],
+      "operationIds": [
+        "updateGatewayServiceAccountRole"
+      ],
+      "capabilities": [
+        "create"
+      ],
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "collection",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -8468,6 +8583,97 @@
         "update"
       ],
       "summary": "Update an gateway",
+      "presentation": {}
+    },
+    {
+      "id": "updateGatewayServiceAccountRole",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/service_accounts/"
+        },
+        {
+          "parameter": "service_account_id"
+        },
+        {
+          "literal": "/role"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "service_account_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "OpenShellGatewayServiceAccount ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "description",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "openshell-user",
+              "openshell-admin"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200",
+        "202"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Change an OpenShell gateway service account's role",
       "presentation": {}
     },
     {
