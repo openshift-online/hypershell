@@ -156,7 +156,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
 | `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | Stamped by `make sync-openshell-version` since 2026-10; still grep after the bump |
 | `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
-| Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API |
+| Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If this run's sandbox has no route to `quay.io` (see the 2026-10-23 entry), write `@sha256:...` instead of a stale digest and flag the gap, never leave an old digest paired with the new tag |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
@@ -334,6 +334,13 @@ be investigated rather than retaining the old pin silently.
    make vendor-openshell-chart
    ```
 
+   If `make` fails with `/bin/sh: Operation not permitted` for every recipe
+   line (seen in the hosted agent sandbox, 2026-10-23 entry), `make` itself
+   cannot spawn subprocesses there. Run the recipe's commands directly instead
+   (same shell lines, without `make`), then run
+   `python3 scripts/sync_openshell_version.py --stamp` for the step the recipe
+   chains afterward.
+
    This clones the upstream tag declared in `OPENSHELL_VERSION`, replaces
    `charts/openshell/` wholesale, and strips em-dashes (U+2014) which the
    pre-commit hook rejects. The resulting diff will be ~48 files and thousands
@@ -508,6 +515,95 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.5-rhaiv.1 (2026-10-23, v0.1.5-rhaiv.0 -> v0.1.5-rhaiv.1, no-arg run = latest stable):**
+  Pins and chart bumped. `go build/vet/test` could not run (see sandbox note below);
+  Python policy checks (`check_forbidden_terms`, `check_dependency_pins`,
+  `check_ci_components`, `check_deploy_orphans`, `check_spec_ids`,
+  `check_mergify_scopes`, `sync_openshell_version` check mode, and the
+  `test_sync_openshell_version` unit suite) all pass. Live e2e NOT run.
+  - **Step 0:** issue #366's latest human comment still names no version; skipped.
+  - **Triage method:** per the 2026-10-22 entry, used a scratch clone
+    (`git fetch --depth 400 <repo> tag <old> tag <new>`) instead of the GitHub
+    compare API. Confirmed: **zero** `.proto` changes between the two tags.
+    `git diff --stat` against `deploy/helm` matched the GitHub compare API's file
+    list exactly for this range (the 300-file cap did not bite this time, likely
+    because the two rhaiv tags are much closer together than the v0.1.3->v0.1.5
+    jump the prior entry saw) - still prefer the scratch clone, it is the only way
+    to be sure.
+  - **Why this still looked alarming at first:** `rhaiv.0` was a single squashed
+    "CARRY" commit on top of upstream `v0.1.5`; `rhaiv.1` is `Merge
+    remote-tracking branch upstream/main`, so the GitHub compare API reports 426
+    commits and ~250 changed files between them even though almost all of that
+    is upstream history the squash commit already contained in tree form.
+    Reading the *tree* diff (`git diff <old> <new> -- <paths>`), not the commit
+    count, is what actually matters.
+  - **Real content diff:** only `deploy/helm/openshell/{values.yaml,
+    templates/_helpers.tpl, templates/supervisor.yaml, tests/supervisor_test.yaml,
+    README.md, ci/values-openshift-scc.yaml}` and a handful of Rust crates changed.
+    - **New opt-in "shared supervisor" Helm topology** (`supervisor_topology:
+      gateway`, a new conditional `templates/supervisor.yaml` Deployment). Chart
+      default is unset, so nothing renders for HyperShell. Not adopted.
+    - **New default sandbox control-connection direction**
+      (`crates/openshell-driver-kubernetes/src/config.rs`,
+      `isolation.rs`): new sandboxes now default to `RuntimeInitiated` (the
+      runtime dials the supervisor) instead of the only previous mode
+      (`SupervisorInitiated`). This is internal to the compiled driver - no new
+      Helm value, no new RBAC verb/resource (NetworkPolicy create/update was
+      already granted), no `gateway.toml` key. `needs-decision`-adjacent but not
+      blocking: verify on a live cluster that a freshly created sandbox still
+      reaches Running and that the per-pair `runtime_control_policy`
+      NetworkPolicy the driver adds does not trip any outer-fence assumption.
+    - **Large `auth`/`grpc` diffs in `openshell-server`** (`audit.rs`,
+      `authenticator.rs`, `authz.rs`, `guard.rs`, `workspace_authz.rs`,
+      `grpc/sandbox.rs`, `grpc/auth_rpc.rs`) turned out to be an OCSF
+      audit-logging refactor: existing auth/authz decisions (same roles, same
+      scopes, same gRPC `Status` codes and messages) are now wrapped in named
+      `AuthRejection`/`RbacDenial`/`AuthzDenial` structs that feed audit events.
+      No role, scope, or error-message contract changed. Read the actual patches
+      before escalating on diff size alone - line count was not a reliable signal
+      of contract risk here.
+    - **RBAC:** no chart RBAC template changed in this range (checked
+      `role.yaml`/`clusterrole.yaml`); no new grant needed.
+    - **Sandbox API:** `agents.x-k8s.io/v1beta1` still primary
+      (`agent-sandbox-preflight.yaml` unchanged in this diff).
+  - **Sandbox environment limits (new, important for every future run on this
+    harness):**
+    1. `make` cannot exec recipe commands here - every recipe failed with
+       `/bin/sh: Operation not permitted` (exit 127), even `echo` under a
+       trivial test Makefile, with or without `dangerouslyDisableSandbox`. Ran
+       `vendor-openshell-chart`'s and `sync-openshell-version`'s shell lines
+       directly instead (git clone, cp, perl, then
+       `python3 scripts/sync_openshell_version.py --stamp`). `go build`/`go
+       vet`/`go test` also could not run: no Go toolchain is installed in this
+       sandbox (`go: command not found`, no `/usr/local/go`). Ran every Python
+       `make check` sub-target directly instead (listed above); could not run
+       `check-cli-drift` (needs Go) or `check-dependency-age` (needs an external
+       clone). A human or CI must still confirm `go build/vet/test` and
+       `make check` in full before merging.
+    2. This sandbox's only working network path is `git`/`gh` against
+       `github.com` (both succeeded throughout this run, including a 400-commit
+       scratch clone). Direct `curl` or `WebFetch` to **any** host, including
+       `github.com` itself, fails at connect time ("Permission denied" /
+       `EACCES`) - this is a transparent egress allowlist keyed to the `git`/`gh`
+       binaries, not a per-domain allowlist a generic HTTP client can use. This
+       means `quay.io` (gateway/supervisor/sandbox/console image digests) is
+       unreachable from this agent. Digests in specs and
+       `ibm-cluster/SKILL.md` were updated to the new tag with the existing
+       `@sha256:...` elision convention instead of a fabricated or stale digest,
+       and a follow-up issue (needs-decision,
+       https://github.com/openshift-online/hypershell/issues/752) tracks filling
+       them in. Never pair a new tag with an old/stale digest to make the
+       footprint sweep "look" complete.
+    3. **Console bump skipped for the same reason.** Dashboard `v0.1.2` is out
+       (2026-10-23, explicitly "tested on 0.1.5") and should replace the current
+       `v0.1.1` pin per Step 3b, but resolving its Quay manifest digest needs the
+       same blocked network path. Left the console pin unchanged and tracked the
+       bump in issue #752 rather than guessing a digest.
+  - **Spec:** `global-architecture.spec.md`'s `v1beta1` API-compat note was still
+    citing `0.1.2-rhaiv.0` from before the 2026-10-22 jump to `0.1.5-rhaiv.0`;
+    corrected to `0.1.5-rhaiv.1` (same-line edit, no line-count change, so the
+    forbidden-terms whitelist line numbers were unaffected).
 
 - **Console v0.1.1 (2026-10-22, console-only update, no-arg run):** OpenShell
   stayed at v0.1.5-rhaiv.0, the latest midstream tag. The console moved from
