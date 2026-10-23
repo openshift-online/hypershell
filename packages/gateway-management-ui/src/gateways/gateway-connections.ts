@@ -1,4 +1,5 @@
 import { gatewayCanonicalPhases } from "./gateway-data";
+import { externalLinkUrls } from "../application/external-links";
 
 export interface GatewayConnection {
   activeSandboxCount?: number;
@@ -77,11 +78,9 @@ export function buildGatewayAddCommand(
  */
 export const vertexProviderName = "my-gcp";
 
-export const installDocsUrl =
-  "https://docs.nvidia.com/openshell/about/installation";
+export const installDocsUrl = externalLinkUrls.openShellCliInstallation;
 
-const installScriptUrl =
-  "https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh";
+const installScriptUrl = externalLinkUrls.openShellInstallerScript;
 
 /**
  * Builds an installation command that matches the reconciled gateway version.
@@ -114,8 +113,7 @@ export function buildOpenShellInstallCommand(
   ].join("\n");
 }
 
-export const sandboxConnectDocsUrl =
-  "https://docs.nvidia.com/openshell/sandboxes/manage-sandboxes#connect-to-a-sandbox";
+export const sandboxConnectDocsUrl = externalLinkUrls.sandboxConnectDocs;
 
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
@@ -149,7 +147,7 @@ export const vertexProviderProfileFile = "google-vertex-ai.yaml";
  * locates the profile file" required by CLI-GWC-01 / WEB-UIEX-05 step 1).
  */
 export const providerProfileDocsUrl =
-  "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles";
+  externalLinkUrls.openShellProviderProfileDocs;
 
 /**
  * Public source for the Vertex AI example's provider profile file. Keep this
@@ -157,7 +155,7 @@ export const providerProfileDocsUrl =
  * components/cli/pkg/gatewayconnect/gatewayconnect.go.
  */
 export const vertexProviderProfileUrl =
-  "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml";
+  externalLinkUrls.openShellVertexProviderProfile;
 
 /**
  * Builds the command that downloads the provider profile file, satisfying the
@@ -256,7 +254,7 @@ export function buildSandboxCreateCommand(
     "openshell sandbox create",
     `--name ${shellArgument(name)}`,
     '--driver-config-json "$DRIVER_CONFIG"',
-    "--env=ANTHROPIC_BASE_URL=https://inference.local",
+    `--env=ANTHROPIC_BASE_URL=${externalLinkUrls.localInferenceEndpoint}`,
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",
     `-- claude --bare --model ${model}`,

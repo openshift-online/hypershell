@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>HyperShell Fleet Dashboard</title>
+  <!-- Black tile and broken red ring follow images/brand/favicon-*.png; the
+       rising bars mark this as the fleet status dashboard. -->
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="#000" stroke="#3c3c3c" stroke-width="2.5"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#e00" stroke-width="4.5"
+          stroke-dasharray="52.83 10" transform="rotate(-46 32 32)"/>
+  <g fill="#fff">
+    <rect x="21.5" y="33" width="5" height="8" rx="1.2"/>
+    <rect x="29.5" y="28" width="5" height="13" rx="1.2"/>
+    <rect x="37.5" y="23" width="5" height="18" rx="1.2"/>
+  </g>
+</svg>

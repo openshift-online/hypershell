@@ -9,6 +9,7 @@ import { Navigate } from "react-router";
 import { createPageMeta } from "../lib/page-meta";
 import { hasDashboardAdminRole } from "../lib/session-roles";
 import { useSession } from "../features/shell/use-session";
+import { routePaths } from "../../shared/routes";
 
 export const meta = createPageMeta(
   "app.dashboard.title",
@@ -25,11 +26,11 @@ export default function DashboardProvisioningRoute() {
     session?.authenticated &&
     !hasDashboardAdminRole(session.roles)
   ) {
-    return <Navigate replace to="/dashboard" />;
+    return <Navigate replace to={routePaths.dashboard} />;
   }
 
   if (!isLoading && session?.authEnabled && !session.authenticated) {
-    return <Navigate replace to="/dashboard" />;
+    return <Navigate replace to={routePaths.dashboard} />;
   }
 
   return (

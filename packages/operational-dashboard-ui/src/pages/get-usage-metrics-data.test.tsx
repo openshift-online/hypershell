@@ -21,6 +21,17 @@ const metrics: UsageDashboardMetrics = {
   metrics: [{ id: "gateway-request-volume", unit: "requests", value: "100" }],
 };
 
+const navigation = {
+  adoptionHref: "/dashboard/adoption",
+  collectionHref: "/gateways",
+  dashboardHref: "/dashboard",
+  inventoryHref: "/dashboard/inventory",
+  provisioningHref: "/dashboard/provisioning",
+  reliabilityHref: "/dashboard/reliability",
+  usageHref: "/dashboard/usage",
+  navigate: () => undefined,
+};
+
 describe("useGetUsageMetricsData", () => {
   it("passes scope, range, and abort signal through the operations port", async () => {
     const expectedMetrics = { ...metrics, timeRange: 30 as const };
@@ -45,12 +56,7 @@ describe("useGetUsageMetricsData", () => {
           <DashboardUiProvider
             dashboard={dashboard}
             isAdmin
-            navigation={{
-              collectionHref: "/",
-              navigate: () => {
-                return undefined;
-              },
-            }}
+            navigation={navigation}
           >
             {children}
           </DashboardUiProvider>
@@ -109,12 +115,7 @@ describe("useGetUsageMetricsData", () => {
           <DashboardUiProvider
             dashboard={dashboard}
             isAdmin={false}
-            navigation={{
-              collectionHref: "/",
-              navigate: () => {
-                return undefined;
-              },
-            }}
+            navigation={navigation}
           >
             {children}
           </DashboardUiProvider>

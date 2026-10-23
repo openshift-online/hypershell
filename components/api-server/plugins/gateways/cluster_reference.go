@@ -19,21 +19,33 @@ import (
 type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (clusterID string, resolved bool, svcErr *errors.ServiceError)
 type PlacementAvailabilityResolver func(context.Context, [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
 
-func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.ServiceError {
+func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.ServiceError {
 	mode := ""
 	selector := intent.Selector
+	excludedSelector := intent.ExcludedSelector
 	if intent.Mode != nil {
 		mode = *intent.Mode
 	}
 	if mode != "" {
-		if mode != "local-kind" || selector != nil {
-			return errors.Validation("placement mode must be local-kind and cannot include selector")
+		if mode != "local-kind" || selector != nil || excludedSelector != nil {
+			return errors.Validation("placement mode must be local-kind and cannot include selector or excludedSelector")
 		}
 		return nil
 	}
 	if selector != nil {
-		_, svcErr := managedClusters.NormalizeSelector(selector)
-		return svcErr
+		normalized, svcErr := managedClusters.NormalizeSelector(selector)
+		if svcErr != nil {
+			return svcErr
+		}
+		intent.Selector = normalized
+		if excludedSelector != nil {
+			normalized, svcErr = managedClusters.NormalizeSelector(excludedSelector)
+			if svcErr != nil {
+				return svcErr
+			}
+			intent.ExcludedSelector = normalized
+		}
+		return nil
 	}
 	return errors.Validation("placement must include selector or mode")
 }

@@ -38,7 +38,7 @@ func deployGatewayViaHelm(
 				Host:    nsConfig.Gateway.Route.Host,
 				Enabled: nsConfig.Gateway.Route.Enabled,
 			},
-			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver),
+			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
 		},
 		Namespace:      nsConfig.Name,
 		HasCertManager: opts.HasCertManager,
@@ -118,47 +118,27 @@ func deployGatewayViaHelm(
 	return nil
 }
 
-// defaultCredentialDriverType returns the driver an omitted credential_driver
-// resolves to, selected per-deployment via GATEWAY_DEFAULT_CREDENTIAL_DRIVER.
+// effectiveCredentialDriver resolves an unspecified credential_driver to the flat
+// default, vault (HYPERSHELL-369). An explicit driver (non-empty Type) is returned
+// unchanged, so a user who asks for a specific backend (kek-db / kubernetes-secrets)
+// always gets it. Both a nil driver and an empty-type object (`credential_driver:
+// {}`) count as unspecified and resolve to vault, preserving any supplied overrides.
 //
-// It defaults to "kek-db", which preserves today's behavior on every cluster that
-// has not opted in - so dev, kind, CI and clusters without a provider Vault keep
-// working unchanged. hyp0 sets "vault" on its control-plane (in hypershell-gitops)
-// during the HYPERSHELL-369 rollout, so it is the first cluster to default new
-// gateways to Vault. This selector is TRANSITIONAL: once every cluster has a
-// provider Vault, Vault becomes the flat default and this knob is removed (see
-// openshell-gateway-credentials.spec.md).
-func defaultCredentialDriverType() string {
-	if os.Getenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER") == "vault" {
-		return "vault"
-	}
-	return "kek-db"
-}
-
-// effectiveCredentialDriver applies the deployment default to an unspecified
-// credential_driver. An explicit driver (non-empty Type) is returned unchanged,
-// so a user who asks for a specific backend always gets it. Both a nil driver and
-// an empty-type object (`credential_driver: {}`) count as unspecified and go
-// through the deployment-default selector, so an empty object cannot bypass the
-// staged rollout and resolve to vault on a kek-db cluster.
+// Prerequisite (see openshell-gateway-credentials.spec.md): every gateway-hosting
+// cluster must run its per-cluster Vault before this default takes effect; a cluster
+// without its Vault should pin new gateways to kek-db explicitly.
 func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
 	if driver != nil && driver.Type != "" {
 		return driver
 	}
-	if defaultCredentialDriverType() == "vault" {
-		resolved := &CredentialDriverConfig{Type: "vault"}
-		if driver != nil {
-			resolved.Vault = driver.Vault // preserve any supplied overrides
-		}
-		return resolved
-	}
-	return nil // kek-db: the chart provisions the KEK store when no driver is set
+	return &CredentialDriverConfig{Type: "vault"}
 }
 
 // convertCredentialDriver converts gateway.CredentialDriverConfig to
 // helm.CredentialDriverConfig, applying the deployment default for an omitted
-// driver and resolving the Vault conventions for the vault driver.
-func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDriverConfig {
+// driver and resolving the Vault conventions for the vault driver. namespace is the
+// gateway's tenant namespace, from which the per-tenant Vault mount is derived.
+func convertCredentialDriver(driver *CredentialDriverConfig, namespace string) *helm.CredentialDriverConfig {
 	driver = effectiveCredentialDriver(driver)
 	if driver == nil {
 		return nil
@@ -173,18 +153,25 @@ func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDri
 	case "kek-db":
 		return &helm.CredentialDriverConfig{Type: "kek-db"}
 	case "vault", "":
-		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(driver.Vault)}
+		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(namespace)}
 	default:
 		return &helm.CredentialDriverConfig{Type: driver.Type}
 	}
 }
 
-// resolveVaultValues fills the Vault coordinates from the per-cluster conventions
-// (config.go), applying any per-gateway overrides in credential_driver.vault.
-func resolveVaultValues(o *VaultCredentialConfig) *helm.VaultValues {
-	v := &helm.VaultValues{
+// resolveVaultValues fills the Vault coordinates purely from the per-cluster conventions
+// (config.go) plus control-plane deployment config (GATEWAY_VAULT_* env). Vault is a black
+// box to users: there are NO per-gateway overrides, so address/role/auth are fixed and the
+// mount is always the gateway's own per-tenant mount openshell-gw/<namespace>. An empty
+// namespace (probe callers that do not use the mount) leaves the mount unset.
+func resolveVaultValues(namespace string) *helm.VaultValues {
+	mount := ""
+	if namespace != "" {
+		mount = VaultMountForNamespace(namespace)
+	}
+	return &helm.VaultValues{
 		Address:                 VaultAddressDefault(),
-		Mount:                   VaultDefaultMount,
+		Mount:                   mount,
 		KVVersion:               VaultDefaultKVVersion,
 		AuthMethod:              VaultDefaultAuthMethod,
 		Role:                    VaultRoleDefault(),
@@ -196,27 +183,6 @@ func resolveVaultValues(o *VaultCredentialConfig) *helm.VaultValues {
 		CAConfigMapName:         VaultCATargetConfigMapName,
 		TimeoutSecs:             VaultDefaultTimeoutSecs,
 	}
-	if o != nil {
-		if o.Address != "" {
-			v.Address = o.Address
-		}
-		if o.Mount != "" {
-			v.Mount = o.Mount
-		}
-		if o.AuthMethod != "" {
-			v.AuthMethod = o.AuthMethod
-		}
-		if o.Role != "" {
-			v.Role = o.Role
-		}
-		if o.KubernetesAuthMount != "" {
-			v.KubernetesAuthMount = o.KubernetesAuthMount
-		}
-		if o.TimeoutSecs != 0 {
-			v.TimeoutSecs = o.TimeoutSecs
-		}
-	}
-	return v
 }
 
 // isVaultDriver reports whether the resolved credential driver is vault (an

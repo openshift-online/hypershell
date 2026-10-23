@@ -5,6 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Selector** | Pointer to **[]string** |  | [optional]
+**ExcludedSelector** | Pointer to **[]string** |  | [optional]
 **Mode** | Pointer to **string** |  | [optional]
 
 ## Methods
@@ -50,6 +51,31 @@ SetSelector sets Selector field to given value.
 `func (o *GatewayPlacementIntent) HasSelector() bool`
 
 HasSelector returns a boolean if a field has been set.
+
+### GetExcludedSelector
+
+`func (o *GatewayPlacementIntent) GetExcludedSelector() []string`
+
+GetExcludedSelector returns the ExcludedSelector field if non-nil, zero value otherwise.
+
+### GetExcludedSelectorOk
+
+`func (o *GatewayPlacementIntent) GetExcludedSelectorOk() (*[]string, bool)`
+
+GetExcludedSelectorOk returns a tuple with the ExcludedSelector field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetExcludedSelector
+
+`func (o *GatewayPlacementIntent) SetExcludedSelector(v []string)`
+
+SetExcludedSelector sets ExcludedSelector field to given value.
+
+### HasExcludedSelector
+
+`func (o *GatewayPlacementIntent) HasExcludedSelector() bool`
+
+HasExcludedSelector returns a boolean if a field has been set.
 
 ### GetMode
 

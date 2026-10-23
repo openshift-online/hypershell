@@ -44,7 +44,16 @@ function renderNav(active: DashboardSecondaryNavActive, isAdmin = true) {
       <DashboardUiProvider
         dashboard={dashboard}
         isAdmin={isAdmin}
-        navigation={{ collectionHref: "/", navigate }}
+        navigation={{
+          adoptionHref: "/dashboard/adoption",
+          collectionHref: "/",
+          dashboardHref: "/dashboard",
+          inventoryHref: "/dashboard/inventory",
+          provisioningHref: "/dashboard/provisioning",
+          reliabilityHref: "/dashboard/reliability",
+          usageHref: "/dashboard/usage",
+          navigate,
+        }}
       >
         <DashboardSecondaryNav active={active} />
       </DashboardUiProvider>

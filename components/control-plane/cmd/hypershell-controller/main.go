@@ -222,6 +222,15 @@ func main() {
 		}
 	}
 
+	// Label this control-plane namespace so the per-cluster provider Vault's
+	// provisioner-role namespace selector admits it (HYPERSHELL-369). Best-effort: if it
+	// fails, per-tenant mount provisioning fails closed later with a clear error.
+	if clientset != nil {
+		if err := gateway.EnsureControlPlaneNamespaceLabel(ctx, clientset, cfg.Namespace); err != nil {
+			log.Printf("WARN could not label control-plane namespace %s (provider-Vault provisioner login may be denied until resolved): %v", cfg.Namespace, err)
+		}
+	}
+
 	// The Gateway Exposure port decouples route-address resolution and readiness
 	// observation from the concrete ingress backend. Select the adapter by the
 	// SAME effective ingress mode the reconciler uses to emit ingress resources

@@ -33,6 +33,10 @@ import { queryAdoptionMetrics } from "./metrics-adoption.js";
 import { queryAuthorizedGatewayMetrics } from "./authorized-gateway-metrics.js";
 import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
+import {
+  queryHomepagePlatformOverview,
+  queryHomepageSummary,
+} from "./homepage.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
@@ -51,6 +55,7 @@ import {
   type BffTracing,
   type ProxyOutcome,
 } from "./tracing.js";
+import { routePaths, routes } from "../../shared/routes.js";
 
 const correlationHeader = "x-hypershell-correlation-id";
 const validCorrelationId =
@@ -81,19 +86,18 @@ declare module "fastify" {
   }
 }
 
+const applicationRoutePatterns = Object.values(routes).map((pattern) => {
+  const source = `${pattern.startsWith("/") ? "^" : "^/"}${pattern.replace(
+    ":gatewayId",
+    "[^/]+",
+  )}/?$`;
+  return new RegExp(source, "u");
+});
+
 function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
-    pathname === "/dashboard" ||
-    pathname === "/dashboard/provisioning" ||
-    pathname === "/dashboard/inventory" ||
-    pathname === "/dashboard/reliability" ||
-    pathname === "/dashboard/usage" ||
-    pathname === "/dashboard/adoption" ||
-    pathname === "/login" ||
-    pathname === "/gateways/new" ||
-    pathname === "/metrics" ||
-    /^\/gateways\/[^/]+\/?$/u.test(pathname)
+    applicationRoutePatterns.some((pattern) => pattern.test(pathname))
   );
 }
 
@@ -124,11 +128,11 @@ function consoleRedirectForDashboardHost(request: FastifyRequest): string {
 
 function requiresDashboardAdminAccess(pathname: string): boolean {
   return (
-    pathname === "/dashboard/provisioning" ||
-    pathname === "/dashboard/inventory" ||
-    pathname === "/dashboard/reliability" ||
-    pathname === "/dashboard/adoption" ||
-    pathname === "/metrics"
+    pathname === routePaths.dashboardProvisioning ||
+    pathname === routePaths.dashboardInventory ||
+    pathname === routePaths.dashboardReliability ||
+    pathname === routePaths.dashboardAdoption ||
+    pathname === routePaths.metrics
   );
 }
 
@@ -598,6 +602,33 @@ export async function buildApp(
     reply.code(202);
     return { status: "accepted" };
   });
+
+  app.get(
+    "/api/homepage/summary",
+    { preHandler: requireOperationalMetricsAccess },
+    async (request) => {
+      return queryHomepageSummary(
+        config.apiOrigin,
+        config.oidcIssuer ? request.session.get("accessToken") : undefined,
+        config.apiTimeoutMs,
+      );
+    },
+  );
+
+  app.get(
+    "/api/homepage/platform-overview",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request) => {
+      return queryHomepagePlatformOverview(
+        config.apiOrigin,
+        config.oidcIssuer ? request.session.get("accessToken") : undefined,
+        config.apiTimeoutMs,
+        config.prometheusUrl,
+        config.prometheusQueryTimeoutMs,
+        config.prometheusNamespace,
+      );
+    },
+  );
 
   app.get(
     "/api/metrics/gateways",

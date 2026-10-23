@@ -442,18 +442,27 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 type argoInfo struct {
 	workloadNamespace                                                           string
 	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
-	// capabilities are the instance's self-declared capability labels
-	// (namespace/value), assembled from its delivery labels; empty when none.
+	// capabilities are the instance's self-declared capabilities (namespace/value),
+	// parsed from its delivery capabilities annotation; empty when none.
 	capabilities []string
 	// syncRetries is status.operationState.retryCount, nil when no operation state
 	// is recorded (unknown) so it stays distinct from a genuine 0.
 	syncRetries *int
 }
 
-// capabilityNamespaces are the delivery-label suffixes read as capabilities, in a
-// stable emit order. These are PUBLIC, product-level namespace names (PLAT-CLUS-06),
-// not fleet identity: the BFF already reads `provider` the same way. The UI treats
-// the result as opaque data and bakes in no vocabulary of its own (FLT-CAP-01).
+// capabilitiesAnnotation is the single, comma-joined capability set the delivery
+// (gitops) repo mirrors onto each managed-cluster Application. It is the
+// authoritative source for capability chips: it is generated from each unit's
+// registered capability set and drift-checked in the gitops repo, so the BFF reads
+// it rather than a parallel per-namespace label vocabulary that nothing populates.
+// Values are "namespace/value" strings.
+const capabilitiesAnnotation = deliveryLabelPrefix + "capabilities"
+
+// capabilityNamespaces is the allow-list of recognized, PUBLIC product-level
+// capability namespace names (PLAT-CLUS-06), used to validate and order the
+// annotation entries; identity labels (role, cluster, env) are deliberately not in
+// it. The UI treats the result as opaque data and bakes in no vocabulary of its own
+// (FLT-CAP-01).
 var capabilityNamespaces = []string{
 	"provider",
 	"runtime",
@@ -467,18 +476,43 @@ var capabilityNamespaces = []string{
 	"environment",
 }
 
-// capabilitiesFromLabels assembles the "namespace/value" capability set from an
-// Application's delivery labels: for each recognized capability namespace carried as
-// a "delivery.hypershell.app/<namespace>" label with a non-empty value, it emits
-// "<namespace>/<value>". No new Kubernetes query or cluster credential is used - the
-// labels are already on the resolved object - so sourcing stays low-privilege
-// (FLT-CAP-01). Returns nil (an empty set) when the instance declares none.
-func capabilitiesFromLabels(labels map[string]string) []string {
+// capabilitiesFromAnnotation parses the comma-joined
+// "delivery.hypershell.app/capabilities" annotation into an ordered, de-duplicated
+// "namespace/value" set. Entries whose namespace is not in capabilityNamespaces, or
+// that are empty / malformed (no "<ns>/<value>" shape), are dropped. Emit order is
+// capabilityNamespaces order (stable regardless of how the annotation was authored);
+// within a namespace, authored order is preserved. No new Kubernetes query or
+// cluster credential is used - the annotation is already on the resolved object - so
+// sourcing stays low-privilege (FLT-CAP-01). Returns nil when the annotation is
+// absent or yields nothing.
+func capabilitiesFromAnnotation(ann map[string]string) []string {
+	raw := ann[capabilitiesAnnotation]
+	if raw == "" {
+		return nil
+	}
+	allowed := make(map[string]bool, len(capabilityNamespaces))
+	for _, ns := range capabilityNamespaces {
+		allowed[ns] = true
+	}
+	// Bucket by namespace so output is ordered by capabilityNamespaces, not by the
+	// order the annotation happened to be authored in.
+	byNS := map[string][]string{}
+	seen := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		capability := strings.TrimSpace(part)
+		if capability == "" || seen[capability] {
+			continue
+		}
+		ns, val, ok := strings.Cut(capability, "/")
+		if !ok || ns == "" || val == "" || !allowed[ns] {
+			continue
+		}
+		seen[capability] = true
+		byNS[ns] = append(byNS[ns], capability)
+	}
 	var caps []string
 	for _, ns := range capabilityNamespaces {
-		if v := labels[deliveryLabelPrefix+ns]; v != "" {
-			caps = append(caps, ns+"/"+v)
-		}
+		caps = append(caps, byNS[ns]...)
 	}
 	return caps
 }
@@ -540,7 +574,7 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 			provider:          labels[deliveryLabelPrefix+"provider"],
 			env:               labels[deliveryLabelPrefix+"env"],
 			cluster:           labels[deliveryLabelPrefix+"cluster"],
-			capabilities:      capabilitiesFromLabels(labels),
+			capabilities:      capabilitiesFromAnnotation(ann),
 			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
 			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
 		}

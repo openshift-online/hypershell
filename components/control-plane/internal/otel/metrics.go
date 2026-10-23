@@ -21,6 +21,7 @@ var (
 	gatewaySandboxOrphaned     metric.Int64Gauge
 	gatewaySandboxExpiring     metric.Int64Gauge
 	gatewaySandboxIdle         metric.Int64Gauge
+	gatewayVaultUnreachable    metric.Int64Counter
 	gatewaySandboxTotal        metric.Int64Gauge
 	gatewaySandboxLifetime     metric.Float64Histogram
 	reconcileErrors            metric.Int64Counter
@@ -136,6 +137,15 @@ func registerMetrics() error {
 		"gateway.sandbox.idle",
 		metric.WithUnit("{sandbox}"),
 		metric.WithDescription("Cluster-local idle active sandbox count"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewayVaultUnreachable, err = meter.Int64Counter(
+		"gateway.vault.unreachable",
+		metric.WithUnit("{observation}"),
+		metric.WithDescription("Count of health observations where a vault-backed gateway's provider Vault was unreachable"),
 	)
 	if err != nil {
 		return err
@@ -362,6 +372,19 @@ func RecordSandboxLifetime(ctx context.Context, clusterID, namespace string, lif
 	gatewaySandboxLifetime.Record(ctx, lifetime.Seconds(), metric.WithAttributes(
 		attribute.String("namespace", namespace),
 		attribute.String("hypershell.cluster_id", AttentionClusterID(clusterID)),
+	))
+}
+
+// RecordGatewayVaultUnreachable counts a health observation where a vault-backed
+// gateway's provider Vault was unreachable (the dashboard-visible signal that lets an
+// operator distinguish Vault-caused Degraded gateways from other causes). Cluster-level
+// only; the gateway identifier is intentionally not an attribute.
+func RecordGatewayVaultUnreachable(ctx context.Context, clusterID string) {
+	if gatewayVaultUnreachable == nil {
+		return
+	}
+	gatewayVaultUnreachable.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("hypershell.cluster_id", clusterID),
 	))
 }
 

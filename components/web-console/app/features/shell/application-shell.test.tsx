@@ -109,7 +109,7 @@ describe("ApplicationShell", () => {
       within(breadcrumb)
         .getByRole("link", { name: "OpenShell Gateways" })
         .getAttribute("href"),
-    ).toBe("/");
+    ).toBe("/gateways");
     expect(
       await within(breadcrumb).findByText("Friendly gateway"),
     ).toBeTruthy();

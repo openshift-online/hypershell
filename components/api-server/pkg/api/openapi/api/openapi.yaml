@@ -4397,6 +4397,9 @@ components:
       description: Exactly one of selector or mode must be supplied.
       example:
         mode: local-kind
+        excludedSelector:
+        - excludedSelector
+        - excludedSelector
         selector:
         - selector
         - selector
@@ -4404,6 +4407,11 @@ components:
       oneOf: []
       properties:
         selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        excludedSelector:
           items:
             type: string
           minItems: 1
@@ -6150,6 +6158,9 @@ components:
         name: name
         placement:
           mode: local-kind
+          excludedSelector:
+          - excludedSelector
+          - excludedSelector
           selector:
           - selector
           - selector

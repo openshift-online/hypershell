@@ -191,13 +191,14 @@ func (p *registeredPlacementService) snapshot(ctx context.Context) (placementSna
 	return result, nil
 }
 
-func (p *registeredPlacementService) selectManaged(snapshot placementSnapshot, selector []string) (string, error) {
-	return ResolvePlacement(PlacementIntent{Selector: selector}, snapshot.candidates)
+func (p *registeredPlacementService) selectManaged(snapshot placementSnapshot, intent PlacementIntent) (string, error) {
+	return ResolvePlacement(intent, snapshot.candidates)
 }
 
-func managedPlacementAvailable(snapshot placementSnapshot, selector []string) bool {
+func managedPlacementAvailable(snapshot placementSnapshot, intent PlacementIntent) bool {
 	for _, candidate := range snapshot.candidates {
-		if capabilitySetContains(candidate.Capabilities, selector) {
+		if capabilitySetContains(candidate.Capabilities, intent.Selector) &&
+			capabilitySetExcludes(candidate.Capabilities, intent.ExcludedSelector) {
 			return true
 		}
 	}
@@ -223,12 +224,21 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 		}
 		return snapshot.localID, true, nil
 	}
-	selector := intent.Selector
-	selector, validationErr := managedClusters.NormalizeSelector(selector)
+	selector, validationErr := managedClusters.NormalizeSelector(intent.Selector)
 	if validationErr != nil {
 		return "", false, validationErr
 	}
-	selected, err := p.selectManaged(snapshot, selector)
+	excludedSelector := intent.ExcludedSelector
+	if excludedSelector != nil {
+		excludedSelector, validationErr = managedClusters.NormalizeSelector(excludedSelector)
+		if validationErr != nil {
+			return "", false, validationErr
+		}
+	}
+	selected, err := p.selectManaged(snapshot, PlacementIntent{
+		Selector:         selector,
+		ExcludedSelector: excludedSelector,
+	})
 	if err != nil {
 		if stderrors.Is(err, errNoEligiblePlacement) {
 			// No connected cluster matches the selector yet. Late-bind: the caller
@@ -236,7 +246,15 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 			// assigns a cluster when a matching ManagedCluster becomes available.
 			return "", false, nil
 		}
-		slog.Error("failed to resolve managed cluster placement", "selector", selector, "error", err)
+		slog.Error(
+			"failed to resolve managed cluster placement",
+			"selector",
+			selector,
+			"excludedSelector",
+			excludedSelector,
+			"error",
+			err,
+		)
 		return "", false, errors.GeneralError("failed to resolve managed cluster placement")
 	}
 	return selected, true, nil
@@ -259,7 +277,7 @@ func (p *registeredPlacementService) Availability(ctx context.Context, selectors
 			continue
 		}
 		seen[key] = struct{}{}
-		available := managedPlacementAvailable(snapshot, selector)
+		available := managedPlacementAvailable(snapshot, PlacementIntent{Selector: selector})
 		item := openapi.GatewayPlacementAvailabilityItem{Selector: selector, Available: available}
 		if !available {
 			reason := "no-eligible-cluster"
@@ -390,6 +408,7 @@ func init() {
 	db.RegisterMigration(migrationAddProvisioningFields())
 	db.RegisterMigration(migrationAddSupervisorImage())
 	db.RegisterMigration(migrationAddCredentialDriver())
+	db.RegisterMigration(migrationBackfillLegacyCredentialDriverKEK())
 	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
 	db.RegisterMigration(migrationDropDatabaseConfig())

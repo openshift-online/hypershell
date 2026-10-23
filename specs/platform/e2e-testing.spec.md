@@ -12,11 +12,12 @@
 `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
 `openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting;
 `e2e-run-log-visibility.spec.md` (HYPERSHELL-402) -- the Glass fleet dashboard consumer of the opt-in structured run reporting this spec defines (recent runs, run detail/history, live step and log streaming via Loki);
-`e2e-feature-coverage.spec.md` (HYPERSHELL-368) -- the credential-driver, gateway-sharing, Kata-runtime, alerting-signal, and CLI/UI-parity phase steps (P2.7-P2.11) and the ManagedCluster delete-and-restore extension of P2.4; this spec names those steps, that spec owns their content
+`e2e-feature-coverage.spec.md` (HYPERSHELL-368) -- the credential-driver, gateway-sharing, Kata-runtime, alerting-signal, and CLI/UI-parity phase steps (P2.7-P2.11) and the ManagedCluster delete-and-restore extension of P2.4; this spec names those steps, that spec owns their content;
+`mergify-parallel-merge-queue.spec.md` -- parallel merge queue mode, Tests CI Gate scope (CICD-MRG-05), E2E suppression on queue events (CICD-MRG-06), post-merge E2E concurrency (CICD-MRG-07)
 
 ## Purpose
 
-HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development and CI, including the merge-queue gate) and OpenShift (manual on-demand runs; origin pull-request environments specified in `ephemeral-pr-environments.spec.md`; and the push-to-main and merge-queue CI gate specified here) with infrastructure-specific logic isolated behind a driver interface. A Kind CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components.
+HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development and CI) and OpenShift (manual on-demand runs; origin pull-request environments specified in `ephemeral-pr-environments.spec.md`; and the push-to-main CI run specified here) with infrastructure-specific logic isolated behind a driver interface. A Kind CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components. E2E is not part of the required merge gate (`Tests CI Gate`); it runs for developer visibility on pull requests and for post-merge validation on `main`. E2E is suppressed on merge-queue events and Mergify temporary queue pull requests (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-05, CICD-MRG-06).
 
 The functional suite, the performance harness, and the managed-cluster matrix runner SHALL be implemented as **Go tests built on `github.com/stretchr/testify/suite`**, run through `go test`. This replaces the previous Bash implementation of those suites (`tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and the heavy `tests/e2e/drivers/*.sh` driver contract) in a single cutover (see [Shell Suite Removal](#requirement-shell-suite-removal)). Go is chosen for first-class concurrency (the performance harness and the matrix runner both fan work out across gateways and clusters), structured assertions, per-suite state that removes the process-global counters the Bash suite relied on, and direct use of the generated HyperShell Go SDK and `client-go`.
 
@@ -32,7 +33,7 @@ This spec covers the **Go test framework and suite structure** (`testify/suite`)
 
 This spec owns the driver interface contract and the **OpenShift e2e driver** (the `openshift` `E2EInfraDriver` implementation) so a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`) -- the target environment for scale and performance testing. Bring-up is a precondition: `make openshift-up` (specified in `openshift-development.spec.md`) deploys the blessed `deploy/openshift/` overlay into the current `oc` project (`OPENSHIFT_NAMESPACE` overrides), companion `${OPENSHIFT_NAMESPACE}-keycloak`, and the per-environment `${OPENSHIFT_NAMESPACE}-dev-*` cluster-scoped RBAC. This spec does not duplicate that lifecycle. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240).
 
-Manual OpenShift e2e and performance runs remain in scope here. Kind CI, including the merge-queue gate, remains in scope here. The OpenShift pull-request _environment_ (bring-up, image swap, access comment, reaping) is specified in `ephemeral-pr-environments.spec.md`. The Tests / E2E / OpenShift job that runs the suite against that environment lives in `.github/workflows/e2e.yml` and is specified here as an additional job of the CI E2E Workflow.
+Manual OpenShift e2e and performance runs remain in scope here. Kind CI remains in scope here; E2E no longer gates the merge queue (see `mergify-parallel-merge-queue.spec.md`, CICD-MRG-05, CICD-MRG-06). The OpenShift pull-request _environment_ (bring-up, image swap, access comment, reaping) is specified in `ephemeral-pr-environments.spec.md`. The Tests / E2E / OpenShift job that runs the suite against that environment lives in `.github/workflows/e2e.yml` and is specified here as an additional job of the CI E2E Workflow.
 
 ## Architecture
 
@@ -155,7 +156,7 @@ PR opened/updated
     ├── scripts/kind/set-component-images.sh (swap in Konflux-built images by digest)
     │
     ├── bash tests/e2e/run-parallel.sh: E2E_INFRA_DRIVER=kind go -C tests/e2e test . -run TestE2E
-    │     -v -timeout 20m and, outside merge_group, e2e-console.sh (E2E_MODE=short) concurrently
+    │     -v -timeout 20m and e2e-console.sh (E2E_MODE=short) concurrently (e2e stage suppressed on merge_group)
     │
     ├── [on suite failure: TestE2E collects diagnostics before cleanup]
     ├── [Actions uploads the suite-produced diagnostic artifacts]
@@ -208,6 +209,38 @@ deploy/
 ```
 
 ## Requirements
+
+### Requirement: E2E-CORE-48 -- Stand-in Gateway-Provider Vault
+
+Because the OpenShell gateway's default credential driver is `vault`
+(`openshell-gateway-credentials.spec.md`), a gateway created without a `credential_driver`
+fails closed unless a per-cluster Vault is reachable. Both environments' bring-up
+(`make kind-up` and `make openshift-up`, via `scripts/cluster/vault.sh`) SHALL therefore
+stand up a stand-in HashiCorp Vault - one per cluster in namespace `openshell-vault` at the
+convention address, configured to the GitOps Contract - so the suite exercises the
+production credential path. The setup SHALL be idempotent (safe to re-run against an
+already-initialized Vault, so it holds on a shared cluster across pull-request
+environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
+pod UID/fsGroup). The bring-up SHALL **self-verify** both isolation layers as a gateway
+identity against its own per-tenant mount (`openshell-gw/<namespace>`): a round-trip under
+its own `provider-credentials/*`, `list` denied, metadata `delete` denied, another tenant's
+mount denied, a ServiceAccount in an **unlabeled** namespace denied at login (the namespace
+selector), and - access revocation - the gateway denied once the policy is removed, then the
+policy restored. It SHALL fail if any of these drift, so the GitOps Contract is checked in
+the fixture rather than by the suite reaching into Vault. How the remaining coverage is split
+(the sandbox lifecycle for the real resolve, and the API-driven fail-closed check) lives in
+`openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
+
+#### Scenario: E2E-CORE-48.01 -- Vault stood up on bring-up
+
+- GIVEN a freshly brought-up Kind or OpenShift e2e environment
+- WHEN the suite provisions a gateway with no `credential_driver`
+- THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
+  Vault
+- AND the bring-up SHALL have self-verified both isolation layers (per-tenant mount round-trip;
+  `list`, metadata `delete`, and cross-tenant mount denied; an unlabeled namespace denied at
+  login; and policy-removal revocation then restore), failing otherwise
+- AND re-running bring-up SHALL leave the already-initialized Vault unchanged
 
 ### Requirement: E2E-CORE-01 -- Infra Driver Abstraction
 
@@ -561,7 +594,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
-The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
+The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per selected healthy cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
 7. **Collision-free naming, capacity, and determinism.** Every concurrently-created gateway SHALL have a unique name (`<step-id>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway steps multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list steps in canonical phase order (P0.1, P0.2, P1.1, ...) regardless of completion order.
 
@@ -604,7 +637,7 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 **Namespace GC timing.** Step P2.3 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are restored. Kind SHALL restore on every exit, including failure. A failed run SHALL use the environment-independent suite diagnostic path to dump the live controller logs (and the stand-in postgres logs, when that namespace exists) before restore, because restore rolls a new controller ReplicaSet and otherwise the SQL/TLS error behind a `DatabaseReady` failure is lost. A failed OpenShift run SHALL skip restore and proceed to teardown: the environment is destroyed next, so a controller rollout wait has no effect. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
 
-**Not in this spec's CI.** OpenShift performance runs SHALL NOT be wired into CI. Kind e2e, including the merge-queue gate, SHALL remain the CI job this spec defines. Origin-repository OpenShift pull-request environments are specified in `ephemeral-pr-environments.spec.md` and SHALL NOT be restated here.
+**Not in this spec's CI.** OpenShift performance runs SHALL NOT be wired into CI. Kind e2e SHALL remain the CI job this spec defines; it runs on pull requests and push to `main` but is suppressed on merge-queue events and Mergify queue pull requests (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06). Origin-repository OpenShift pull-request environments are specified in `ephemeral-pr-environments.spec.md` and SHALL NOT be restated here.
 
 #### Scenario: E2E-CORE-12.01 -- e2e Against OpenShift
 
@@ -639,13 +672,13 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 - AND OpenShift pull-request environments SHALL be the job
   `ephemeral-pr-environments.spec.md` defines, not a second copy of this spec
 
-#### Scenario: E2E-CORE-12.05 -- Merge queue runs Kind and OpenShift
+#### Scenario: E2E-CORE-12.05 -- Merge queue suppresses E2E
 
-- GIVEN a pull request enters the GitHub merge queue
+- GIVEN a pull request enters the merge queue (GitHub `merge_group` or Mergify temporary queue pull request)
 - WHEN CI evaluates which e2e jobs to run
-- THEN the Kind e2e job SHALL be the merge-queue e2e job this spec defines, including the e2e-relevant skip
-- AND when `plan-images` sets `should_run=true`, the `Deploy OpenShift Environment` and `OpenShift` jobs in `e2e.yml` SHALL also run, using a `hypershell-ci-mq-<short-sha>` namespace as the CI E2E Workflow requirement defines
-- AND the ephemeral pull-request environment workflow (`ephemeral-pr-environments.spec.md`) SHALL NOT run: a merge-queue entry has no pull-request number, no GitHub-brokered OAuth, and no access comment
+- THEN the e2e reusable-workflow call SHALL be suppressed: neither Kind nor OpenShift e2e jobs SHALL run (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06)
+- AND cheap required validation (detection, unit tests) SHALL continue to run
+- AND the `Tests CI Gate` SHALL evaluate based on detection and unit only (CICD-MRG-05)
 
 ### Requirement: E2E-CORE-13 -- E2E Test Suite Coverage
 
@@ -1085,7 +1118,7 @@ and unknown-phase rejection. P3.1 is long-only.
 Beyond the core functional areas, the platform has extended qualification
 scenarios tracked under HYPERSHELL-291. They run on specific infrastructure and
 are slower than the core suite, so each SHALL be opt-in behind its own flag and
-SHALL NOT run in the Kind merge-queue gate. Where an item needs infrastructure
+SHALL NOT run in CI's default Kind e2e job. Where an item needs infrastructure
 the project does not yet operate, this spec records the prerequisite, and the
 item SHALL NOT be reported as covered until that infrastructure exists.
 HYPERSHELL-243 (Gateway API ingress on AWS) is already covered by the
@@ -1166,11 +1199,13 @@ The system SHALL provide an independently-triggered GitHub Actions workflow at `
 
 ### Requirement: E2E-CORE-24 -- CI Unit Test Workflow
 
-The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` and `e2e` SHALL each depend only on `detect-changes` (`e2e` SHALL NOT list `unit` in `needs:`), so the two stages run concurrently and the e2e cluster setup (Kind creation, Deploy OpenShift Environment) overlaps the unit stage instead of waiting on it. A failing unit stage SHALL NOT prevent the e2e stage from starting; the failure SHALL surface through the `Tests CI Gate` check, which fails on either stage. The cost of that ordering is an e2e run for a SHA whose unit tests fail, which the project accepts to shorten the critical path. There SHALL be no in-workflow job that polls for a preceding Tests or Checks stage's status check, and there SHALL be no cross-workflow poller for Deploy OpenShift Environment: that job SHALL live in `e2e.yml` so OpenShift can `needs:` it. The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently.
+The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` and `e2e` SHALL each depend only on `detect-changes` (`e2e` SHALL NOT list `unit` in `needs:`), so the two stages run concurrently and the e2e cluster setup (Kind creation, Deploy OpenShift Environment) overlaps the unit stage instead of waiting on it. A failing unit stage SHALL NOT prevent the e2e stage from starting. There SHALL be no in-workflow job that polls for a preceding Tests or Checks stage's status check, and there SHALL be no cross-workflow poller for Deploy OpenShift Environment: that job SHALL live in `e2e.yml` so OpenShift can `needs:` it. The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently. On `merge_group` events and Mergify temporary queue pull requests, the e2e stage SHALL be suppressed (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06).
 
-Change detection SHALL run exactly once per workflow, in a `detect-changes` job in `tests.yml` (invoking `.github/scripts/detect-components.sh`), whose per-component outputs are passed into each stage as `with:` inputs; the stage workflows SHALL NOT detect changes internally and SHALL gate their jobs on `inputs.<component>`. Because each stage is a reusable-workflow call, its individual jobs surface as `Unit / <job>` and `E2E / <job>` checks rather than a single per-stage check. `tests.yml` SHALL therefore provide a `tests-gate` job (`Tests CI Gate`) covering the `unit` and `e2e` stages together, which SHALL run with `if: always()`, read both stages' rolled-up `result` via `needs`, and fail unless `detect-changes` succeeded and neither stage failed or cancelled (a fully skipped stage SHALL pass the gate). Because it always runs, it is never left pending by path-filtered skips, so this is one of the two checks to mark required in branch protection (the other being `checks.yml`'s own `Checks CI Gate`).
+Change detection SHALL run exactly once per workflow, in a `detect-changes` job in `tests.yml` (invoking `.github/scripts/detect-components.sh`), whose per-component outputs are passed into each stage as `with:` inputs; the stage workflows SHALL NOT detect changes internally and SHALL gate their jobs on `inputs.<component>`. Because each stage is a reusable-workflow call, its individual jobs surface as `Unit / <job>` and `E2E / <job>` checks rather than a single per-stage check. `tests.yml` SHALL therefore provide a `tests-gate` job (`Tests CI Gate`) covering the `detect-changes` and `unit` stages, which SHALL run with `if: always()`, read the unit stage's rolled-up `result` via `needs`, and fail unless `detect-changes` succeeded and the `unit` stage did not fail or cancel (a skipped unit stage SHALL pass the gate). The `tests-gate` job SHALL NOT depend on the `e2e` stage (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-05). E2E results remain visible as `E2E / <job>` checks for developer awareness, but a failed E2E SHALL NOT block the merge queue. Because the gate always runs, it is never left pending by path-filtered skips, so this is one of the two checks to mark required in branch protection (the other being `checks.yml`'s own `Checks CI Gate`).
 
-The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/unit-tests.yml` (`on: workflow_call`) that runs unit tests concurrently with the E2E stage. It SHALL receive the changed-component flags as `workflow_call` inputs and gate conditional jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with e2e's) up into the required check, so it has no summary or gate job of its own. Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile.
+The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/unit-tests.yml` (`on: workflow_call`) that runs unit tests concurrently with the E2E stage. It SHALL receive the changed-component flags as `workflow_call` inputs and gate conditional jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result up into the required check, so it has no summary or gate job of its own. Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile.
+
+Each Go unit job SHALL write a coverage profile and upload it to the App-SRE Codecov instance (the `codecov-appsre` GitHub App) through `scripts/codecov-upload.sh`, with one Codecov flag per Go module (`api-server`, `control-plane`, `cli`, `sdk-generator`) configured in the root `codecov.yml` with carryforward, so a module skipped by change detection keeps its last coverage. Uploads SHALL run only for `pull_request` and `push` events and SHALL attach PR coverage to the PR head commit. The upload SHALL skip with exit 0 when the `CODECOV_TOKEN` secret is unavailable (fork pull requests), and an upload failure SHALL NOT fail the job, so coverage reporting never blocks a merge. Codecov statuses SHALL be informational until the project sets coverage targets. Before uploading, `scripts/codecov-upload.sh` SHALL remove generated code from a copy of the profile (protobuf and gateway stubs, mocks, `zz_generated` files, and the generated OpenAPI client, the same set as `ignore` in `codecov.yml`) and upload that copy, so generated code is never counted even when Codecov processes a report without the repository's `codecov.yml`. The original profile SHALL stay unchanged.
 
 The root Makefile SHALL provide a `make unit-test-all` target that runs the same unit test suites as the CI jobs (API server, control plane, CLI/SDK generators, frontend packages, and shell tests) unconditionally -- without the per-component change detection the CI workflow uses -- so a developer can run the full suite locally before pushing. It SHALL provide a `make ci-test` target that runs only the auto-discovered `*_test.sh` shell tests, matching the CI shell-test job.
 
@@ -1192,9 +1227,10 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 - GIVEN branch protection requires `tests.yml`'s `Tests CI Gate`
 - WHEN a pull request runs `tests.yml`
-- THEN the `tests-gate` job SHALL run with `if: always()` so it is present even when the unit and e2e stages' jobs are all skipped by path filtering
-- AND the gate SHALL pass when `detect-changes` succeeded and both stages' results are `success` or `skipped`
-- AND the gate SHALL fail when `detect-changes` did not succeed or either stage's result is `failure` or `cancelled`
+- THEN the `tests-gate` job SHALL run with `if: always()` so it is present even when the unit stage's jobs are all skipped by path filtering
+- AND the gate SHALL depend only on `detect-changes` and `unit`, not on `e2e`
+- AND the gate SHALL pass when `detect-changes` succeeded and the `unit` stage's result is `success` or `skipped`
+- AND the gate SHALL fail when `detect-changes` did not succeed or the `unit` stage's result is `failure` or `cancelled`
 
 #### Scenario: E2E-CORE-24.04 -- Shell Unit Tests Auto-Discovered
 
@@ -1217,13 +1253,20 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 - THEN the `e2e` stage SHALL still start and run to completion
 - AND the `Tests CI Gate` check SHALL fail because the `unit` stage's result is `failure`
 
+#### Scenario: E2E-CORE-24.07 -- Generated Code Excluded From Codecov
+
+- GIVEN a Go coverage profile with blocks from generated files (`*.pb.go`, `*_grpc.pb.go`, `mock_*.go`, `zz_generated*.go`, `components/api-server/pkg/api/openapi/`) and from hand-written files
+- WHEN `scripts/codecov-upload.sh` uploads it
+- THEN the Codecov CLI SHALL receive only the `mode:` line and the hand-written blocks
+- AND the original profile SHALL be unchanged
+
 ### Requirement: E2E-CORE-25 -- CI E2E Workflow
 
-The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests, on merge-queue entries (`merge_group`), and on push to `main`, against an OpenShift environment. It SHALL run as a stage of `tests.yml`, concurrent with the unit stage, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. On `merge_group`, Kind and OpenShift SHALL honor the same `should_run` e2e-relevant path gate as `pull_request`, evaluated against the merge batch's three-dot diff from `merge_group.base_sha`, so a docs-only merge-queue entry skips Kind and OpenShift while a batch that includes e2e-relevant paths still gates. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `e2e` stage depends only on `detect-changes`, so Kind creation and the OpenShift deploy do not wait on the unit-test stage; the e2e workflow itself SHALL NOT contain a job that polls for the unit stage, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on required Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
+The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests and on push to `main`, against an OpenShift environment. It SHALL run as a stage of `tests.yml`, concurrent with the unit stage. On `merge_group` events and Mergify temporary queue pull requests, the e2e stage SHALL be suppressed -- neither Kind nor OpenShift e2e jobs SHALL run (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06). Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself. E2E results are visible as `E2E / <job>` checks for developer awareness; the `Tests CI Gate` depends only on `detect-changes` and `unit` (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-05), so a failed E2E does not block the merge queue. The e2e workflow has no summary or gate job of its own. The orchestrator's `e2e` stage depends only on `detect-changes`, so Kind creation and the OpenShift deploy do not wait on the unit-test stage; the e2e workflow itself SHALL NOT contain a job that polls for the unit stage, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on required Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
-`e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events, on every merge-queue entry (`merge_group`), and on push to `main`. Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR or merge-queue entry skips deploy and the OpenShift suite as well as Kind. Push to `main` always sets `should_run=true`. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main-<short-sha>`, and a merge-queue entry SHALL deploy `hypershell-ci-mq-<short-sha>` (first 7 characters of the commit SHA), neither with OAuth or a pull-request comment; neither ever carries the retainment label, so teardown always runs for them. The per-commit namespace SHALL keep a cancelled older run's `openshift-down` from deleting a newer deploy's namespace. Concurrency SHALL key on the PR number, `main`, or the merge-queue commit SHA (`pr-env-mq-<sha>`) with `cancel-in-progress`, so rapid pushes to the same target still serialize while two merge-queue entries validated concurrently never cancel each other's deploy. There SHALL NOT be a separate OpenShift-on-main or OpenShift-on-merge-queue workflow: the same two Tests / E2E jobs cover all three events, so pull requests do not list a skipped dedicated check for either. Fork PRs SHALL skip those jobs (no per-PR environment; a fork PR cannot enter the merge queue either).
+`e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events and on push to `main`. On `merge_group` events and Mergify temporary queue pull requests, these jobs SHALL be suppressed along with the rest of the e2e stage (CICD-MRG-06). Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips deploy and the OpenShift suite as well as Kind. Push to `main` always sets `should_run=true`. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main-<short-sha>` without OAuth or a pull-request comment; it never carries the retainment label, so teardown always runs. The per-commit namespace SHALL keep a cancelled older run's `openshift-down` from deleting a newer deploy's namespace. Post-merge E2E concurrency on `main` SHALL use a SHA-specific concurrency key so rapid merges do not cancel each other's E2E runs (CICD-MRG-07). Per-pull-request cancellation for superseded PR revisions SHALL be preserved. There SHALL NOT be a separate OpenShift-on-main workflow: the same two Tests / E2E jobs cover both events, so pull requests do not list a skipped dedicated check. Fork PRs SHALL skip those jobs (no per-PR environment; a fork PR cannot enter the merge queue either).
 
-Outside `merge_group`, the Kind job SHALL also run the console browser suite concurrently with the Go suite, as [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) specifies. The Kind job SHALL install Node, the pinned pnpm dependencies, and Playwright Chromium before the e2e suites and SHALL start both suites through `tests/e2e/run-parallel.sh`, which streams each suite live with a stable `[suite]` prefix while independently capturing its log, then replays the logs in separate collapsible groups when all suites have exited. On a failed Kind job, the workflow SHALL upload those preserved per-suite logs as the `e2e-suite-logs` artifact. The runner SHALL fail if any suite failed. The trace verification runs after both suites. The OpenShift job SHALL NOT run the console suite. The two suites share one cluster and SHALL NOT interfere: they use distinct gateway names (`e2e-gw-*` and `e2e-console-gw-*`), separate browser sessions, and separate temporary files. A Go suite step that stops or restarts the control plane stalls any other suite on the cluster, so `run-parallel.sh` SHALL export `E2E_DISRUPTIVE_GATE_FILE` and create that file only once every suite other than the first has exited, and any such Go suite step SHALL wait for it (up to `E2E_DISRUPTIVE_GATE_TIMEOUT`, default 900 seconds, then warn and continue) before it stops or restarts the control plane. With no runner (a standalone run) the wait SHALL return immediately.
+On `pull_request` and push to `main` (not on `merge_group` or Mergify queue PRs, where E2E is suppressed), the Kind job SHALL also run the console browser suite concurrently with the Go suite, as [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) specifies. The Kind job SHALL install Node, the pinned pnpm dependencies, and Playwright Chromium before the e2e suites and SHALL start both suites through `tests/e2e/run-parallel.sh`, which streams each suite live with a stable `[suite]` prefix while independently capturing its log, then replays the logs in separate collapsible groups when all suites have exited. On a failed Kind job, the workflow SHALL upload those preserved per-suite logs as the `e2e-suite-logs` artifact. The runner SHALL fail if any suite failed. The trace verification runs after both suites. The OpenShift job SHALL NOT run the console suite. The two suites share one cluster and SHALL NOT interfere: they use distinct gateway names (`e2e-gw-*` and `e2e-console-gw-*`), separate browser sessions, and separate temporary files. A Go suite step that stops or restarts the control plane stalls any other suite on the cluster, so `run-parallel.sh` SHALL export `E2E_DISRUPTIVE_GATE_FILE` and create that file only once every suite other than the first has exited, and any such Go suite step SHALL wait for it (up to `E2E_DISRUPTIVE_GATE_TIMEOUT`, default 900 seconds, then warn and continue) before it stops or restarts the control plane. With no runner (a standalone run) the wait SHALL return immediately.
 
 #### Scenario: E2E-CORE-25.01 -- PR Triggers Workflow
 
@@ -1239,7 +1282,6 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - THEN both suites SHALL start at the same time against the same cluster
 - AND any Go suite step that stops or restarts the control plane SHALL wait until the console suite has exited before it does so
 - AND the step SHALL fail if either suite exits non-zero, with each suite's output replayed from its own log and a result line per suite
-- AND on `merge_group` only the Go suite SHALL run
 
 #### Scenario: E2E-CORE-25.03 -- OpenShift E2E Needs Deploy OpenShift Environment
 
@@ -1251,7 +1293,7 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials go -C tests/e2e test . -run TestE2E` against the per-PR namespace
 - AND after the suite, including on failure or cancel, it SHALL destroy the environment unless the pull request is marked retained
 - AND a fork PR, or an origin PR with `should_run=false`, SHALL skip this job
-- AND a failing `unit` stage SHALL NOT skip deploy or this job; it fails only through the `Tests CI Gate` check
+- AND a failing `unit` stage SHALL NOT skip deploy or this job; unit failures fail the `Tests CI Gate` check independently
 
 #### Scenario: E2E-CORE-25.04 -- Push to main uses the same OpenShift jobs
 
@@ -1272,23 +1314,21 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - AND push B SHALL deploy `hypershell-ci-main-<sha-b>`
 - AND push A's teardown SHALL NOT delete push B's namespace
 
-#### Scenario: E2E-CORE-25.06 -- Merge queue entry uses the same OpenShift jobs
+#### Scenario: E2E-CORE-25.06 -- Merge queue entry suppresses E2E
 
-- GIVEN a `merge_group` event
-- AND whose `plan-images` job sets `should_run=true`
-- AND the merge-commit SHA is `abcdef1234567890`
-- WHEN Deploy OpenShift Environment and Tests / E2E / OpenShift run
-- THEN they SHALL use `OPENSHIFT_NAMESPACE=hypershell-ci-mq-abcdef1`
-- AND they SHALL NOT post or update a pull-request access comment
-- AND they SHALL NOT provision GitHub OAuth (admin/admin password grant)
-- AND after the suite, including on failure or cancel, they SHALL destroy that namespace
+- GIVEN a `merge_group` event or a Mergify temporary queue pull request
+- WHEN the `tests.yml` orchestrator evaluates the e2e stage
+- THEN the e2e reusable-workflow call SHALL be suppressed
+- AND neither Kind nor OpenShift e2e jobs SHALL run
+- AND neither Deploy OpenShift Environment nor the OpenShift suite job SHALL run
+- AND cheap required validation (detection, unit tests) SHALL continue to run
 
-#### Scenario: E2E-CORE-25.07 -- Concurrent merge queue entries do not collide
+#### Scenario: E2E-CORE-25.07 -- Concurrent merge queue entries run cheap validation independently
 
-- GIVEN merge queue entry A is deploying `hypershell-ci-mq-<sha-a>`
-- WHEN merge queue entry B, validating a different pull request, starts deploying `hypershell-ci-mq-<sha-b>` at the same time
-- THEN entry A's and entry B's `Deploy OpenShift Environment` jobs SHALL run concurrently rather than one cancelling the other
-- AND each entry's teardown SHALL only ever destroy its own commit-SHA namespace
+- GIVEN merge queue entry A and entry B are validating different pull requests concurrently
+- WHEN both entries run cheap required validation
+- THEN each entry's detection and unit test jobs SHALL run independently
+- AND neither entry SHALL cancel the other's validation
 
 #### Scenario: E2E-CORE-25.08 -- Tests Pass
 
@@ -1337,38 +1377,31 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - AND it SHALL pull the Konflux-built web console image
 - AND the API server and control plane SHALL use baseline registry images
 
-#### Scenario: E2E-CORE-25.14 -- Merge Queue Gate
+#### Scenario: E2E-CORE-25.14 -- Merge Queue Suppresses E2E Regardless of Paths
 
-- GIVEN a pull request enters the GitHub merge queue
-- AND the merge queue pushes the batched merge commit to a `gh-readonly-queue/main/...` branch
-- AND the merge batch's three-dot diff against `merge_group.base_sha` includes e2e-relevant paths
-- WHEN the `e2e` workflow triggers on the `merge_group` event
-- THEN `plan-images` SHALL set `should_run=true`
-- AND it SHALL run the Kind e2e job against the speculative merge commit
-- AND it SHALL run the `Deploy OpenShift Environment` and `OpenShift` jobs against `hypershell-ci-mq-<short-sha>`
-- AND it SHALL wait only for the dedicated merge-queue Konflux builds whose image inputs changed in the batch, keyed on the merge-group commit (`merge_group.head_sha`; GitHub documents `github.sha` as the same value)
-- AND each changed component SHALL use an `on-merge-queue-<merge_sha>` image whose tag and wait-on-check ref use the same SHA (`plan-images` `konflux_ref`)
-- AND each unchanged component SHALL use an immutable digest resolved from the accepted base commit (`merge_group.base_sha`), falling back to a digest-pinned release baseline only when that component has no base-commit Konflux tag
-- AND the browser distributed-trace verification SHALL NOT run on `merge_group` (it is covered at pull-request time and re-verified on push to `main`)
+- GIVEN a pull request enters the merge queue (GitHub `merge_group` or Mergify temporary queue pull request)
+- AND the changed paths include e2e-relevant components
+- WHEN the `tests.yml` orchestrator evaluates the e2e stage
+- THEN the e2e stage SHALL be suppressed regardless of which paths changed (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06)
+- AND the `Tests CI Gate` SHALL still succeed when detection and unit pass (CICD-MRG-05)
+- AND E2E validation of the merged code SHALL happen on push to `main` after the merge
 
-#### Scenario: E2E-CORE-25.15 -- Merge Queue Skip for Irrelevant Changes
+#### Scenario: E2E-CORE-25.15 -- Merge Queue Tests CI Gate With Irrelevant Changes
 
-- GIVEN a pull request enters the GitHub merge queue
-- AND the merge batch's three-dot diff against `merge_group.base_sha` contains only files outside the e2e-relevant component paths (for example only `docs/` or `components/sdk-typescript/`)
-- WHEN the `e2e` workflow triggers on the `merge_group` event
-- THEN `plan-images` SHALL set `should_run=false`
-- AND the Kind e2e jobs SHALL be skipped
-- AND the OpenShift jobs SHALL be skipped
-- AND no merge-queue Konflux image pipeline SHALL start for that batch
-- AND the `Tests CI Gate` SHALL still succeed so the merge is not blocked
+- GIVEN a pull request enters the merge queue
+- AND the changed paths contain only files outside e2e-relevant and unit-test component paths
+- WHEN the `tests.yml` orchestrator runs
+- THEN the unit stage SHALL be skipped by path filtering
+- AND the e2e stage SHALL be suppressed (CICD-MRG-06)
+- AND the `Tests CI Gate` SHALL still succeed because a skipped unit stage passes the gate
 
-#### Scenario: E2E-CORE-25.16 -- Merge Queue Batch With Mixed Changes
+#### Scenario: E2E-CORE-25.16 -- Post-Merge E2E Runs on Main
 
-- GIVEN a docs-only pull request is batched in the merge queue with another pull request that modifies e2e-relevant paths
-- WHEN the `e2e` workflow evaluates the merge_group three-dot diff against `merge_group.base_sha`
-- THEN `plan-images` SHALL set `should_run=true`
-- AND the Kind e2e job SHALL run against the speculative merge commit that contains both pull requests
-- AND the OpenShift jobs SHALL run against that same merge commit
+- GIVEN a pull request merges to `main`
+- WHEN the push event triggers `tests.yml`
+- THEN the e2e stage SHALL run normally (push to `main` is not suppressed)
+- AND the Kind and OpenShift e2e jobs SHALL validate the merged code
+- AND each push to `main` SHALL use a SHA-specific concurrency key for E2E so rapid merges do not cancel each other's runs (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-07)
 
 #### Scenario: E2E-CORE-25.17 -- Merge Queue Images Are Distinct and Ephemeral
 
@@ -1387,7 +1420,7 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 
 ### Requirement: E2E-CORE-26 -- Konflux Image Consumption
 
-The CI workflow SHALL NOT build component images itself. Images are built by Konflux (the existing build pipeline). The e2e workflow SHALL gate on required Konflux builds completing, then pull those built images by digest into the Kind cluster. On `pull_request` and `push`, unchanged components SHALL use baseline images from the container registry. On `merge_group`, image-input changes SHALL use `on-merge-queue-<merge_sha>` images. Unchanged components SHALL use digest-pinned images from the accepted base commit, falling back to a digest-pinned release baseline when no base-commit tag exists. This tests the speculative change without rebuilding images that are already part of the accepted base and never relies on a moving `:latest` tag. This is expected to cover HYPERSHELL-16.
+The CI workflow SHALL NOT build component images itself. Images are built by Konflux (the existing build pipeline). The e2e workflow SHALL gate on required Konflux builds completing, then pull those built images by digest into the Kind cluster. On `pull_request` and `push`, unchanged components SHALL use baseline images from the container registry. E2E is suppressed on `merge_group` events and Mergify temporary queue pull requests (CICD-MRG-06), so `on-merge-queue-<merge_sha>` image consumption applies only if E2E is re-enabled for those events in a future change. This is expected to cover HYPERSHELL-16.
 
 #### Scenario: E2E-CORE-26.01 -- Single Component Changed
 
@@ -1488,35 +1521,45 @@ The refactored deploy structure SHALL maintain backward compatibility with exist
 
 ### Requirement: E2E-CORE-30 -- Managed-Cluster Matrix Runner
 
-The system SHALL provide a Go matrix runner (`TestMatrix`, run via `make e2e-matrix`) that enumerates registered ManagedClusters and runs the single-cluster `E2ESuite` once per cluster, then reports a per-cluster pass/fail/skip matrix and a single gate verdict. The runner SHALL add no new test assertions; it reuses the suite verbatim. Unlike the former Bash matrix (which ran each cluster as a separate child process to isolate process-global counters), the Go runner SHALL run each cluster as its own `E2ESuite` instance with its own per-suite state, fanned out as bounded goroutines (see [Concurrency Model](#requirement-concurrency-model)); there SHALL be no shared mutable counter across clusters.
+`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy.
 
-The only matrix dimension SHALL be the fleet of registered ManagedClusters, discovered from `GET /v1/managed_clusters` (registered = non-empty `oidc_subject`). The runner SHALL NOT matrix over drivers or infra types: it selects one `E2EInfraDriver` exactly as the single-cluster suite does and fans that selection across clusters. The matrix SHALL default to `E2E_MODE=short` (the smoke subset the gate runs) when `E2E_MODE` is unset -- overriding the suite's own `long` default, since the matrix is a promotion/smoke gate -- but SHALL forward any `E2E_MODE` the caller sets (`long`, or `perf` depth when driven by the harness) to each cluster's suite unchanged.
+```text
+for mc in GET /managed_clusters:
+    if mc is unregistered or unhealthy:
+        report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
+        continue
+    suite = E2ESuite { targetClusterID: mc.id }
+    run suite
+```
 
-The runner SHALL bound parallelism with `E2E_CONCURRENCY` (default `4`; `1` forces sequential). Each per-cluster suite SHALL own a uniquely named gateway (`${E2E_MANAGED_GATEWAY_PREFIX}-<cluster>-<runid>`, prefix default `e2e`) and SHALL tear it down regardless of outcome, so parallel clusters never collide. The runner SHALL resolve each cluster's `cluster_id` by name and pass it to that cluster's suite. A product-interface run (API + gRPC) SHALL be the baseline and SHALL need no kubeconfig; kube-level steps (P1.2 infra verification, P2.3 GC) SHALL run for a cluster only when `E2E_MANAGED_KUBECONTEXT_<name>` is supplied, and SHALL otherwise `t.Skip` (never fail) for that cluster.
+`TestMatrix` SHALL configure each `E2ESuite` with `mc.id` as its target cluster. Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL use the existing pinned `cluster_id` contract defined by PLAT-DATA-02 and PLAT-CLUS-09, and SHALL include `cluster_id: mc.id`. After each such create, the suite SHALL assert that the response contains the same `cluster_id` before continuing that gateway's workflow. These positive creates SHALL NOT use selector placement, random placement, or a fallback cluster.
 
-The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E_MANAGED_HEALTHY_WINDOW`, default `5m`), or unreachable cluster SHALL be a failure by default; `E2E_MANAGED_SKIP_UNHEALTHY=1` SHALL downgrade it to a skip. A skip SHALL never count as a pass. The runner SHALL print a per-cluster result table (name, health, pass/fail/skip, child tally) and a single overall verdict; per-cluster output SHALL be captured and attributed, not interleaved. `go test` SHALL exit non-zero if any selected cluster failed and zero only when every selected cluster passed or was skipped; a partial or aborted run SHALL NOT report a clean gate. `E2E_MANAGED_CLUSTERS` SHALL be an optional allowlist (unset = all registered; allowlist only, no denylist). This gate is consumed by Argo CD release analysis and GitOps Promoter promotion gates in the gitops repo. Renovate supplies the selected release bundle.
+Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its unregistered `cluster_id`, its empty `cluster_id` with no placement, and its placement selector with no `cluster_id`; the matrix target SHALL NOT be injected into those requests, and a successful late-bound response SHALL NOT be required to resolve to `mc.id`. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
 
-#### Scenario: E2E-CORE-30.01 -- Suite Reused Per Cluster
+#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster
 
-- GIVEN three registered ManagedClusters
-- WHEN `make e2e-matrix` runs with `E2E_MODE=short` and `E2E_CONCURRENCY=2`
-- THEN the runner SHALL run `E2ESuite` once per cluster, at most two at a time
-- AND each cluster's suite SHALL own a uniquely named gateway and tear it down
-- AND no assertion beyond the single-cluster suite SHALL be added
+- GIVEN `GET /managed_clusters` returns registered Healthy clusters `A` and `B`
+- WHEN `TestMatrix` runs
+- THEN it SHALL configure one `E2ESuite` with target cluster `A` and one with target cluster `B`
+- AND every positive workflow or provisioning create from the suite targeting `A` SHALL include `cluster_id: "A"` and verify the response has `cluster_id: "A"`
+- AND every positive workflow or provisioning create from the suite targeting `B` SHALL include `cluster_id: "B"` and verify the response has `cluster_id: "B"`
+- AND neither suite SHALL place a positive-workflow gateway on any other cluster
+- AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
-#### Scenario: E2E-CORE-30.02 -- Unhealthy Cluster Fails Closed
+#### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly
 
-- GIVEN a registered cluster whose `last_seen_at` is older than `E2E_MANAGED_HEALTHY_WINDOW`
-- WHEN the matrix runs with `E2E_MANAGED_SKIP_UNHEALTHY` unset
-- THEN that cluster SHALL be reported as a failure and the overall verdict SHALL be non-zero
-- AND with `E2E_MANAGED_SKIP_UNHEALTHY=1` it SHALL be reported as a skip, not a pass
+- GIVEN a selected ManagedCluster is unregistered or not Healthy
+- WHEN `TestMatrix` evaluates that cluster
+- THEN it SHALL NOT create a gateway or run `E2ESuite` for that cluster
+- AND it SHALL report FAIL by default
+- OR it SHALL report SKIP when `E2E_MANAGED_SKIP_UNHEALTHY=1`
 
-#### Scenario: E2E-CORE-30.03 -- Missing Kube Context Degrades To Skip
+#### Scenario: E2E-CORE-30.03 -- Missing Kubernetes context skips Kubernetes checks
 
-- GIVEN a healthy cluster for which `E2E_MANAGED_KUBECONTEXT_<name>` is not supplied
-- WHEN that cluster's suite reaches the kube-level steps (P1.2 and P2.3)
-- THEN those steps SHALL `t.Skip` with a reason
-- AND the product-interface steps SHALL still run and be asserted
+- GIVEN a selected registered Healthy cluster has no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
+- WHEN `E2ESuite` runs for that cluster
+- THEN API-level steps SHALL still run
+- AND Kubernetes-level steps SHALL report SKIP rather than use another cluster's context
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 
@@ -2488,7 +2531,7 @@ failures and allow the two paths to drift.
 | CI pulls Konflux-built images, not rebuild                                                 | Images are built by Konflux (the existing build pipeline). The e2e workflow gates on those builds and pulls images by digest, avoiding duplicate builds and ensuring CI tests the exact images that ship. This is expected to cover HYPERSHELL-16                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Diagnostic artifacts only on failure                                                       | Uploading pod logs, events, and describes on every run wastes GitHub Actions storage. Conditional upload on failure provides debugging information when needed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 20-minute CI timeout                                                                       | Kind cluster creation takes ~2 min, image pulls ~1-2 min, e2e tests ~5-8 min. A 20-minute ceiling provides margin for slow GitHub runners while preventing runaway jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| e2e workflow skips for irrelevant changes                                                  | SDK-only or docs-only changes do not affect the e2e path. Skipping avoids CI time, Konflux work, and a shared-cluster PR namespace that would only run base images. The same `should_run` gate applies to `pull_request` and `merge_group`; merge-queue evaluation uses the batch three-dot diff against `merge_group.base_sha`, so a docs-only PR batched with an e2e-relevant change still runs Kind against the speculative merge commit. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, and `e2e` component paths for "should we re-run e2e" decisions; `Deploy OpenShift Environment` uses that same `should_run` gate. `Tests CI Gate` remains the required merge-queue check, so a skipped Kind job does not leave the queue pending. Merge-queue Konflux pipelines use the same component image-input path filters as pull requests, so only changed components build `on-merge-queue-<sha>` images. E2E waits only for those builds and uses accepted-base image digests for every other component. |
+| e2e workflow skips for irrelevant changes                                                  | SDK-only or docs-only changes do not affect the e2e path. Skipping avoids CI time, Konflux work, and a shared-cluster PR namespace that would only run base images. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, and `e2e` component paths for "should we re-run e2e" decisions; `Deploy OpenShift Environment` uses that same `should_run` gate. `Tests CI Gate` depends only on detection and unit (CICD-MRG-05), so a skipped e2e does not leave the queue pending. On `merge_group` events and Mergify temporary queue pull requests, the entire e2e stage is suppressed (CICD-MRG-06); E2E validation of merged code happens on push to `main`. |
 | `make kind-up` accepts image overrides                                                     | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Backward-compatible migration                                                              | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | OpenShift e2e runs use `make openshift-up` as the environment                              | This spec owns the driver the suite calls. `openshift-development.spec.md` owns bring-up: `make openshift-up`, the `deploy/openshift/` overlay (Routes, Keycloak NetworkPolicy, SCC), namespace rewrite, `${OPENSHIFT_NAMESPACE}-dev-*` cluster RBAC, and cluster bootstrap. Automated OpenShift pull-request CI and the `e2e-openshell.sh` deprecation window live in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) and are not duplicated here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |

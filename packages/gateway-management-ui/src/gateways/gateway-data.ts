@@ -355,6 +355,8 @@ type GatewayApiPayload = Omit<
 > &
   Partial<Pick<GatewayRecord, "externalDns" | "phase" | "status">>;
 
+const gatewayHttpsScheme = "https";
+
 function gatewayEndpoint(gateway: GatewayApiPayload): string | undefined {
   const externalDns = gateway.externalDns?.trim() ?? "";
   if (!externalDns) {
@@ -364,7 +366,7 @@ function gatewayEndpoint(gateway: GatewayApiPayload): string | undefined {
     return externalDns;
   }
 
-  return `https://${externalDns}${externalDns.includes(":") ? "" : ":443"}`;
+  return `${gatewayHttpsScheme}://${externalDns}${externalDns.includes(":") ? "" : ":443"}`;
 }
 
 export function toGatewayConnection(

@@ -29,6 +29,15 @@ const (
 	// each other's gateways as orphans.
 	InstanceLabel = "hypershell.redhat.io/instance"
 
+	// ControlPlaneLabel marks the namespace a HyperShell control plane runs in. The
+	// per-cluster provider Vault binds its provisioner role (openshell-gateway-provisioner)
+	// with a namespace selector on this label, so ONLY a control-plane namespace may log in
+	// to create/delete per-tenant mounts (HYPERSHELL-369). The control plane self-applies it
+	// at startup; a namespace-scoped attacker cannot forge it, because labeling a namespace
+	// needs cluster-scoped patch on the namespaces resource.
+	ControlPlaneLabel      = "hypershell.redhat.io/control-plane"
+	ControlPlaneLabelValue = "true"
+
 	// GatewayNamespacePrefix mirrors the namespace name the API server assigns in
 	// its BeforeCreate hook (gatewayNamespacePrefix in
 	// components/api-server/plugins/gateways/model.go), producing
@@ -84,6 +93,30 @@ func IsManagedNamespace(ns *corev1.Namespace, instance string) bool {
 		return false
 	}
 	return ns.Labels[InstanceLabel] == instance
+}
+
+// EnsureControlPlaneNamespaceLabel idempotently stamps ControlPlaneLabel on the control
+// plane's OWN namespace, so the per-cluster provider Vault's provisioner-role namespace
+// selector admits it (HYPERSHELL-369). It is best-effort at startup: on failure the caller
+// logs a warning, and the fail-closed mount provisioning surfaces a still-missing label as a
+// clear gateway-provisioning error rather than a silent security gap.
+func EnsureControlPlaneNamespaceLabel(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("control-plane namespace is empty; cannot apply the %s label", ControlPlaneLabel)
+	}
+	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get control-plane namespace %s: %w", namespace, err)
+	}
+	if ns.Labels[ControlPlaneLabel] == ControlPlaneLabelValue {
+		return nil // already labeled
+	}
+	patch := []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, ControlPlaneLabel, ControlPlaneLabelValue))
+	if _, err := client.CoreV1().Namespaces().Patch(ctx, namespace, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("label control-plane namespace %s with %s: %w", namespace, ControlPlaneLabel, err)
+	}
+	log.Printf("INFO labeled control-plane namespace %s with %s=%s", namespace, ControlPlaneLabel, ControlPlaneLabelValue)
+	return nil
 }
 
 // isGatewayWorkloadName reports whether name is a gateway workload namespace
