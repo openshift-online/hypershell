@@ -863,7 +863,6 @@ function AgingColumn({
     : phase.key;
   const PhaseIcon = PHASE_ICON[phase.key];
   const agent = PHASE_AGENT[phase.key];
-  const canOpenAgent = agent !== undefined && agentSummary !== undefined;
   const trackRef = useRef<HTMLDivElement>(null);
   const trackHeight = useElementHeight(trackRef);
   const { placed, clusters } = packColumn(cards, scale, trackHeight || 420);
@@ -878,7 +877,7 @@ function AgingColumn({
     >
       <div className={styles.columnHeader}>
         <div className={styles.columnHeaderMain}>
-          {canOpenAgent ? (
+          {agent !== undefined && agentSummary !== undefined ? (
             <button
               type="button"
               className={styles.agentButton}
