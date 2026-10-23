@@ -4,6 +4,7 @@ import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
 import type { AgentSdlcData } from "../../../domain/agent-sdlc";
+import type { SdlcAgentsData } from "../../../domain/sdlc-agents";
 import type { FleetData } from "../../../domain/fleet";
 import type { Plane } from "../../../domain/plane";
 import type { PromotionData } from "../../../domain/promotion";
@@ -112,6 +113,8 @@ function renderApp(): void {
           logsTruncated: false,
         }),
       ),
+    getSdlcAgents: () =>
+      Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
     streamE2eRun: () => () => {
       /* unsubscribe */
     },
