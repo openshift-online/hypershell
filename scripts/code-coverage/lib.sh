@@ -14,6 +14,29 @@ COVERAGE_DEPLOYMENTS=(hypershell-api-server hypershell-controller hypershell-web
 # Replica counts recorded by stop_instrumented_pods, restored by start_instrumented_pods.
 COVERAGE_REPLICAS=()
 
+# Docker's default socket; overridable for tests.
+: "${COVERAGE_DOCKER_SOCKET:=/var/run/docker.sock}"
+
+# testcontainers_env: print, space-separated on one line, the environment the
+# API server tests need to reach a podman-only container engine. testcontainers
+# looks for the Docker socket; when it is missing and podman serves its own
+# socket, point DOCKER_HOST there and turn off the Ryuk reaper, which podman
+# cannot run. Prints nothing when Docker's socket exists or DOCKER_HOST is set.
+testcontainers_env() {
+  if [[ -n "${DOCKER_HOST:-}" || -S "${COVERAGE_DOCKER_SOCKET}" ]]; then
+    return 0
+  fi
+  command -v podman >/dev/null 2>&1 || return 0
+  local socket
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    socket="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)"
+  else
+    socket="$(podman info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null)"
+  fi
+  [[ -n "${socket}" && -S "${socket}" ]] || return 0
+  echo "DOCKER_HOST=unix://${socket} TESTCONTAINERS_RYUK_DISABLED=true"
+}
+
 # coverage_node: the Kind node container that holds the local-path volume.
 coverage_node() {
   echo "${KIND_CLUSTER_NAME}-control-plane"

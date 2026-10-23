@@ -830,7 +830,8 @@ results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
      by `go build -cover`. It writes coverage to a local folder, because
      `hsctl` runs on your machine, and keeps its login in a temporary config
      file, so your own `hsctl` login is untouched.
-   - `make e2e-console` against the cluster.
+   - `make e2e-console` against the cluster, after installing Playwright's
+     Chromium the way CI does.
 
    It then stops the instrumented pods so they write their data, copies it off
    the Kind node, and starts the pods again.
@@ -841,7 +842,8 @@ results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
    - `coverage/report/go/<component>.html`: line-by-line Go coverage.
    - `coverage/report/bff-e2e/index.html`: BFF coverage from the e2e run.
 
-A failing test step does not stop the run. The report is still built, and
+A failing test step does not stop the run. The report is still built and
+names the failed steps at the top, because their numbers are incomplete.
 `make coverage` exits non-zero at the end. Logs are in `coverage/logs/`.
 
 | Variable | Default | Description |
@@ -859,6 +861,13 @@ Notes:
 - The console suite opens `https://console.hypershell.localhost` in a browser,
   so host port 443 must reach the cluster (`make kind-fix-ports`). Without it,
   set `COVERAGE_CONSOLE_E2E=false`.
+- On a machine with podman but no Docker socket (a Linux VM, for example),
+  the API server tests run testcontainers through podman's socket
+  automatically.
+- On Linux, Chromium also needs system libraries. If the
+  `e2e-console-browser` step fails, its log shows the command that installs
+  them (`sudo pnpm exec playwright install-deps`, run in
+  `components/web-console`).
 - Generated code (OpenAPI and gRPC clients) is reported separately from
   hand-written code.
 - Browser-side React code is not measured during e2e.

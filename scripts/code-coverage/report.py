@@ -217,7 +217,7 @@ def frontend_section(frontend_dir: Path, bff_summary: Path) -> list[str]:
     return out
 
 
-def build_report(coverage_dir: Path) -> str:
+def build_report(coverage_dir: Path, failed_steps: list[str] | None = None) -> str:
     cov = GoCoverage()
     for component in GO_COMPONENTS:
         profile = coverage_dir / "unit" / "go" / f"{component}.out"
@@ -229,6 +229,16 @@ def build_report(coverage_dir: Path) -> str:
         cov.load(e2e_profile, "e2e")
     write_merged_profiles(cov, coverage_dir / "report" / "go")
     lines = ["# HyperShell coverage report", ""]
+    if failed_steps:
+        # A failed test step leaves its part of the data missing or partial, so
+        # the matching numbers are too low. Say so before any number is read.
+        steps = ", ".join(f"`{step}`" for step in failed_steps)
+        lines += [
+            f"> **Incomplete run.** These steps failed: {steps}.",
+            "> Coverage from those steps is missing or partial, so the numbers that depend on them are too low.",
+            "> See `coverage/logs/<step>.log`.",
+            "",
+        ]
     lines += go_section(cov)
     lines += [""]
     lines += frontend_section(coverage_dir / "unit" / "frontend", coverage_dir / "e2e" / "bff-summary.json")
@@ -238,8 +248,13 @@ def build_report(coverage_dir: Path) -> str:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("coverage_dir", type=Path)
+    parser.add_argument(
+        "--failed-steps",
+        default="",
+        help="space-separated names of the make coverage steps that failed",
+    )
     args = parser.parse_args(argv)
-    report = build_report(args.coverage_dir)
+    report = build_report(args.coverage_dir, args.failed_steps.split())
     out = args.coverage_dir / "report" / "summary.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report)
