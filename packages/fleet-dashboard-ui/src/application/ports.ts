@@ -3,6 +3,7 @@
 // domain stays framework- and transport-free.
 
 import type { AgentSdlcData } from "../domain/agent-sdlc";
+import type { SdlcAgentsData } from "../domain/sdlc-agents";
 import type {
   E2eLogLine,
   E2eLogPage,
@@ -62,6 +63,7 @@ export interface FleetApi {
   getTopology(signal?: AbortSignal): Promise<Plane<TopologyData>>;
   getInstances(signal?: AbortSignal): Promise<Plane<InstancesData>>;
   getSdlc(signal?: AbortSignal): Promise<Plane<AgentSdlcData>>;
+  getSdlcAgents(signal?: AbortSignal): Promise<Plane<SdlcAgentsData>>;
   getE2eRuns(signal?: AbortSignal): Promise<Plane<E2eRunsData>>;
   getE2eRun(id: string, signal?: AbortSignal): Promise<Plane<E2eRunDetail>>;
   /**

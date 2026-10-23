@@ -123,8 +123,11 @@ import {
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { NavLinkButton } from "../nav-link-button";
-import { TONE_COLOR } from "../map/colors";
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
+import { TEXT_COLOR, TONE_COLOR, USER_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
+import { MetricTile } from "../map/metric-tiles";
+import tileStyles from "../map/map-details.module.css";
 import { ReleaseTime } from "../map/release-time";
 import { identiName } from "../../../domain/map/identiname";
 import {
@@ -142,6 +145,9 @@ export interface AgentSdlcViewProps {
   readonly data: AgentSdlcData;
   /** The shared freight-bar bundle seed, used for the matrix current-row highlight. */
   readonly selectedBundleSeed: string | null;
+  /** Runtime telemetry per agent, keyed by name. Optional: columns degrade to the
+   *  phase name alone when absent (SDLC-AGT-08). */
+  readonly agents?: ReadonlyMap<string, SdlcAgentMetrics>;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
 }
@@ -781,16 +787,73 @@ function useHorizontalWheel(ref: React.RefObject<HTMLDivElement | null>): void {
   }, [ref]);
 }
 
+const QUEUE_WARN = 8;
+const METRIC_SUBTLE = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+
+function ColumnAgentMetrics({
+  agent,
+}: {
+  readonly agent: SdlcAgentMetrics;
+}): React.ReactElement {
+  const failing = agent.itemsFailed;
+  const queueTone =
+    agent.queueDepth >= QUEUE_WARN ? TONE_COLOR.warning : USER_COLOR;
+  return (
+    <div className={styles.columnMetrics}>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricOnLabel} />
+        </span>
+        <FormattedMessage
+          {...messages.columnMetricRatio}
+          values={{ on: agent.replicasOn, total: agent.replicasTotal }}
+        />
+      </span>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: agent.queueDepth > 0 ? queueTone : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricQueueLabel} />
+        </span>
+        {agent.queueDepth}
+      </span>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricFailLabel} />
+        </span>
+        {failing}
+      </span>
+    </div>
+  );
+}
+
 function AgingColumn({
   phase,
   cards,
   scale,
   onSelect,
+  agentSummary,
+  onSelectAgent,
 }: {
   phase: AgentSdlcPhase;
   cards: readonly AgentSdlcCard[];
   scale: number;
   onSelect: (card: AgentSdlcCard) => void;
+  agentSummary?: SdlcAgentMetrics;
+  onSelectAgent?: (name: string) => void;
 }): React.ReactElement {
   const intl = useIntl();
   const sleRatio =
@@ -815,29 +878,49 @@ function AgingColumn({
     >
       <div className={styles.columnHeader}>
         <div className={styles.columnHeaderMain}>
-          <Inline>
-            {PhaseIcon ? (
-              <span
-                style={{
-                  color: phaseIconTone(phase.key),
-                  display: "inline-flex",
-                }}
-              >
-                <PhaseIcon aria-hidden />
-              </span>
-            ) : null}
-            <span>{phaseLabel}</span>
-          </Inline>
+          {agent !== undefined && agentSummary !== undefined ? (
+            <button
+              type="button"
+              className={styles.agentButton}
+              onClick={() => {
+                onSelectAgent?.(agent);
+              }}
+              aria-label={intl.formatMessage(messages.sdlcAgentDetailAria, {
+                agent,
+              })}
+            >
+              <RobotIcon aria-hidden />
+              <span className={styles.agentName}>{agent}</span>
+            </button>
+          ) : agent ? (
+            <span className={styles.agentNamePlain}>
+              <RobotIcon aria-hidden />
+              <span className={styles.agentName}>{agent}</span>
+            </span>
+          ) : (
+            <Inline>
+              {PhaseIcon ? (
+                <span
+                  style={{
+                    color: phaseIconTone(phase.key),
+                    display: "inline-flex",
+                  }}
+                >
+                  <PhaseIcon aria-hidden />
+                </span>
+              ) : null}
+              <span>{phaseLabel}</span>
+            </Inline>
+          )}
           <Label isCompact>{cards.length}</Label>
         </div>
-        {agent ? (
-          <div className={styles.columnAgent}>
-            <Inline>
-              <RobotIcon aria-hidden />
-              <span>{agent}</span>
-            </Inline>
-          </div>
-        ) : null}
+        <div className={styles.columnPhase}>
+          <Inline>
+            {PhaseIcon ? <PhaseIcon aria-hidden /> : null}
+            <span>{phaseLabel}</span>
+          </Inline>
+        </div>
+        {agentSummary ? <ColumnAgentMetrics agent={agentSummary} /> : null}
       </div>
       <div className={styles.track} ref={trackRef} data-phase-col={phase.key}>
         {sleRatio !== null ? (
@@ -970,7 +1053,7 @@ function NotificationsPanel({
     items: lane.filter((c) => c.escalation === key),
   })).filter((g) => g.items.length > 0);
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <NotificationDrawer>
         <NotificationDrawerHeader
           count={lane.length}
@@ -1390,7 +1473,7 @@ function CardDetailPanel({
   const showRework = card.rework !== null && esc !== ESCALATION_BLOCKED;
   const spacerMd = "var(--pf-t--global--spacer--md, 16px)";
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <DrawerHead>
         {/* The whole issue identifier is the prominent GitHub link (SDLC-VIS-10). */}
         <Title headingLevel="h3" size="md">
@@ -1548,7 +1631,7 @@ function ShippedDetailPanel({
   const panelTitle = `#${String(issue.number)} ${issue.title}`;
   const mergedAgo = formatMergedLine(intl, issue, nowMs);
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <DrawerHead>
         <Title headingLevel="h3" size="md">
           <Button
@@ -2120,6 +2203,105 @@ function ScopeFilter({
   );
 }
 
+/**
+ * The agent detail panel's 24h history tiles - queue depth, items processed, and
+ * items failed - reusing the map node panel's shared MetricTile (SDLC-AGT-09): the
+ * same square-aspect, 180px-capped tile with an area sparkline. No shared cursor
+ * here (the panel has no companion widget to synchronise with), so each tile shows
+ * its live scalar with the full 24h band underneath.
+ */
+function AgentMetricTiles({
+  agent,
+}: {
+  readonly agent: SdlcAgentMetrics;
+}): React.ReactElement {
+  return (
+    <div className={tileStyles.metricTiles}>
+      <MetricTile
+        label={messages.agentsColQueue}
+        value={agent.queueDepth}
+        history={agent.series.queueDepth}
+        color={USER_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColDone}
+        value={agent.itemsProcessed}
+        history={agent.series.itemsProcessed}
+        color={TEXT_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColFailed}
+        value={agent.itemsFailed}
+        history={agent.series.itemsFailed}
+        color={TONE_COLOR.danger}
+        active={null}
+      />
+    </div>
+  );
+}
+
+function AgentDetailPanel({
+  agent,
+  onClose,
+}: {
+  agent: SdlcAgentMetrics;
+  onClose: () => void;
+}): React.ReactElement {
+  return (
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
+      <DrawerHead>
+        <span style={{ fontWeight: 700, fontSize: 18 }}>
+          <Inline>
+            <RobotIcon aria-hidden />
+            <span>{agent.name}</span>
+          </Inline>
+        </span>
+        <DrawerActions>
+          <DrawerCloseButton onClick={onClose} />
+        </DrawerActions>
+      </DrawerHead>
+      <DrawerPanelBody>
+        <DescriptionList isHorizontal isCompact>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.columnEnvironment} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>{agent.env}</DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.agentsColReplicas} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <span
+                style={{
+                  color:
+                    agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
+                  fontWeight: 700,
+                }}
+              >
+                {agent.replicasOn}
+              </span>
+              <span style={{ color: METRIC_SUBTLE }}>
+                <FormattedMessage {...messages.replicasRatioSeparator} />
+                {agent.replicasTotal}
+              </span>
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+        </DescriptionList>
+        {/* Queue, done, and failed have 24h history, so they render as sparkline
+            tiles (SDLC-AGT-09) rather than duplicating their current value in a
+            second, history-less DescriptionList row. */}
+        <div className="pf-v6-u-mt-md">
+          <AgentMetricTiles agent={agent} />
+        </div>
+      </DrawerPanelBody>
+    </DrawerPanelContent>
+  );
+}
+
 // useLiveNow returns a wall-clock timestamp that ticks every second so cards age
 // continuously between the plane's refetches, not just in a jump when new data lands.
 // An explicit override (tests, the dev harness) freezes it for deterministic output
@@ -2169,10 +2351,46 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
     matrixRef,
   );
 
+  // Agent runtime telemetry keyed by agent name for O(1) column lookups.
+  const agentByName = useMemo(() => {
+    if (!props.agents) {
+      return new Map<string, SdlcAgentMetrics>();
+    }
+    return props.agents;
+  }, [props.agents]);
+
+  // Local ephemeral state for the agent detail panel (SDLC-AGT-08). A route-driven
+  // panel (card detail, shipped detail, notifications) supersedes it. Reset during
+  // render (the React-recommended "adjust state when a prop changes" pattern,
+  // precedented in NodeDetails's cursor reset) rather than in an effect, so there
+  // is no extra render pass and no synchronous setState-in-effect.
+  const [selectedAgentName, setSelectedAgentName] = useState<string | null>(
+    null,
+  );
+  const routePanelActive =
+    route.sdlc.card !== null ||
+    route.sdlc.shipped !== null ||
+    showNotifications;
+  const [wasRoutePanelActive, setWasRoutePanelActive] =
+    useState(routePanelActive);
+  if (routePanelActive !== wasRoutePanelActive) {
+    setWasRoutePanelActive(routePanelActive);
+    if (routePanelActive) {
+      setSelectedAgentName(null);
+    }
+  }
+  const selectedAgent =
+    selectedAgentName !== null
+      ? (agentByName.get(selectedAgentName) ?? null)
+      : null;
+
   // Escape closes the side panel (card detail or escalations). An open select menu
   // handles its own Escape first (guarded on an open listbox), so it isn't swallowed.
   const panelOpen =
-    selected !== null || selectedShipped !== null || showNotifications;
+    selected !== null ||
+    selectedShipped !== null ||
+    showNotifications ||
+    selectedAgent !== null;
   useEffect(() => {
     if (!panelOpen) {
       return;
@@ -2187,13 +2405,17 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
       ) {
         return;
       }
+      if (selectedAgent !== null) {
+        setSelectedAgentName(null);
+        return;
+      }
       navigate({ type: "sdlcClosePanel" });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [panelOpen, navigate]);
+  }, [panelOpen, navigate, selectedAgent]);
 
   const phases = boardPhases(data.phases);
   // The vertical time axis is derived from the snapshot ages so it stays stable
@@ -2270,7 +2492,14 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   );
 
   const livePanel: React.ReactNode =
-    selected !== null ? (
+    selectedAgent !== null ? (
+      <AgentDetailPanel
+        agent={selectedAgent}
+        onClose={() => {
+          setSelectedAgentName(null);
+        }}
+      />
+    ) : selected !== null ? (
       <CardDetailPanel
         card={selected}
         onClose={() => {
@@ -2400,6 +2629,11 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                     scale={scale}
                     onSelect={(card) => {
                       navigate({ type: "sdlcCard", card: card.number });
+                    }}
+                    agentSummary={agentByName.get(PHASE_AGENT[phase.key] ?? "")}
+                    onSelectAgent={(name) => {
+                      navigate({ type: "sdlcClosePanel" });
+                      setSelectedAgentName(name);
                     }}
                   />
                 ))}

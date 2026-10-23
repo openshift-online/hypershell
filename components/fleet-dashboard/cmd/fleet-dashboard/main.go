@@ -89,6 +89,7 @@ func run(logger *slog.Logger) error {
 	promotionSrc := cache.NewSource("promotion", cfg.RefreshPromotion, promotion.Promotion, metrics.Observe)
 	topologySrc := cache.NewSource("topology", cfg.RefreshTopology, topology.Topology, metrics.Observe)
 	instancesSrc := cache.NewSource("instances", cfg.RefreshInstances, prom.Instances, metrics.Observe)
+	sdlcAgentsSrc := cache.NewSource("sdlc-agents", cfg.RefreshSdlcAgents, prom.SdlcAgents, metrics.Observe)
 
 	// Agent SDLC funnel visibility (agent-sdlc-visibility-dashboard.spec). Funnel
 	// state comes from the PUBLIC product repo through the GitHub-label adapter
@@ -125,7 +126,7 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc}
+	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc, sdlcAgentsSrc}
 	if sdlcSrc != nil {
 		srcs = append(srcs, sdlcSrc)
 	}
@@ -137,13 +138,14 @@ func run(logger *slog.Logger) error {
 	}
 
 	handlers := &api.Handlers{
-		Fleet:     fleetSrc,
-		Promotion: promotionSrc,
-		Topology:  topologySrc,
-		Instances: instancesSrc,
-		SDLC:      sdlcSrc,
-		E2ERuns:   e2eSrc,
-		E2E:       e2ePlane,
+		Fleet:      fleetSrc,
+		Promotion:  promotionSrc,
+		Topology:   topologySrc,
+		Instances:  instancesSrc,
+		SdlcAgents: sdlcAgentsSrc,
+		SDLC:       sdlcSrc,
+		E2ERuns:    e2eSrc,
+		E2E:        e2ePlane,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 
