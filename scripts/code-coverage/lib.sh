@@ -37,6 +37,22 @@ testcontainers_env() {
   echo "DOCKER_HOST=unix://${socket} TESTCONTAINERS_RYUK_DISABLED=true"
 }
 
+# kind_ingress_addr: print 127.0.0.1:<port> for the cloud-provider-kind proxy's
+# published 443 port, or nothing when there is no proxy. The Go suite reaches
+# *.localhost through E2E_KIND_INGRESS_ADDR (default 127.0.0.1:443), and host
+# port 443 only works through a sudo pfctl/iptables redirect that macOS can
+# drop mid-run (seen on 2026-10-23: Keycloak "connection refused" on 443 while
+# the published port still answered). Same lookup as tests/e2e/drivers/kind.sh.
+kind_ingress_addr() {
+  local proxy port
+  proxy="$(${CONTAINER_ENGINE} ps --format '{{.Names}}' 2>/dev/null | grep '^kindccm-gw' | head -1)"
+  [[ -n "${proxy}" ]] || return 0
+  port="$(${CONTAINER_ENGINE} port "${proxy}" 443 2>/dev/null | head -1 | grep -oE '[0-9]+$' || true)"
+  if [[ -n "${port}" ]]; then
+    echo "127.0.0.1:${port}"
+  fi
+}
+
 # coverage_node: the Kind node container that holds the local-path volume.
 coverage_node() {
   echo "${KIND_CLUSTER_NAME}-control-plane"

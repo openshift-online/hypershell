@@ -64,6 +64,22 @@ unset DOCKER_HOST
 rm -f "${PODMAN_SOCKET}"
 assert_eq "" "$(testcontainers_env)" "no podman socket means no override"
 
+# The Go suite reaches the Kind ingress on the proxy's published port.
+# Verifies: DEV-LOC-18.09
+cat >"${WORKDIR}/bin/fake-engine" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  ps) printf '%s\n' hypershell-dev-control-plane "${FAKE_PROXY:-}" ;;
+  port) [[ "$2" == kindccm-gw-* && "$3" == 443 ]] && echo "0.0.0.0:35955" ;;
+esac
+EOF
+chmod +x "${WORKDIR}/bin/fake-engine"
+CONTAINER_ENGINE="${WORKDIR}/bin/fake-engine"
+export FAKE_PROXY=kindccm-gw-4087acfa9d43
+assert_eq "127.0.0.1:35955" "$(kind_ingress_addr)" "published 443 port of the kindccm proxy"
+export FAKE_PROXY=""
+assert_eq "" "$(kind_ingress_addr)" "no proxy container means no address"
+
 echo "Coverage lib tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then
   exit 1
