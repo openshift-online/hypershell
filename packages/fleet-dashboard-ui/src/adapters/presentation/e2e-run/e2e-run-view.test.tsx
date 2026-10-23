@@ -105,6 +105,7 @@ function makeApi(
     getTopology: vi.fn(),
     getInstances: vi.fn(),
     getSdlc: vi.fn(),
+    getSdlcAgents: vi.fn(),
     getE2eRuns: vi.fn(),
     getE2eRun: vi.fn().mockResolvedValue(plane(runDetail)),
     getE2eRunLogs: vi

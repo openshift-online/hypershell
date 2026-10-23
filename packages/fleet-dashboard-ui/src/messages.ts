@@ -6,6 +6,42 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  agentsColAgent: {
+    id: "fleet.agents.col.agent",
+    defaultMessage: "Agent",
+    description: "Agents table column header for the agent name.",
+  },
+  agentsColDone: {
+    id: "fleet.agents.col.done",
+    defaultMessage: "Done",
+    description: "Agents table column header for items processed.",
+  },
+  agentsColFailed: {
+    id: "fleet.agents.col.failed",
+    defaultMessage: "Failed",
+    description: "Agents table column header for items failed.",
+  },
+  agentsColQueue: {
+    id: "fleet.agents.col.queue",
+    defaultMessage: "Queue",
+    description: "Agents table column header for queue depth.",
+  },
+  agentsColReplicas: {
+    id: "fleet.agents.col.replicas",
+    defaultMessage: "Replicas",
+    description: "Agents table column header for replica count.",
+  },
+  agentsEmptyForCluster: {
+    id: "fleet.agents.emptyForCluster",
+    defaultMessage: "No SDLC agents are reporting on this cluster.",
+    description:
+      "Shown in the Agents tab when no agents are reporting for this cluster.",
+  },
+  agentsTableAria: {
+    id: "fleet.agents.tableAria",
+    defaultMessage: "SDLC agents on this cluster",
+    description: "Accessible name for the per-cluster agents table.",
+  },
   appTitle: {
     id: "fleet.app.title",
     defaultMessage: "HyperShell Operational Status",
@@ -48,6 +84,30 @@ export const messages = defineMessages({
     id: "fleet.instances.column.instance",
     defaultMessage: "Instance",
     description: "Instances table column header for the instance name.",
+  },
+  columnMetricFailLabel: {
+    id: "fleet.agents.columnMetric.failLabel",
+    defaultMessage: "fail",
+    description:
+      "Compact lowercase label for the failed-items count in the SDLC board column runtime strip.",
+  },
+  columnMetricOnLabel: {
+    id: "fleet.agents.columnMetric.onLabel",
+    defaultMessage: "on",
+    description:
+      "Compact lowercase label for the active-replica count in the SDLC board column runtime strip.",
+  },
+  columnMetricQueueLabel: {
+    id: "fleet.agents.columnMetric.queueLabel",
+    defaultMessage: "queue",
+    description:
+      "Compact lowercase label for the queue-depth count in the SDLC board column runtime strip.",
+  },
+  columnMetricRatio: {
+    id: "fleet.agents.columnMetric.ratio",
+    defaultMessage: "{on}/{total}",
+    description:
+      "Compact active/total replica ratio in the SDLC board column runtime strip.",
   },
   columnProvider: {
     id: "fleet.instances.column.provider",
@@ -852,6 +912,12 @@ export const messages = defineMessages({
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
   },
+  replicasRatioSeparator: {
+    id: "fleet.agents.replicasRatioSeparator",
+    defaultMessage: "/",
+    description:
+      "Separator between the active and total replica counts in the agent detail panel and per-cluster agents table.",
+  },
   sdlcAge: {
     id: "fleet.sdlc.age",
     defaultMessage: "{days}d {hours}h",
@@ -869,6 +935,12 @@ export const messages = defineMessages({
     defaultMessage: "{minutes}m",
     description:
       "Compact time-in-phase duration (minutes) for a card under an hour old.",
+  },
+  sdlcAgentDetailAria: {
+    id: "fleet.sdlc.agent.detailAria",
+    defaultMessage: "Open runtime details for the {agent} agent",
+    description:
+      "Accessible label for a row in the per-cluster agents table that opens runtime details.",
   },
   sdlcAxisNow: {
     id: "fleet.sdlc.axis.now",
@@ -1379,6 +1451,12 @@ export const messages = defineMessages({
     id: "fleet.status.unknown",
     defaultMessage: "Unknown",
     description: "Status label for an unknown or unrecognized state.",
+  },
+  tabAgents: {
+    id: "fleet.map.tab.agents",
+    defaultMessage: "Agents",
+    description:
+      "Detail-panel tab showing the SDLC agents running on the selected cluster.",
   },
   tabBundle: {
     id: "fleet.map.tab.bundle",
