@@ -931,6 +931,7 @@ function NodeAgents({
 }): React.ReactElement {
   return <div>{agents.length}</div>;
 }
+
 function NodeDetails({
   node,
   releaseByDigest,
