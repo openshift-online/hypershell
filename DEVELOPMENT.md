@@ -830,8 +830,11 @@ results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
      by `go build -cover`. It writes coverage to a local folder, because
      `hsctl` runs on your machine, and keeps its login in a temporary config
      file, so your own `hsctl` login is untouched.
-   - `make e2e-console` against the cluster, after installing Playwright's
-     Chromium the way CI does.
+   - `make e2e-console` against the cluster, in short mode like CI (set
+     `E2E_MODE` to override). When the Kind nodes' container
+     network exists, it runs in a Playwright container on that network (see
+     below), so it needs neither port 443 forwarding nor browser libraries on
+     your machine.
 
    It then stops the instrumented pods so they write their data, copies it off
    the Kind node, and starts the pods again.
@@ -853,20 +856,25 @@ names the failed steps at the top, because their numbers are incomplete.
 | `COVERAGE_E2E` | `true` | Run `make e2e` and collect the cluster data. Set to `false` for unit tests only (no cluster needed). |
 | `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with an instrumented `hsctl` |
 | `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+| `COVERAGE_CONSOLE_CONTAINER` | `auto` | Run the console suite in a Playwright container on the Kind network: `auto` (when that network exists), `true`, or `false` |
 
 `make coverage-report` rebuilds the report from the data of the last run.
 
 Notes:
 
-- The console suite opens `https://console.hypershell.localhost` in a browser,
-  so host port 443 must reach the cluster (`make kind-fix-ports`). Without it,
-  set `COVERAGE_CONSOLE_E2E=false`.
+- The console suite can run without host port 443 or browser libraries:
+  `E2E_CONSOLE_CONTAINER=true make e2e-console` runs it inside the official
+  Playwright image on the `kind` network, where the gateway answers on 443
+  directly. `make coverage` does this automatically. The first run pulls the
+  image (about 2 GB).
 - On a machine with podman but no Docker socket (a Linux VM, for example),
   the API server tests run testcontainers through podman's socket
   automatically.
-- On Linux, Chromium also needs system libraries. If the
-  `e2e-console-browser` step fails, its log shows the command that installs
-  them (`sudo pnpm exec playwright install-deps`, run in
+- Without the container (`COVERAGE_CONSOLE_CONTAINER=false`), the console
+  suite runs on your machine: host port 443 must reach the cluster
+  (`make kind-fix-ports`), and on Linux Chromium needs system libraries. If
+  the `e2e-console-browser` step fails, its log shows the command that
+  installs them (`sudo pnpm exec playwright install-deps`, run in
   `components/web-console`).
 - Generated code (OpenAPI and gRPC clients) is reported separately from
   hand-written code.

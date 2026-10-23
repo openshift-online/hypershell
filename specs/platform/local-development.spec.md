@@ -771,7 +771,7 @@ The build options SHALL default to off, so release and Konflux builds are unchan
 4. Stop the instrumented pods, copy the coverage data off the Kind node, and start the pods again with their previous replica counts.
 5. Write `coverage/report/summary.md` with unit, e2e and combined coverage per component and per Go package, an HTML report per Go component, and an HTML report of the BFF e2e coverage.
 
-A failing test step SHALL NOT stop the run: the report SHALL still be built, SHALL name the failed steps before any number, and `make coverage` SHALL exit non-zero. Before the console suite, `make coverage` SHALL install Playwright's Chromium the way CI does, and SHALL skip the console suite with a failed step when Chromium cannot be installed or started. On a machine with no Docker socket but a podman socket, the API server unit tests SHALL reach PostgreSQL through podman's socket. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
+A failing test step SHALL NOT stop the run: the report SHALL still be built, SHALL name the failed steps before any number, and `make coverage` SHALL exit non-zero. The console suite SHALL run in short mode, as CI runs it, unless `E2E_MODE` is set. When the Kind nodes' container network exists, `make coverage` SHALL run it in container mode (`E2E_CONSOLE_CONTAINER=true`, `e2e-console-browser-testing.spec.md`), which needs neither host port 443 nor host browser libraries. Otherwise it SHALL install Playwright's Chromium the way CI does before the console suite, and SHALL skip the suite with a failed step when Chromium cannot be installed or started. On a machine with no Docker socket but a podman socket, the API server unit tests SHALL reach PostgreSQL through podman's socket. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -781,6 +781,7 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built, SHA
 | `COVERAGE_E2E` | `true` | Run `make e2e` and collect cluster data; `false` runs unit tests only and needs no cluster |
 | `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with a coverage-instrumented `hsctl` |
 | `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+| `COVERAGE_CONSOLE_CONTAINER` | `auto` | Run the console suite in container mode: `auto` (when the Kind network exists), `true`, or `false` |
 
 #### Scenario: DEV-LOC-18.01 -- Instrumented Deployment
 - GIVEN `KIND_COVERAGE=true` is set
@@ -820,6 +821,13 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built, SHA
 - THEN an `hsctl` binary SHALL be built with `go build -cover` and used for `tests/e2e/e2e-hsctl.sh`
 - AND the CLI row of the report SHALL show e2e and combined coverage instead of "not run"
 - AND the smoke test SHALL NOT change the developer's own `hsctl` configuration
+
+#### Scenario: DEV-LOC-18.08 -- Console Suite in a Container
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`, whose nodes are on the `kind` container network
+- AND `COVERAGE_CONSOLE_CONTAINER` is unset or `auto`
+- WHEN the developer runs `make coverage`
+- THEN the console suite SHALL run with `E2E_CONSOLE_CONTAINER=true`
+- AND it SHALL NOT need host port 443 forwarding or Chromium's system libraries on the host
 
 #### Scenario: DEV-LOC-18.07 -- Podman-Only Machine
 - GIVEN a machine with no Docker socket and a podman API socket (Linux rootless podman or a macOS podman machine)
