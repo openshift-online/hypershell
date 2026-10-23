@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -286,8 +287,37 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusCreated)
 }
 
+// gatewayPatchRequest is the strict decode target for the Gateway PATCH body. name
+// is the only user-writable field on update (PLAT-DATA-23); every other gateway
+// field is platform-managed / control-plane-only. The generated
+// openapi.GatewayPatchRequest has no required property, so the OpenAPI generator does
+// not emit a DisallowUnknownFields decoder for it; without the strict decode below a
+// user PATCH that sets a control-plane-only field (for example phase) would be
+// silently dropped and return 200 instead of being rejected. This mirrors the strict
+// create contract and is the REST-boundary counterpart to the service field policy
+// (SEC-RBAC-18); the service Replace funnel remains the authoritative backstop for the
+// gRPC and import paths.
+type gatewayPatchRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// UnmarshalJSON decodes the PATCH body and rejects any field outside the update
+// allowlist (name). An unknown field produces a json decode error, which the handler
+// framework surfaces as a 400 naming the offending field.
+func (p *gatewayPatchRequest) UnmarshalJSON(data []byte) error {
+	type alias gatewayPatchRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*p = gatewayPatchRequest(decoded)
+	return nil
+}
+
 func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
-	var patch openapi.GatewayPatchRequest
+	var patch gatewayPatchRequest
 
 	cfg := &handlers.HandlerConfig{
 		Body:       &patch,

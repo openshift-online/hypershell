@@ -341,9 +341,13 @@ func TestRESTProvisioningConditionsNotSettableViaPatch(t *testing.T) {
 		}).
 		Patch(h.RestURL(fmt.Sprintf("/gateways/%s", gatewayModel.ID)))
 
+	// provisioning_conditions is control-plane-only (PLAT-DATA-23). A user PATCH that
+	// carries it is rejected at the REST boundary with 400 naming the field, not silently
+	// dropped as a 200 no-op (SEC-RBAC-18: the update path enforces the policy too).
 	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode()).To(Equal(http.StatusOK),
-		"PATCH with provisioning_conditions should succeed but ignore the field")
+	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest),
+		"PATCH with provisioning_conditions must be rejected, not silently ignored")
+	Expect(string(resp.Body())).To(ContainSubstring("provisioning_conditions"))
 }
 
 func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {

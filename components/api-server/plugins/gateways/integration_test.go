@@ -139,6 +139,37 @@ func TestGatewayPatchRenameOnly(t *testing.T) {
 	Expect(patched.ClusterId).To(Equal(created.ClusterId))
 }
 
+// A user PATCH that carries a control-plane-only field (for example phase) is rejected
+// at the REST boundary with 400 naming the field, rather than being silently dropped and
+// returning 200. GatewayPatchRequest has no required property, so the OpenAPI generator
+// emits no strict decoder for it; the plugin's strict PATCH decode supplies the
+// rejection, matching the strict create contract (PLAT-DATA-23, SEC-RBAC-18).
+func TestGatewayPatchRejectsLockedField(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	registerTestCluster(t)
+	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(managedGatewayCreateRequest("patch-locked")).Execute()
+	Expect(err).NotTo(HaveOccurred())
+
+	jwToken := ctx.Value(openapi.ContextAccessToken)
+	resp, err := resty.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwToken)).
+		SetBody(`{"name":"patch-locked","phase":"Running"}`).
+		Patch(h.RestURL("/gateways/" + *created.Id))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))
+	Expect(string(resp.Body())).To(ContainSubstring("phase"))
+
+	// The stored phase is unchanged by the rejected write.
+	after, _, err := client.DefaultAPI.GetGateway(ctx, *created.Id).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(after.GetPhase()).To(Equal(created.GetPhase()))
+}
+
 func expectNoGatewayNamed(ctx context.Context, client *openapi.APIClient, name string) {
 	list, _, err := client.DefaultAPI.ListGateways(ctx).Search(fmt.Sprintf("name = '%s'", name)).Execute()
 	Expect(err).NotTo(HaveOccurred())
