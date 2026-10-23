@@ -914,7 +914,7 @@ export const messages = defineMessages({
   },
   replicasRatioSeparator: {
     id: "fleet.agents.replicasRatioSeparator",
-    defaultMessage: " / ",
+    defaultMessage: "/",
     description:
       "Separator between the active and total replica counts in the agent detail panel and per-cluster agents table.",
   },
