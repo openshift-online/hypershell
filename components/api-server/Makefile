@@ -49,7 +49,7 @@ run-no-auth: binary
 
 .PHONY: test
 test: install
-	API_ENV=integration_testing go test -p 1 -v ./... -count=1
+	API_ENV=integration_testing go test -p 1 -v ./... -count=1 $(GO_TEST_FLAGS)
 
 .PHONY: test-integration
 test-integration: install
