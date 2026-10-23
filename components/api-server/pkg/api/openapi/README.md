@@ -147,6 +147,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**UpdateAgentRuntime**](docs/DefaultAPI.md#updateagentruntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 *DefaultAPI* | [**UpdateAgentWorkspace**](docs/DefaultAPI.md#updateagentworkspace) | **Patch** /api/hypershell/ext/agent_workspaces/{id} | Update an agent workspace
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
+*DefaultAPI* | [**UpdateGatewayServiceAccountRole**](docs/DefaultAPI.md#updategatewayserviceaccountrole) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role | Change an OpenShell gateway service account&#39;s role
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 *DefaultAPI* | [**UpdateProviderBinding**](docs/DefaultAPI.md#updateproviderbinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 *DefaultAPI* | [**UpdateProviderSpec**](docs/DefaultAPI.md#updateproviderspec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
@@ -205,6 +206,7 @@ Class | Method | HTTP request | Description
  - [OpenShellGatewayServiceAccountList](docs/OpenShellGatewayServiceAccountList.md)
  - [OpenShellGatewayServiceAccountListItem](docs/OpenShellGatewayServiceAccountListItem.md)
  - [OpenShellGatewayServiceAccountRole](docs/OpenShellGatewayServiceAccountRole.md)
+ - [OpenShellGatewayServiceAccountRoleUpdateRequest](docs/OpenShellGatewayServiceAccountRoleUpdateRequest.md)
  - [OpenShellGatewayServiceAccountStatus](docs/OpenShellGatewayServiceAccountStatus.md)
  - [ProviderBinding](docs/ProviderBinding.md)
  - [ProviderBindingList](docs/ProviderBindingList.md)

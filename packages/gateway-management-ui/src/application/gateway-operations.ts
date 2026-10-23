@@ -426,5 +426,19 @@ export function createGatewayOperations({
           context,
         ),
       ),
+    updateOpenShellGatewayServiceAccountRole: (
+      gatewayId,
+      serviceAccountId,
+      input,
+      signal,
+    ) =>
+      execute("update-service-account-role", signal, (context) =>
+        controlPlane.updateOpenShellGatewayServiceAccountRole(
+          gatewayId,
+          serviceAccountId,
+          input,
+          context,
+        ),
+      ),
   };
 }

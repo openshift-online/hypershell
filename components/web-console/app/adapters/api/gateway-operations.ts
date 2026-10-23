@@ -47,7 +47,7 @@ type GatewayApi = Pick<
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
 type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
-  "create" | "delete" | "get" | "list" | "revoke"
+  "create" | "delete" | "get" | "list" | "revoke" | "updateRole"
 >;
 type GatewayAccessApi = Pick<
   SDKClient["gatewayAccesses"],
@@ -364,6 +364,9 @@ function gatewayFailureKind(statusCode: number): GatewayFailureKind {
 function gatewayFailureCode(code: string): GatewayFailureCode | undefined {
   if (code === "service_account_name_exists") {
     return "service-account-name-exists";
+  }
+  if (code === "role_not_allowed") {
+    return "role-not-allowed";
   }
   return undefined;
 }
@@ -753,6 +756,31 @@ export function createGatewayControlPlaneAdapter(
           ).openShellGatewayServiceAccounts.revoke(
             gatewayId,
             serviceAccountId,
+            { signal: context.signal },
+          ),
+        ),
+      );
+    },
+    async updateOpenShellGatewayServiceAccountRole(
+      gatewayId,
+      serviceAccountId,
+      input,
+      context,
+    ) {
+      return mapFailure(async () =>
+        toServiceAccountRecord(
+          await apiClient(
+            apiFactory,
+            context,
+          ).openShellGatewayServiceAccounts.updateRole(
+            gatewayId,
+            serviceAccountId,
+            {
+              role: input.role,
+              ...(input.description !== undefined
+                ? { description: input.description }
+                : {}),
+            },
             { signal: context.signal },
           ),
         ),

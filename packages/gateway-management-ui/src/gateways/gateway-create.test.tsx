@@ -67,6 +67,7 @@ const operations = {
   removeGateway: vi.fn(),
   renameGateway: vi.fn(),
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
 };
 
 function renderPage() {

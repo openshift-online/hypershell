@@ -31,6 +31,7 @@ const serviceAccountApi = {
   get: vi.fn(),
   list: vi.fn(),
   revoke: vi.fn(),
+  updateRole: vi.fn(),
 };
 const gatewayAccessApi = {
   create: vi.fn(),
@@ -302,6 +303,9 @@ describe("gateway API operations adapter", () => {
       serviceAccount({ status: "revoking" }),
     );
     serviceAccountApi.delete.mockResolvedValue(undefined);
+    serviceAccountApi.updateRole.mockResolvedValue(
+      serviceAccount({ role: "openshell-admin" }),
+    );
 
     await expect(
       controlPlane.createOpenShellGatewayServiceAccount(
@@ -331,6 +335,20 @@ describe("gateway API operations adapter", () => {
         context,
       ),
     ).resolves.toMatchObject({ status: "revoking" });
+    await expect(
+      controlPlane.updateOpenShellGatewayServiceAccountRole(
+        "gateway-1",
+        "account-1",
+        { role: "openshell-admin" },
+        context,
+      ),
+    ).resolves.toMatchObject({ role: "openshell-admin" });
+    expect(serviceAccountApi.updateRole).toHaveBeenCalledWith(
+      "gateway-1",
+      "account-1",
+      { role: "openshell-admin" },
+      expect.anything(),
+    );
     await expect(
       controlPlane.deleteOpenShellGatewayServiceAccount(
         "gateway-1",

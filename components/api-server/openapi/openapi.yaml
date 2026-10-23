@@ -44,6 +44,8 @@ paths:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1revoke'
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:
+    $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1role'
   /api/hypershell/v1/roles:
     $ref: 'openapi.roles.yaml#/paths/~1api~1hypershell~1v1~1roles'
   /api/hypershell/v1/roles/{id}:

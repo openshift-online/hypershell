@@ -39,6 +39,7 @@ HAND_MAINTAINED_COMMANDS=(
   cmd/hsctl/create/serviceAccount/cmd.go
   cmd/hsctl/get/serviceAccount/cmd.go
   cmd/hsctl/list/serviceAccounts/cmd.go
+  cmd/hsctl/update/serviceAccount/cmd.go
   cmd/hsctl/delete/serviceAccount/cmd.go
   # gatewayAccess is a scoped sub-collection (/gateways/{id}/access), like
   # service accounts, so it is hand-maintained rather than generator-emitted.

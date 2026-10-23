@@ -36,15 +36,17 @@ type Resource struct {
 	Actions                []string
 
 	// Scoped-resource capabilities (data-driven from the OpenAPI spec).
-	HasGet             bool     // item GET exists
-	HasRevoke          bool     // item ".../revoke" POST exists
-	PatchRequestType   string   // scoped item PATCH request schema
-	PatchResponseType  string   // scoped item PATCH response schema
-	HasDirectorySearch bool     // a "<collection>/directory" GET exists
-	DirectoryListType  string   // directory search response schema
-	GoDirectoryPath    string   // Go path expression for the directory sub-collection
-	TSDirectoryPath    string   // TS path expression for the directory sub-collection
-	TSImports          []string // deduped, ordered type names the TS scoped client imports
+	HasGet                bool     // item GET exists
+	HasRevoke             bool     // item ".../revoke" POST exists
+	HasRoleUpdate         bool     // item ".../role" POST exists
+	RoleUpdateRequestType string   // scoped item role-action request schema
+	PatchRequestType      string   // scoped item PATCH request schema
+	PatchResponseType     string   // scoped item PATCH response schema
+	HasDirectorySearch    bool     // a "<collection>/directory" GET exists
+	DirectoryListType     string   // directory search response schema
+	GoDirectoryPath       string   // Go path expression for the directory sub-collection
+	TSDirectoryPath       string   // TS path expression for the directory sub-collection
+	TSImports             []string // deduped, ordered type names the TS scoped client imports
 }
 
 type PathParameter struct {

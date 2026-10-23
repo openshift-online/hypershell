@@ -54,6 +54,7 @@ docs/OpenShellGatewayServiceAccountGetResponse.md
 docs/OpenShellGatewayServiceAccountList.md
 docs/OpenShellGatewayServiceAccountListItem.md
 docs/OpenShellGatewayServiceAccountRole.md
+docs/OpenShellGatewayServiceAccountRoleUpdateRequest.md
 docs/OpenShellGatewayServiceAccountStatus.md
 docs/ProviderBinding.md
 docs/ProviderBindingList.md
@@ -129,6 +130,7 @@ model_open_shell_gateway_service_account_get_response.go
 model_open_shell_gateway_service_account_list.go
 model_open_shell_gateway_service_account_list_item.go
 model_open_shell_gateway_service_account_role.go
+model_open_shell_gateway_service_account_role_update_request.go
 model_open_shell_gateway_service_account_status.go
 model_provider_binding.go
 model_provider_binding_list.go

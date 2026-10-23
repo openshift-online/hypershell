@@ -17,13 +17,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useIntl } from "react-intl";
 
-import type { OpenShellGatewayServiceAccountRecord } from "../application/gateway-types";
+import type {
+  OpenShellGatewayServiceAccountCapabilities,
+  OpenShellGatewayServiceAccountRecord,
+} from "../application/gateway-types";
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
 import {
   serviceAccountListQueryRoot,
   serviceAccountQueryKey,
 } from "./service-account-data";
+import { ServiceAccountEditDialog } from "./service-account-edit-dialog";
 import { ServiceAccountSetupView } from "./service-account-setup";
 
 type LifecycleAction = "delete" | "revoke";
@@ -212,18 +216,24 @@ function ExistingServiceAccountSetupDialog({
 
 export function ServiceAccountRowActions({
   account,
+  capabilities,
   gatewayId,
 }: {
   account: OpenShellGatewayServiceAccountRecord;
+  capabilities: OpenShellGatewayServiceAccountCapabilities;
   gatewayId: string;
 }) {
   const intl = useIntl();
   const [action, setAction] = useState<LifecycleAction>();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const canRevoke = !["deleting", "expired", "revoked", "revoking"].includes(
     account.status,
   );
+  // Only a ready or degraded account can change its role; every other status
+  // is terminal or transitional and the server would reject the operation.
+  const canEditRole = ["ready", "degraded"].includes(account.status);
 
   return (
     <>
@@ -261,6 +271,15 @@ export function ServiceAccountRowActions({
               {intl.formatMessage(messages.viewSetupInstructions)}
             </DropdownItem>
           ) : null}
+          {canEditRole ? (
+            <DropdownItem
+              onClick={() => {
+                setIsEditOpen(true);
+              }}
+            >
+              {intl.formatMessage(messages.editServiceAccountRole)}
+            </DropdownItem>
+          ) : null}
           {canRevoke ? (
             <DropdownItem
               onClick={() => {
@@ -290,6 +309,17 @@ export function ServiceAccountRowActions({
           setIsSetupOpen(false);
         }}
       />
+      {isEditOpen ? (
+        <ServiceAccountEditDialog
+          account={account}
+          capabilities={capabilities}
+          gatewayId={gatewayId}
+          isOpen
+          onClose={() => {
+            setIsEditOpen(false);
+          }}
+        />
+      ) : null}
       {action ? (
         <ServiceAccountLifecycleDialog
           account={account}
