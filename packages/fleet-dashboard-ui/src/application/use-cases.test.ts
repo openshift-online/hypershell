@@ -19,6 +19,7 @@ import {
   getInstances,
   getPromotion,
   getSdlc,
+  getSdlcAgents,
   getTopology,
 } from "./use-cases";
 
@@ -107,12 +108,14 @@ describe("use cases", () => {
     await getPromotion(api, controller.signal);
     await getTopology(api, controller.signal);
     await getInstances(api, controller.signal);
+    await getSdlcAgents(api, controller.signal);
 
     /* eslint-disable @typescript-eslint/unbound-method -- asserting on vi.fn() mocks, not calling them */
     expect(api.getFleet).toHaveBeenCalledWith(controller.signal);
     expect(api.getPromotion).toHaveBeenCalledWith(controller.signal);
     expect(api.getTopology).toHaveBeenCalledWith(controller.signal);
     expect(api.getInstances).toHaveBeenCalledWith(controller.signal);
+    expect(api.getSdlcAgents).toHaveBeenCalledWith(controller.signal);
     /* eslint-enable @typescript-eslint/unbound-method */
   });
 
