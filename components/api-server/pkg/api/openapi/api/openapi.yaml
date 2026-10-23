@@ -972,6 +972,72 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Keycloak provisioning or lifecycle verification is unavailable
       summary: Permanently revoke an OpenShell gateway service account
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:
+    post:
+      description: |
+        Change the OpenShell role and optionally the description in place. The requested role is capped at the creator's current gateway role. The client credentials are unchanged; no credential bundle is returned.
+      operationId: updateGatewayServiceAccountRole
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: OpenShellGatewayServiceAccount ID
+        in: path
+        name: service_account_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenShellGatewayServiceAccountRoleUpdateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Keycloak client converged to the new role
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Role update is persisted and Keycloak convergence is pending
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Change an OpenShell gateway service account's role
   /api/hypershell/v1/roles:
     get:
       operationId: listRoles
@@ -6709,6 +6775,21 @@ components:
           type: array
       required:
       - selectors
+      type: object
+    OpenShellGatewayServiceAccountRoleUpdateRequest:
+      additionalProperties: false
+      example:
+        role: openshell-user
+        description: description
+      properties:
+        role:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountRole"
+        description:
+          maxLength: 1024
+          nullable: true
+          type: string
+      required:
+      - role
       type: object
     RepositoryList:
       allOf:

@@ -11148,6 +11148,168 @@ func (a *DefaultAPIService) UpdateGatewayExecute(r ApiUpdateGatewayRequest) (*Ga
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiUpdateGatewayServiceAccountRoleRequest struct {
+	ctx                                             context.Context
+	ApiService                                      *DefaultAPIService
+	gatewayId                                       string
+	serviceAccountId                                string
+	openShellGatewayServiceAccountRoleUpdateRequest *OpenShellGatewayServiceAccountRoleUpdateRequest
+}
+
+func (r ApiUpdateGatewayServiceAccountRoleRequest) OpenShellGatewayServiceAccountRoleUpdateRequest(openShellGatewayServiceAccountRoleUpdateRequest OpenShellGatewayServiceAccountRoleUpdateRequest) ApiUpdateGatewayServiceAccountRoleRequest {
+	r.openShellGatewayServiceAccountRoleUpdateRequest = &openShellGatewayServiceAccountRoleUpdateRequest
+	return r
+}
+
+func (r ApiUpdateGatewayServiceAccountRoleRequest) Execute() (*OpenShellGatewayServiceAccountListItem, *http.Response, error) {
+	return r.ApiService.UpdateGatewayServiceAccountRoleExecute(r)
+}
+
+/*
+UpdateGatewayServiceAccountRole Change an OpenShell gateway service account's role
+
+Change the OpenShell role and optionally the description in place. The requested role is capped at the creator's current gateway role. The client credentials are unchanged; no credential bundle is returned.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@param serviceAccountId OpenShellGatewayServiceAccount ID
+	@return ApiUpdateGatewayServiceAccountRoleRequest
+*/
+func (a *DefaultAPIService) UpdateGatewayServiceAccountRole(ctx context.Context, gatewayId string, serviceAccountId string) ApiUpdateGatewayServiceAccountRoleRequest {
+	return ApiUpdateGatewayServiceAccountRoleRequest{
+		ApiService:       a,
+		ctx:              ctx,
+		gatewayId:        gatewayId,
+		serviceAccountId: serviceAccountId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return OpenShellGatewayServiceAccountListItem
+func (a *DefaultAPIService) UpdateGatewayServiceAccountRoleExecute(r ApiUpdateGatewayServiceAccountRoleRequest) (*OpenShellGatewayServiceAccountListItem, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodPost
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *OpenShellGatewayServiceAccountListItem
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.UpdateGatewayServiceAccountRole")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"service_account_id"+"}", url.PathEscape(parameterValueToString(r.serviceAccountId, "serviceAccountId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.openShellGatewayServiceAccountRoleUpdateRequest == nil {
+		return localVarReturnValue, nil, reportError("openShellGatewayServiceAccountRoleUpdateRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.openShellGatewayServiceAccountRoleUpdateRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 503 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiUpdateManagedClusterRequest struct {
 	ctx                        context.Context
 	ApiService                 *DefaultAPIService

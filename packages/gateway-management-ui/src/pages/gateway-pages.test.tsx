@@ -67,6 +67,7 @@ const gatewayOperations = {
   removeGateway: deleteGatewayMock,
   renameGateway: renameGatewayMock,
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
 };
 
 const navigation = {
