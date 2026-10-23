@@ -24,6 +24,8 @@ spec:
     value: '{{revision}}'
   - name: output-image
     value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main:{{revision}}
+  - name: image-expires-after
+    value: ""
   - name: dockerfile
     value: components/web-console/Dockerfile
   - name: path-context
