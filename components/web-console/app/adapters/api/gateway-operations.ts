@@ -716,7 +716,6 @@ export function createGatewayControlPlaneAdapter(
             {
               name: input.name,
               placement,
-              route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },
           ),
