@@ -82,10 +82,13 @@ queue SHALL target only the `main` branch and use squash merges. The commit
 message format SHALL use the pull request title and inherited body with no
 trailers.
 
-The queue SHALL use dynamic batch sizes with a minimum of 1 and a maximum of 3,
-with a 30-second maximum fill wait. These are initial tuning values, not fixed
-commitments. The queue SHALL enable branch-protection injection so required
-checks continue to come from GitHub's rules.
+The queue SHALL NOT configure multi-pull-request batching: `batch_size` and
+`batch_max_wait_time` SHALL be omitted so batches stay at the default size of 1.
+The Merge Queue Batch feature (batch sizes greater than 1) requires a higher
+Mergify subscription tier than this organization has, so it is intentionally
+unused; parallel scopes still provide independent lanes. The queue SHALL enable
+branch-protection injection so required checks continue to come from GitHub's
+rules.
 
 #### Scenario: CICD-MRG-02.01 -- Approval label required for enqueue
 
