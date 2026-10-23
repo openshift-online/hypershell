@@ -156,7 +156,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
 | `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | Stamped by `make sync-openshell-version` since 2026-10; still grep after the bump |
 | `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
-| Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API |
+| Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
@@ -508,6 +508,79 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.5-rhaiv.2 (2026-10-23, v0.1.5-rhaiv.0 -> v0.1.5-rhaiv.2, no-arg scheduled run):**
+  Pins and chart bumped. Could not run `go build/vet/test` or `make check` this run
+  (see the sandbox-limits entry below); the Python policy checks that make up
+  `make check` were run directly instead and all passed. No `.go` files changed, so
+  the Go build surface is unaffected by this bump.
+  - **Triage method:** `opendatahub-io/openshell` has not cut a `v0.1.6` NVIDIA-base
+    release yet, so rhaiv.1/rhaiv.2 are not "Red Hat patches on a released base" -
+    they are 440 commits merged from `upstream/main` (pre-release) plus a handful of
+    `CARRY:` midstream-only commits. There is no NVIDIA release note to read for this
+    range; triage the midstream repo's own commit log instead
+    (`git log --oneline <old>..<new>` in a scratch clone) and classify by commit
+    message against the contract surfaces.
+  - **Classification:** no `.proto` file changed (confirmed via `git diff --stat
+    <old> <new> -- '*.proto' deploy/helm` in the scratch clone). The bulk of the
+    561-line `openshell-server` diff is additive OCSF audit-event plumbing
+    (`feat(auth): emit OCSF ... events`, `refactor(auth): share audit helpers`)
+    threaded through `multiplex.rs`/`grpc/sandbox.rs`/`grpc/workspace.rs` - no
+    authorization semantics changed, confirmed by reading each commit's diff
+    summary, not just its message. Mechanical.
+  - **New opt-in chart feature, not adopted:** `feat(kubernetes): deploy shared
+    supervisor mode` (#4695) adds `charts/openshell/templates/supervisor.yaml`, a
+    Deployment gated on `gatewayConfig.openshell.gateway.supervisor_topology ==
+    "gateway"`. HyperShell's helm values builder never sets `supervisor_topology`,
+    so the template renders nothing; confirmed with
+    `grep -rn supervisor_topology components/ charts/ specs/` (no hits outside the
+    vendored chart). No RBAC change accompanies it (checked by diffing the chart's
+    `role.yaml`/`clusterrole.yaml`/etc. between the two tags - no diff).
+  - **Console:** a newer dashboard release (`v0.1.2`, still release line `0.1`) exists
+    on top of the currently pinned `v0.1.1`, but its image digest could not be
+    fetched this run (see sandbox-limits entry) - deferred, not adopted. Filed as a
+    `needs-decision` follow-up issue instead of silently keeping the stale pin or
+    guessing the digest.
+  - **Digest hygiene:** three `ibm-cluster/SKILL.md` ROKS mirror `skopeo copy`
+    commands carried a real `tag@digest` source pinned to the *old* tag. Bumping
+    the tag text while keeping the old digest would have mirrored the old image
+    under the new tag's label - worse than not bumping at all. Replaced with a
+    tag-only source reference (matching this repo's own documented fallback
+    convention in `scripts/ci/swap-openshift-images-by-digest.sh`: "baseline images
+    may fall back to the tag when no digest is available; that fallback is recorded
+    rather than silent") plus a comment telling the operator to resolve and pin the
+    digest before mirroring. The one illustrative (non-executed) digest example in
+    `data-model.spec.md` was normalized to the `@sha256:...` placeholder style
+    already used in `openshell-gateway.spec.md`, rather than left stale.
+
+- **Sandbox limits for this skill's own agent runtime (2026-10-23, discovered
+  during the v0.1.5-rhaiv.2 run):** the scheduled `update-openshell` agent run
+  executed in an environment with three gaps versus a developer workstation:
+  1. **No outbound network except `gh`/`git` to `github.com`.** Direct `curl`/
+     `WebFetch` to any other host (quay.io, registry.redhat.io, pypi.org, even
+     GitHub Actions' own log-storage CDN) fails at TCP connect with "Permission
+     denied". This means the Quay tag API digest-lookup trick from earlier entries
+     does not work here - only GitHub-hosted metadata (tags, releases, commit
+     diffs via a scratch clone) is reachable. When digests are genuinely needed
+     (a console bump, or refreshing a real digest literal) and this gap is hit,
+     defer that specific item as `needs-decision` rather than fabricating or
+     reusing a stale digest; do not block the rest of the mechanical bump on it.
+  2. **`make` cannot run at all** (`make: /bin/sh: Operation not permitted` on
+     every recipe, even `echo`). Do not depend on any `make` target in this
+     runtime. Instead run the underlying commands directly: `git clone --depth 1
+     --branch <tag> <chart repo>` + `cp -r .../deploy/helm/openshell charts/openshell`
+     + the em-dash `perl -pi` strip for chart vendoring, `python3
+     scripts/sync_openshell_version.py --stamp` for the pin sync, and each
+     `make check` sub-check's underlying `python3 scripts/check_*.py` /
+     `python3 -m unittest scripts/test_*.py` command individually.
+  3. **No Go toolchain** (`go: command not found`, no `/usr/local/go/bin`). Cannot
+     run `go build/vet/test`, `make check-cli-drift`, or the Helm `values_test.go`
+     assertions in this runtime. When a bump touches no `.go` files (as here),
+     this is a recorded gap, not a blocker: the Python policy checks catch the
+     pin/chart/spec drift this skill actually produces. A bump that *does* need a
+     Go-level check (RBAC escalation, `values_test.go` TOML drift, a config schema
+     change) must get that verification from a human reviewer or CI on the PR
+     instead of this agent run.
 
 - **Console v0.1.1 (2026-10-22, console-only update, no-arg run):** OpenShell
   stayed at v0.1.5-rhaiv.0, the latest midstream tag. The console moved from
