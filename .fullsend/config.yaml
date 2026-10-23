@@ -1,0 +1,5 @@
+# fullsend per-repo configuration -- https://github.com/fullsend-ai/fullsend
+version: "1"
+agents:
+    - name: update-openshell
+      source: harness/update-openshell.yaml
