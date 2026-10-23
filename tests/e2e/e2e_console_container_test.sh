@@ -54,6 +54,8 @@ assert_contains "mcr.microsoft.com/playwright:v1.61.1-noble" "$out" "image tag m
 assert_contains "--add-host console.hypershell.localhost:10.89.0.3" "$out" "Node side resolves the console host to the gateway"
 assert_contains "E2E_BROWSER_HOST_RESOLVER_RULES=MAP *.localhost 10.89.0.3" "$out" "Chromium maps *.localhost to the gateway"
 assert_contains "--userns=keep-id" "$out" "rootless podman keeps the caller's uid"
+assert_contains "--shm-size=2g" "$out" "Chromium gets a large private /dev/shm"
+assert_absent "--ipc=host" "$out" "no host IPC: podman rejects it with keep-id"
 assert_contains "-v $REPO_ROOT:$REPO_ROOT:z" "$out" "repository is mounted at its host path"
 assert_contains "-w $REPO_ROOT/components/web-console" "$out" "runs from the web console package"
 assert_contains "-e E2E_MODE" "$out" "E2E_* variables are passed through"

@@ -59,8 +59,10 @@ console_host="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlpars
 run_args=(
   --rm
   --network "${KIND_NETWORK}"
-  # Chromium needs more shared memory than the container default.
-  --ipc=host
+  # Chromium needs more shared memory than the container default (64 MB).
+  # A private /dev/shm, not --ipc=host: podman refuses --ipc=host together with
+  # --userns=keep-id ("mount mqueue: Operation not permitted", podman 6).
+  --shm-size=2g
   --add-host "${console_host}:${lb_ip}"
 )
 # Run as the invoking user so artifacts written to the mounted repository keep
