@@ -8,6 +8,7 @@ import type { E2eRunDetail, E2eRunsData } from "../../domain/e2e-run";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
+import type { SdlcAgentsData } from "../../domain/sdlc-agents";
 import type {
   FleetApi,
   InstancesData,
@@ -48,14 +49,19 @@ const emptyE2eRun: E2eRunDetail = {
   logsTruncated: false,
 };
 
-/** The three e2e FleetApi methods, defaulted so a test only wires what it exercises. */
+/** E2e + sdlc-agents FleetApi methods, defaulted so a test only wires what it exercises. */
 const e2eApi = {
   getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
   getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
   streamE2eRun: () => () => {
     /* unsubscribe */
   },
-} satisfies Pick<FleetApi, "getE2eRuns" | "getE2eRun" | "streamE2eRun">;
+  getSdlcAgents: () =>
+    Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
+} satisfies Pick<
+  FleetApi,
+  "getE2eRuns" | "getE2eRun" | "streamE2eRun" | "getSdlcAgents"
+>;
 
 function plane<T>(data: T): Plane<T> {
   return {
