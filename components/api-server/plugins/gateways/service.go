@@ -118,6 +118,13 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 	if svcErr := enforceGatewayFieldPolicyCreate(rbac.GatewayWriterKindFromContext(ctx), gateway); svcErr != nil {
 		return nil, svcErr
 	}
+	// workspace_mode is platform-managed: the API server applies the managed
+	// default here, after the policy check, so every creator class (REST, gRPC,
+	// import, control plane) gets it and no caller-supplied value survives
+	// (OSG-CORE-18).
+	if svcErr := applyGatewayWorkspaceCreateDefault(gateway); svcErr != nil {
+		return nil, svcErr
+	}
 
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
@@ -159,6 +166,12 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
 	// under the advisory lock so current is the authoritative stored state.
 	if svcErr := enforceGatewayFieldPolicyUpdate(rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode value semantics apply to every writer class, the control
+	// plane included: vocabulary enforced, stored value immutable, a NULL value
+	// settable exactly once (OSG-CORE-18).
+	if svcErr := enforceGatewayWorkspaceUpdateSemantics(current, gateway); svcErr != nil {
 		return nil, svcErr
 	}
 	newGeneration := current.Generation
@@ -255,7 +268,8 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||
-		!strEq(current.CredentialDriver, next.CredentialDriver)
+		!strEq(current.CredentialDriver, next.CredentialDriver) ||
+		!strEq(current.WorkspaceMode, next.WorkspaceMode)
 }
 
 // jsonEq compares two optional JSON documents semantically. Oidc and Route are

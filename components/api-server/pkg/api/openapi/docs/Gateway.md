@@ -28,6 +28,7 @@ Name | Type | Description | Notes
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
 **Route** | Pointer to **string** | JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**WorkspaceMode** | Pointer to **string** | How the OpenShell Kubernetes driver maps workspaces to namespaces. \&quot;shared\&quot; places all sandboxes in the gateway namespace; \&quot;managed\&quot; auto-creates per-workspace namespaces; \&quot;operator\&quot; uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \&quot;managed\&quot; at create, and no caller can set or change it. Null (legacy gateways) keeps the chart&#39;s \&quot;shared\&quot; default. | [optional] [readonly]
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
 **ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly]
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly]
@@ -640,6 +641,31 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *Gateway) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
+
+### GetWorkspaceMode
+
+`func (o *Gateway) GetWorkspaceMode() string`
+
+GetWorkspaceMode returns the WorkspaceMode field if non-nil, zero value otherwise.
+
+### GetWorkspaceModeOk
+
+`func (o *Gateway) GetWorkspaceModeOk() (*string, bool)`
+
+GetWorkspaceModeOk returns a tuple with the WorkspaceMode field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaceMode
+
+`func (o *Gateway) SetWorkspaceMode(v string)`
+
+SetWorkspaceMode sets WorkspaceMode field to given value.
+
+### HasWorkspaceMode
+
+`func (o *Gateway) HasWorkspaceMode() bool`
+
+HasWorkspaceMode returns a boolean if a field has been set.
 
 ### GetActiveSandboxCount
 

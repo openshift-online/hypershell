@@ -1,6 +1,8 @@
 package gateways
 
 import (
+	"strings"
+
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
@@ -53,6 +55,7 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"oidc":              fieldPlatformManaged,
 	"route":             fieldPlatformManaged,
 	"credential_driver": fieldPlatformManaged,
+	"workspace_mode":    fieldPlatformManaged, // server-defaulted to managed at create (OSG-CORE-18); no caller may set or change it
 
 	// Control-plane-observed.
 	"status":                  fieldObserved,
@@ -96,6 +99,8 @@ func gatewayCreateWorkloadViolation(g *Gateway) string {
 		return "route"
 	case g.CredentialDriver != nil:
 		return "credential_driver"
+	case g.WorkspaceMode != nil:
+		return "workspace_mode"
 	}
 	return ""
 }
@@ -156,6 +161,8 @@ func gatewayUpdateViolation(current, incoming *Gateway) string {
 		return "route"
 	case !jsonEq(current.CredentialDriver, incoming.CredentialDriver):
 		return "credential_driver"
+	case !strEq(current.WorkspaceMode, incoming.WorkspaceMode):
+		return "workspace_mode"
 	case !strEq(current.Status, incoming.Status):
 		return "status"
 	case !strEq(current.Phase, incoming.Phase):
@@ -191,4 +198,70 @@ func intPtrEq(a, b *int) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+// defaultGatewayWorkspaceMode is applied by the API server to every gateway
+// created without a workspace_mode. Legacy gateways (NULL) keep the chart's
+// shared default so the flip applies to new provisioning only
+// (openshell-gateway.spec.md, "OSG-CORE-18 -- Gateway Workspace Mode").
+const defaultGatewayWorkspaceMode = "managed"
+
+// gatewayWorkspaceModes is the vocabulary shared with the vendored OpenShell
+// chart's workspace_mode validation (shared, managed, operator).
+var gatewayWorkspaceModes = []string{"shared", "managed", "operator"}
+
+// validateGatewayWorkspaceValue checks a workspace_mode value against the
+// accepted vocabulary.
+func validateGatewayWorkspaceValue(mode string) *errors.ServiceError {
+	for _, allowed := range gatewayWorkspaceModes {
+		if mode == allowed {
+			return nil
+		}
+	}
+	return errors.Validation("workspace_mode %q is not valid; allowed: %v", mode, gatewayWorkspaceModes)
+}
+
+// applyGatewayWorkspaceCreateDefault defaults a created gateway's workspace_mode
+// to managed. The field is platform-managed (PLAT-DATA-23): the field policy
+// above has already rejected a user/import-supplied value, so a non-nil value
+// reaching here can only come from a control-plane internal write -- its
+// vocabulary is validated regardless, as defense in depth.
+func applyGatewayWorkspaceCreateDefault(gateway *Gateway) *errors.ServiceError {
+	if gateway.WorkspaceMode == nil || strings.TrimSpace(*gateway.WorkspaceMode) == "" {
+		mode := defaultGatewayWorkspaceMode
+		gateway.WorkspaceMode = &mode
+		return nil
+	}
+	trimmed := strings.TrimSpace(*gateway.WorkspaceMode)
+	if svcErr := validateGatewayWorkspaceValue(trimmed); svcErr != nil {
+		return svcErr
+	}
+	gateway.WorkspaceMode = &trimmed
+	return nil
+}
+
+// enforceGatewayWorkspaceUpdateSemantics enforces the value contract on update
+// for every writer class, the control plane included: the vocabulary is
+// enforced, a stored non-empty value is immutable (the same contract as
+// credential_driver), and a NULL value on a legacy gateway may be set exactly
+// once -- which, under the field policy, only a control-plane internal write
+// can exercise. A next value of nil (or an explicit clear) leaves the stored
+// value untouched.
+func enforceGatewayWorkspaceUpdateSemantics(current, next *Gateway) *errors.ServiceError {
+	if next.WorkspaceMode == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*next.WorkspaceMode)
+	if trimmed == "" {
+		next.WorkspaceMode = current.WorkspaceMode
+		return nil
+	}
+	if svcErr := validateGatewayWorkspaceValue(trimmed); svcErr != nil {
+		return svcErr
+	}
+	if current.WorkspaceMode != nil && *current.WorkspaceMode != "" && *current.WorkspaceMode != trimmed {
+		return errors.Conflict("workspace mode cannot be changed after the gateway is provisioned; recreate the gateway with the desired mode")
+	}
+	next.WorkspaceMode = &trimmed
+	return nil
 }

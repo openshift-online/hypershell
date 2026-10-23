@@ -1409,6 +1409,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -3013,6 +3019,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
