@@ -447,6 +447,15 @@ if [[ "${_pg_ssl}" != "on" ]]; then
 fi
 success "Stand-in PostgreSQL ready (ssl=on)"
 
+# Stand-in HashiCorp Vault for the gateway provider-credential driver, which is now
+# the default (HYPERSHELL-369). Every gateway created in Kind resolves to vault and
+# fails closed without a reachable Vault, so the dev/e2e environment must provide one.
+# vault.sh stands up the same HashiCorp Vault software the per-cluster production Vault
+# runs, configured to the GitOps Contract (KV v2, kubernetes auth, the openshell-gateway
+# role + capability-scoped policy, serving CA in Secret openshell-gateway-vault-tls).
+# KIND_CLUSTER_NAME is exported by the Makefile, so the child shell resolves the context.
+VAULT_KUBECTL="kubectl --context $(kctx)" bash "${SCRIPT_DIR}/../cluster/vault.sh"
+
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
 # (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist

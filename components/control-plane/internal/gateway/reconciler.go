@@ -74,6 +74,18 @@ func ReconcileGateway(
 		}
 	}
 
+	// Vault-backed gateways fail closed: verify the per-cluster Vault is reachable
+	// (unauthenticated sys/health over TLS trusted by the serving CA) before we
+	// provision the workload. The authenticated identity check runs post-deploy, once
+	// the gateway ServiceAccount exists. See openshell-gateway-credentials.spec.md
+	// (Fail Closed When Vault Is Unavailable).
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		if err := probeVaultReachable(ctx, clientset); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, "Vault credential backend is unreachable")
+			return fmt.Errorf("vault reachability probe failed for %s: %w", nsConfig.Name, err)
+		}
+	}
+
 	report(ConditionEnvironmentReady, StatusComplete, "")
 
 	// Step 2: DatabaseReady
@@ -137,6 +149,15 @@ func ReconcileGateway(
 			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
 			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
 		}
+		// Create the gateway's OWN per-tenant Vault KV mount (openshell-gw/<namespace>)
+		// before the workload starts, through the control plane's scoped provisioner
+		// identity (it can manage only openshell-gw/* mounts, never read a secret or
+		// rewrite a policy). Idempotent. Fail closed: a gateway must have its mount before
+		// it runs. See openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+		if err := EnsureVaultTenantMount(ctx, clientset, opts, nsConfig.Name); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend mount could not be provisioned")
+			return fmt.Errorf("ensure vault tenant mount for %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	// Reconcile OpenShift SCC binding BEFORE Helm install
@@ -153,6 +174,17 @@ func ReconcileGateway(
 	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
+	}
+
+	// Vault-backed gateways: the workload (and its ServiceAccount) now exists, so
+	// verify the gateway's own identity can authenticate to the per-cluster Vault
+	// before it advances to Running. Fail closed + retry on denial. See
+	// openshell-gateway-credentials.spec.md (Fail Closed When Vault Is Unavailable).
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		if err := probeVaultAuth(ctx, clientset, nsConfig.Name); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend rejected the gateway identity")
+			return fmt.Errorf("vault auth probe failed for %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	// Console reconciliation and route-address publishing are not managed by

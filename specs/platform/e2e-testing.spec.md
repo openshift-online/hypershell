@@ -210,6 +210,38 @@ deploy/
 
 ## Requirements
 
+### Requirement: E2E-CORE-48 -- Stand-in Gateway-Provider Vault
+
+Because the OpenShell gateway's default credential driver is `vault`
+(`openshell-gateway-credentials.spec.md`), a gateway created without a `credential_driver`
+fails closed unless a per-cluster Vault is reachable. Both environments' bring-up
+(`make kind-up` and `make openshift-up`, via `scripts/cluster/vault.sh`) SHALL therefore
+stand up a stand-in HashiCorp Vault - one per cluster in namespace `openshell-vault` at the
+convention address, configured to the GitOps Contract - so the suite exercises the
+production credential path. The setup SHALL be idempotent (safe to re-run against an
+already-initialized Vault, so it holds on a shared cluster across pull-request
+environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
+pod UID/fsGroup). The bring-up SHALL **self-verify** both isolation layers as a gateway
+identity against its own per-tenant mount (`openshell-gw/<namespace>`): a round-trip under
+its own `provider-credentials/*`, `list` denied, metadata `delete` denied, another tenant's
+mount denied, a ServiceAccount in an **unlabeled** namespace denied at login (the namespace
+selector), and - access revocation - the gateway denied once the policy is removed, then the
+policy restored. It SHALL fail if any of these drift, so the GitOps Contract is checked in
+the fixture rather than by the suite reaching into Vault. How the remaining coverage is split
+(the sandbox lifecycle for the real resolve, and the API-driven fail-closed check) lives in
+`openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
+
+#### Scenario: E2E-CORE-48.01 -- Vault stood up on bring-up
+
+- GIVEN a freshly brought-up Kind or OpenShift e2e environment
+- WHEN the suite provisions a gateway with no `credential_driver`
+- THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
+  Vault
+- AND the bring-up SHALL have self-verified both isolation layers (per-tenant mount round-trip;
+  `list`, metadata `delete`, and cross-tenant mount denied; an unlabeled namespace denied at
+  login; and policy-removal revocation then restore), failing otherwise
+- AND re-running bring-up SHALL leave the already-initialized Vault unchanged
+
 ### Requirement: E2E-CORE-01 -- Infra Driver Abstraction
 
 The e2e test framework SHALL isolate infrastructure-specific logic behind the `E2EInfraDriver` Go interface, with one implementation per target under `tests/e2e/driver/`. The suite, performance harness, and matrix runner SHALL remain infrastructure-agnostic and SHALL call only `E2EInfraDriver` interface methods for infrastructure-specific operations. They SHALL access the Kubernetes API through a shared `client-go` clientset and controller-runtime client built from the current KUBECONFIG context, and SHALL NOT shell out to `kubectl` or `oc`; the one product binary the suite invokes directly is the `openshell` CLI under test. Only `kind` and `openshift` drivers are supported today; additional drivers are follow-up work. Each implementation SHALL register itself under its name in a driver registry so the suite resolves a driver by name without a compile-time switch.

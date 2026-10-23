@@ -359,6 +359,14 @@ func (s *E2ESuite) TestPhases() {
 			s.parallelStep("P3.1", "admin-inventory-validation", tagLong, (*E2ESuite).p3_1AdminInventory),
 		})
 	})
+
+	// Phase P4 -- fail-closed (serial). P2.7 makes the per-cluster Vault unreachable
+	// cluster-wide (Vault is a black box with no per-gateway overrides, so reachability
+	// cannot be broken for a single gateway), which would disrupt any concurrent
+	// provisioning. It therefore runs serially as the final behavior check, after the
+	// parallel P2 wave and read-only P3, and restores Vault reachability before returning.
+	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2.7")
+	s.step("P2.7", "vault-fail-closed", tagLong, s.p2_7VaultFailClosed)
 }
 
 // p2ParallelSteps returns the hard-behavior wave in canonical order. No P2 step
@@ -371,6 +379,8 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
+		// P2.7 (vault-fail-closed) is NOT here: it makes the cluster Vault unreachable
+		// cluster-wide, so it runs serially as the final step (see TestPhases, Phase-P4).
 	}
 }
 
@@ -479,6 +489,8 @@ func plannedReportSteps() []harness.PlannedStep {
 		{StepID: "P2.5", Name: "gateway-access-management"},
 		{StepID: "P2.6", Name: "gateway-service-accounts"},
 		{StepID: "P3.1", Name: "admin-inventory-validation"},
+		// P2.7 runs serially last (it makes the cluster Vault unreachable); see TestPhases.
+		{StepID: "P2.7", Name: "vault-fail-closed"},
 		{StepID: "cleanup", Name: "suite-teardown"},
 	}
 }

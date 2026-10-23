@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -122,7 +124,7 @@ func TestValidateOIDCConfig(t *testing.T) {
 	}
 }
 
-// Verifies: OSG-CRED-02.01, OSG-CRED-02.02, OSG-CRED-02.03
+// Verifies: OSG-CRED-02.01, OSG-CRED-02.02
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -148,68 +150,12 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "vault with address and role is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address: "https://vault.example.com",
-					Role:    "gw-role",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with all fields is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address:             "https://vault.example.com",
-					Mount:               "secret",
-					AuthMethod:          "kubernetes",
-					Role:                "gw-role",
-					KubernetesAuthMount: "kubernetes",
-					TimeoutSecs:         30,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			// HYPERSHELL-369: vault sub-fields are optional; the control plane
-			// fills them from the per-cluster conventions.
-			name:    "vault without config is valid (conventions fill it)",
+			// HYPERSHELL-369: Vault is a black box - credential_driver carries NO per-gateway
+			// Vault coordinates (no address/role/mount/auth), so `type: vault` alone is the
+			// whole contract; the control plane fills everything from the per-cluster
+			// conventions + deployment config.
+			name:    "vault (type only) is valid; no overrides exist",
 			config:  &CredentialDriverConfig{Type: "vault"},
-			wantErr: false,
-		},
-		{
-			name: "vault without address is valid (convention address used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Role: "gw-role"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault without role is valid (convention role used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "https://vault.example.com"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with plaintext non-loopback address is invalid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://vault.example.com:8200"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "vault with http loopback address is valid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://127.0.0.1:8200"},
-			},
 			wantErr: false,
 		},
 		{
@@ -223,9 +169,10 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// An empty-typed driver object is unspecified; it defers to the deployment default
-			// selector (kek-db unless opted in), not an implicit vault selection (HYPERSHELL-369).
-			name:    "empty type is valid (defers to deployment default)",
+			// An empty-typed driver object (credential_driver: {}) is unspecified and resolves
+			// to the flat vault default, same as an omitted field (OSG-CRED-01); validation
+			// accepts it here and effectiveCredentialDriver fills in vault at reconcile.
+			name:    "empty type is valid (resolves to the vault default)",
 			config:  &CredentialDriverConfig{Type: ""},
 			wantErr: false,
 		},
@@ -236,6 +183,36 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			err := ValidateCredentialDriverConfig(tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateCredentialDriverConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-CRED-02.03
+//
+// Vault is a black box: a credential_driver.vault object (or any Vault override key) has no
+// field on CredentialDriverConfig, so it is rejected when the stored driver JSON is decoded
+// with DisallowUnknownFields - the exact decoder the reconciler uses before reconciling. This
+// asserts that contract on the same struct + decoder option the production path uses.
+func TestCredentialDriverRejectsVaultOverride(t *testing.T) {
+	cases := []struct {
+		name    string
+		json    string
+		wantErr bool
+	}{
+		{"vault type only is accepted", `{"type":"vault"}`, false},
+		{"vault.address override is rejected", `{"type":"vault","vault":{"address":"https://vault.example.com:8200"}}`, true},
+		{"vault.role override is rejected", `{"type":"vault","vault":{"role":"openshell-gateway-tenant-a"}}`, true},
+		{"bare vault object is rejected", `{"type":"vault","vault":{}}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dec := json.NewDecoder(strings.NewReader(tc.json))
+			dec.DisallowUnknownFields()
+			var c CredentialDriverConfig
+			err := dec.Decode(&c)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("decode(%s) err = %v; wantErr %v", tc.json, err, tc.wantErr)
 			}
 		})
 	}

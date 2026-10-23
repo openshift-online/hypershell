@@ -174,8 +174,9 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 
 - GIVEN a gateway with `credential_driver.type` = `vault`
 - AND the Vault server address changes (e.g., migration to a new Vault cluster)
-- WHEN the operator updates the Gateway's `credential_driver.vault.address` field
-- THEN the GatewayReconciler SHALL regenerate gateway.toml with the new address
+- WHEN the cluster operator updates the control-plane deployment `GATEWAY_VAULT_ADDRESS`
+  override (Vault is a black box; there is no per-gateway `credential_driver.vault.address` field)
+- THEN the GatewayReconciler SHALL regenerate gateway.toml with the new address on the next reconcile
 - AND the config-hash SHALL change, triggering a rolling restart
 - AND the gateway SHALL connect to the new Vault server on startup
 
