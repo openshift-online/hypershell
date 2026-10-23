@@ -572,6 +572,13 @@ SHALL be refused. A `Gateway` or `AgentRuntime` write that carries NO import met
 stays on its existing non-import path (the control plane's cluster-scoped health and
 status write-backs), unchanged.
 
+Method authorization is NOT field authorization. For a `Gateway`, an import-marked
+write is authorized to CALL `CreateGateway`/`UpdateGateway` on the terms above, but is
+STILL subject to the field-level write policy of "Requirement: Gateway Field Write
+Policy" below: the import caller kind is treated as non-privileged and may write only
+`name` + placement, exactly like a direct user. Only a control-plane write WITHOUT
+import metadata may write the platform-managed and observed Gateway fields.
+
 **Declarative-import reads (control-plane identity only).** `Gateway` and
 `AgentRuntime` list reads are normally held to the caller's own `cluster_id` by the
 watch-stream caller binding. Because the single import reconciler must enumerate and
@@ -635,6 +642,62 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - GIVEN a `SandboxTemplate` owned by `Repository` R2 or created directly with no ownership mark
 - WHEN the import reconciler for `Repository` R1 attempts to update or delete it
 - THEN the write SHALL be refused
+
+### Requirement: SEC-RBAC-18 -- Gateway Field Write Policy
+
+The gateway write surface SHALL enforce a single, default-deny, field-level write
+policy. The field ownership and allowlist are defined canonically in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway
+Field Ownership and Write Policy", PLAT-DATA-23); this requirement defines how the
+authorization layer identifies the caller and where the policy is enforced so REST,
+gRPC, and `hsctl apply` are all covered at ONE chokepoint.
+
+The authorization layer SHALL mark every gateway write request in the request context
+with one of three caller kinds, and the gateway service write funnel
+(`service.Replace` for update and `service.Create` for create) SHALL enforce the
+field policy from that marker:
+
+- **`user`** - a normal authenticated REST or gRPC caller (including `hsctl apply`).
+- **`import`** - a control-plane gRPC request carrying the
+  `x-hypershell-import-repository-id` metadata (the declarative `.hypershell` import),
+  detected by the same mechanism that enforces import ownership in this spec
+  (SEC-RBAC-09, "Declarative-import writes").
+- **`control-plane`** - a control-plane gRPC request WITHOUT import metadata (the
+  internal reconcile write-back path).
+
+A `user` or `import` caller SHALL be allowed to write only the allowlist (`name` on
+update; `name` + exactly one of `placement`/`cluster_id` on create). Any other field
+that differs from the stored value (update) or is set (create) SHALL be rejected,
+naming the field: `403 Forbidden` over REST, `PERMISSION_DENIED` over gRPC. Re-sending
+an unchanged value SHALL be a no-op. Only a `control-plane` (non-import) caller SHALL
+bypass the field policy and retain full write of platform-managed and observed fields.
+
+Enforcing the policy in the service funnel - not per handler - closes the
+whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
+`PATCH`, and closes the import loophole whereby a GitOps manifest could declare
+platform-managed fields the direct user API forbids. This field policy is enforced
+regardless of `RBAC_ENFORCE`: it is an ownership boundary on who authored the value,
+not an access grant, so it does not relax when role enforcement is off; a caller that
+needs to author platform-managed fields SHALL do so as the control-plane identity.
+
+#### Scenario: SEC-RBAC-18.01 -- User gRPC UpdateGateway of a locked field is denied
+
+- GIVEN a `user` gRPC `UpdateGateway` that changes a non-allowlisted field (for example `image` or `tls_mode`)
+- WHEN the gateway service evaluates the field policy
+- THEN it SHALL return `PERMISSION_DENIED` naming the field
+- AND the whole-row replace SHALL NOT persist the change
+
+#### Scenario: SEC-RBAC-18.02 -- Import write is held to name + placement
+
+- GIVEN an `import`-marked gRPC `CreateGateway`/`UpdateGateway` that declares a platform-managed field
+- WHEN the gateway service evaluates the field policy
+- THEN it SHALL reject the write naming the field, exactly as for a `user` caller
+
+#### Scenario: SEC-RBAC-18.03 -- Control-plane internal write bypasses the field policy
+
+- GIVEN a `control-plane` gRPC `UpdateGateway` with NO import metadata
+- WHEN it writes platform-managed or observed fields
+- THEN the field policy SHALL permit the write
 
 ### Requirement: SEC-RBAC-10 -- Error Response Opacity
 

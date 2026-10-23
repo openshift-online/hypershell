@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 )
 
 // resolvePendingPlacements re-resolves every late-bound gateway that is still
@@ -25,6 +27,12 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 	if svc == nil || resolve == nil {
 		return nil
 	}
+	// This sweep assigns cluster_id (and clears the awaiting-placement status) as an
+	// internal API-server write, so it is a control-plane-class write for the gateway
+	// field policy: without this marker the default user kind would reject the cluster_id
+	// change (PLAT-DATA-23). It is the API server's own late-binding logic, not an
+	// externally-authored caller.
+	ctx = rbac.WithGatewayWriterKind(ctx, rbac.GatewayWriterControlPlane)
 	gateways, svcErr := svc.FindUnplaced(ctx)
 	if svcErr != nil {
 		return fmt.Errorf("list unplaced gateways: %w", svcErr)

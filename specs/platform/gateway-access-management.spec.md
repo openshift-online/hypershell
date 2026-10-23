@@ -51,7 +51,10 @@ The platform SHALL define a per-gateway built-in role `gateway:admin` representi
 
 `gateway:admin` SHALL confer, on its bound gateway:
 
-- Read and update the gateway (including rename).
+- Read and update the gateway. The only user-writable field on update is `name`
+  (rename); all other gateway fields are control-plane-managed and read-only to users
+  (see [`data-model.spec.md`](data-model.spec.md), "Requirement: Gateway Field Ownership
+  and Write Policy", PLAT-DATA-23). `can_edit` (below) authorizes this rename-only `PATCH`.
 - Manage access **for the Admin and User tiers only**: grant, change, and revoke `gateway:admin` and `gateway:viewer` bindings (GTW-ACC-08).
 - Create and manage all OpenShellGatewayServiceAccounts on the gateway, selecting `openshell-user` or `openshell-admin` (GTW-ACC-12).
 

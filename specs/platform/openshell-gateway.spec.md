@@ -187,26 +187,30 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 #### Scenario: OSG-CORE-01.01 -- Create a Gateway via hsctl apply
 
-- GIVEN a kustomize overlay containing a `gateway.yaml`:
+- GIVEN a kustomize overlay containing a `gateway.yaml` that declares only the
+  user-writable fields (`name` + placement, per
+  [`data-model.spec.md`](./data-model.spec.md), PLAT-DATA-23):
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7
+  placement:
+    mode: local-kind
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
 - AND the API server SHALL persist the Gateway in PostgreSQL
 - AND the persisted Gateway SHALL have a unique namespace derived from its identifier
+- AND the control plane SHALL provision the workload from its managed `image` default (the manifest declares no `image`)
 - AND the API server SHALL emit a gRPC watch event for the new Gateway
 - AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the assigned namespace
 
 #### Scenario: OSG-CORE-01.02 -- Update a Gateway via overlay patch
 
-- GIVEN a Gateway already exists for `tenant-a` with image `v0.0.70`
-- AND a kustomize patch changes the image to `v0.0.71`
+- GIVEN a Gateway already exists for `tenant-a`
+- AND a kustomize patch changes its `name`
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
-- THEN the CLI SHALL PATCH the existing Gateway resource
-- AND the GatewayReconciler SHALL detect the change and update the gateway Deployment
+- THEN the CLI SHALL PATCH the existing Gateway resource with the new `name`
+- AND a manifest that instead changed a platform-managed field (for example `image`) SHALL be rejected, because the image is control-plane-managed (PLAT-DATA-23)
 
 #### Scenario: OSG-CORE-01.03 -- Gateway namespace does not exist yet
 
@@ -418,23 +422,26 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 
 #### Scenario: OSG-CORE-08.02 -- Gateway base with per-tenant patches
 
-- GIVEN a base gateway configuration in `examples/base/gateway.yaml`:
+- GIVEN a base gateway configuration in `examples/base/gateway.yaml` that declares only
+  user-writable fields (`name` + placement, per PLAT-DATA-23):
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7
-  serverDnsNames: []
+  placement:
+    selector: []
   ```
-- AND a tenant overlay patches the DNS names:
+- AND a tenant overlay patches the placement selector:
   ```yaml
   kind: Gateway
   name: openshell-gateway
   project: tenant-a
-  serverDnsNames:
-    - openshell-gateway.tenant-a.svc.cluster.local
+  placement:
+    selector:
+      - network/public
   ```
 - WHEN the kustomize engine resolves the overlay
-- THEN the merged Gateway SHALL have the base image and the overlay's DNS names and project
+- THEN the merged Gateway SHALL carry the base `name` and the overlay's placement selector and project
+- AND a base or overlay that declared a platform-managed field (for example `image` or `serverDnsNames`) SHALL be rejected on apply/import, because those fields are control-plane-managed (PLAT-DATA-23)
 
 ---
 
@@ -833,19 +840,23 @@ Control Plane
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 
-### Example: Full Gateway Configuration
+### Example: Gateway Manifest (user-declarable fields)
+
+A user or `.hypershell` manifest declares ONLY `name` + placement; `image`, `oidc`,
+`route`, `serverDnsNames`, and the other workload fields are control-plane-managed and
+appear on reads only, never in a manifest (see
+[`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23).
 
 ```yaml
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7
-serverDnsNames:
-  - openshell-gateway.tenant-a.svc.cluster.local
-oidc:
-  issuer: https://keycloak.example.com/realms/hypershell
-  audience: hypershell-frontend
-route: {}
+placement:
+  selector:
+    - network/public
+# image, oidc, route, serverDnsNames, tls_mode, service_type, external_dns,
+# credential_driver are control-plane-managed: read-only, not declarable here.
 ```
 
 ---

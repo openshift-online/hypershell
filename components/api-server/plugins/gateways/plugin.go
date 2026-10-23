@@ -117,6 +117,30 @@ func registeredClusterLookup(s *environments.Services) RegisteredClusterLookup {
 	}
 }
 
+// gatewaySubjectResolver adapts the managedClusters service to the
+// pkgrbac.RegisteredClusterResolver the gateway gRPC handler uses to classify a caller as
+// a control-plane identity for the field-ownership write policy (PLAT-DATA-23). It is
+// looked up per call so it follows the environment's service registry; a nil service means
+// no caller resolves to a control plane (every caller is a user/import, the safe default).
+type gatewaySubjectResolver struct {
+	services *environments.Services
+}
+
+func (r gatewaySubjectResolver) RegisteredClusterIDForSubject(ctx context.Context, subject string) (string, bool, error) {
+	svc := managedClusters.Service(r.services)
+	if svc == nil {
+		return "", false, nil
+	}
+	cluster, svcErr := svc.FindRegisteredBySubject(ctx, subject)
+	if svcErr != nil {
+		return "", false, svcErr
+	}
+	if cluster == nil {
+		return "", false, nil
+	}
+	return cluster.ID, true, nil
+}
+
 // registeredClusterVersions resolves each cluster's advertised provisioning
 // version (its gateway-version capability) through the managedClusters plugin,
 // looked up per call so it follows the environment's service registry. It returns
@@ -394,7 +418,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})

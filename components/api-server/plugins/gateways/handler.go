@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -172,18 +173,6 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 	}, ErrorHandler: handlers.HandleError}, http.StatusOK)
 }
 
-// validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
-// absent or empty phase is accepted so the field stays optional.
-func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
-	if phase == nil || *phase == "" {
-		return nil
-	}
-	if !gatewayhealth.IsValidPhase(*phase) {
-		return errors.Validation("phase %q is not a valid gateway phase; allowed: %v", *phase, gatewayhealth.PhaseStrings())
-	}
-	return nil
-}
-
 // resolveGatewayPlacement validates and resolves a late-bound placement intent for
 // a gateway being created, mutating the model in place. It persists the placement
 // selector so the API server can re-evaluate it, assigns a resolved cluster_id when
@@ -253,9 +242,6 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
-			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
-				return nil, phaseErr
-			}
 			// cluster_id is optional: a gateway is either pinned to a cluster
 			// (cluster_id) or late-bound by a placement selector. Exactly one must be
 			// supplied. See data-model.spec.md, "Gateway Placement and Late Binding".
@@ -301,8 +287,37 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusCreated)
 }
 
+// gatewayPatchRequest is the strict decode target for the Gateway PATCH body. name
+// is the only user-writable field on update (PLAT-DATA-23); every other gateway
+// field is platform-managed / control-plane-only. The generated
+// openapi.GatewayPatchRequest has no required property, so the OpenAPI generator does
+// not emit a DisallowUnknownFields decoder for it; without the strict decode below a
+// user PATCH that sets a control-plane-only field (for example phase) would be
+// silently dropped and return 200 instead of being rejected. This mirrors the strict
+// create contract and is the REST-boundary counterpart to the service field policy
+// (SEC-RBAC-18); the service Replace funnel remains the authoritative backstop for the
+// gRPC and import paths.
+type gatewayPatchRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// UnmarshalJSON decodes the PATCH body and rejects any field outside the update
+// allowlist (name). An unknown field produces a json decode error, which the handler
+// framework surfaces as a 400 naming the offending field.
+func (p *gatewayPatchRequest) UnmarshalJSON(data []byte) error {
+	type alias gatewayPatchRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*p = gatewayPatchRequest(decoded)
+	return nil
+}
+
 func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
-	var patch openapi.GatewayPatchRequest
+	var patch gatewayPatchRequest
 
 	cfg := &handlers.HandlerConfig{
 		Body:       &patch,
@@ -315,71 +330,13 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 
+			// name is the only user-writable field on update (PLAT-DATA-23). Every other
+			// gateway field is platform-managed / control-plane-only and is not part of
+			// the REST PATCH contract (GatewayPatchRequest exposes only name); the service
+			// write funnel enforces the default-deny field policy as the authoritative
+			// backstop (SEC-RBAC-18).
 			if patch.Name != nil {
 				found.Name = *patch.Name
-			}
-			// Only a PATCH that changes cluster_id is validated: re-sending the
-			// stored value is not a reassignment, so an edit of another field on
-			// a legacy gateway is not rejected for a reference it did not touch.
-			if patch.ClusterId != nil && *patch.ClusterId != found.ClusterId {
-				if clusterErr := validateClusterReference(ctx, h.clusters, *patch.ClusterId); clusterErr != nil {
-					return nil, clusterErr
-				}
-				found.ClusterId = *patch.ClusterId
-			}
-			if patch.ExternalDns != nil {
-				found.ExternalDns = patch.ExternalDns
-			}
-			if patch.TlsMode != nil {
-				found.TlsMode = patch.TlsMode
-			}
-			if patch.ServiceType != nil {
-				found.ServiceType = patch.ServiceType
-			}
-			if patch.Status != nil {
-				found.Status = patch.Status
-			}
-			if patch.Phase != nil {
-				if phaseErr := validateGatewayPhaseValue(patch.Phase); phaseErr != nil {
-					return nil, phaseErr
-				}
-				found.Phase = patch.Phase
-			}
-			if patch.Image != nil {
-				found.Image = patch.Image
-			}
-			if patch.SupervisorImage != nil {
-				found.SupervisorImage = patch.SupervisorImage
-			}
-			if len(patch.ServerDnsNames) > 0 {
-				data, _ := json.Marshal(patch.ServerDnsNames)
-				s := string(data)
-				found.ServerDnsNames = &s
-			}
-			if patch.RouteAddress != nil {
-				found.RouteAddress = patch.RouteAddress
-			}
-			// console_address is a control-plane-owned, readOnly field. It is the
-			// trusted "Open gateway console" link shown to viewers, so it must not
-			// be settable through the public REST PATCH (a gateway owner could
-			// otherwise store an arbitrary phishing URL). It is written only via
-			// the internal gRPC UpdateGateway path used by the control plane.
-			// active_sandbox_count is a control-plane-owned observability signal
-			// written only via the gRPC AdjustActiveSandboxCount / SetActiveSandboxCount
-			// RPCs (readOnly on the REST Gateway schema); it is intentionally not
-			// settable via the public REST PATCH, and gRPC UpdateGateway refuses to
-			// mutate it as well.
-			if patch.Oidc != nil {
-				found.Oidc = patch.Oidc
-			}
-			if patch.Route != nil {
-				found.Route = patch.Route
-			}
-			if patch.CredentialDriver != nil {
-				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {
-					return nil, errors.Conflict("credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first")
-				}
-				found.CredentialDriver = patch.CredentialDriver
 			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)

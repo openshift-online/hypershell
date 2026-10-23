@@ -4092,25 +4092,41 @@ components:
             readOnly: true
             type: string
           external_dns:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           tls_mode:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           service_type:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           status:
+            description: Control-plane-observed operational status (PLAT-DATA-23)
+            readOnly: true
             type: string
           phase:
+            description: Control-plane-observed lifecycle phase (PLAT-DATA-23)
+            readOnly: true
             type: string
           image:
-            description: Container image for the gateway deployment
+            description: "Container image for the gateway deployment; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
             type: string
           supervisor_image:
-            description: Container image for the supervisor sidecar
+            description: "Container image for the supervisor sidecar; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
             type: string
           server_dns_names:
-            description: DNS names for TLS certificate SANs
+            description: "DNS names for TLS certificate SANs; platform-managed, control-plane-only\
+              \ (PLAT-DATA-23)"
             items:
               type: string
+            readOnly: true
             type: array
           route_address:
             description: External route address populated by the control plane
@@ -4143,10 +4159,14 @@ components:
             readOnly: true
             type: string
           route:
-            description: JSON-encoded route configuration
+            description: "JSON-encoded route configuration; platform-managed, control-plane-only\
+              \ (PLAT-DATA-23)"
+            readOnly: true
             type: string
           credential_driver:
-            description: JSON-encoded credential storage driver configuration
+            description: "JSON-encoded credential storage driver configuration; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
             type: string
           active_sandbox_count:
             description: Number of active (Running or Pending) agent sandboxes observed
@@ -4344,53 +4364,15 @@ components:
           namespace: namespace
           status: status
     GatewayPatchRequest:
+      description: "The only user-writable gateway field on update is name (rename).\
+        \ Every other gateway field is platform-managed and control-plane-only; it\
+        \ is not part of the update contract and is rejected if a user or import caller\
+        \ changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and\
+        \ Write Policy\", PLAT-DATA-23)."
       example:
-        phase: phase
-        image: image
-        server_dns_names:
-        - server_dns_names
-        - server_dns_names
-        credential_driver: credential_driver
-        route_address: route_address
-        oidc: oidc
-        supervisor_image: supervisor_image
-        cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         name: name
-        external_dns: external_dns
-        status: status
       properties:
         name:
-          type: string
-        cluster_id:
-          type: string
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-        supervisor_image:
-          type: string
-        server_dns_names:
-          items:
-            type: string
-          type: array
-        route_address:
-          type: string
-        oidc:
-          type: string
-        route:
-          type: string
-        credential_driver:
           type: string
       type: object
     GatewayPlacementIntent:
@@ -6137,24 +6119,15 @@ components:
           type: string
       type: object
     GatewayCreateRequest:
-      description: A gateway is created either pinned to a cluster (set cluster_id)
-        or late-bound by placement (set placement). Exactly one of cluster_id or placement
-        must be supplied. The web-console provision form submits only the placement
-        shape; the pinned shape is available to hsctl apply and the declarative .hypershell
-        import.
+      description: "A gateway is created with only its user-writable fields: a name,\
+        \ and exactly one of cluster_id (pinned) or placement (late-bound). Every\
+        \ other gateway field is platform-managed and control-plane-only; it is not\
+        \ part of the create contract and is rejected if supplied (data-model.spec.md\
+        \ \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).\
+        \ The web-console provision form submits the placement shape; the pinned shape\
+        \ is available to hsctl apply and the declarative .hypershell import."
       example:
-        phase: phase
-        image: image
-        server_dns_names:
-        - server_dns_names
-        - server_dns_names
-        credential_driver: credential_driver
-        oidc: oidc
-        supervisor_image: supervisor_image
         cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         name: name
         placement:
           mode: local-kind
@@ -6164,8 +6137,6 @@ components:
           selector:
           - selector
           - selector
-        external_dns: external_dns
-        status: status
       properties:
         name:
           type: string
@@ -6175,36 +6146,6 @@ components:
           type: string
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          description: Container image for the gateway deployment
-          type: string
-        supervisor_image:
-          description: Container image for the supervisor sidecar
-          type: string
-        server_dns_names:
-          description: DNS names for TLS certificate SANs
-          items:
-            type: string
-          type: array
-        oidc:
-          description: JSON-encoded OIDC authentication configuration
-          type: string
-        route:
-          description: JSON-encoded route configuration
-          type: string
-        credential_driver:
-          description: JSON-encoded credential storage driver configuration
-          type: string
       required:
       - name
       type: object
