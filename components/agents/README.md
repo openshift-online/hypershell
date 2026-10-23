@@ -6,10 +6,13 @@ Build context: repository root. Containerfiles: `Containerfile.agent-runtime` an
 | Contents | agent-runtime-slim | agent-runtime |
 | --- | --- | --- |
 | bash, coreutils, git, curl, jq, ripgrep, tar/gzip/unzip, find/diff/patch/which, CA roots | yes | yes |
-| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`) | yes | yes |
+| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`), `fullsend` CLI | yes | yes |
 | Go, Rust compiler/Cargo/Clippy/rustfmt/standard library/source | | yes |
 | Node.js 24, npm and pnpm 11.15.1 | | yes |
 | GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes |
+
+Both variants bake the same reviewed, SHA-256-locked CLI tools -- including the
+`fullsend` CLI -- via `install-tools.py`, so tooling never drifts between images.
 
 Rust comes from Red Hat's signed RPM toolchain, including its standard library
 and source; rustup and automatic toolchain downloads are not installed. Claude
