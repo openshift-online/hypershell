@@ -55,8 +55,8 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 			operationIDs[operation.OperationID] = method + " " + path
 		}
 	}
-	if operationCount != 86 {
-		t.Fatalf("embedded operation count = %d, want 86", operationCount)
+	if operationCount != 87 {
+		t.Fatalf("embedded operation count = %d, want 87", operationCount)
 	}
 	if operation := spec.Paths["/api/hypershell/v1/gateways/{gateway_id}/sandbox_events"].Get; operation == nil || operation.OperationID != "listGatewaySandboxEvents" {
 		t.Fatal("embedded specification is missing the sandbox events endpoint")
