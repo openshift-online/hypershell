@@ -167,7 +167,18 @@ console_in_container() {
 run_e2e_tests() {
   # -count=1: the suite tests live cluster state, so a cached result from an
   # earlier run would skip it and leave no e2e coverage.
-  run_step "e2e-go" env GOFLAGS="-count=1 ${GOFLAGS:-}" make e2e
+  # Reach the Kind ingress on its published port, so the run does not depend
+  # on the host's sudo port-443 redirect. An explicit setting wins.
+  local ingress_env=()
+  if [[ -z "${E2E_KIND_INGRESS_ADDR:-}" ]]; then
+    local ingress_addr
+    ingress_addr="$(kind_ingress_addr)"
+    if [[ -n "${ingress_addr}" ]]; then
+      info "Go e2e reaches the Kind ingress at ${ingress_addr} (no host port 443 needed)"
+      ingress_env=(E2E_KIND_INGRESS_ADDR="${ingress_addr}")
+    fi
+  fi
+  run_step "e2e-go" env ${ingress_env[@]+"${ingress_env[@]}"} GOFLAGS="-count=1 ${GOFLAGS:-}" make e2e
   if [[ "${COVERAGE_HSCTL_E2E}" == "true" ]]; then
     run_hsctl_e2e
   fi

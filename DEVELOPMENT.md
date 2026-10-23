@@ -825,7 +825,9 @@ results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
      `make test`.
    - The frontend unit tests with vitest coverage over all source files, not
      only the files each package's CI gate lists.
-   - `make e2e` against the cluster.
+   - `make e2e` against the cluster. It reaches the ingress on the
+     cloud-provider-kind proxy's published port, so it does not need the
+     port-443 redirect either.
    - The `hsctl` smoke test (`tests/e2e/e2e-hsctl.sh`) with an `hsctl` built
      by `go build -cover`. It writes coverage to a local folder, because
      `hsctl` runs on your machine, and keeps its login in a temporary config
