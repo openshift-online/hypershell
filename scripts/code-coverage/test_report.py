@@ -114,6 +114,16 @@ class ReportTest(unittest.TestCase):
         self.assertIn("| bff | 200 | 86.3% | 79.0% |", report)
         self.assertIn("| 200 | 86.0% | 23.5% | **87.5%** |", report)
 
+    # Verifies: DEV-LOC-18.05
+    def test_failed_steps_are_flagged_before_the_numbers(self):
+        report = mod.build_report(self.root, ["unit-go-api-server", "e2e-console"])
+        banner = report.index("**Incomplete run.**")
+        self.assertLess(banner, report.index("## Go services"))
+        self.assertIn("`unit-go-api-server`, `e2e-console`", report)
+
+    def test_no_banner_when_every_step_passed(self):
+        self.assertNotIn("Incomplete run", mod.build_report(self.root, []))
+
     def test_missing_inputs_say_not_run(self):
         report = self.build()
         self.assertIn("Frontend unit tests were not run.", report)

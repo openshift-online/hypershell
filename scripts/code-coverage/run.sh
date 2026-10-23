@@ -57,6 +57,7 @@ run_step() {
     warn "${name} failed (exit ${status}); see ${COVERAGE_DIR}/logs/${name}.log"
   fi
   echo ""
+  return "${status}"
 }
 
 # in_dir DIR COMMAND...: run COMMAND inside DIR (relative to the repo root).
@@ -71,8 +72,15 @@ go_unit() {
   local profile="${COVERAGE_DIR}/unit/go/${component}.out"
   case "${component}" in
     api-server)
-      # Same environment as `make test`: tests start PostgreSQL with testcontainers.
-      run_step "unit-go-api-server" in_dir components/api-server env API_ENV=integration_testing \
+      # Same environment as `make test`: tests start PostgreSQL with
+      # testcontainers. On a podman-only machine, point it at podman's socket.
+      local tc_env=()
+      read -r -a tc_env <<<"$(testcontainers_env)"
+      if [[ ${#tc_env[@]} -gt 0 ]]; then
+        info "No Docker socket; running testcontainers through podman (${tc_env[*]})"
+      fi
+      run_step "unit-go-api-server" in_dir components/api-server \
+        env ${tc_env[@]+"${tc_env[@]}"} API_ENV=integration_testing \
         go test -p 1 -count=1 -covermode=atomic -coverprofile="${profile}" ./...
       ;;
     *)
@@ -140,7 +148,15 @@ run_e2e_tests() {
     run_hsctl_e2e
   fi
   if [[ "${COVERAGE_CONSOLE_E2E}" == "true" ]]; then
-    run_step "e2e-console" make e2e-console
+    # Same browser setup CI runs before the console suite. A Linux host may
+    # also lack Chromium's system libraries; Playwright's message in this
+    # step's log names the command to install them.
+    if run_step "e2e-console-browser" pnpm --filter @openshift-online/hypershell-web-console \
+      exec playwright install chromium; then
+      run_step "e2e-console" make e2e-console
+    else
+      warn "Skipping e2e-console: Chromium is not usable (see e2e-console-browser.log)"
+    fi
   fi
 }
 
@@ -164,7 +180,8 @@ build_report() {
     node "${SCRIPT_DIR}/bff_report.mjs" "${REPO_ROOT}" "${COVERAGE_DIR}" ||
       FAILED+=("report-bff")
   fi
-  python3 "${SCRIPT_DIR}/report.py" "${COVERAGE_DIR}" || FAILED+=("report-summary")
+  python3 "${SCRIPT_DIR}/report.py" "${COVERAGE_DIR}" --failed-steps "${FAILED[*]-}" ||
+    FAILED+=("report-summary")
   local component
   for component in api-server control-plane cli; do
     [[ -f "${COVERAGE_DIR}/report/go/${component}.out" ]] || continue

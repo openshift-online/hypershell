@@ -771,7 +771,7 @@ The build options SHALL default to off, so release and Konflux builds are unchan
 4. Stop the instrumented pods, copy the coverage data off the Kind node, and start the pods again with their previous replica counts.
 5. Write `coverage/report/summary.md` with unit, e2e and combined coverage per component and per Go package, an HTML report per Go component, and an HTML report of the BFF e2e coverage.
 
-A failing test step SHALL NOT stop the run: the report SHALL still be built and `make coverage` SHALL exit non-zero. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
+A failing test step SHALL NOT stop the run: the report SHALL still be built, SHALL name the failed steps before any number, and `make coverage` SHALL exit non-zero. Before the console suite, `make coverage` SHALL install Playwright's Chromium the way CI does, and SHALL skip the console suite with a failed step when Chromium cannot be installed or started. On a machine with no Docker socket but a podman socket, the API server unit tests SHALL reach PostgreSQL through podman's socket. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -812,6 +812,7 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built and 
 - GIVEN a test step fails during `make coverage`
 - THEN the remaining steps SHALL still run and the report SHALL still be built
 - AND `make coverage` SHALL exit non-zero and name the failed steps
+- AND `coverage/report/summary.md` SHALL name the failed steps before any coverage number
 
 #### Scenario: DEV-LOC-18.06 -- CLI End-to-End Coverage
 - GIVEN a cluster deployed with `KIND_COVERAGE=true`
@@ -819,6 +820,13 @@ A failing test step SHALL NOT stop the run: the report SHALL still be built and 
 - THEN an `hsctl` binary SHALL be built with `go build -cover` and used for `tests/e2e/e2e-hsctl.sh`
 - AND the CLI row of the report SHALL show e2e and combined coverage instead of "not run"
 - AND the smoke test SHALL NOT change the developer's own `hsctl` configuration
+
+#### Scenario: DEV-LOC-18.07 -- Podman-Only Machine
+- GIVEN a machine with no Docker socket and a podman API socket (Linux rootless podman or a macOS podman machine)
+- AND `DOCKER_HOST` is unset
+- WHEN `make coverage` runs the API server unit tests
+- THEN it SHALL set `DOCKER_HOST` to podman's socket and `TESTCONTAINERS_RYUK_DISABLED=true` for that step
+- AND it SHALL leave the environment unchanged when a Docker socket exists or `DOCKER_HOST` is already set
 
 ## Environment Variable Reference
 
