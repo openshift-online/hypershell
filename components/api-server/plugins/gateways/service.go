@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -111,6 +112,13 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// Default-deny field policy: a user or import caller may create a gateway with only
+	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
+	// Only a control-plane internal write bypasses this.
+	if svcErr := enforceGatewayFieldPolicyCreate(rbac.GatewayWriterKindFromContext(ctx), gateway); svcErr != nil {
+		return nil, svcErr
+	}
+
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
@@ -145,6 +153,13 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
 	if getErr != nil {
 		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+	// Default-deny field policy: a user or import caller may change only name; any other
+	// changed field is rejected (PLAT-DATA-23 / SEC-RBAC-18). Re-sending an unchanged
+	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
+	// under the advisory lock so current is the authoritative stored state.
+	if svcErr := enforceGatewayFieldPolicyUpdate(rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
+		return nil, svcErr
 	}
 	newGeneration := current.Generation
 	if desiredStateChanged(current, gateway) {

@@ -1,13 +1,12 @@
 package gateways_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/resty.v1"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -19,21 +18,10 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity.
+	ctx := context.Background()
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -102,21 +90,10 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity.
+	ctx := context.Background()
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -167,21 +144,10 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity.
+	ctx := context.Background()
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -217,21 +183,10 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity.
+	ctx := context.Background()
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -275,21 +230,11 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity (the gRPC client carries its own
+	// control-plane credentials) and reads them back over REST as a user.
+	ctx := h.NewAuthenticatedContext(h.NewRandAccount())
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -336,21 +281,11 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity (the gRPC client carries its own
+	// control-plane credentials) and reads them back over REST as a user.
+	ctx := h.NewAuthenticatedContext(h.NewRandAccount())
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -415,21 +350,10 @@ func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// Provisioning conditions and phase are control-plane-owned fields (PLAT-DATA-23), so
+	// this test writes them as a control-plane identity.
+	ctx := context.Background()
+	grpcClient, _ := newControlPlaneGatewayClient(t, h)
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{

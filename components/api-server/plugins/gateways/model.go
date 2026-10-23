@@ -73,20 +73,3 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 	d.ObservedGeneration = 0
 	return nil
 }
-
-type GatewayPatchRequest struct {
-	Name             *string `json:"name,omitempty"`
-	ClusterId        *string `json:"cluster_id,omitempty"`
-	ExternalDns      *string `json:"external_dns,omitempty"`
-	TlsMode          *string `json:"tls_mode,omitempty"`
-	ServiceType      *string `json:"service_type,omitempty"`
-	Status           *string `json:"status,omitempty"`
-	Phase            *string `json:"phase,omitempty"`
-	Image            *string `json:"image,omitempty"`
-	SupervisorImage  *string `json:"supervisor_image,omitempty"`
-	ServerDnsNames   *string `json:"server_dns_names,omitempty"`
-	RouteAddress     *string `json:"route_address,omitempty"`
-	Oidc             *string `json:"oidc,omitempty"`
-	Route            *string `json:"route,omitempty"`
-	CredentialDriver *string `json:"credential_driver,omitempty"`
-}

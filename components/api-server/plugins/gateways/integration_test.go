@@ -52,12 +52,9 @@ func TestGatewayPost(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 
 	clusterID := registerTestCluster(t)
-	gatewayInput := managedGatewayCreateRequest("test-name")
-	gatewayInput.ExternalDns = openapi.PtrString("test-external_dns")
-	gatewayInput.TlsMode = openapi.PtrString("test-tls_mode")
-	gatewayInput.ServiceType = openapi.PtrString("test-service_type")
-	gatewayInput.Status = openapi.PtrString("test-status")
-	gatewayInput.Phase = openapi.PtrString("Provisioning")
+	// A user create carries only the user-writable allowlist: name + placement/cluster_id
+	// (PLAT-DATA-23). Platform-managed fields are not part of the create contract.
+	gatewayInput := openapi.GatewayCreateRequest{Name: "test-name", ClusterId: openapi.PtrString(clusterID)}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
@@ -67,6 +64,9 @@ func TestGatewayPost(t *testing.T) {
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
 	Expect(gatewayOutput.ClusterId).To(Equal(clusterID))
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+	// The platform-managed fields are control-plane-only and unset on a bare create.
+	Expect(gatewayOutput.GetImage()).To(BeEmpty())
+	Expect(gatewayOutput.GetExternalDns()).To(BeEmpty())
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
@@ -117,48 +117,26 @@ func TestGatewayPostRejectsDirectClusterID(t *testing.T) {
 	expectNoGatewayNamed(ctx, client, "direct-cluster")
 }
 
-// A PATCH that moves a gateway to an unregistered cluster is rejected; one that
-// re-sends the stored cluster_id is not a reassignment and is accepted.
-func TestGatewayPatchValidatesClusterReassignment(t *testing.T) {
+// The REST PATCH contract exposes only name (PLAT-DATA-23): cluster_id and every
+// platform-managed field are no longer user-writable on update. A rename is accepted and
+// leaves the control-plane-managed fields untouched.
+func TestGatewayPatchRenameOnly(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
 	registerTestCluster(t)
-	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(managedGatewayCreateRequest("patch-cluster")).Execute()
+	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(managedGatewayCreateRequest("patch-rename")).Execute()
 	Expect(err).NotTo(HaveOccurred())
 
-	_, resp, err := client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
-		ClusterId: openapi.PtrString(createManualCluster(t)),
-	}).Execute()
-	Expect(err).To(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-
-	_, resp, err = client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
-		ClusterId: openapi.PtrString(""),
-	}).Execute()
-	Expect(err).To(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-
-	other := registerTestCluster(t)
 	patched, resp, err := client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
-		ClusterId: openapi.PtrString(other),
+		Name: openapi.PtrString("renamed-gateway"),
 	}).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(patched.ClusterId).To(Equal(other))
-
-	// A legacy gateway (service-created with an unregistered cluster_id) can still
-	// have other fields edited when the PATCH re-sends its stored cluster_id.
-	legacy, err := newGateway(h.NewID())
-	Expect(err).NotTo(HaveOccurred())
-	_, resp, err = client.DefaultAPI.UpdateGateway(ctx, legacy.ID).GatewayPatchRequest(openapi.GatewayPatchRequest{
-		ClusterId: openapi.PtrString(legacy.ClusterId),
-		TlsMode:   openapi.PtrString("updated"),
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(patched.Name).To(Equal("renamed-gateway"))
+	Expect(patched.ClusterId).To(Equal(created.ClusterId))
 }
 
 func expectNoGatewayNamed(ctx context.Context, client *openapi.APIClient, name string) {
@@ -180,23 +158,6 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(gatewayOutput.GetRoute()).To(BeEmpty())
-}
-
-func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-
-	customRoute := `{"enabled":true,"host":"custom.example.com"}`
-	registerTestCluster(t)
-	gatewayInput := managedGatewayCreateRequest("route-explicit-test")
-	gatewayInput.Route = openapi.PtrString(customRoute)
-
-	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.GetRoute()).To(Equal(customRoute))
 }
 
 func TestGatewayPatch(t *testing.T) {
@@ -297,60 +258,6 @@ func TestGatewayPagingSortedByCreator(t *testing.T) {
 	Expect(list.Items).To(HaveLen(2))
 	Expect(list.Items[0].GetCreatedBy()).To(Equal("alpha-creator"))
 	Expect(list.Items[1].GetCreatedBy()).To(Equal("zulu-creator"))
-}
-
-func TestGatewayPostWithCredentialDriver(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-
-	credDriver := `{"type":"kubernetes-secrets","kubernetes_secrets":{"namespace":"creds-ns"}}`
-	registerTestCluster(t)
-	gatewayInput := managedGatewayCreateRequest("test-cred-driver")
-	gatewayInput.CredentialDriver = openapi.PtrString(credDriver)
-
-	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with credential_driver: %v", err)
-	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.CredentialDriver).NotTo(BeNil())
-	Expect(*gatewayOutput.CredentialDriver).To(Equal(credDriver))
-
-	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, *gatewayOutput.Id).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(retrieved.CredentialDriver).NotTo(BeNil())
-	// Read-back goes through the jsonb column, which canonicalizes whitespace,
-	// so compare JSON semantically rather than byte-for-byte.
-	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
-}
-
-func TestGatewayPatchCredentialDriver(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-
-	gatewayModel, err := newGateway(h.NewID())
-	Expect(err).NotTo(HaveOccurred())
-
-	credDriver := `{"type":"vault","vault":{"address":"https://vault.example.com","role":"gw-role"}}`
-	patchReq := openapi.GatewayPatchRequest{
-		CredentialDriver: openapi.PtrString(credDriver),
-	}
-
-	gatewayOutput, resp, err := client.DefaultAPI.UpdateGateway(ctx, gatewayModel.ID).GatewayPatchRequest(patchReq).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error patching credential_driver: %v", err)
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(gatewayOutput.CredentialDriver).NotTo(BeNil())
-	Expect(*gatewayOutput.CredentialDriver).To(Equal(credDriver))
-
-	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	// Read-back goes through the jsonb column, which canonicalizes whitespace,
-	// so compare JSON semantically rather than byte-for-byte.
-	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
 }
 
 func TestGatewayListSearch(t *testing.T) {

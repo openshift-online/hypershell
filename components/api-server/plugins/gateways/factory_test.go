@@ -4,9 +4,19 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
+
+// controlPlaneWriteContext marks a direct service write as the control-plane internal
+// reconcile path so it bypasses the default-deny gateway field policy (PLAT-DATA-23).
+// Test factories seed fully-provisioned gateways (platform-managed fields set) directly
+// through the service, which only the control plane may author; a user/import write of
+// those fields is rejected.
+func controlPlaneWriteContext() context.Context {
+	return rbac.WithGatewayWriterKind(context.Background(), rbac.GatewayWriterControlPlane)
+}
 
 func newGateway(id string) (*gateways.Gateway, error) {
 	gatewayService := gateways.Service(&environments.Environment().Services)
@@ -22,7 +32,7 @@ func newGateway(id string) (*gateways.Gateway, error) {
 		GatewayVersion: stringPtr("0.0.109"),
 	}
 
-	sub, err := gatewayService.Create(context.Background(), gateway)
+	sub, err := gatewayService.Create(controlPlaneWriteContext(), gateway)
 	if err != nil {
 		return nil, err
 	}
