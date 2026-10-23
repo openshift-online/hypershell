@@ -71,7 +71,7 @@ import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
-import { GATEWAY_COLOR, TEXT_COLOR, TONE_COLOR } from "./colors";
+import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
