@@ -14,6 +14,8 @@
 #   COVERAGE_E2E           Run the Go e2e suite and collect cluster data (default: true)
 #   COVERAGE_HSCTL_E2E     Also run the hsctl smoke test with a -cover hsctl (default: true)
 #   COVERAGE_CONSOLE_E2E   Also run the Playwright console suite (default: true)
+#   COVERAGE_CONSOLE_CONTAINER  Run that suite in the Playwright image on the Kind
+#                          network: auto (default: when the network exists), true, false
 #
 # Steps:
 #   1. Restart the instrumented pods with an empty coverage volume, so the
@@ -41,6 +43,7 @@ set +e
 : "${COVERAGE_E2E:=true}"
 : "${COVERAGE_HSCTL_E2E:=true}"
 : "${COVERAGE_CONSOLE_E2E:=true}"
+: "${COVERAGE_CONSOLE_CONTAINER:=auto}"
 
 FAILED=()
 
@@ -150,6 +153,17 @@ console_browser_ready() {
       'require("@playwright/test").chromium.launch().then((b) => b.close())'
 }
 
+# console_in_container: whether to run the console suite in the Playwright
+# container (tests/e2e/e2e-console-container.sh). auto picks it when the Kind
+# nodes' container network exists.
+console_in_container() {
+  case "${COVERAGE_CONSOLE_CONTAINER}" in
+    true) return 0 ;;
+    false) return 1 ;;
+  esac
+  ${CONTAINER_ENGINE} network inspect "${E2E_CONSOLE_KIND_NETWORK:-kind}" >/dev/null 2>&1
+}
+
 run_e2e_tests() {
   # -count=1: the suite tests live cluster state, so a cached result from an
   # earlier run would skip it and leave no e2e coverage.
@@ -158,11 +172,17 @@ run_e2e_tests() {
     run_hsctl_e2e
   fi
   if [[ "${COVERAGE_CONSOLE_E2E}" == "true" ]]; then
-    # Same browser setup CI runs before the console suite. A Linux host may
-    # also lack Chromium's system libraries; Playwright's message in this
-    # step's log names the command to install them.
-    if run_step "e2e-console-browser" console_browser_ready; then
-      run_step "e2e-console" make e2e-console
+    # CI runs the console suite in short mode; match it unless E2E_MODE is set.
+    local console_mode="${E2E_MODE:-short}"
+    if console_in_container; then
+      # The Playwright image brings Chromium and its libraries, and the Kind
+      # network reaches the gateway on 443: no host port forwarding needed.
+      run_step "e2e-console" env E2E_MODE="${console_mode}" E2E_CONSOLE_CONTAINER=true make e2e-console
+    elif run_step "e2e-console-browser" console_browser_ready; then
+      # Same browser setup CI runs before the console suite. A Linux host may
+      # also lack Chromium's system libraries; Playwright's message in this
+      # step's log names the command to install them.
+      run_step "e2e-console" env E2E_MODE="${console_mode}" make e2e-console
     else
       warn "Skipping e2e-console: Chromium is not usable (see e2e-console-browser.log)"
     fi
