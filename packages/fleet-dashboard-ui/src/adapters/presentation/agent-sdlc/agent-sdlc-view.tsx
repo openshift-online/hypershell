@@ -2354,24 +2354,29 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   }, [props.agents]);
 
   // Local ephemeral state for the agent detail panel (SDLC-AGT-08). A route-driven
-  // panel (card detail, shipped detail, notifications) supersedes it.
+  // panel (card detail, shipped detail, notifications) supersedes it. Reset during
+  // render (the React-recommended "adjust state when a prop changes" pattern,
+  // precedented in NodeDetails's cursor reset) rather than in an effect, so there
+  // is no extra render pass and no synchronous setState-in-effect.
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(
     null,
   );
+  const routePanelActive =
+    route.sdlc.card !== null ||
+    route.sdlc.shipped !== null ||
+    showNotifications;
+  const [wasRoutePanelActive, setWasRoutePanelActive] =
+    useState(routePanelActive);
+  if (routePanelActive !== wasRoutePanelActive) {
+    setWasRoutePanelActive(routePanelActive);
+    if (routePanelActive) {
+      setSelectedAgentName(null);
+    }
+  }
   const selectedAgent =
     selectedAgentName !== null
       ? (agentByName.get(selectedAgentName) ?? null)
       : null;
-
-  useEffect(() => {
-    if (
-      route.sdlc.card !== null ||
-      route.sdlc.shipped !== null ||
-      showNotifications
-    ) {
-      setSelectedAgentName(null);
-    }
-  }, [route.sdlc.card, route.sdlc.shipped, showNotifications]);
 
   // Escape closes the side panel (card detail or escalations). An open select menu
   // handles its own Escape first (guarded on an open listbox), so it isn't swallowed.
