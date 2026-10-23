@@ -665,14 +665,27 @@ standard.
 
 ### Requirement: OSG-CRED-13 -- Credential Driver Immutability
 
-The `credential_driver` configuration on a Gateway SHALL be immutable after the gateway
-has stored provider credentials. Changing the driver would orphan credentials in the
-previous backend.
+`credential_driver` is control-plane-managed and is not user- or import-writable
+(`data-model.spec.md` PLAT-DATA-23); a user or import write of the field is
+rejected unconditionally by the field-ownership policy, independent of whether
+credentials have been stored. This requirement governs the remaining writer, the
+control plane: the `credential_driver` configuration on a Gateway SHALL be
+immutable after the gateway has stored provider credentials, because changing the
+driver would orphan credentials in the previous backend.
 
-#### Scenario: OSG-CRED-13.01 -- Attempt to change credential driver
+#### Scenario: OSG-CRED-13.01 -- User or import write of credential driver is rejected
+
+- GIVEN a Gateway with `credential_driver.type` = `vault`
+- WHEN a user or import caller attempts to set `credential_driver.type` to
+  `kubernetes-secrets`
+- THEN the API server SHALL reject the write under the field-ownership policy
+  (`403` / `PermissionDenied`), independent of whether provider credentials have
+  been stored
+
+#### Scenario: OSG-CRED-13.02 -- Control-plane driver change after credentials are stored is rejected
 
 - GIVEN a Gateway with `credential_driver.type` = `vault` that has active provider credentials
-- WHEN a user attempts to change `credential_driver.type` to `kubernetes-secrets`
+- WHEN the control plane attempts to change `credential_driver.type` to `kubernetes-secrets`
 - THEN the API server SHALL reject the update with error: `credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first`
 
 > **Phase 2 (reserved):** Automated credential migration between drivers.
