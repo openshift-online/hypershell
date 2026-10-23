@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
+	"github.com/openshift-online/hypershell/tests/e2e/driver"
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
@@ -168,7 +169,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	s.deleteSandboxAndWaitForCount(t, developerLocal, name, s.primary.ID, 0)
 }
 
-// Verifies: OSG-SACC-04.01
+// Verifies: OSG-SACC-04.01, OSG-SACC-18.01, OSG-SACC-18.02, OSG-SACC-18.03
 func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	ctx := t.Context()
 	expires := time.Now().UTC().Add(2 * time.Hour)
@@ -211,7 +212,94 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 		s.Require().NoError(validateGatewayServiceAccountClaims(claims, created), "gateway service-account token claims")
 	}
 
-	_, err := s.admin.OpenShellGatewayServiceAccounts().Revoke(ctx, s.primary.ID, created.ID)
+	// In-place role update: the account becomes openshell-user without replacing
+	// its client credentials. The token minted before the change keeps the prior
+	// role until it expires; the next grant carries the new role only.
+	preUpdateToken, status, tokenErr := requestClientCredentialsToken(ctx, created.Credential)
+	s.Require().NoError(tokenErr, "mint token before the role update")
+	s.Require().Equal(http.StatusOK, status)
+	description := "e2e role-update " + s.runID
+	updated, err := s.admin.OpenShellGatewayServiceAccounts().UpdateRole(ctx, s.primary.ID, created.ID,
+		&sdktypes.OpenShellGatewayServiceAccountRoleUpdateRequest{
+			Role:        sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser,
+			Description: &description,
+		})
+	s.Require().NoError(err, "update gateway service-account role in place")
+	s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser, updated.Role)
+	s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountStatusReady, updated.Status)
+	s.Require().Equal(description, *updated.Description)
+
+	postUpdateToken, status, tokenErr := requestClientCredentialsToken(ctx, created.Credential)
+	s.Require().NoError(tokenErr, "mint token after the role update")
+	s.Require().Equal(http.StatusOK, status)
+	postClaims, decodeErr := decodeJWTClaims(postUpdateToken)
+	s.Require().NoError(decodeErr, "decode post-update gateway service-account token")
+	s.Require().Equal(created.Credential.Issuer, postClaims["iss"], "issuer unchanged by the role update")
+	s.Require().Equal(created.Subject, postClaims["sub"], "subject unchanged by the role update")
+	s.Require().Equal([]string{created.Credential.Audience}, jwtAudiences(postClaims), "audience unchanged by the role update")
+	s.Require().Equal(map[string]bool{"openshell-user": true}, jwtHypershellRoles(postClaims),
+		"post-update token carries only openshell-user")
+
+	preClaims, decodeErr := decodeJWTClaims(preUpdateToken)
+	s.Require().NoError(decodeErr, "decode pre-update gateway service-account token")
+	s.Require().Equal(map[string]bool{"openshell-admin": true, "openshell-user": true}, jwtHypershellRoles(preClaims),
+		"token issued before the role update keeps the prior roles until it expires")
+
+	// The requested role is capped at the account creator's current gateway
+	// binding, not the actor's: an owner cannot raise a viewer-created account to
+	// openshell-admin, and the viewer cannot request it either. It needs a second
+	// principal, so it runs only in the Kind password-grant environment, the same
+	// condition P2.5 uses for its secondary-user matrix.
+	s.Run("creator-cap", func() {
+		if s.driver.Name() != "kind" || envOrDefault("E2E_OIDC_GRANT", "password") != "password" {
+			t.Skipf("creator-cap check requires the Kind password-grant environment (driver %s, grant %s)", s.driver.Name(), envOrDefault("E2E_OIDC_GRANT", "password"))
+		}
+		viewerUsername := "e2e-sa-cap-" + s.runID
+		viewerPassword := "E2e-sa-cap-" + s.runID + "!"
+		s.Require().NoError(s.driver.CreateTestUser(ctx, viewerUsername, viewerPassword), "create viewer user for the creator-cap check")
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := s.driver.DeleteTestUser(cleanupCtx, viewerUsername); err != nil {
+				t.Errorf("delete viewer user: %v", err)
+			}
+		}()
+		grant, err := s.admin.GatewayAccesses().Create(ctx, s.primary.ID, &sdktypes.GatewayAccessGrantRequest{
+			Username: viewerUsername,
+			Role:     sdktypes.GatewayAccessRoleUser,
+		})
+		s.Require().NoError(err, "owner grants the viewer user access")
+		defer func() {
+			_, _ = s.admin.GatewayAccesses().Delete(ctx, s.primary.ID, grant.UserID)
+		}()
+
+		viewerAPI := s.apiClientForCreds(t, driver.Credentials{Username: viewerUsername, Password: viewerPassword})
+		viewerAccount, err := viewerAPI.OpenShellGatewayServiceAccounts().Create(ctx, s.primary.ID,
+			&sdktypes.OpenShellGatewayServiceAccountCreateRequest{
+				Name:           "e2e-sa-cap-" + s.runID,
+				Role:           sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser,
+				CredentialType: "client_secret",
+				ExpiresAt:      &expires,
+			})
+		s.Require().NoError(err, "viewer creates an openshell-user service account")
+		s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser, viewerAccount.Role)
+		defer func() {
+			_, _ = s.admin.OpenShellGatewayServiceAccounts().Delete(ctx, s.primary.ID, viewerAccount.ID)
+		}()
+
+		rolePath := fmt.Sprintf("/gateways/%s/service_accounts/%s/role", s.primary.ID, viewerAccount.ID)
+		capStatus, capBody, err := viewerAPI.RawJSON(ctx, http.MethodPost, rolePath,
+			sdktypes.OpenShellGatewayServiceAccountRoleUpdateRequest{Role: sdktypes.OpenShellGatewayServiceAccountRoleOpenshellAdmin})
+		s.Require().NoError(err, "viewer role-update request")
+		s.Assert().Equalf(http.StatusForbidden, capStatus, "viewer cannot raise its own service account above the creator ceiling (body: %s)", string(capBody))
+
+		capStatus, capBody, err = s.admin.RawJSON(ctx, http.MethodPost, rolePath,
+			sdktypes.OpenShellGatewayServiceAccountRoleUpdateRequest{Role: sdktypes.OpenShellGatewayServiceAccountRoleOpenshellAdmin})
+		s.Require().NoError(err, "owner role-update request on a viewer-created account")
+		s.Assert().Equalf(http.StatusForbidden, capStatus, "owner cannot raise a viewer-created service account above its creator's ceiling (body: %s)", string(capBody))
+	})
+
+	_, err = s.admin.OpenShellGatewayServiceAccounts().Revoke(ctx, s.primary.ID, created.ID)
 	s.Require().NoError(err, "revoke gateway service account")
 	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 90*time.Second, func(ctx context.Context) (bool, error) {
 		_, status, err := requestClientCredentialsToken(ctx, created.Credential)
@@ -248,6 +336,35 @@ func accessListContains(items []sdktypes.GatewayAccessListItem, username string)
 func requestClientCredentialsToken(ctx context.Context, credential sdktypes.OpenShellGatewayServiceAccountCredential) (string, int, error) {
 	result, err := postClientCredentials(ctx, http.DefaultClient, credential)
 	return result.AccessToken, result.Status, err
+}
+
+// jwtAudiences returns the token's aud claim as a normalized string slice.
+func jwtAudiences(claims map[string]any) []string {
+	var audiences []string
+	switch value := claims["aud"].(type) {
+	case string:
+		audiences = []string{value}
+	case []any:
+		for _, item := range value {
+			if audience, ok := item.(string); ok {
+				audiences = append(audiences, audience)
+			}
+		}
+	}
+	return audiences
+}
+
+// jwtHypershellRoles returns the hypershell.roles claim as a set.
+func jwtHypershellRoles(claims map[string]any) map[string]bool {
+	hypershell, _ := claims["hypershell"].(map[string]any)
+	rolesValue, _ := hypershell["roles"].([]any)
+	roles := map[string]bool{}
+	for _, value := range rolesValue {
+		if role, ok := value.(string); ok {
+			roles[role] = true
+		}
+	}
+	return roles
 }
 
 // tokenEndpointResult is the outcome of one client-credentials request. A refusal
