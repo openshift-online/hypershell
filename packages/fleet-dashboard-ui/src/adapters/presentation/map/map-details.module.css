@@ -264,6 +264,7 @@
   gap: 4px;
   aspect-ratio: 1 / 1;
   min-height: 92px;
+  max-height: 180px;
   padding: 10px 12px;
   background: rgba(0, 0, 0, 0.22);
   border-radius: 10px;
