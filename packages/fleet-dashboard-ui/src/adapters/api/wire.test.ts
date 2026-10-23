@@ -13,6 +13,7 @@ import {
   mapInstances,
   mapPromotion,
   mapSdlc,
+  mapSdlcAgents,
   mapTopology,
 } from "./wire";
 
@@ -580,5 +581,84 @@ describe("mapE2eStreamEvent", () => {
   it("returns null for an unknown event name so the frame is skipped", () => {
     expect(mapE2eStreamEvent({ event: "mystery", sequence: 1 })).toBeNull();
     expect(mapE2eStreamEvent(null)).toBeNull();
+  });
+});
+
+describe("mapSdlcAgents", () => {
+  // Verifies: SDLC-AGT-02.01
+  it("projects the full plane shape (camelCase wire -> domain)", () => {
+    const data = mapSdlcAgents({
+      envs: ["integration", "production"],
+      agents: [
+        {
+          name: "spec-review",
+          env: "integration",
+          replicasOn: 2,
+          replicasTotal: 3,
+          queueDepth: 5,
+          itemsProcessed: 120,
+          itemsFailed: 1,
+          provisionSeconds: 45.5,
+          series: {
+            times: [100, 200],
+            queueDepth: [4, 5],
+            itemsProcessed: [118, 120],
+            itemsFailed: [0, 1],
+            provisionSeconds: [40, 45.5],
+          },
+        },
+      ],
+    });
+
+    expect(data.envs).toEqual(["integration", "production"]);
+    expect(data.agents).toHaveLength(1);
+    expect(data.agents[0]).toEqual({
+      name: "spec-review",
+      env: "integration",
+      replicasOn: 2,
+      replicasTotal: 3,
+      queueDepth: 5,
+      itemsProcessed: 120,
+      itemsFailed: 1,
+      provisionSeconds: 45.5,
+      series: {
+        times: [100, 200],
+        queueDepth: [4, 5],
+        itemsProcessed: [118, 120],
+        itemsFailed: [0, 1],
+        provisionSeconds: [40, 45.5],
+      },
+    });
+  });
+
+  // Verifies: SDLC-AGT-02.02
+  it('defaults missing fields to "" / 0 / [] rather than throwing', () => {
+    const data = mapSdlcAgents({ agents: [{}] });
+
+    expect(data.envs).toEqual([]);
+    expect(data.agents).toEqual([
+      {
+        name: "",
+        env: "",
+        replicasOn: 0,
+        replicasTotal: 0,
+        queueDepth: 0,
+        itemsProcessed: 0,
+        itemsFailed: 0,
+        provisionSeconds: 0,
+        series: {
+          times: [],
+          queueDepth: [],
+          itemsProcessed: [],
+          itemsFailed: [],
+          provisionSeconds: [],
+        },
+      },
+    ]);
+  });
+
+  it("tolerates a null/non-record payload", () => {
+    expect(mapSdlcAgents(null)).toEqual({ envs: [], agents: [] });
+    expect(mapSdlcAgents(undefined)).toEqual({ envs: [], agents: [] });
   });
 });
