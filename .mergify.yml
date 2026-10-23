@@ -388,6 +388,7 @@ scopes:
           - .gitignore
           - .gitattributes
           - .coderabbit.yaml
+          - codecov.yml
           - .forbidden-terms-whitelist.json
           - .skillspector-baseline.yaml
           - .snyk
