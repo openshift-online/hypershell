@@ -1205,7 +1205,7 @@ Change detection SHALL run exactly once per workflow, in a `detect-changes` job 
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/unit-tests.yml` (`on: workflow_call`) that runs unit tests concurrently with the E2E stage. It SHALL receive the changed-component flags as `workflow_call` inputs and gate conditional jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result up into the required check, so it has no summary or gate job of its own. Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile.
 
-Each Go unit job SHALL write a coverage profile and upload it to the App-SRE Codecov instance (the `codecov-appsre` GitHub App) through `scripts/codecov-upload.sh`, with one Codecov flag per Go module (`api-server`, `control-plane`, `cli`, `sdk-generator`) configured in the root `codecov.yml` with carryforward, so a module skipped by change detection keeps its last coverage. Uploads SHALL run only for `pull_request` and `push` events and SHALL attach PR coverage to the PR head commit. The upload SHALL skip with exit 0 when the `CODECOV_TOKEN` secret is unavailable (fork pull requests), and an upload failure SHALL NOT fail the job, so coverage reporting never blocks a merge. Codecov statuses SHALL be informational until the project sets coverage targets.
+Each Go unit job SHALL write a coverage profile and upload it to the App-SRE Codecov instance (the `codecov-appsre` GitHub App) through `scripts/codecov-upload.sh`, with one Codecov flag per Go module (`api-server`, `control-plane`, `cli`, `sdk-generator`) configured in the root `codecov.yml` with carryforward, so a module skipped by change detection keeps its last coverage. Uploads SHALL run only for `pull_request` and `push` events and SHALL attach PR coverage to the PR head commit. The upload SHALL skip with exit 0 when the `CODECOV_TOKEN` secret is unavailable (fork pull requests), and an upload failure SHALL NOT fail the job, so coverage reporting never blocks a merge. Codecov statuses SHALL be informational until the project sets coverage targets. Before uploading, `scripts/codecov-upload.sh` SHALL remove generated code from a copy of the profile (protobuf and gateway stubs, mocks, `zz_generated` files, and the generated OpenAPI client, the same set as `ignore` in `codecov.yml`) and upload that copy, so generated code is never counted even when Codecov processes a report without the repository's `codecov.yml`. The original profile SHALL stay unchanged.
 
 The root Makefile SHALL provide a `make unit-test-all` target that runs the same unit test suites as the CI jobs (API server, control plane, CLI/SDK generators, frontend packages, and shell tests) unconditionally -- without the per-component change detection the CI workflow uses -- so a developer can run the full suite locally before pushing. It SHALL provide a `make ci-test` target that runs only the auto-discovered `*_test.sh` shell tests, matching the CI shell-test job.
 
@@ -1252,6 +1252,13 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 - WHEN the `tests.yml` orchestrator runs
 - THEN the `e2e` stage SHALL still start and run to completion
 - AND the `Tests CI Gate` check SHALL fail because the `unit` stage's result is `failure`
+
+#### Scenario: E2E-CORE-24.07 -- Generated Code Excluded From Codecov
+
+- GIVEN a Go coverage profile with blocks from generated files (`*.pb.go`, `*_grpc.pb.go`, `mock_*.go`, `zz_generated*.go`, `components/api-server/pkg/api/openapi/`) and from hand-written files
+- WHEN `scripts/codecov-upload.sh` uploads it
+- THEN the Codecov CLI SHALL receive only the `mode:` line and the hand-written blocks
+- AND the original profile SHALL be unchanged
 
 ### Requirement: E2E-CORE-25 -- CI E2E Workflow
 
