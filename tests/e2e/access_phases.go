@@ -251,8 +251,12 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	// principal, so it runs only in the Kind password-grant environment, the same
 	// condition P2.5 uses for its secondary-user matrix.
 	s.Run("creator-cap", func() {
+		// s.Run swaps the suite's testing.T to this subtest, so skips and
+		// cleanup errors must target s.T(); calling Skipf on the captured
+		// outer t would FailNow the parent step (panic(nil)/Goexit).
+		subt := s.T()
 		if s.driver.Name() != "kind" || envOrDefault("E2E_OIDC_GRANT", "password") != "password" {
-			t.Skipf("creator-cap check requires the Kind password-grant environment (driver %s, grant %s)", s.driver.Name(), envOrDefault("E2E_OIDC_GRANT", "password"))
+			subt.Skipf("creator-cap check requires the Kind password-grant environment (driver %s, grant %s)", s.driver.Name(), envOrDefault("E2E_OIDC_GRANT", "password"))
 		}
 		viewerUsername := "e2e-sa-cap-" + s.runID
 		viewerPassword := "E2e-sa-cap-" + s.runID + "!"
@@ -261,7 +265,7 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := s.driver.DeleteTestUser(cleanupCtx, viewerUsername); err != nil {
-				t.Errorf("delete viewer user: %v", err)
+				subt.Errorf("delete viewer user: %v", err)
 			}
 		}()
 		grant, err := s.admin.GatewayAccesses().Create(ctx, s.primary.ID, &sdktypes.GatewayAccessGrantRequest{
@@ -273,7 +277,7 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 			_, _ = s.admin.GatewayAccesses().Delete(ctx, s.primary.ID, grant.UserID)
 		}()
 
-		viewerAPI := s.apiClientForCreds(t, driver.Credentials{Username: viewerUsername, Password: viewerPassword})
+		viewerAPI := s.apiClientForCreds(subt, driver.Credentials{Username: viewerUsername, Password: viewerPassword})
 		viewerAccount, err := viewerAPI.OpenShellGatewayServiceAccounts().Create(ctx, s.primary.ID,
 			&sdktypes.OpenShellGatewayServiceAccountCreateRequest{
 				Name:           "e2e-sa-cap-" + s.runID,
