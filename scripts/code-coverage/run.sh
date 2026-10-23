@@ -140,6 +140,16 @@ run_hsctl_e2e() {
   run_step "e2e-hsctl" env HSCTL="${bin}" GOCOVERDIR="${data}" bash tests/e2e/e2e-hsctl.sh
 }
 
+# console_browser_ready: install Playwright's Chromium (as CI does), then start
+# it once. `playwright install` only warns when the host lacks Chromium's system
+# libraries, so the launch is what proves the console suite can run.
+console_browser_ready() {
+  local pkg=@openshift-online/hypershell-web-console
+  pnpm --filter "${pkg}" exec playwright install chromium &&
+    pnpm --filter "${pkg}" exec node -e \
+      'require("@playwright/test").chromium.launch().then((b) => b.close())'
+}
+
 run_e2e_tests() {
   # -count=1: the suite tests live cluster state, so a cached result from an
   # earlier run would skip it and leave no e2e coverage.
@@ -151,8 +161,7 @@ run_e2e_tests() {
     # Same browser setup CI runs before the console suite. A Linux host may
     # also lack Chromium's system libraries; Playwright's message in this
     # step's log names the command to install them.
-    if run_step "e2e-console-browser" pnpm --filter @openshift-online/hypershell-web-console \
-      exec playwright install chromium; then
+    if run_step "e2e-console-browser" console_browser_ready; then
       run_step "e2e-console" make e2e-console
     else
       warn "Skipping e2e-console: Chromium is not usable (see e2e-console-browser.log)"
