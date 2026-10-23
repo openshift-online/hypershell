@@ -250,6 +250,7 @@ describe("ProvisioningDashboardPage", () => {
     expect(screen.getAllByText("Last 30 days")).toHaveLength(3);
   });
 
+  // Verifies: WEB-OPS-17.03
   it("does not render a historical trend in the pods widget", () => {
     renderProvisioningDashboard([
       {
@@ -273,6 +274,7 @@ describe("ProvisioningDashboardPage", () => {
       },
     ]);
 
+    expect(screen.getByText("of 100 pods")).toBeTruthy();
     expect(
       document.querySelector(".hypershell-dashboard-sparkline-chart__caption"),
     ).toBeNull();
