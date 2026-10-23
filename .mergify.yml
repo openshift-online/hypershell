@@ -396,6 +396,7 @@ scopes:
           - apm.yml
           - apm.lock.yaml
           - lefthook.yml
+          - .pre-commit-config.yaml
           - go.mod
           - go.sum
           - dependency-age-tools.json
