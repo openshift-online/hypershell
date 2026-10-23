@@ -196,8 +196,6 @@ export interface MapDetailsProps {
   readonly onSelectBundle: (seed: string) => void;
   /** Selects an instance node (from a "Deployed on" chip in the bundle panel). */
   readonly onSelectNode: (id: string) => void;
-  /** SDLC agent rows grouped by environment, for the per-cluster Agents tab. */
-  readonly agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
 }
 
 const PROMO_LABEL: Record<
@@ -1038,12 +1036,10 @@ function NodeDetails({
   node,
   releaseByDigest,
   onSelectBundle,
-  agentsByEnv,
 }: {
   node: MapNode;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
-  agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
 }): React.ReactElement {
   // The node drawer sub-tab is URL-represented (FLT-NAV-09); the temporal cursor
   // below stays transient.
@@ -1128,7 +1124,7 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <NodeAgents agents={agentsByEnv?.get(node.id) ?? []} />
+          <NodeAgents agents={[]} />
         </div>
       </Tab>
       <Tab
@@ -1301,7 +1297,6 @@ export function MapDetails({
   onSelectBundle,
   onSelectNode,
   e2e,
-  agentsByEnv,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -1363,7 +1358,6 @@ export function MapDetails({
           node={node}
           releaseByDigest={releaseByDigest}
           onSelectBundle={onSelectBundle}
-          agentsByEnv={agentsByEnv}
         />
       ) : null}
       {selection.kind === "gate" ? (
