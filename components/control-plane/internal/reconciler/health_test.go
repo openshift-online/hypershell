@@ -552,10 +552,13 @@ func TestIsRoutedGateway(t *testing.T) {
 		route *string
 		want  bool
 	}{
-		{"nil route", nil, false},
-		{"empty route", str(""), false},
-		{"whitespace route", str("  "), false},
-		{"null route", str("null"), false},
+		// Routing is platform-managed and enabled by default (PLAT-DATA-23): a
+		// user or GitOps import never sets route, so an absent/empty route is the
+		// common case for every user-created gateway and resolves to routed.
+		{"nil route", nil, true},
+		{"empty route", str(""), true},
+		{"whitespace route", str("  "), true},
+		{"null route", str("null"), true},
 		{"empty object", str("{}"), true},
 		{"enabled route", str(`{"enabled":true}`), true},
 		{"disabled route", str(`{"enabled":false}`), false},

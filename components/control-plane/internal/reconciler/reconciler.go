@@ -506,14 +506,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.OIDC = oidcConfig
 	}
 
-	if gw.Route != nil {
-		routeConfig, err := parseGatewayRouteConfig(*gw.Route)
-		if err != nil {
-			reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gwConfig.Route = routeConfig
+	// Routing is platform-managed and enabled by default (PLAT-DATA-23). A user
+	// or GitOps import never sets route, so gw.Route is nil for every such
+	// gateway; the control plane routes it (gated by the cluster ingress mode)
+	// and derives its ingress hostname. An explicit route the control plane
+	// itself authored still wins.
+	routeConfig, err := effectiveRouteConfig(gw)
+	if err != nil {
+		reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
+		return reconcileErr
 	}
+	gwConfig.Route = routeConfig
 
 	if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
 		var credDriverConfig gateway.CredentialDriverConfig
@@ -965,12 +968,26 @@ func parseGatewayRouteConfig(raw string) (gateway.RouteConfig, error) {
 	return config, nil
 }
 
+// effectiveRouteConfig resolves the route config the control plane provisions
+// for a gateway. Routing is platform-managed (PLAT-DATA-23) and enabled by
+// default: a user or GitOps import never sets route, so an absent or empty
+// route resolves to enabled (the actual creation of route resources is still
+// gated by the cluster's ingress mode) and the control plane derives the
+// ingress hostname. An explicit route the control plane authored still wins.
+func effectiveRouteConfig(gw *pb.Gateway) (gateway.RouteConfig, error) {
+	if gw.Route == nil {
+		return gateway.RouteConfig{Enabled: true}, nil
+	}
+	trimmed := strings.TrimSpace(*gw.Route)
+	if trimmed == "" || trimmed == "null" {
+		return gateway.RouteConfig{Enabled: true}, nil
+	}
+	return parseGatewayRouteConfig(trimmed)
+}
+
 // isRoutedGateway reports whether a Gateway enables external route exposure.
 func isRoutedGateway(gw *pb.Gateway) bool {
-	if gw.Route == nil {
-		return false
-	}
-	routeConfig, err := parseGatewayRouteConfig(*gw.Route)
+	routeConfig, err := effectiveRouteConfig(gw)
 	if err != nil {
 		// The provisioning path reports invalid configuration. Preserve the
 		// exposure until that path can resolve the invalid value.
