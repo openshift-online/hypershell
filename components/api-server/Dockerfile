@@ -23,7 +23,15 @@ COPY openapi/ openapi/
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -ldflags="-s -w \
+# GO_COVERAGE=true builds a coverage-instrumented binary for local Kind runs
+# (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
+# Release builds leave it off.
+ARG GO_COVERAGE=false
+RUN cover_flags=""; \
+  if [ "${GO_COVERAGE}" = "true" ]; then \
+    cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/api-server/..."; \
+  fi; \
+  CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
   -X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=${GIT_VERSION} \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell

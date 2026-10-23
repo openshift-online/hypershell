@@ -86,6 +86,23 @@ assert_eq "2reg" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local
 pin_fn_defined() { declare -F pin_controller_gateway_db_hosts >/dev/null; }
 assert_ok "pin_controller_gateway_db_hosts is defined" pin_fn_defined
 
+# Coverage build arguments follow KIND_COVERAGE.
+# Verifies: DEV-LOC-18.01, DEV-LOC-18.02
+KIND_COVERAGE=""
+assert_fail "coverage is off by default" coverage_enabled
+assert_eq "" "$(coverage_build_args api-server)" "no build args when coverage is off"
+KIND_COVERAGE=true
+assert_ok "KIND_COVERAGE=true enables coverage" coverage_enabled
+assert_eq "--build-arg GO_COVERAGE=true" "$(coverage_build_args api-server)" "api-server gets a -cover build"
+assert_eq "--build-arg GO_COVERAGE=true" "$(coverage_build_args control-plane)" "control-plane gets a -cover build"
+assert_eq "--build-arg BFF_SOURCE_MAPS=true" "$(coverage_build_args web-console)" "web-console gets BFF source maps"
+assert_fail "unknown component is rejected" coverage_build_args unknown 2>/dev/null
+read -r -a _cov_args <<<"$(coverage_build_args api-server)"
+assert_eq "2" "${#_cov_args[@]}" "build args split into two words for the container engine"
+KIND_COVERAGE=false
+assert_fail "KIND_COVERAGE=false keeps coverage off" coverage_enabled
+unset KIND_COVERAGE
+
 echo "Kind swap ledger tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then
   exit 1
