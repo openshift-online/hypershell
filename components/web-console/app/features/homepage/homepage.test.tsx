@@ -3,6 +3,8 @@ import { IntlProvider } from "react-intl";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
+import { externalLinkUrls } from "@openshift-online/hypershell-gateway-management-ui";
+
 import type {
   HomepagePlatformOverview,
   HomepageSummary,
@@ -251,7 +253,7 @@ describe("HomepagePageSurface", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open in Slack" }).getAttribute("href"),
-    ).toBe("https://app.slack.com/client/E030G10V24F/C0BR5DM47Q9");
+    ).toBe(externalLinkUrls.supportSlackChannel);
   });
 
   it("renders a healthy gateway summary", () => {

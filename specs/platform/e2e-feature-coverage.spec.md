@@ -65,7 +65,7 @@ suite's three-outcome skip idiom (as the matrix uses `E2E_MANAGED_SKIP_UNHEALTHY
 never a false pass. The halves Kind can host (the Kubernetes Secrets credential
 driver, the full `role_bindings` sharing flow, CLI/UI parity, and the
 metric-signal half of alerting) run in long mode on every target, including the
-Kind merge-queue gate's long runs.
+Kind CI's long runs.
 
 ### Scope
 
@@ -570,7 +570,7 @@ cross-component addition reuses the existing `E2E_MULTICLUSTER` and
   better layer (a prior phase, or a unit test the owning spec assigns), so it is
   left to those layers.
 - **Opt-in backends skip, they do not block.** Vault, Kata, and alert-firing need
-  infrastructure the Kind merge-queue gate does not provide. Rather than reusing
+  infrastructure the Kind CI environment does not provide. Rather than reusing
   the Bash suite's `E2E_QUALIFY_*` qualification flags (still live in
   `tests/e2e/lib.sh` for the console suite), each is a new opt-in flag of the Go
   suite whose step `t.Skipf`s (the suite's three-outcome skip idiom)

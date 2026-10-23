@@ -1,0 +1,22 @@
+# Acknowledged-unclassified tracked paths for the Mergify scope coverage audit
+# (CICD-MRG-08, specs/platform/mergify-parallel-merge-queue.spec.md).
+#
+# scripts/check_mergify_scopes.py fails when a tracked file matches no Mergify
+# scope include and no barrier file. Paths listed here are the explicit owner
+# decision that they intentionally have no application consumer lane: a change to
+# them cannot affect any component build, so they need no queue coupling. There
+# is deliberately no universal `**` fallback scope; a genuinely new, unmapped
+# production directory is NOT covered by these entries and will still be flagged.
+#
+# Entries are globs (same doublestar semantics as .mergify.yml). Each entry must
+# rescue at least one otherwise-unclassified tracked file or the check reports it
+# as stale.
+
+# Agent SDLC definitions consumed by the agent harness, not by any component
+# build (skill prose, agent.yaml, kustomize overlays).
+.hypershell/**
+
+# README inside the architecture-site source tree: documentation excludes
+# docs/architecture/** (it is site source, not prose) and the architecture-site
+# lane excludes READMEs, so this one informational file has no lane.
+docs/architecture/README.md
