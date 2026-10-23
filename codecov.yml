@@ -26,6 +26,9 @@ coverage:
         target: auto
         threshold: 1%
 
+# scripts/codecov-upload.sh also removes these generated files from each
+# profile before uploading (GENERATED_CODE_PATTERN), because the Codecov
+# instance has processed reports without this file. Keep the two in step.
 ignore:
   - "**/*.pb.go"
   - "**/*.pb.gw.go"
