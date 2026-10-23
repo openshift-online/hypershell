@@ -85,6 +85,30 @@ export const messages = defineMessages({
     defaultMessage: "Instance",
     description: "Instances table column header for the instance name.",
   },
+  columnMetricFailLabel: {
+    id: "fleet.agents.columnMetric.failLabel",
+    defaultMessage: "fail",
+    description:
+      "Compact lowercase label for the failed-items count in the SDLC board column runtime strip.",
+  },
+  columnMetricOnLabel: {
+    id: "fleet.agents.columnMetric.onLabel",
+    defaultMessage: "on",
+    description:
+      "Compact lowercase label for the active-replica count in the SDLC board column runtime strip.",
+  },
+  columnMetricQueueLabel: {
+    id: "fleet.agents.columnMetric.queueLabel",
+    defaultMessage: "queue",
+    description:
+      "Compact lowercase label for the queue-depth count in the SDLC board column runtime strip.",
+  },
+  columnMetricRatio: {
+    id: "fleet.agents.columnMetric.ratio",
+    defaultMessage: "{on}/{total}",
+    description:
+      "Compact active/total replica ratio in the SDLC board column runtime strip.",
+  },
   columnProvider: {
     id: "fleet.instances.column.provider",
     defaultMessage: "Provider",
@@ -887,6 +911,12 @@ export const messages = defineMessages({
     defaultMessage: "Up to date",
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
+  },
+  replicasRatioSeparator: {
+    id: "fleet.agents.replicasRatioSeparator",
+    defaultMessage: " / ",
+    description:
+      "Separator between the active and total replica counts in the agent detail panel and per-cluster agents table.",
   },
   sdlcAge: {
     id: "fleet.sdlc.age",

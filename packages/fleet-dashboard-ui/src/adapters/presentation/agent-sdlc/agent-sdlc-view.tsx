@@ -805,8 +805,13 @@ function ColumnAgentMetrics({
           color: agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
         }}
       >
-        <span className={styles.columnMetricLabel}>on</span>
-        {agent.replicasOn}/{agent.replicasTotal}
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricOnLabel} />
+        </span>
+        <FormattedMessage
+          {...messages.columnMetricRatio}
+          values={{ on: agent.replicasOn, total: agent.replicasTotal }}
+        />
       </span>
       <span
         className={styles.columnMetric}
@@ -814,7 +819,9 @@ function ColumnAgentMetrics({
           color: agent.queueDepth > 0 ? queueTone : METRIC_SUBTLE,
         }}
       >
-        <span className={styles.columnMetricLabel}>queue</span>
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricQueueLabel} />
+        </span>
         {agent.queueDepth}
       </span>
       <span
@@ -823,7 +830,9 @@ function ColumnAgentMetrics({
           color: failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
         }}
       >
-        <span className={styles.columnMetricLabel}>fail</span>
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricFailLabel} />
+        </span>
         {failing}
       </span>
     </div>
@@ -2239,7 +2248,7 @@ function AgentDetailPanel({
                 {agent.replicasOn}
               </span>
               <span style={{ color: METRIC_SUBTLE }}>
-                {" / "}
+                <FormattedMessage {...messages.replicasRatioSeparator} />
                 {agent.replicasTotal}
               </span>
             </DescriptionListDescription>

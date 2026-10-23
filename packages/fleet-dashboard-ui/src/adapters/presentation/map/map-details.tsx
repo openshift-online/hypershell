@@ -998,7 +998,7 @@ function NodeAgents({
                 {agent.replicasOn}
               </span>
               <span style={{ color: subtle }}>
-                {" / "}
+                <FormattedMessage {...messages.replicasRatioSeparator} />
                 {agent.replicasTotal}
               </span>
             </Td>
