@@ -6,8 +6,10 @@ import type { Plane } from "../../domain/plane";
 import type { E2eStreamHandlers, FleetApi } from "../../application/ports";
 import {
   mapE2eRunDetail,
+  mapE2eRunLogPage,
   mapE2eRuns,
   mapE2eStreamEvent,
+  mapE2eStreamLog,
   mapE2eStreamStatus,
   mapFleet,
   mapInstances,
@@ -29,6 +31,7 @@ export interface HttpFleetApiOptions {
 interface StreamFrame {
   readonly kind?: string;
   readonly event?: unknown;
+  readonly log?: unknown;
   readonly status?: unknown;
 }
 
@@ -109,6 +112,11 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
         if (event !== null) {
           handlers.onEvent(event);
         }
+      } else if (frame.kind === "log") {
+        const line = mapE2eStreamLog(frame.log);
+        if (line !== null) {
+          handlers.onLog(line);
+        }
       } else if (frame.kind === "status") {
         handlers.onStatus(mapE2eStreamStatus(frame.status));
       }
@@ -140,6 +148,20 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getE2eRuns: (signal) => getPlane("/e2e/runs", mapE2eRuns, signal),
     getE2eRun: (id, signal) =>
       getPlane(`/e2e/runs/${encodeRunId(id)}`, mapE2eRunDetail, signal),
+    getE2eRunLogs: (id, before, signal) => {
+      // The run id is a collision-free multi-segment address; it rides a single
+      // "run" query value (encoded whole), exactly as the live stream does, because
+      // a ServeMux trailing wildcard cannot be followed by a literal /logs segment.
+      const params = new URLSearchParams({ run: id });
+      if (before !== null && before !== "") {
+        params.set("before", before);
+      }
+      return getPlane(
+        `/e2e/logs?${params.toString()}`,
+        mapE2eRunLogPage,
+        signal,
+      );
+    },
     streamE2eRun,
   };
 }

@@ -11,6 +11,7 @@ import type { InstancesData } from "../../application/ports";
 import type {
   E2eEventName,
   E2eLogLine,
+  E2eLogPage,
   E2eOutcome,
   E2ePlannedStep,
   E2eRunDetail,
@@ -755,6 +756,12 @@ interface WireE2eStreamStatus {
   readonly droppedEntries?: number;
 }
 
+interface WireE2eLogPage {
+  readonly entries?: readonly WireE2eLogLine[] | null;
+  readonly nextCursor?: string;
+  readonly hasMore?: boolean;
+}
+
 /** Coerce an optional number to a nullable number, keeping a genuine 0. */
 function nullableNum(v: number | undefined): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -901,4 +908,25 @@ export function mapE2eStreamStatus(raw: unknown): E2eStreamStatus {
     state: mapStreamState(wire.state),
     droppedEntries: num(wire.droppedEntries),
   };
+}
+
+/** Map one paginated raw-log page (E2E-LOG-19). Entries are already chronological-
+ *  ascending from the BFF; an absent cursor is normalized to null. */
+export function mapE2eRunLogPage(raw: unknown): E2eLogPage {
+  const wire = (raw ?? {}) as WireE2eLogPage;
+  return {
+    entries: (wire.entries ?? []).map(mapE2eLogLine),
+    nextCursor: nullableString(wire.nextCursor),
+    hasMore: wire.hasMore === true,
+  };
+}
+
+/** Map one live `log` frame into a reduced log line (E2E-LOG-21). Returns null when
+ *  the frame carries no usable line, so the adapter skips it without dropping the
+ *  rest of the stream (E2E-LOG-07). */
+export function mapE2eStreamLog(raw: unknown): E2eLogLine | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  return mapE2eLogLine(raw);
 }

@@ -113,6 +113,12 @@ type Config struct {
 	// E2ELokiSelector is the LogQL stream selector for the copied suite pods
 	// (product-level label schema; safe default). E2EHistoryWindow bounds the
 	// query_range lookback; E2ERecentRunLimit caps the recent-run list.
+	// E2ELogPageSize is the raw-log history page size for the paginated logs
+	// endpoint (E2E-LOG-19). A run's raw logs are read a bounded page at a time by
+	// infinite scroll, never in one all-at-once query, so a chatty run cannot push
+	// a single query_range past the Loki timeout. The default (150) is well below
+	// the measured single-CPU cliff; the source clamps a client-supplied limit to a
+	// server-side maximum so a client cannot re-introduce the timeout.
 	E2ELokiURL        string
 	E2ELokiTenants    []string
 	E2ELokiTokenFile  string
@@ -120,6 +126,7 @@ type Config struct {
 	E2ELokiSelector   string
 	E2EHistoryWindow  time.Duration
 	E2ERecentRunLimit int
+	E2ELogPageSize    int
 
 	// Refresh intervals (§5.1)
 	RefreshFleet     time.Duration
@@ -252,6 +259,7 @@ func Load() (*Config, error) {
 		E2ELokiSelector:   env("FD_E2E_LOKI_SELECTOR", `{log_type="application"}`),
 		E2EHistoryWindow:  envDuration("FD_E2E_HISTORY_WINDOW", 168*time.Hour),
 		E2ERecentRunLimit: envInt("FD_E2E_RECENT_RUN_LIMIT", 20),
+		E2ELogPageSize:    envInt("FD_E2E_LOG_PAGE_SIZE", 150),
 		RefreshE2E:        envDuration("FD_REFRESH_E2E", 30*time.Second),
 	}
 

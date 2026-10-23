@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyEvents,
+  boundLogBuffer,
   runBundle,
   runTargetInstance,
   elapsedSeconds,
@@ -10,10 +11,12 @@ import {
   logsForStep,
   makeRunId,
   MAX_DETAIL_LOG_LINES,
+  mergeLogLines,
   reduceRun,
   runDurationMs,
   runsNewestFirst,
   runsForVerification,
+  type E2eLogLine,
   type E2eRunEvent,
   type E2eRunSummary,
 } from "./e2e-run";
@@ -446,5 +449,47 @@ describe("run release and target attribution", () => {
       applyEvents(detail, [ev({ event: "log", sequence: 10, message: "live" })])
         .bundle,
     ).toEqual(historical);
+  });
+});
+
+describe("mergeLogLines / boundLogBuffer", () => {
+  const line = (
+    sequence: number,
+    message = `m${String(sequence)}`,
+  ): E2eLogLine => ({
+    sequence,
+    timestamp: `t${String(sequence)}`,
+    stepId: null,
+    message,
+    truncated: false,
+  });
+
+  it("merges, de-duplicates by sequence, and keeps ascending order", () => {
+    // A newest page then an older page arrive out of order; the result is one
+    // ascending, de-duplicated buffer (E2E-LOG-19).
+    const newest = [line(4), line(5)];
+    const older = [line(2), line(3)];
+    const merged = mergeLogLines(newest, older);
+    expect(merged.map((l) => l.sequence)).toEqual([2, 3, 4, 5]);
+  });
+
+  it("de-duplicates the page-boundary / history-to-live overlap", () => {
+    // seq 3 is re-delivered across the one-nanosecond boundary overlap and by the
+    // live seam; it must appear exactly once (E2E-LOG-19.02 / E2E-LOG-21.03).
+    const buffer = [line(3), line(4)];
+    const overlap = mergeLogLines(buffer, [line(2), line(3)]);
+    expect(overlap.map((l) => l.sequence)).toEqual([2, 3, 4]);
+  });
+
+  it("returns the same reference when nothing new arrives", () => {
+    const buffer = [line(1), line(2)];
+    expect(mergeLogLines(buffer, [line(2)])).toBe(buffer);
+    expect(mergeLogLines(buffer, [])).toBe(buffer);
+  });
+
+  it("bounds the buffer by dropping the oldest for a live tail", () => {
+    const buffer = [line(1), line(2), line(3), line(4)];
+    expect(boundLogBuffer(buffer, 2).map((l) => l.sequence)).toEqual([3, 4]);
+    expect(boundLogBuffer(buffer, 10)).toBe(buffer);
   });
 });
