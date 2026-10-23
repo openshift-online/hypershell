@@ -123,8 +123,7 @@ export function App(): React.ReactElement {
   // agent running in multiple environments is summed (aggregateAgentsByName), not
   // collapsed to one arbitrary environment's numbers.
   const agentByName = useMemo(
-    () =>
-      sdlcAgentsData ? aggregateAgentsByName(sdlcAgentsData) : undefined,
+    () => (sdlcAgentsData ? aggregateAgentsByName(sdlcAgentsData) : undefined),
     [sdlcAgentsData],
   );
 
