@@ -137,7 +137,7 @@ func TestMatrix(t *testing.T) {
 			s.clusterIDOverride = tg.id
 			s.nameSuffix = sanitizeName(tg.name)
 			s.kubeContext = contextName
-			s.skipKubeChecks = contextName == ""
+			s.skipKubeChecks = managedKubeContextSkip(contextName)
 			suite.Run(t, s)
 
 			mu.Lock()
@@ -205,6 +205,15 @@ func durationEnvOr(key string, def time.Duration) time.Duration {
 func sanitizeName(name string) string {
 	r := strings.NewReplacer("/", "-", ".", "-", ":", "-", " ", "-", "_", "-")
 	return strings.ToLower(r.Replace(name))
+}
+
+// managedKubeContextSkip reports whether a matrix suite must skip Kubernetes-level
+// checks for its selected cluster. It skips exactly when the cluster has no
+// E2E_MANAGED_KUBECONTEXT_<name> mapping (empty contextName); API-level checks still
+// run against the hub, and the suite never falls back to the hub or current kube
+// context for another cluster (E2E-CORE-30.03).
+func managedKubeContextSkip(contextName string) bool {
+	return contextName == ""
 }
 
 func managedKubeContextEnvKey(clusterName string) string {
