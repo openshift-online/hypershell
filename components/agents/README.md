@@ -1,15 +1,25 @@
 # Agent runtime images
 
-Build context: repository root. Containerfiles: `Containerfile.agent-runtime` and
-`Containerfile.agent-runtime-slim`. Contract: [agent-runtime-images.spec.md](../../specs/platform/agent-runtime-images.spec.md).
+Build context: repository root. Containerfiles: `Containerfile.agent-runtime`,
+`Containerfile.agent-runtime-slim`, and `Containerfile.agent-runtime-fullsend`.
+Contract: [agent-runtime-images.spec.md](../../specs/platform/agent-runtime-images.spec.md).
 
-| Contents | agent-runtime-slim | agent-runtime |
-| --- | --- | --- |
-| bash, coreutils, git, curl, jq, ripgrep, tar/gzip/unzip, find/diff/patch/which, CA roots | yes | yes |
-| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`) | yes | yes |
-| Go, Rust compiler/Cargo/Clippy/rustfmt/standard library/source | | yes |
-| Node.js 24, npm and pnpm 11.15.1 | | yes |
-| GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes |
+| Contents | agent-runtime-slim | agent-runtime | agent-runtime-fullsend |
+| --- | --- | --- | --- |
+| bash, coreutils, git, curl, jq, ripgrep, tar/gzip/unzip, find/diff/patch/which, CA roots | yes | yes | yes |
+| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`), `fullsend` CLI | yes | yes | yes |
+| Go, Rust compiler/Cargo/Clippy/rustfmt/standard library/source | | yes | yes |
+| Node.js 24, npm and pnpm 11.15.1 | | yes | yes |
+| GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes | yes |
+| Fullsend coordinator scripts (`ensure-gateway.sh`, `fullsend-run.sh` on PATH) | | | yes |
+
+All variants bake the same reviewed, SHA-256-locked CLI tools (including
+`fullsend`) via `install-tools.py`, so tooling never drifts between images.
+`agent-runtime-fullsend` is `agent-runtime` plus the two coordinator scripts under
+`fullsend/`; it is used as both the Fullsend runner and the sandbox `image:` a
+harness runs the agent in, so the agent gets the identical builder toolset.
+OpenShell is installed at runtime by the `install-openshell` init container in all
+variants (not baked).
 
 Rust comes from Red Hat's signed RPM toolchain, including its standard library
 and source; rustup and automatic toolchain downloads are not installed. Claude
@@ -23,6 +33,7 @@ cluster tooling and credentials from their harness or a dedicated future variant
 ```sh
 podman build --layers -f components/agents/Containerfile.agent-runtime-slim -t localhost/agent-runtime-slim .
 podman build --layers -f components/agents/Containerfile.agent-runtime -t localhost/agent-runtime .
+podman build --layers -f components/agents/Containerfile.agent-runtime-fullsend -t localhost/agent-runtime-fullsend .
 ```
 
 Konflux builds Linux amd64 and arm64 natively using the multi-platform controller.
