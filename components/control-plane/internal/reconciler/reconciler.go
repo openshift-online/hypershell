@@ -375,6 +375,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			} else if !deleted {
 				gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
 			}
+			// A managed-mode gateway created cluster-scoped per-workspace
+			// namespaces the Helm uninstall and namespace GC never reap; sweep them
+			// here so a deleted gateway does not leak them (openshell-gateway.spec.md,
+			// "Gateway Workspace Mode").
+			if gw.GetWorkspaceMode() == "managed" {
+				if err := gateway.DeleteManagedWorkspaceNamespaces(ctx, r.clientset, namespace); err != nil {
+					deleteErrs = append(deleteErrs, fmt.Errorf("delete managed workspace namespaces of %s: %w", namespace, err))
+				}
+			}
 		}
 
 		reconcileErr = errors.Join(deleteErrs...)
@@ -479,6 +488,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gwConfig := gateway.GatewayConfig{
 		ServerDnsNames: dnsNames,
 		ExternalDns:    externalDns,
+		WorkspaceMode:  gw.GetWorkspaceMode(),
 	}
 
 	// Select the direct image or platform default before Helm values are built.

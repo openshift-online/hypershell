@@ -351,6 +351,20 @@ components:
               type: string
               readOnly: true
               description: JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
+            workspace_mode:
+              type: string
+              readOnly: true
+              enum:
+                - shared
+                - managed
+                - operator
+              description: >-
+                How the OpenShell Kubernetes driver maps workspaces to namespaces.
+                "shared" places all sandboxes in the gateway namespace; "managed"
+                auto-creates per-workspace namespaces; "operator" uses
+                pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API
+                server defaults it to "managed" at create, and no caller can set or
+                change it. Null (legacy gateways) keeps the chart's "shared" default.
             active_sandbox_count:
               type: integer
               format: int32

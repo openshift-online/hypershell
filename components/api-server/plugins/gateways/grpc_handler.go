@@ -115,6 +115,8 @@ func gatewayCreateRequestForbiddenField(req *pb.CreateGatewayRequest) string {
 		return "route"
 	case req.CredentialDriver != nil:
 		return "credential_driver"
+	case req.WorkspaceMode != nil:
+		return "workspace_mode"
 	}
 	return ""
 }
@@ -226,6 +228,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,
 		Route:          req.Route,
+		WorkspaceMode:  req.WorkspaceMode,                // platform-managed; the service funnel defaults it to managed
 		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
@@ -337,6 +340,11 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Route != nil {
 		gateway.Route = req.Route
+	}
+	if req.WorkspaceMode != nil {
+		// Platform-managed field: the service funnel enforces the vocabulary and
+		// immutability, and the field policy rejects a user/import change.
+		gateway.WorkspaceMode = req.WorkspaceMode
 	}
 	if len(req.ProvisioningConditions) > 0 {
 		type conditionJSON struct {

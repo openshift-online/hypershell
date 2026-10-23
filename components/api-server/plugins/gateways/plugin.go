@@ -449,4 +449,5 @@ func init() {
 	db.RegisterMigration(migrationDropGatewayNetworksTable())
 	db.RegisterMigration(migrationAddRepositoryOwnership())
 	db.RegisterMigration(migrationAddPlacement())
+	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 }
