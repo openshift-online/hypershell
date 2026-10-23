@@ -336,6 +336,34 @@ func TestServeSdlcAgentsHealthy(t *testing.T) {
 	}
 }
 
+// TestServeSdlcAgentsEncodeErrorIsVisible mirrors TestServeEncodeErrorIsVisible
+// for the sdlc-agents plane: a payload encoding/json cannot marshal (a NaN float)
+// must produce a 500 with a JSON error body, never a silent empty 200.
+func TestServeSdlcAgentsEncodeErrorIsVisible(t *testing.T) {
+	src := oneShotSource(t, sources.SdlcAgentsData{
+		Envs: []string{"prod"},
+		Agents: []sources.SdlcAgentMetrics{
+			{Name: "reconciler", Env: "prod", QueueDepth: math.NaN()},
+		},
+	})
+	h := &Handlers{SdlcAgents: src}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rr.Code)
+	}
+	if rr.Body.Len() == 0 {
+		t.Fatal("body is empty; the failure must be visible, not a silent empty response")
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.
 func TestServeHealthy(t *testing.T) {
 	src := oneShotSource(t, map[string]any{"instances": []string{"alpha", "beta"}})

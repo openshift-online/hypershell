@@ -970,12 +970,7 @@ function NodeAgents({
       </Thead>
       <Tbody>
         {agents.map((agent) => (
-          <Tr
-            key={agent.name}
-            aria-label={intl.formatMessage(messages.sdlcAgentDetailAria, {
-              agent: agent.name,
-            })}
-          >
+          <Tr key={agent.name}>
             <Td dataLabel={intl.formatMessage(messages.agentsColAgent)}>
               <Flex
                 alignItems={{ default: "alignItemsCenter" }}

@@ -124,9 +124,10 @@ import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { NavLinkButton } from "../nav-link-button";
 import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
-import { latestSample } from "../../../domain/sdlc-agents";
-import { TONE_COLOR, USER_COLOR } from "../map/colors";
+import { TEXT_COLOR, TONE_COLOR, USER_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
+import { MetricTile } from "../map/metric-tiles";
+import tileStyles from "../map/map-details.module.css";
 import { ReleaseTime } from "../map/release-time";
 import { identiName } from "../../../domain/map/identiname";
 import {
@@ -794,7 +795,7 @@ function ColumnAgentMetrics({
 }: {
   readonly agent: SdlcAgentMetrics;
 }): React.ReactElement {
-  const failing = Math.round(latestSample(agent.series.itemsFailed));
+  const failing = agent.itemsFailed;
   const queueTone =
     agent.queueDepth >= QUEUE_WARN ? TONE_COLOR.warning : USER_COLOR;
   return (
@@ -2202,6 +2203,45 @@ function ScopeFilter({
   );
 }
 
+/**
+ * The agent detail panel's 24h history tiles - queue depth, items processed, and
+ * items failed - reusing the map node panel's shared MetricTile (SDLC-AGT-09): the
+ * same square-aspect, 180px-capped tile with an area sparkline. No shared cursor
+ * here (the panel has no companion widget to synchronise with), so each tile shows
+ * its live scalar with the full 24h band underneath.
+ */
+function AgentMetricTiles({
+  agent,
+}: {
+  readonly agent: SdlcAgentMetrics;
+}): React.ReactElement {
+  return (
+    <div className={tileStyles.metricTiles}>
+      <MetricTile
+        label={messages.agentsColQueue}
+        value={agent.queueDepth}
+        history={agent.series.queueDepth}
+        color={USER_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColDone}
+        value={agent.itemsProcessed}
+        history={agent.series.itemsProcessed}
+        color={TEXT_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColFailed}
+        value={agent.itemsFailed}
+        history={agent.series.itemsFailed}
+        color={TONE_COLOR.danger}
+        active={null}
+      />
+    </div>
+  );
+}
+
 function AgentDetailPanel({
   agent,
   onClose,
@@ -2209,8 +2249,6 @@ function AgentDetailPanel({
   agent: SdlcAgentMetrics;
   onClose: () => void;
 }): React.ReactElement {
-  const intl = useIntl();
-  const failing = Math.round(latestSample(agent.series.itemsFailed));
   return (
     <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <DrawerHead>
@@ -2252,45 +2290,13 @@ function AgentDetailPanel({
               </span>
             </DescriptionListDescription>
           </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.agentsColQueue} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              <span
-                style={{
-                  color: agent.queueDepth > 0 ? USER_COLOR : METRIC_SUBTLE,
-                  fontWeight: 700,
-                }}
-              >
-                {agent.queueDepth}
-              </span>
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.agentsColDone} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {intl.formatNumber(agent.itemsProcessed)}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.agentsColFailed} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              <span
-                style={{
-                  color: failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
-                  fontWeight: 700,
-                }}
-              >
-                {failing}
-              </span>
-            </DescriptionListDescription>
-          </DescriptionListGroup>
         </DescriptionList>
+        {/* Queue, done, and failed have 24h history, so they render as sparkline
+            tiles (SDLC-AGT-09) rather than duplicating their current value in a
+            second, history-less DescriptionList row. */}
+        <div className="pf-v6-u-mt-md">
+          <AgentMetricTiles agent={agent} />
+        </div>
       </DrawerPanelBody>
     </DrawerPanelContent>
   );

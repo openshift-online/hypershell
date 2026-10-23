@@ -32,8 +32,10 @@ import {
 import { useRouter } from "../routing/router";
 import { useSessionExpired } from "../auth/session-expiry";
 import { buildMapModel } from "../../domain/map/model";
-import type { SdlcAgentMetrics } from "../../domain/sdlc-agents";
-import { agentRowsByEnv } from "../../domain/sdlc-agents";
+import {
+  agentRowsByEnv,
+  aggregateAgentsByName,
+} from "../../domain/sdlc-agents";
 import type { FleetData } from "../../domain/fleet";
 import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
@@ -117,15 +119,14 @@ export function App(): React.ReactElement {
     [sdlcAgentsData],
   );
 
-  // Per-agent-name map for the board's column runtime strip (SDLC-AGT-08).
-  const agentByName = useMemo(() => {
-    if (!sdlcAgentsData) return undefined;
-    const m = new Map<string, SdlcAgentMetrics>();
-    for (const a of sdlcAgentsData.agents) {
-      if (!m.has(a.name)) m.set(a.name, a);
-    }
-    return m;
-  }, [sdlcAgentsData]);
+  // Per-agent-name map for the board's column runtime strip (SDLC-AGT-08). An
+  // agent running in multiple environments is summed (aggregateAgentsByName), not
+  // collapsed to one arbitrary environment's numbers.
+  const agentByName = useMemo(
+    () =>
+      sdlcAgentsData ? aggregateAgentsByName(sdlcAgentsData) : undefined,
+    [sdlcAgentsData],
+  );
 
   // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
   // with a single sign-in prompt rather than a grid of generic error panels. Hooks above

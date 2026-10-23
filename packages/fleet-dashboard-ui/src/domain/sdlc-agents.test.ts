@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentRowsByEnv,
-  latestSample,
+  aggregateAgentsByName,
   type SdlcAgentMetrics,
   type SdlcAgentsData,
 } from "./sdlc-agents";
@@ -70,16 +70,72 @@ describe("agentRowsByEnv", () => {
   });
 });
 
-describe("latestSample", () => {
-  it("returns the last element of a non-empty array", () => {
-    expect(latestSample([1, 2, 3, 4])).toBe(4);
+describe("aggregateAgentsByName", () => {
+  it("passes a single-env agent through unchanged", () => {
+    const agent = makeAgent("triage", "integration", { queueDepth: 4 });
+    const data: SdlcAgentsData = { envs: ["integration"], agents: [agent] };
+    const result = aggregateAgentsByName(data);
+    expect(result.get("triage")).toBe(agent);
   });
 
-  it("returns 0 for an empty array", () => {
-    expect(latestSample([])).toBe(0);
+  it("sums scalar counts across environments instead of dropping one", () => {
+    const data: SdlcAgentsData = {
+      envs: ["integration", "production"],
+      agents: [
+        makeAgent("spec-review", "integration", {
+          replicasOn: 1,
+          replicasTotal: 2,
+          queueDepth: 3,
+          itemsProcessed: 10,
+          itemsFailed: 1,
+        }),
+        makeAgent("spec-review", "production", {
+          replicasOn: 2,
+          replicasTotal: 2,
+          queueDepth: 5,
+          itemsProcessed: 20,
+          itemsFailed: 2,
+        }),
+      ],
+    };
+    const result = aggregateAgentsByName(data);
+    const agent = result.get("spec-review");
+    expect(agent?.replicasOn).toBe(3);
+    expect(agent?.replicasTotal).toBe(4);
+    expect(agent?.queueDepth).toBe(8);
+    expect(agent?.itemsProcessed).toBe(30);
+    expect(agent?.itemsFailed).toBe(3);
+    expect(agent?.env).toBe("integration+production");
   });
 
-  it("returns the single element of a one-element array", () => {
-    expect(latestSample([42])).toBe(42);
+  it("merges history series onto the union of timestamps", () => {
+    const data: SdlcAgentsData = {
+      envs: ["integration", "production"],
+      agents: [
+        makeAgent("spec-review", "integration", {
+          series: {
+            times: [100, 200],
+            queueDepth: [1, 2],
+            itemsProcessed: [0, 0],
+            itemsFailed: [0, 0],
+            provisionSeconds: [0, 0],
+          },
+        }),
+        // production only reports at ts 200 - ts 100 must zero-fill for it.
+        makeAgent("spec-review", "production", {
+          series: {
+            times: [200],
+            queueDepth: [5],
+            itemsProcessed: [0],
+            itemsFailed: [0],
+            provisionSeconds: [0],
+          },
+        }),
+      ],
+    };
+    const result = aggregateAgentsByName(data);
+    const series = result.get("spec-review")?.series;
+    expect(series?.times).toEqual([100, 200]);
+    expect(series?.queueDepth).toEqual([1, 7]);
   });
 });

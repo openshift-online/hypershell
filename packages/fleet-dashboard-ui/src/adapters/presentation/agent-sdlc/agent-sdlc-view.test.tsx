@@ -622,4 +622,58 @@ describe("AgentSdlcView column agent integration", () => {
     const failLabel = screen.getByText("fail");
     expect(failLabel.parentElement?.style.color).toBe(subtle);
   });
+
+  // Regression guard: the fail count must come from the live itemsFailed scalar,
+  // not series.itemsFailed's last sample, which lags behind on the 24h/32-sample
+  // history grid and can diverge from the current count.
+  it("uses the live itemsFailed scalar, not a stale series sample, for the fail count", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          itemsFailed: 4,
+          series: {
+            times: [100],
+            queueDepth: [0],
+            itemsProcessed: [0],
+            itemsFailed: [1],
+            provisionSeconds: [0],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+    expect(screen.getByText("4")).toBeDefined();
+    expect(screen.queryByText("1")).toBeNull();
+  });
+
+  // Verifies: SDLC-AGT-09
+  it("renders capped sparkline tiles for queue, done, and failed history in the detail panel", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          queueDepth: 5,
+          itemsProcessed: 10,
+          itemsFailed: 1,
+          series: {
+            times: [100, 200],
+            queueDepth: [3, 5],
+            itemsProcessed: [8, 10],
+            itemsFailed: [0, 1],
+            provisionSeconds: [1, 2],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open runtime details for the spec-review agent",
+      }),
+    );
+    expect(screen.getByRole("group", { name: "Queue: 5" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "Done: 10" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "Failed: 1" })).toBeDefined();
+  });
 });
