@@ -3,6 +3,7 @@ import { IntlProvider } from "react-intl";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentSdlcCard, AgentSdlcData } from "../../../domain/agent-sdlc";
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 import { identiName } from "../../../domain/map/identiname";
 import { parseRoute } from "../../../domain/navigation/route";
 import { createMemoryHistory } from "../../routing/history-port";
@@ -536,5 +537,89 @@ describe("AgentSdlcView stacked-card popover", () => {
     });
     expect(screen.getByText("2 items at a similar age")).toBeDefined();
     expect(screen.getByRole("button", { name: /#2 item 2/ })).toBeDefined();
+  });
+});
+
+function makeAgentMetrics(
+  overrides?: Partial<SdlcAgentMetrics>,
+): SdlcAgentMetrics {
+  return {
+    name: "spec-review",
+    env: "integration",
+    replicasOn: 2,
+    replicasTotal: 3,
+    queueDepth: 5,
+    itemsProcessed: 10,
+    itemsFailed: 1,
+    provisionSeconds: 12,
+    series: {
+      times: [],
+      queueDepth: [],
+      itemsProcessed: [],
+      itemsFailed: [1],
+      provisionSeconds: [],
+    },
+    ...overrides,
+  };
+}
+
+describe("AgentSdlcView column agent integration", () => {
+  const data: AgentSdlcData = {
+    ...EMPTY,
+    phases: [{ key: "spec", sleSeconds: 100 }],
+  };
+
+  // Verifies: SDLC-AGT-07.03
+  it("renders the agent name as plain text when there is no runtime telemetry", () => {
+    renderView({ data });
+    expect(screen.getByText("spec-review")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /spec-review/ })).toBeNull();
+  });
+
+  // Verifies: SDLC-AGT-07.02, SDLC-AGT-08.01, SDLC-AGT-08.03
+  it("renders the agent name as a button with a runtime strip, and opens the detail panel on click", () => {
+    const agents = new Map([["spec-review", makeAgentMetrics()]]);
+    renderView({ data, agents });
+
+    const button = screen.getByRole("button", {
+      name: "Open runtime details for the spec-review agent",
+    });
+    expect(screen.getByText("on")).toBeDefined();
+    expect(screen.getByText("2/3")).toBeDefined();
+    expect(screen.getByText("queue")).toBeDefined();
+    expect(screen.getByText("5")).toBeDefined();
+    expect(screen.getByText("fail")).toBeDefined();
+    expect(screen.getByText("1")).toBeDefined();
+
+    fireEvent.click(button);
+    expect(screen.getByText("Queue")).toBeDefined();
+    expect(screen.getByText("Replicas")).toBeDefined();
+  });
+
+  // Verifies: SDLC-AGT-08.02
+  it("mutes queue and failure counts when they are zero", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          queueDepth: 0,
+          itemsFailed: 0,
+          series: {
+            times: [],
+            queueDepth: [],
+            itemsProcessed: [],
+            itemsFailed: [0],
+            provisionSeconds: [],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+
+    const subtle = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+    const queueLabel = screen.getByText("queue");
+    expect(queueLabel.parentElement?.style.color).toBe(subtle);
+    const failLabel = screen.getByText("fail");
+    expect(failLabel.parentElement?.style.color).toBe(subtle);
   });
 });
