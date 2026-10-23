@@ -344,6 +344,12 @@ export const messages = defineMessages({
     description:
       "Banner shown when more runs exist in the window than the list returns.",
   },
+  e2eJumpToLatest: {
+    id: "fleet.e2e.log.jumpToLatest",
+    defaultMessage: "Jump to latest",
+    description:
+      "Button that re-pins the log pane to the newest line and resumes auto-follow after the operator scrolled up.",
+  },
   e2eLiveDisconnected: {
     id: "fleet.e2e.live.disconnected",
     defaultMessage: "Live updates disconnected - reconnecting.",
@@ -388,10 +394,23 @@ export const messages = defineMessages({
     defaultMessage: "Selected step",
     description: "Log-scope toggle option showing the selected step's logs.",
   },
+  e2eLogsDegraded: {
+    id: "fleet.e2e.log.degraded",
+    defaultMessage:
+      "Log history is unavailable right now. Steps are shown above.",
+    description:
+      "Inline notice on the log pane only when raw logs cannot load but the run's steps did.",
+  },
   e2eLogsEmpty: {
     id: "fleet.e2e.log.empty",
     defaultMessage: "No log output.",
     description: "Shown when the selected scope has no log lines.",
+  },
+  e2eLogsLoadingOlder: {
+    id: "fleet.e2e.log.loadingOlder",
+    defaultMessage: "Loading older log lines",
+    description:
+      "Accessible label for the spinner shown while an older page of log lines is being fetched by infinite scroll.",
   },
   e2eLogsTruncated: {
     id: "fleet.e2e.log.truncated",

@@ -1,10 +1,10 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  MAX_DETAIL_LOG_LINES,
+  MAX_LOG_BUFFER,
   type E2eRunDetail,
   type E2eRunsData,
   type E2eRunSummary,
@@ -107,6 +107,11 @@ function makeApi(
     getSdlc: vi.fn(),
     getE2eRuns: vi.fn(),
     getE2eRun: vi.fn().mockResolvedValue(plane(runDetail)),
+    getE2eRunLogs: vi
+      .fn()
+      .mockResolvedValue(
+        plane({ entries: [], nextCursor: null, hasMore: false }),
+      ),
     streamE2eRun: vi.fn((_id, h: E2eStreamHandlers) => {
       handlers.current = h;
       return () => {
@@ -393,18 +398,14 @@ describe("E2eRunView", () => {
 
     act(() => {
       handlers.current?.onStatus({ state: "live", droppedEntries: 0 });
-      handlers.current?.onEvent({
-        event: "log",
-        runId: "run-1",
+      // A live log line rides the `log` frame (E2E-LOG-21) and appends into the same
+      // rendered log list the pane paginates.
+      handlers.current?.onLog({
         sequence: 10,
         timestamp: "t",
         stepId: "a",
-        name: null,
-        outcome: null,
-        durationMs: null,
         message: "<img src=x onerror=1>",
         truncated: false,
-        plannedSteps: [],
       });
       handlers.current?.onEvent({
         event: "step_finished",
@@ -454,25 +455,18 @@ describe("E2eRunView", () => {
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByRole("tab", { name: "Progress" });
 
-    // Stream far more log lines than the buffer window in a single batched update:
-    // the buffer must stay bounded (no unbounded accumulation / O(n^2) refold) and
-    // the pane must still show the newest line.
-    const overflow = MAX_DETAIL_LOG_LINES + 10;
+    // Stream far more log lines than the buffer window: the buffer must stay bounded
+    // (dropping the oldest, E2E-LOG-22) while still showing the newest line.
+    const overflow = MAX_LOG_BUFFER + 10;
     act(() => {
       handlers.current?.onStatus({ state: "live", droppedEntries: 0 });
       for (let i = 0; i < overflow; i++) {
-        handlers.current?.onEvent({
-          event: "log",
-          runId: "run-1",
+        handlers.current?.onLog({
           sequence: 100 + i,
           timestamp: "t",
           stepId: "a",
-          name: null,
-          outcome: null,
-          durationMs: null,
           message: `live-line-${String(i)}`,
           truncated: false,
-          plannedSteps: [],
         });
       }
     });
@@ -486,8 +480,15 @@ describe("E2eRunView", () => {
 
   it("surfaces the live-disconnected degraded state distinctly", async () => {
     const user = userEvent.setup();
-    const { api, handlers } = makeApi(detail());
-    renderView(api, enabled([summary()]));
+    // The live tail (and thus a disconnect) only applies to an in-progress run
+    // (E2E-LOG-21).
+    const { api, handlers } = makeApi(
+      detail({ reportingComplete: false, verdict: "unknown" }),
+    );
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByRole("tab", { name: "Progress" });
 
@@ -497,6 +498,59 @@ describe("E2eRunView", () => {
     expect(
       await screen.findByText("Live updates disconnected - reconnecting."),
     ).toBeDefined();
+  });
+
+  // Verifies: E2E-LOG-21.02
+  it("does not open a live tail for a completed run", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail()); // reportingComplete: true (finished)
+    renderView(api, enabled([summary()]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    // The detail (steps) renders from the snapshot...
+    await screen.findByRole("tab", { name: "Progress" });
+    // ...but no live tail opens for a finished run; it is read by pagination alone.
+    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+    expect(api.streamE2eRun).not.toHaveBeenCalled();
+  });
+
+  it("shows a failed step's last output from the loaded log buffer", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      verdict: "failed",
+      steps: [
+        {
+          stepId: "a",
+          name: "Build",
+          state: "failed",
+          startedAt: "2026-01-01T00:30:00Z",
+          endedAt: "2026-01-01T00:31:00Z",
+          durationMs: 60000,
+        },
+      ],
+    });
+    const getE2eRunLogs = vi.fn().mockResolvedValue(
+      plane({
+        entries: [
+          {
+            sequence: 1,
+            timestamp: "t1",
+            stepId: "a",
+            message: "boom: build failed",
+            truncated: false,
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    );
+    const { api } = makeApi(d, { getE2eRunLogs });
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    // The Progress tab's failed-step preview reads the paginated log buffer, not the
+    // (now empty) detail logs. Scope to the steps grid (the same line also renders in
+    // the log pane).
+    const grid = await screen.findByRole("grid", { name: "Run steps" });
+    expect(await within(grid).findByText(/boom: build failed/)).toBeDefined();
   });
 
   it("shows the reporting-incomplete state for a finished-but-terminal-less run", async () => {
@@ -544,7 +598,9 @@ describe("gate execution", () => {
   // Verifies: FLT-NAV-18.01
   it("opens step logs and preserves filters while changing tabs without a second stream", async () => {
     const user = userEvent.setup();
-    const { api } = makeApi(detail());
+    // In-progress run: the live tail opens (E2E-LOG-21) so the single-stream
+    // invariant across tab changes is observable.
+    const { api } = makeApi(detail({ reportingComplete: false }));
     renderGate(
       api,
       <GateExecution
@@ -578,7 +634,7 @@ describe("gate execution", () => {
     expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
   });
   it("keeps the inspected attempt pinned when a newer retry arrives", async () => {
-    const { api } = makeApi(detail());
+    const { api } = makeApi(detail({ reportingComplete: false }));
     const history = createMemoryHistory({ path: "/", search: "?gate=g1" });
     const view = (runs: readonly E2eRunSummary[]) => (
       <IntlProvider locale="en">
@@ -616,7 +672,7 @@ describe("gate execution", () => {
   });
   // Verifies: FLT-NAV-10.02
   it("follows the current attempt in explicit live mode (FLT-NAV-10)", async () => {
-    const { api } = makeApi(detail());
+    const { api } = makeApi(detail({ reportingComplete: false }));
     const history = createMemoryHistory({
       path: "/",
       search: "?gate=g1&gattempt=live",
@@ -654,8 +710,12 @@ describe("gate execution", () => {
     expect(
       screen.getByRole("combobox", { name: "Test attempt" }),
     ).toHaveProperty("value", "live");
-    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
-    expect(api.streamE2eRun).toHaveBeenCalledTimes(2);
+    // The new run's live tail opens once its (in-progress) snapshot resolves, so the
+    // stream count reaches two (E2E-LOG-21).
+    await waitFor(() => {
+      /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+      expect(api.streamE2eRun).toHaveBeenCalledTimes(2);
+    });
   });
   it("does not open a different revision's latest run", () => {
     const { api } = makeApi(detail());
@@ -671,5 +731,191 @@ describe("gate execution", () => {
     ).toBeDefined();
     /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
     expect(api.getE2eRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("log pagination and degraded log pane", () => {
+  interface MockObserver {
+    cb: IntersectionObserverCallback;
+    elements: Element[];
+  }
+  let observers: MockObserver[];
+  const originalIO = globalThis.IntersectionObserver;
+
+  beforeEach(() => {
+    observers = [];
+    class MockIntersectionObserver {
+      cb: IntersectionObserverCallback;
+      elements: Element[] = [];
+      constructor(cb: IntersectionObserverCallback) {
+        this.cb = cb;
+        observers.push(this);
+      }
+      observe(el: Element): void {
+        this.elements.push(el);
+      }
+      unobserve(): void {
+        /* no-op */
+      }
+      disconnect(): void {
+        /* no-op */
+      }
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    globalThis.IntersectionObserver =
+      MockIntersectionObserver as unknown as typeof IntersectionObserver;
+  });
+
+  afterEach(() => {
+    globalThis.IntersectionObserver = originalIO;
+  });
+
+  /** Fire an intersection for every observed sentinel, as a scroll-into-view would. */
+  function scrollSentinelIntoView(): void {
+    act(() => {
+      for (const o of observers) {
+        o.cb(
+          o.elements.map(
+            (target) =>
+              ({ isIntersecting: true, target }) as IntersectionObserverEntry,
+          ),
+          o as unknown as IntersectionObserver,
+        );
+      }
+    });
+  }
+
+  const logLine = (sequence: number) => ({
+    sequence,
+    timestamp: `t${String(sequence)}`,
+    stepId: null,
+    message: `m${String(sequence)}`,
+    truncated: false,
+  });
+
+  // Verifies: E2E-LOG-22.01
+  it("auto-loads older pages from the scroll observer (no Load more button) and stops at the end", async () => {
+    const user = userEvent.setup();
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(5), logLine(6)],
+          nextCursor: "500",
+          hasMore: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(3), logLine(4)],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      );
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs,
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // The newest page loaded on open.
+    await screen.findByText("m6");
+    expect(screen.queryByText("m4")).toBeNull();
+    // There is no "Load more" button: older pages load from the observer.
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+
+    // Scrolling the top sentinel into view loads the older page.
+    scrollSentinelIntoView();
+    await screen.findByText("m4");
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+
+    // No older page remains: a further intersection does not fetch again.
+    scrollSentinelIntoView();
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+  });
+
+  // A stale older-page fetch terminates paging and keeps the loaded lines; the
+  // scroll anchor is cleared so follow is not frozen after a no-new-lines page.
+  // Verifies: E2E-LOG-22.01
+  it("stops paging and keeps loaded lines when an older page comes back stale", async () => {
+    const user = userEvent.setup();
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(5), logLine(6)],
+          nextCursor: "500",
+          hasMore: true,
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: true,
+        error: "e2e log backend unavailable",
+      });
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs,
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // The newest page loaded on open.
+    await screen.findByText("m6");
+
+    // Scrolling the sentinel into view fetches the older page, which is stale.
+    scrollSentinelIntoView();
+    await waitFor(() => {
+      expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+    });
+
+    // The already-loaded lines are kept, not blanked, and the panel still renders
+    // its steps (the whole-panel backend-unavailable state is not shown).
+    expect(screen.getByText("m6")).toBeDefined();
+    expect(
+      screen.queryByText("Run details are unavailable right now."),
+    ).toBeNull();
+  });
+
+  // Verifies: E2E-LOG-22.03, E2E-LOG-20
+  it("shows a log-pane-only degraded notice when logs fail but steps load", async () => {
+    const user = userEvent.setup();
+    const staleLogs = {
+      data: { entries: [], nextCursor: null, hasMore: false },
+      generatedAt: "2026-01-01T00:00:00Z",
+      stale: true,
+      error: "e2e log backend unavailable",
+    };
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs: vi.fn().mockResolvedValue(staleLogs),
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // The log-pane-only notice, NOT the whole-panel backend-unavailable message.
+    expect(
+      await screen.findByText(
+        "Log history is unavailable right now. Steps are shown above.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryByText("Run details are unavailable right now."),
+    ).toBeNull();
+    // Steps still render.
+    expect(screen.getByRole("tab", { name: "Progress" })).toBeDefined();
   });
 });

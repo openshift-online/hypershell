@@ -210,6 +210,38 @@ deploy/
 
 ## Requirements
 
+### Requirement: E2E-CORE-48 -- Stand-in Gateway-Provider Vault
+
+Because the OpenShell gateway's default credential driver is `vault`
+(`openshell-gateway-credentials.spec.md`), a gateway created without a `credential_driver`
+fails closed unless a per-cluster Vault is reachable. Both environments' bring-up
+(`make kind-up` and `make openshift-up`, via `scripts/cluster/vault.sh`) SHALL therefore
+stand up a stand-in HashiCorp Vault - one per cluster in namespace `openshell-vault` at the
+convention address, configured to the GitOps Contract - so the suite exercises the
+production credential path. The setup SHALL be idempotent (safe to re-run against an
+already-initialized Vault, so it holds on a shared cluster across pull-request
+environments) and SHALL be SCC-compatible on OpenShift (let the restricted SCC assign the
+pod UID/fsGroup). The bring-up SHALL **self-verify** both isolation layers as a gateway
+identity against its own per-tenant mount (`openshell-gw/<namespace>`): a round-trip under
+its own `provider-credentials/*`, `list` denied, metadata `delete` denied, another tenant's
+mount denied, a ServiceAccount in an **unlabeled** namespace denied at login (the namespace
+selector), and - access revocation - the gateway denied once the policy is removed, then the
+policy restored. It SHALL fail if any of these drift, so the GitOps Contract is checked in
+the fixture rather than by the suite reaching into Vault. How the remaining coverage is split
+(the sandbox lifecycle for the real resolve, and the API-driven fail-closed check) lives in
+`openshell-gateway-credentials.spec.md` (Requirement: End-to-End Vault Coverage in CI).
+
+#### Scenario: E2E-CORE-48.01 -- Vault stood up on bring-up
+
+- GIVEN a freshly brought-up Kind or OpenShift e2e environment
+- WHEN the suite provisions a gateway with no `credential_driver`
+- THEN the gateway SHALL resolve to the vault driver and reach Running against the stand-in
+  Vault
+- AND the bring-up SHALL have self-verified both isolation layers (per-tenant mount round-trip;
+  `list`, metadata `delete`, and cross-tenant mount denied; an unlabeled namespace denied at
+  login; and policy-removal revocation then restore), failing otherwise
+- AND re-running bring-up SHALL leave the already-initialized Vault unchanged
+
 ### Requirement: E2E-CORE-01 -- Infra Driver Abstraction
 
 The e2e test framework SHALL isolate infrastructure-specific logic behind the `E2EInfraDriver` Go interface, with one implementation per target under `tests/e2e/driver/`. The suite, performance harness, and matrix runner SHALL remain infrastructure-agnostic and SHALL call only `E2EInfraDriver` interface methods for infrastructure-specific operations. They SHALL access the Kubernetes API through a shared `client-go` clientset and controller-runtime client built from the current KUBECONFIG context, and SHALL NOT shell out to `kubectl` or `oc`; the one product binary the suite invokes directly is the `openshell` CLI under test. Only `kind` and `openshift` drivers are supported today; additional drivers are follow-up work. Each implementation SHALL register itself under its name in a driver registry so the suite resolves a driver by name without a compile-time switch.
@@ -562,7 +594,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
-The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
+The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per selected healthy cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
 7. **Collision-free naming, capacity, and determinism.** Every concurrently-created gateway SHALL have a unique name (`<step-id>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway steps multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list steps in canonical phase order (P0.1, P0.2, P1.1, ...) regardless of completion order.
 
@@ -1173,6 +1205,8 @@ Change detection SHALL run exactly once per workflow, in a `detect-changes` job 
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/unit-tests.yml` (`on: workflow_call`) that runs unit tests concurrently with the E2E stage. It SHALL receive the changed-component flags as `workflow_call` inputs and gate conditional jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result up into the required check, so it has no summary or gate job of its own. Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile.
 
+Each Go unit job SHALL write a coverage profile and upload it to the App-SRE Codecov instance (the `codecov-appsre` GitHub App) through `scripts/codecov-upload.sh`, with one Codecov flag per Go module (`api-server`, `control-plane`, `cli`, `sdk-generator`) configured in the root `codecov.yml` with carryforward, so a module skipped by change detection keeps its last coverage. Uploads SHALL run only for `pull_request` and `push` events and SHALL attach PR coverage to the PR head commit. The upload SHALL skip with exit 0 when the `CODECOV_TOKEN` secret is unavailable (fork pull requests), and an upload failure SHALL NOT fail the job, so coverage reporting never blocks a merge. Codecov statuses SHALL be informational until the project sets coverage targets. Before uploading, `scripts/codecov-upload.sh` SHALL remove generated code from a copy of the profile (protobuf and gateway stubs, mocks, `zz_generated` files, and the generated OpenAPI client, the same set as `ignore` in `codecov.yml`) and upload that copy, so generated code is never counted even when Codecov processes a report without the repository's `codecov.yml`. The original profile SHALL stay unchanged.
+
 The root Makefile SHALL provide a `make unit-test-all` target that runs the same unit test suites as the CI jobs (API server, control plane, CLI/SDK generators, frontend packages, and shell tests) unconditionally -- without the per-component change detection the CI workflow uses -- so a developer can run the full suite locally before pushing. It SHALL provide a `make ci-test` target that runs only the auto-discovered `*_test.sh` shell tests, matching the CI shell-test job.
 
 #### Scenario: E2E-CORE-24.01 -- Local Unit Test Run Mirrors CI
@@ -1218,6 +1252,13 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 - WHEN the `tests.yml` orchestrator runs
 - THEN the `e2e` stage SHALL still start and run to completion
 - AND the `Tests CI Gate` check SHALL fail because the `unit` stage's result is `failure`
+
+#### Scenario: E2E-CORE-24.07 -- Generated Code Excluded From Codecov
+
+- GIVEN a Go coverage profile with blocks from generated files (`*.pb.go`, `*_grpc.pb.go`, `mock_*.go`, `zz_generated*.go`, `components/api-server/pkg/api/openapi/`) and from hand-written files
+- WHEN `scripts/codecov-upload.sh` uploads it
+- THEN the Codecov CLI SHALL receive only the `mode:` line and the hand-written blocks
+- AND the original profile SHALL be unchanged
 
 ### Requirement: E2E-CORE-25 -- CI E2E Workflow
 
@@ -1480,35 +1521,45 @@ The refactored deploy structure SHALL maintain backward compatibility with exist
 
 ### Requirement: E2E-CORE-30 -- Managed-Cluster Matrix Runner
 
-The system SHALL provide a Go matrix runner (`TestMatrix`, run via `make e2e-matrix`) that enumerates registered ManagedClusters and runs the single-cluster `E2ESuite` once per cluster, then reports a per-cluster pass/fail/skip matrix and a single gate verdict. The runner SHALL add no new test assertions; it reuses the suite verbatim. Unlike the former Bash matrix (which ran each cluster as a separate child process to isolate process-global counters), the Go runner SHALL run each cluster as its own `E2ESuite` instance with its own per-suite state, fanned out as bounded goroutines (see [Concurrency Model](#requirement-concurrency-model)); there SHALL be no shared mutable counter across clusters.
+`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy.
 
-The only matrix dimension SHALL be the fleet of registered ManagedClusters, discovered from `GET /v1/managed_clusters` (registered = non-empty `oidc_subject`). The runner SHALL NOT matrix over drivers or infra types: it selects one `E2EInfraDriver` exactly as the single-cluster suite does and fans that selection across clusters. The matrix SHALL default to `E2E_MODE=short` (the smoke subset the gate runs) when `E2E_MODE` is unset -- overriding the suite's own `long` default, since the matrix is a promotion/smoke gate -- but SHALL forward any `E2E_MODE` the caller sets (`long`, or `perf` depth when driven by the harness) to each cluster's suite unchanged.
+```text
+for mc in GET /managed_clusters:
+    if mc is unregistered or unhealthy:
+        report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
+        continue
+    suite = E2ESuite { targetClusterID: mc.id }
+    run suite
+```
 
-The runner SHALL bound parallelism with `E2E_CONCURRENCY` (default `4`; `1` forces sequential). Each per-cluster suite SHALL own a uniquely named gateway (`${E2E_MANAGED_GATEWAY_PREFIX}-<cluster>-<runid>`, prefix default `e2e`) and SHALL tear it down regardless of outcome, so parallel clusters never collide. The runner SHALL resolve each cluster's `cluster_id` by name and pass it to that cluster's suite. A product-interface run (API + gRPC) SHALL be the baseline and SHALL need no kubeconfig; kube-level steps (P1.2 infra verification, P2.3 GC) SHALL run for a cluster only when `E2E_MANAGED_KUBECONTEXT_<name>` is supplied, and SHALL otherwise `t.Skip` (never fail) for that cluster.
+`TestMatrix` SHALL configure each `E2ESuite` with `mc.id` as its target cluster. Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL use the existing pinned `cluster_id` contract defined by PLAT-DATA-02 and PLAT-CLUS-09, and SHALL include `cluster_id: mc.id`. After each such create, the suite SHALL assert that the response contains the same `cluster_id` before continuing that gateway's workflow. These positive creates SHALL NOT use selector placement, random placement, or a fallback cluster.
 
-The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E_MANAGED_HEALTHY_WINDOW`, default `5m`), or unreachable cluster SHALL be a failure by default; `E2E_MANAGED_SKIP_UNHEALTHY=1` SHALL downgrade it to a skip. A skip SHALL never count as a pass. The runner SHALL print a per-cluster result table (name, health, pass/fail/skip, child tally) and a single overall verdict; per-cluster output SHALL be captured and attributed, not interleaved. `go test` SHALL exit non-zero if any selected cluster failed and zero only when every selected cluster passed or was skipped; a partial or aborted run SHALL NOT report a clean gate. `E2E_MANAGED_CLUSTERS` SHALL be an optional allowlist (unset = all registered; allowlist only, no denylist). This gate is consumed by Argo CD release analysis and GitOps Promoter promotion gates in the gitops repo. Renovate supplies the selected release bundle.
+Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its unregistered `cluster_id`, its empty `cluster_id` with no placement, and its placement selector with no `cluster_id`; the matrix target SHALL NOT be injected into those requests, and a successful late-bound response SHALL NOT be required to resolve to `mc.id`. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
 
-#### Scenario: E2E-CORE-30.01 -- Suite Reused Per Cluster
+#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster
 
-- GIVEN three registered ManagedClusters
-- WHEN `make e2e-matrix` runs with `E2E_MODE=short` and `E2E_CONCURRENCY=2`
-- THEN the runner SHALL run `E2ESuite` once per cluster, at most two at a time
-- AND each cluster's suite SHALL own a uniquely named gateway and tear it down
-- AND no assertion beyond the single-cluster suite SHALL be added
+- GIVEN `GET /managed_clusters` returns registered Healthy clusters `A` and `B`
+- WHEN `TestMatrix` runs
+- THEN it SHALL configure one `E2ESuite` with target cluster `A` and one with target cluster `B`
+- AND every positive workflow or provisioning create from the suite targeting `A` SHALL include `cluster_id: "A"` and verify the response has `cluster_id: "A"`
+- AND every positive workflow or provisioning create from the suite targeting `B` SHALL include `cluster_id: "B"` and verify the response has `cluster_id: "B"`
+- AND neither suite SHALL place a positive-workflow gateway on any other cluster
+- AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
-#### Scenario: E2E-CORE-30.02 -- Unhealthy Cluster Fails Closed
+#### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly
 
-- GIVEN a registered cluster whose `last_seen_at` is older than `E2E_MANAGED_HEALTHY_WINDOW`
-- WHEN the matrix runs with `E2E_MANAGED_SKIP_UNHEALTHY` unset
-- THEN that cluster SHALL be reported as a failure and the overall verdict SHALL be non-zero
-- AND with `E2E_MANAGED_SKIP_UNHEALTHY=1` it SHALL be reported as a skip, not a pass
+- GIVEN a selected ManagedCluster is unregistered or not Healthy
+- WHEN `TestMatrix` evaluates that cluster
+- THEN it SHALL NOT create a gateway or run `E2ESuite` for that cluster
+- AND it SHALL report FAIL by default
+- OR it SHALL report SKIP when `E2E_MANAGED_SKIP_UNHEALTHY=1`
 
-#### Scenario: E2E-CORE-30.03 -- Missing Kube Context Degrades To Skip
+#### Scenario: E2E-CORE-30.03 -- Missing Kubernetes context skips Kubernetes checks
 
-- GIVEN a healthy cluster for which `E2E_MANAGED_KUBECONTEXT_<name>` is not supplied
-- WHEN that cluster's suite reaches the kube-level steps (P1.2 and P2.3)
-- THEN those steps SHALL `t.Skip` with a reason
-- AND the product-interface steps SHALL still run and be asserted
+- GIVEN a selected registered Healthy cluster has no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
+- WHEN `E2ESuite` runs for that cluster
+- THEN API-level steps SHALL still run
+- AND Kubernetes-level steps SHALL report SKIP rather than use another cluster's context
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 

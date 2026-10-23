@@ -122,6 +122,9 @@ jobs:
       sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
       sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
       web_console: ${{ needs.detect-changes.outputs.web_console }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      CODECOV_ENTERPRISE_URL: ${{ secrets.CODECOV_ENTERPRISE_URL }}
 
   # Runs concurrently with unit (needs only change detection) and is NOT part
   # of the Tests CI Gate (CICD-MRG-05). CICD-MRG-06: the e2e job below is the

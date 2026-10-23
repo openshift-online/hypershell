@@ -112,6 +112,8 @@ function renderApp(): void {
           logsTruncated: false,
         }),
       ),
+    getE2eRunLogs: () =>
+      Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
     streamE2eRun: () => () => {
       /* unsubscribe */
     },

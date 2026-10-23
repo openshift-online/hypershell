@@ -2,8 +2,6 @@ package gateway
 
 import (
 	"fmt"
-	"net"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -181,59 +179,16 @@ func ValidateCredentialDriverConfig(config *CredentialDriverConfig) error {
 		// Explicit opt-in to the KEK-encrypted database store (the former default).
 		// It carries no sub-fields; the control plane provisions the KEK Secret.
 	case "vault", "":
-		// Vault is the default backend (HYPERSHELL-369). Every sub-field is
-		// optional: the control plane fills unset coordinates from the per-cluster
-		// Vault conventions (see config.go). Validate only the overrides present.
-		if config.Vault != nil {
-			if config.Vault.Address != "" {
-				u, err := url.ParseRequestURI(config.Vault.Address)
-				if err != nil {
-					return fmt.Errorf("invalid vault address URL: %w", err)
-				}
-				if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
-					return fmt.Errorf("vault address %q must use https (non-loopback endpoints require TLS)", config.Vault.Address)
-				}
-			}
-			if config.Vault.Role != "" {
-				if err := validateIdentifier(config.Vault.Role); err != nil {
-					return fmt.Errorf("invalid vault role: %w", err)
-				}
-			}
-			if config.Vault.Mount != "" {
-				if err := validateIdentifier(config.Vault.Mount); err != nil {
-					return fmt.Errorf("invalid vault mount: %w", err)
-				}
-			}
-			if config.Vault.AuthMethod != "" {
-				if err := validateIdentifier(config.Vault.AuthMethod); err != nil {
-					return fmt.Errorf("invalid vault auth_method: %w", err)
-				}
-			}
-			if config.Vault.KubernetesAuthMount != "" {
-				if err := validateIdentifier(config.Vault.KubernetesAuthMount); err != nil {
-					return fmt.Errorf("invalid vault kubernetes_auth_mount: %w", err)
-				}
-			}
-		}
+		// Vault is the default backend (HYPERSHELL-369) and a BLACK BOX to users: the
+		// control plane fills every coordinate from the per-cluster conventions + deployment
+		// config (config.go). There are deliberately no per-gateway Vault overrides to
+		// validate - a gateway cannot set its address/role/mount/auth - so nothing to check
+		// here beyond the type itself.
 	default:
 		return fmt.Errorf("unsupported credential driver type %q; supported: vault, kubernetes-secrets, kek-db", config.Type)
 	}
 
 	return nil
-}
-
-// isLoopbackHost reports whether host is a loopback name or address, for which an
-// http (non-TLS) Vault address is permissible (the OpenShell Vault driver allows a
-// loopback-only plaintext exception).
-func isLoopbackHost(host string) bool {
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-	return false
 }
 
 func ValidateDNSLabel(label string) error {
@@ -242,21 +197,6 @@ func ValidateDNSLabel(label string) error {
 	}
 	if !dnsLabelRegex.MatchString(label) {
 		return fmt.Errorf("invalid DNS label: %q", label)
-	}
-	return nil
-}
-
-var identifierRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
-
-func validateIdentifier(value string) error {
-	if len(value) == 0 || len(value) > 253 {
-		return fmt.Errorf("must be 1-253 characters: %q", value)
-	}
-	if strings.ContainsAny(value, "\"\n\r\t\\") {
-		return fmt.Errorf("contains invalid characters: %q", value)
-	}
-	if !identifierRegex.MatchString(value) {
-		return fmt.Errorf("invalid identifier format: %q", value)
 	}
 	return nil
 }

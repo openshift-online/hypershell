@@ -83,6 +83,11 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     getSdlc: vi.fn().mockResolvedValue(plane(sdlc)),
     getE2eRuns: vi.fn().mockResolvedValue(plane(e2eRuns)),
     getE2eRun: vi.fn().mockResolvedValue(plane(e2eRun)),
+    getE2eRunLogs: vi
+      .fn()
+      .mockResolvedValue(
+        plane({ entries: [], nextCursor: null, hasMore: false }),
+      ),
     streamE2eRun: vi.fn().mockReturnValue(() => {
       /* unsubscribe */
     }),

@@ -52,10 +52,15 @@ const emptyE2eRun: E2eRunDetail = {
 const e2eApi = {
   getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
   getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
+  getE2eRunLogs: () =>
+    Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
   streamE2eRun: () => () => {
     /* unsubscribe */
   },
-} satisfies Pick<FleetApi, "getE2eRuns" | "getE2eRun" | "streamE2eRun">;
+} satisfies Pick<
+  FleetApi,
+  "getE2eRuns" | "getE2eRun" | "getE2eRunLogs" | "streamE2eRun"
+>;
 
 function plane<T>(data: T): Plane<T> {
   return {

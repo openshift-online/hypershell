@@ -718,7 +718,7 @@ Gateway and node inventory metrics that expose `OperationalMetric.value` plus `O
 
 Node status donuts SHALL reuse the same `status.healthy` and `status.failed` keys as the adapter mapping in `platform/cluster-nodes.spec.md` OBS-NODE-05, but SHALL render localized **Ready** and **Not ready** labels instead of gateway vocabulary.
 
-`NodeStatusCard` SHALL wrap `NodeStatusChart` with the same card shell used by `GatewayStatusCard`. The default layout template SHALL include a `nodes` widget (WEB-OPS-10) at `NODE_STATUS_WIDGET_HEIGHT` (shorter than `memory`, `cpu`, and `pods`, which use sparkline-capable heights per OBS-HCUT-08). The `nodes` widget SHALL NOT render a trend sparkline. `NodeStatusChart` SHALL use the compact `StatusDonutChart` size without a chart subtitle (the widget title already identifies the metric) and reduced card-body padding so the donut is not clipped.
+`NodeStatusCard` SHALL wrap `NodeStatusChart` with the same card shell used by `GatewayStatusCard`. The `nodes` widget SHALL appear on the Provisioning dashboard (`web-console/provisioning-dashboard.spec.md` FR-010). The operational overview default layout and add-widgets drawer SHALL NOT offer a `nodes` widget. The `nodes` widget SHALL NOT render a trend sparkline. `NodeStatusChart` SHALL use the compact `StatusDonutChart` size without a chart subtitle (the widget title already identifies the metric) and reduced card-body padding so the donut is not clipped.
 
 When `status` is absent or all bucket counts are zero, status donut charts SHALL render nothing while their widget shell remains.
 
@@ -739,9 +739,9 @@ The `pods` widget SHALL render `PodCapacityChart` when the metric includes `unit
 
 `PodCapacityChart` SHALL use the compact `StatusDonutChart` size. When a donut subtitle is rendered, the chart SHALL use expanded compact height and padding so the subtitle and legend are not clipped. The chart center title SHALL show **used** pods (`value`). The chart subtitle SHALL read "of {total} pods". Segments SHALL include Running, Pending, Failed, Succeeded, Unknown (from `podPhases`), plus an **Unused** segment (gray) for `total - value` (available capacity).
 
-The default layout template SHALL place the `pods` widget at `POD_CAPACITY_WIDGET_HEIGHT` (taller than `nodes` to fit the capacity donut and 7-day usage trend sparkline per `platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-08).
+The `pods` widget SHALL appear on the Provisioning dashboard (`web-console/provisioning-dashboard.spec.md` FR-011). The operational overview default layout and add-widgets drawer SHALL NOT offer a `pods` widget.
 
-When `pods.trend.points` contains at least two entries, the `pods` widget SHALL render a `TrendSparklineChart` below the capacity donut with caption **Last 7 days** (OBS-HCUT-08). When `trend` is absent or has fewer than two points, the widget SHALL omit the sparkline with no error state.
+The `pods` widget SHALL show current state only. It SHALL NOT render a trend sparkline, even when `pods.trend.points` is present (`web-console/provisioning-dashboard.spec.md` FR-011, WEB-OPS-08).
 
 When `podPhases` is absent, `PodCapacityChart` SHALL render nothing while its widget shell remains.
 
@@ -754,13 +754,13 @@ When `podPhases` is absent, `PodCapacityChart` SHALL render nothing while its wi
 - AND the chart subtitle SHALL read "of 2000 pods"
 - AND the widget title SHALL be localized "Pods"
 
-#### Scenario: WEB-OPS-17.02 -- Pods widget shows capacity donut and usage trend sparkline
+#### Scenario: WEB-OPS-17.03 -- Pods widget shows capacity donut without a trend sparkline
 
 - GIVEN the `pods` metric has instant capacity and phase fields
-- AND `trend.points` contains 7 daily used pod counts
-- WHEN the pods widget renders
+- AND `trend.points` contains at least two daily used pod counts
+- WHEN the Provisioning dashboard pods widget renders
 - THEN a capacity donut SHALL appear
-- AND a usage trend sparkline SHALL appear below it with caption **Last 7 days**
+- AND no trend sparkline SHALL appear
 
 ---
 
@@ -772,7 +772,7 @@ When `podPhases` is absent, `PodCapacityChart` SHALL render nothing while its wi
 
 When `trend.points` contains at least two entries, `UtilizationCard` SHALL render a `TrendSparklineChart` below the utilization chart with caption **Last 7 days** (`platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-08).
 
-The `pods` widget SHALL use `PodCapacityChart` (WEB-OPS-17), not `UtilizationChart`. When `pods.trend.points` contains at least two entries, the pods widget SHALL render a `TrendSparklineChart` below the capacity donut with caption **Last 7 days** (OBS-HCUT-08). The `system-summary` pods row SHALL continue to show utilization percentage from the same `pods` metric and SHALL show a failed pod count when `podPhases.failed` is non-zero.
+The `pods` widget SHALL use `PodCapacityChart` (WEB-OPS-17), not `UtilizationChart`. The pods widget SHALL NOT render a trend sparkline (WEB-OPS-17). The `system-summary` pods row SHALL continue to show utilization percentage from the same `pods` metric and SHALL show a failed pod count when `podPhases.failed` is non-zero.
 
 **Summary widgets:**
 
@@ -885,7 +885,7 @@ The fallback message SHALL be declared in the operational-dashboard-ui `messages
 
 ### Requirement: WEB-OPS-15 -- Verification Fixtures
 
-The operational-dashboard-ui package SHALL ship `mockOperationalDashboardMetrics` containing all widget metric IDs with representative fields matching production adapter output (`status`, `podPhases`, `unit`, `total`, and `trend` where applicable). Fixtures for hub-cluster `memory`, `cpu`, and `pods` SHALL include representative 7-day `trend.points` so Storybook and unit tests exercise usage trend sparklines (`platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-10).
+The operational-dashboard-ui package SHALL ship `mockOperationalDashboardMetrics` containing all widget metric IDs with representative fields matching production adapter output (`status`, `podPhases`, `unit`, `total`, and `trend` where applicable). Fixtures for hub-cluster `memory`, `cpu`, and `pods` SHALL include representative 7-day `trend.points` to match adapter output (`platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-10). The `memory` and `cpu` fixtures exercise usage trend sparklines. The `pods` fixture exercises the rule that the pods widget ignores `trend` (WEB-OPS-17).
 
 The web console SHALL provide Storybook stories for default, loading, partial-load-warning, total-initial-load-error, and refresh-partial-failure states using mock or stub `DashboardControlPlane` adapters.
 
@@ -996,3 +996,9 @@ The widget SHALL load from the independent `gateway-release-distribution` metric
 - THEN `gateway-status#1` SHALL occupy column 3 on the platform adoption top row
 - AND `gateway-releases#1` SHALL occupy column 3 on the row below gateway status
 - AND no `provisioned-sandboxes` widget SHALL appear on the grid
+
+---
+
+## Retired IDs
+
+- `WEB-OPS-17.02`: replaced by WEB-OPS-17.03. The pods widget no longer renders a trend sparkline. It appears only on the Provisioning dashboard, which shows current pod state only (`web-console/provisioning-dashboard.spec.md` FR-011).

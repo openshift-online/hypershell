@@ -64,6 +64,9 @@ type GatewayHealthReconciler struct {
 	clientset     kubernetes.Interface
 	dynamicClient dynamic.Interface
 	grpcConn      *grpc.ClientConn
+	// vaultReachable probes whether a vault-backed gateway's provider Vault is
+	// reachable. A nil value uses gateway.ProbeVaultReachable; tests inject a stub.
+	vaultReachable func(ctx context.Context, clientset kubernetes.Interface) error
 	// clusterID scopes the health sweep to this managed cluster's gateways. The
 	// list is filtered server-side so a control plane never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Always set: it is
@@ -119,6 +122,20 @@ type GatewayHealthReconciler struct {
 	routeVerifiedAt         map[string]time.Time
 	// mu also protects healthAccessCheckedAt. Entries expire after five minutes.
 	healthAccessCheckedAt map[string]time.Time
+
+	// vaultSweepProbe memoizes the per-cluster Vault reachability probe for the
+	// duration of one health sweep. Every vault-backed gateway shares the single
+	// convention Vault address (Vault is a black box, no per-gateway overrides), so a
+	// fleet would otherwise probe the same Vault once per gateway each sweep. Reset at
+	// the start of reconcileOnce; guarded by mu.
+	vaultSweepProbe *vaultProbeResult
+}
+
+// vaultProbeResult carries a once-run Vault reachability result shared across the
+// gateways of a single health sweep.
+type vaultProbeResult struct {
+	once sync.Once
+	err  error
 }
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace string) *GatewayHealthReconciler {
@@ -248,7 +265,33 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	}
 
 	h.pruneHealthAccessChecks()
+
+	// Reset the per-sweep Vault reachability memo so this sweep probes the shared
+	// convention Vault at most once across all its vault-backed gateways.
+	h.mu.Lock()
+	h.vaultSweepProbe = &vaultProbeResult{}
+	h.mu.Unlock()
+
 	h.reconcileGateways(ctx, client, gateways)
+}
+
+// vaultReachableCached runs the per-cluster Vault reachability probe at most once per
+// health sweep, caching the result so a fleet of gateways sharing one convention Vault
+// address does not re-probe per gateway. A nil per-sweep memo (a direct unit-test call to
+// reconcileGatewayHealth outside reconcileOnce) probes directly without caching.
+func (h *GatewayHealthReconciler) vaultReachableCached(ctx context.Context) error {
+	probe := h.vaultReachable
+	if probe == nil {
+		probe = gateway.ProbeVaultReachable
+	}
+	h.mu.Lock()
+	p := h.vaultSweepProbe
+	h.mu.Unlock()
+	if p == nil {
+		return probe(ctx, h.clientset)
+	}
+	p.once.Do(func() { p.err = probe(ctx, h.clientset) })
+	return p.err
 }
 
 // reconcileGateways processes different gateways concurrently with a bounded
@@ -396,6 +439,27 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		h.clearDeploymentTimer(gatewayID)
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
+	}
+
+	// Vault-backed gateways additionally require their per-cluster Vault to be reachable
+	// to be Running. A Vault outage degrades the gateway (recoverable once Vault returns)
+	// and increments a dashboard-visible signal so the cause is distinguishable from
+	// other degradations. See openshell-gateway-credentials.spec.md (Fail Closed When
+	// Vault Is Unavailable -- At runtime).
+	if desiredPhase == string(gatewayhealth.PhaseRunning) {
+		vaultBacked, driverErr := gateway.IsVaultBacked(gw.GetCredentialDriver())
+		switch {
+		case driverErr != nil:
+			// A malformed stored driver is not assumed to be vault: do not probe (or degrade)
+			// a gateway whose credential driver we cannot parse. Log and leave the phase.
+			log.Printf("WARN gateway health: %s: cannot determine credential driver (%v); skipping Vault probe", gatewayID, driverErr)
+		case vaultBacked:
+			if err := h.vaultReachableCached(ctx); err != nil {
+				log.Printf("WARN gateway health: %s: provider Vault unreachable: %v", gatewayID, err)
+				cpotel.RecordGatewayVaultUnreachable(ctx, h.clusterID)
+				desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "Vault credential backend unreachable"
+			}
+		}
 	}
 
 	// active_sandbox_count is maintained independently by the event-driven

@@ -415,7 +415,12 @@ func (f *windowedLoki) QueryRange(_ context.Context, _ string, query string, _, 
 	}
 	return f.logs, true, nil
 }
-func TestRunDetailPreservesLifecycleOutsideLogWindow(t *testing.T) {
+
+// TestRunDetailPreservesLifecycleFromLifecycleQuery confirms the detail's steps and
+// verdict come from the isolated lifecycle query, which is scoped to the run, so a
+// chatty log window can never evict them (E2E-LOG-12). The detail no longer reads
+// the raw-log history (E2E-LOG-20), so only the lifecycle query is issued.
+func TestRunDetailPreservesLifecycleFromLifecycleQuery(t *testing.T) {
 	f := &windowedLoki{structural: []LokiEntry{
 		{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{map[string]any{"stepId": "a", "name": "API checks"}}}))},
 		{Line: viaQLine(t, ev("step_finished", 2, map[string]any{"stepId": "a", "outcome": "passed"}))},
@@ -426,13 +431,254 @@ func TestRunDetailPreservesLifecycleOutsideLogWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Verdict != "passed" || !detail.ReportingComplete || len(detail.Steps) != 1 || !detail.LogsTruncated {
+	if detail.Verdict != "passed" || !detail.ReportingComplete || len(detail.Steps) != 1 {
 		t.Fatalf("lost lifecycle: %+v", detail)
+	}
+	if len(detail.Logs) != 0 {
+		t.Errorf("detail must not embed logs, got %d", len(detail.Logs))
+	}
+	if len(f.queries) != 1 || !strings.Contains(f.queries[0], "run_started|") {
+		t.Fatalf("detail should issue only the lifecycle query, got %v", f.queries)
 	}
 	for _, q := range f.queries {
 		if !strings.Contains(q, `|= "run-1"`) {
 			t.Fatalf("unscoped run query: %s", q)
 		}
+	}
+}
+
+// splitLoki distinguishes the lifecycle (steps/verdict) query from the raw-log
+// query so a test can make the raw-log read fail while the lifecycle read
+// succeeds (E2E-LOG-20).
+type splitLoki struct {
+	fakeLoki
+	lifecycle    []LokiEntry
+	logs         []LokiEntry
+	lifecycleErr error
+	logErr       error
+	logCalls     int // how many non-lifecycle (raw-log) queries were issued
+}
+
+func (f *splitLoki) QueryRange(_ context.Context, _ string, query string, _, _ time.Time, _ int) ([]LokiEntry, bool, error) {
+	if strings.Contains(query, "run_started|") {
+		return f.lifecycle, false, f.lifecycleErr
+	}
+	f.logCalls++
+	return f.logs, false, f.logErr
+}
+
+// TestRunDetailDecoupledFromRawLogs confirms the run detail is decoupled from the
+// raw logs (E2E-LOG-20): steps and verdict come from the lifecycle query alone,
+// the detail issues no raw-log query, and it embeds no logs. Even with a raw-log
+// read that would error, the detail still serves steps and verdict.
+// Verifies: E2E-LOG-20.01
+func TestRunDetailDecoupledFromRawLogs(t *testing.T) {
+	f := &splitLoki{
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{map[string]any{"stepId": "a", "name": "API checks"}}}))},
+			{Line: viaQLine(t, ev("step_finished", 2, map[string]any{"stepId": "a", "outcome": "passed"}))},
+			{Line: viaQLine(t, ev("run_finished", 3, map[string]any{"outcome": "passed"}))},
+		},
+		logErr: context.DeadlineExceeded,
+	}
+	detail, err := testE2E(f).RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatalf("detail must render from the lifecycle query alone: %v", err)
+	}
+	if detail.Verdict != "passed" || len(detail.Steps) != 1 || detail.Steps[0].State != stepStatePassed {
+		t.Fatalf("steps/verdict lost: %+v", detail)
+	}
+	if len(detail.Logs) != 0 {
+		t.Errorf("run detail must not embed the raw-log history, got %d lines", len(detail.Logs))
+	}
+	if f.logCalls != 0 {
+		t.Errorf("run detail issued %d raw-log queries, want 0 (logs come from the logs endpoint)", f.logCalls)
+	}
+}
+
+// TestRunDetailBackendUnavailableWhenLifecycleFails confirms the genuine
+// backend-unavailable state is reserved for a failed lifecycle/steps query
+// (E2E-LOG-20.02).
+// Verifies: E2E-LOG-20.02
+func TestRunDetailBackendUnavailableWhenLifecycleFails(t *testing.T) {
+	f := &splitLoki{lifecycleErr: context.DeadlineExceeded}
+	_, err := testE2E(f).RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if !errors.Is(err, ErrLogBackendUnavailable) {
+		t.Errorf("err = %v, want ErrLogBackendUnavailable when steps cannot load", err)
+	}
+}
+
+// pagingLoki emulates a backward Loki query_range over a fixed newest-first set,
+// honoring the exclusive `end` bound and the `limit`, so RunLogs paging is
+// validated without a live Loki (E2E-LOG-19).
+type pagingLoki struct {
+	fakeLoki
+	all []LokiEntry // newest-first (descending TimestampNs)
+}
+
+func (f *pagingLoki) QueryRange(_ context.Context, _, _ string, _, end time.Time, limit int) ([]LokiEntry, bool, error) {
+	endNs := end.UnixNano()
+	var filtered []LokiEntry
+	for _, e := range f.all {
+		if e.TimestampNs < endNs { // query_range end is exclusive
+			filtered = append(filtered, e)
+		}
+	}
+	hitLimit := false
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+		hitLimit = true
+	}
+	return filtered, hitLimit, nil
+}
+
+// logEntry builds one raw-log LokiEntry with an explicit Loki timestamp (the
+// paging cursor) carrying a structured log event with the given sequence.
+func logEntry(t *testing.T, seq, tsNs int64, msg string) LokiEntry {
+	t.Helper()
+	return LokiEntry{Tenant: "hub-00", TimestampNs: tsNs, Line: viaQLine(t, ev("log", seq, map[string]any{"message": msg}))}
+}
+
+// walkLogs pages RunLogs oldest-ward from the newest page, de-duplicating by
+// sequence (the client's responsibility across the one-nanosecond boundary
+// overlap), until hasMore is false. Returns the de-duplicated sequences in first-
+// seen order and the number of pages walked.
+func walkLogs(t *testing.T, e *E2E, id string, pageSize int) ([]int64, int) {
+	t.Helper()
+	seen := map[int64]bool{}
+	var order []int64
+	before := ""
+	pages := 0
+	for {
+		page, err := e.RunLogs(context.Background(), id, before, pageSize)
+		if err != nil {
+			t.Fatalf("RunLogs page %d: %v", pages, err)
+		}
+		pages++
+		for _, l := range page.Entries {
+			if !seen[l.Sequence] {
+				seen[l.Sequence] = true
+				order = append(order, l.Sequence)
+			}
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("hasMore is true but nextCursor is empty")
+		}
+		if page.NextCursor == before {
+			t.Fatalf("cursor did not advance (stuck at %s)", before)
+		}
+		before = page.NextCursor
+		if pages > 50 {
+			t.Fatal("paging did not terminate")
+		}
+	}
+	return order, pages
+}
+
+// TestRunLogsPagingWalk confirms the newest page loads first and older pages load
+// by cursor until hasMore is false, covering the whole run (E2E-LOG-19.01).
+// Verifies: E2E-LOG-19.01
+func TestRunLogsPagingWalk(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 5, 500, "e"),
+		logEntry(t, 4, 400, "d"),
+		logEntry(t, 3, 300, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 100, "a"),
+	}}
+	e := testE2E(f)
+
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first page should report more: %+v", first)
+	}
+	// The newest page is returned chronological-ascending (oldest first) for display.
+	if len(first.Entries) != 2 || first.Entries[0].Sequence != 4 || first.Entries[1].Sequence != 5 {
+		t.Fatalf("newest page not ascending newest lines: %+v", first.Entries)
+	}
+
+	order, pages := walkLogs(t, e, "hub-00/hypershell/run-1", 2)
+	if pages < 2 {
+		t.Fatalf("expected a multi-page walk, got %d pages", pages)
+	}
+	if len(order) != 5 {
+		t.Fatalf("walk covered %d distinct lines, want 5: %v", len(order), order)
+	}
+}
+
+// TestRunLogsBoundaryNotDroppedOrDuplicated confirms two entries sharing one
+// nanosecond timestamp across a page boundary each appear exactly once after the
+// client de-dupes the overlap (E2E-LOG-19.02).
+// Verifies: E2E-LOG-19.02
+func TestRunLogsBoundaryNotDroppedOrDuplicated(t *testing.T) {
+	// seq 2 and seq 3 share timestamp 200; a page size of 3 cuts the group so only
+	// seq 3 lands in page 1, leaving seq 2 at the boundary for page 2 to recover
+	// through the one-nanosecond overlap.
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 5, 400, "e"),
+		logEntry(t, 4, 300, "d"),
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 100, "a"),
+	}}
+	e := testE2E(f)
+	order, _ := walkLogs(t, e, "hub-00/hypershell/run-1", 3)
+	want := map[int64]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+	got := map[int64]int{}
+	for _, s := range order {
+		got[s]++
+	}
+	for seq, n := range want {
+		if got[seq] != n {
+			t.Fatalf("sequence %d appeared %d times, want %d (dropped or duplicated across boundary): %v", seq, got[seq], n, order)
+		}
+	}
+}
+
+// TestRunLogsTerminatesOnOverfullTimestamp confirms paging terminates (rather than
+// looping on a non-advancing cursor) when more entries share a single nanosecond
+// than fit in one page. The guard trades the unreachable tail for liveness
+// (E2E-LOG-19 "SHALL NOT assume unique timestamps").
+func TestRunLogsTerminatesOnOverfullTimestamp(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 200, "a"),
+	}}
+	_, pages := walkLogs(t, testE2E(f), "hub-00/hypershell/run-1", 2)
+	if pages > 5 {
+		t.Fatalf("paging must terminate on an over-full timestamp, walked %d pages", pages)
+	}
+}
+
+// TestRunLogsLimitClamped confirms a client-supplied limit above the server
+// maximum is clamped rather than issuing an unbounded query (E2E-LOG-19.03).
+// Verifies: E2E-LOG-19.03
+func TestRunLogsLimitClamped(t *testing.T) {
+	if got := clampLogPageSize(100_000, 150); got != maxLogPageSize {
+		t.Errorf("clampLogPageSize(100000) = %d, want %d", got, maxLogPageSize)
+	}
+	if got := clampLogPageSize(0, 150); got != 150 {
+		t.Errorf("clampLogPageSize(0) = %d, want the default 150", got)
+	}
+	if got := clampLogPageSize(50, 150); got != 50 {
+		t.Errorf("clampLogPageSize(50) = %d, want 50", got)
+	}
+}
+
+// TestRunLogsDisallowedTenantNotFound confirms the logs endpoint honors the same
+// tenant allowlist as the detail endpoint (E2E-LOG-19.04).
+// Verifies: E2E-LOG-19.04
+func TestRunLogsDisallowedTenantNotFound(t *testing.T) {
+	_, err := testE2E(&pagingLoki{}).RunLogs(context.Background(), "rogue/ns/run-1", "", 0)
+	if err != ErrRunNotFound {
+		t.Errorf("err = %v, want ErrRunNotFound for a tenant outside the allowlist", err)
 	}
 }
 

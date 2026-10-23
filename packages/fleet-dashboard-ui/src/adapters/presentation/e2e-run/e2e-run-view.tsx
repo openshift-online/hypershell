@@ -42,6 +42,7 @@ import {
   ModalBody,
   ModalHeader,
   ModalVariant,
+  Spinner,
 } from "@patternfly/react-core";
 import {
   type ThProps,
@@ -63,20 +64,32 @@ import PlayIcon from "@patternfly/react-icons/dist/esm/icons/play-icon";
 import QuestionCircleIcon from "@patternfly/react-icons/dist/esm/icons/question-circle-icon";
 import type { SVGIconProps } from "@patternfly/react-icons/dist/esm/createIcon";
 import type { ComponentType } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
   applyEvents,
+  boundLogBuffer,
   elapsedSeconds,
+  isRunning,
   logsForStep,
+  mergeLogLines,
   reduceRun,
   runDurationMs,
   runBundle,
   runTargetInstance,
   runsNewestFirst,
   MAX_DETAIL_LOG_LINES,
+  MAX_LOG_BUFFER,
+  type E2eLogLine,
   type E2eRunDetail,
   type E2eRunEvent,
   type E2eRunsData,
@@ -113,9 +126,6 @@ export interface ExecControls {
   readonly onLogExpanded: (value: boolean) => void;
   readonly onLogQuery: (value: string) => void;
 }
-
-/** How many log lines the pane renders, so an unbounded log cannot blow up the DOM. */
-const MAX_RENDERED_LOG_LINES = 500;
 
 /**
  * How many `log` events the live buffer retains. Older log events fall outside the
@@ -304,6 +314,8 @@ function formatAgo(intl: IntlShape, iso: string, nowMs: number): string {
 function useLiveRunDetail(
   id: string,
   snapshot: E2eRunDetail | null,
+  live: boolean,
+  onLog: (line: E2eLogLine) => void,
   observability: ObservabilityPort,
 ): { detail: E2eRunDetail | null; status: E2eStreamStatus | null } {
   const api = useFleetApi();
@@ -311,13 +323,25 @@ function useLiveRunDetail(
   const [status, setStatus] = useState<E2eStreamStatus | null>(null);
 
   useEffect(() => {
-    // This hook lives inside a run-keyed pane, so `id` is stable for the pane's life
-    // and the subscription is set up once on mount; no in-effect reset is needed.
+    // The live tail is opened ONLY for an in-progress run (E2E-LOG-21): a completed
+    // run is read by pagination alone, because a Loki tail replays no history and
+    // would render nothing. `live` is derived from the loaded snapshot, so the
+    // subscription starts once the run is known to be in progress.
+    if (!live) {
+      return;
+    }
+    // This hook lives inside a run-keyed pane, so `id` is stable for the pane's life.
     let prevState: E2eStreamStatus["state"] | null = null;
     observability.publishE2eStream(e2eStreamFact("connect"));
     const unsubscribe = api.streamE2eRun(id, {
       onEvent: (event) => {
         setEvents((prev) => appendBoundedEvents(prev, event));
+      },
+      onLog: (line) => {
+        // Live log lines ride their own frame and append into the same rendered log
+        // list the pane paginates, de-duplicated by sequence at the history-to-live
+        // seam (E2E-LOG-21).
+        onLog(line);
       },
       onStatus: (next) => {
         if (next.state === "disconnected" && prevState !== "disconnected") {
@@ -336,7 +360,7 @@ function useLiveRunDetail(
     return () => {
       unsubscribe();
     };
-  }, [id, api, observability]);
+  }, [id, api, live, onLog, observability]);
 
   const detail = useMemo<E2eRunDetail | null>(() => {
     if (snapshot !== null) {
@@ -349,6 +373,116 @@ function useLiveRunDetail(
   }, [snapshot, events]);
 
   return { detail, status };
+}
+
+/**
+ * Manage one run's paginated raw-log history (E2E-LOG-19) and the live lines that
+ * append to it (E2E-LOG-21). On mount it loads the newest page; loadOlder() fetches
+ * the next older page by the oldest-timestamp cursor; appendLive() merges a live
+ * line. The buffer is ordered and de-duplicated by sequence and bounded to
+ * MAX_LOG_BUFFER so the heap stays bounded on a very long run (E2E-LOG-22). A failed
+ * fetch sets `unavailable`, which the log pane renders as a logs-only degraded
+ * notice rather than blanking the whole panel (E2E-LOG-20/22).
+ */
+interface RunLogs {
+  readonly lines: readonly E2eLogLine[];
+  readonly hasMoreOlder: boolean;
+  readonly loadingOlder: boolean;
+  readonly unavailable: boolean;
+  readonly loadOlder: () => void;
+  readonly appendLive: (line: E2eLogLine) => void;
+}
+
+function useRunLogs(id: string): RunLogs {
+  const api = useFleetApi();
+  const [lines, setLines] = useState<readonly E2eLogLine[]>([]);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  // Refs the loader reads without re-creating itself on every line change.
+  const oldestCursor = useRef<string | null>(null);
+  const linesRef = useRef<readonly E2eLogLine[]>([]);
+  const inFlight = useRef(false);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .getE2eRunLogs(id, null, controller.signal)
+      .then((plane) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (plane.stale) {
+          setUnavailable(true);
+          return;
+        }
+        setUnavailable(false);
+        setLines(mergeLogLines([], plane.data.entries));
+        oldestCursor.current = plane.data.nextCursor;
+        setHasMoreOlder(plane.data.hasMore);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setUnavailable(true);
+        }
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [api, id]);
+
+  const loadOlder = useCallback(() => {
+    if (inFlight.current || !hasMoreOlder || oldestCursor.current === null) {
+      return;
+    }
+    inFlight.current = true;
+    const requested = oldestCursor.current;
+    setLoadingOlder(true);
+    api
+      .getE2eRunLogs(id, requested)
+      .then((plane) => {
+        if (plane.stale) {
+          setHasMoreOlder(false);
+          return;
+        }
+        const merged = mergeLogLines(linesRef.current, plane.data.entries);
+        setLines(merged);
+        oldestCursor.current = plane.data.nextCursor;
+        // Stop paging when the buffer hits its ceiling (bounded heap) or when the
+        // cursor did not advance (a defensive guard against a nanosecond shared by
+        // more than one page, so the observer cannot busy-loop identical fetches).
+        setHasMoreOlder(
+          plane.data.hasMore &&
+            merged.length < MAX_LOG_BUFFER &&
+            plane.data.nextCursor !== requested,
+        );
+      })
+      .catch(() => {
+        // Keep what we have; a transient failure must not blank the loaded lines.
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setLoadingOlder(false);
+      });
+  }, [api, id, hasMoreOlder]);
+
+  const appendLive = useCallback((line: E2eLogLine) => {
+    setLines((prev) =>
+      boundLogBuffer(mergeLogLines(prev, [line]), MAX_LOG_BUFFER),
+    );
+  }, []);
+
+  return {
+    lines,
+    hasMoreOlder,
+    loadingOlder,
+    unavailable,
+    loadOlder,
+    appendLive,
+  };
 }
 
 // Sort source values, never localized display strings. Null durations sort last.
@@ -541,6 +675,7 @@ function RunsTable({
 
 function StepsTable({
   detail,
+  logLines,
   selectedStepId,
   onSelectStep,
   sort,
@@ -548,6 +683,9 @@ function StepsTable({
   nowMs,
 }: {
   detail: E2eRunDetail;
+  /** The loaded raw-log buffer (paginated + live), used only for the failed-step
+   *  output preview; the detail itself no longer embeds logs (E2E-LOG-19/20). */
+  logLines: readonly E2eLogLine[];
   selectedStepId: string | null;
   onSelectStep: (stepId: string) => void;
   sort: SortState | null;
@@ -603,9 +741,11 @@ function StepsTable({
                 )
               : null);
           const selected = step.stepId === selectedStepId;
+          // The failed-step snippet is best-effort from whatever log pages have
+          // loaded (the newest page loads on open); empty until logs arrive.
           const lastOutput =
             step.state === "failed"
-              ? logsForStep(detail.logs, step.stepId).at(-1)?.message
+              ? logsForStep(logLines, step.stepId).at(-1)?.message
               : null;
           return (
             <Tr
@@ -647,6 +787,7 @@ function StepsTable({
 
 function LogPane({
   detail,
+  logs,
   selectedStepId,
   onSelectScope,
   search,
@@ -655,6 +796,8 @@ function LogPane({
   onExpanded,
 }: {
   detail: E2eRunDetail;
+  /** The paginated + live-streamed log buffer and its controls (E2E-LOG-19/21/22). */
+  logs: RunLogs;
   selectedStepId: string | null;
   onSelectScope: (stepId: string | null) => void;
   /** Log search text (URL-coalesced, FLT-NAV-11). */
@@ -670,26 +813,96 @@ function LogPane({
   const [following, setFollowing] = useState(true);
   const [timestamps, setTimestamps] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Scroll anchor captured before an older page is prepended, so the viewport does
+  // not jump when older lines are inserted at the top (E2E-LOG-22).
+  const anchor = useRef<{ height: number; top: number } | null>(null);
 
+  const { lines: buffer, hasMoreOlder, loadingOlder, loadOlder } = logs;
   const lines = useMemo(
     () =>
-      selectedStepId === null
-        ? detail.logs
-        : logsForStep(detail.logs, selectedStepId),
-    [detail.logs, selectedStepId],
+      selectedStepId === null ? buffer : logsForStep(buffer, selectedStepId),
+    [buffer, selectedStepId],
   );
-  // Bounded rendering: only the most recent lines are ever in the DOM (E2E-LOG-12).
   const matches = lines.filter((line) =>
     line.message.toLowerCase().includes(search.toLowerCase()),
   );
-  const rendered = matches.slice(-MAX_RENDERED_LOG_LINES);
+  // The in-memory buffer is bounded (MAX_LOG_BUFFER), so rendering it bounds the DOM
+  // too; infinite scroll loads older pages into the same bounded buffer (E2E-LOG-22).
+  const rendered = matches;
 
-  const lastSequence = rendered.at(-1)?.sequence;
-  useEffect(() => {
-    if (following && paneRef.current) {
-      paneRef.current.scrollTop = paneRef.current.scrollHeight;
+  // Older-page load fires from the scroll observer, not a button (E2E-LOG-22): a
+  // sentinel at the top of the scroll container triggers the next older page when it
+  // enters view, guarded so only one page is in flight.
+  const triggerLoadOlder = useCallback(() => {
+    if (!hasMoreOlder || loadingOlder) {
+      return;
     }
-  }, [following, lastSequence, selectedStepId, search]);
+    const pane = paneRef.current;
+    if (pane) {
+      anchor.current = { height: pane.scrollHeight, top: pane.scrollTop };
+    }
+    loadOlder();
+  }, [hasMoreOlder, loadingOlder, loadOlder]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          triggerLoadOlder();
+        }
+      }
+    });
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [triggerLoadOlder]);
+
+  // On each buffer change: restore the anchored position when older lines were
+  // prepended; otherwise keep the view pinned to the bottom while following
+  // (auto-follow for a live run, E2E-LOG-22).
+  const lastSequence = rendered.at(-1)?.sequence;
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) {
+      return;
+    }
+    if (anchor.current) {
+      pane.scrollTop =
+        pane.scrollHeight - anchor.current.height + anchor.current.top;
+      anchor.current = null;
+    } else if (following) {
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }, [following, lastSequence, rendered.length, selectedStepId, search]);
+
+  // triggerLoadOlder sets anchor.current before the fetch, and the layout effect
+  // above clears it once older lines are prepended. When a page adds no lines (a
+  // stale or failed older-page fetch), lastSequence and rendered.length do not
+  // change, so that effect never runs and the anchor would stay set, freezing
+  // auto-follow (onScroll returns early while an anchor is pending). Clear a
+  // dangling anchor when the older-page load finishes so scrolling resumes follow.
+  useEffect(() => {
+    if (!loadingOlder) {
+      anchor.current = null;
+    }
+  }, [loadingOlder]);
+
+  // Dropping out of follow when the operator scrolls up reveals the jump-to-latest
+  // affordance; returning to the bottom resumes auto-follow (E2E-LOG-22).
+  const onScroll = useCallback(() => {
+    const pane = paneRef.current;
+    if (!pane || anchor.current) {
+      return;
+    }
+    const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 8;
+    setFollowing(atBottom);
+  }, []);
 
   const content = (
     <Stack hasGutter>
@@ -762,46 +975,79 @@ function LogPane({
           </Button>
         </div>
       </StackItem>
-      {detail.logsTruncated || matches.length > MAX_RENDERED_LOG_LINES ? (
+      {logs.unavailable ? (
         <StackItem>
+          {/* Logs-only degradation: an inline notice on the log pane, NOT the whole
+              backend-unavailable message, so the steps above stay visible
+              (E2E-LOG-20/22). */}
           <Alert
-            variant="info"
+            variant="warning"
             isInline
             isPlain
-            title={<FormattedMessage {...messages.e2eLogsTruncated} />}
+            title={<FormattedMessage {...messages.e2eLogsDegraded} />}
           />
         </StackItem>
       ) : null}
       <StackItem>
-        <div
-          className={styles.logPane}
-          ref={paneRef}
-          role="log"
-          aria-label={intl.formatMessage(messages.e2eLogPaneAria)}
-        >
-          {rendered.length === 0 ? (
-            <Content component="small">
-              <FormattedMessage {...messages.e2eLogsEmpty} />
-            </Content>
-          ) : (
-            rendered.map((line) => (
-              <span
-                key={line.sequence}
-                className={styles.logLine}
-                data-testid="e2e-log-line"
+        <div className={styles.logPaneWrap}>
+          <div
+            className={styles.logPane}
+            ref={paneRef}
+            onScroll={onScroll}
+            role="log"
+            aria-label={intl.formatMessage(messages.e2eLogPaneAria)}
+          >
+            {/* Top sentinel + loading indicator for infinite scroll (E2E-LOG-22). */}
+            <div ref={sentinelRef} className={styles.logSentinel} aria-hidden />
+            {loadingOlder ? (
+              <div
+                className={styles.logLoadingRow}
+                role="status"
+                aria-label={intl.formatMessage(messages.e2eLogsLoadingOlder)}
               >
-                {timestamps ? (
-                  <span className={styles.logTime}>{line.timestamp}</span>
-                ) : null}
-                {selectedStepId === null && line.stepId ? (
-                  <span className={styles.logStep}>{line.stepId}</span>
-                ) : null}
-                {/* Rendered as text: React escapes it, so record content cannot
-                    inject markup (E2E-LOG-14). */}
-                {line.message}
-              </span>
-            ))
-          )}
+                <Spinner size="sm" aria-hidden />
+                <Content component="small">
+                  <FormattedMessage {...messages.e2eLogsLoadingOlder} />
+                </Content>
+              </div>
+            ) : null}
+            {rendered.length === 0 && !loadingOlder ? (
+              <Content component="small">
+                <FormattedMessage {...messages.e2eLogsEmpty} />
+              </Content>
+            ) : (
+              rendered.map((line) => (
+                <span
+                  key={line.sequence}
+                  className={styles.logLine}
+                  data-testid="e2e-log-line"
+                >
+                  {timestamps ? (
+                    <span className={styles.logTime}>{line.timestamp}</span>
+                  ) : null}
+                  {selectedStepId === null && line.stepId ? (
+                    <span className={styles.logStep}>{line.stepId}</span>
+                  ) : null}
+                  {/* Rendered as text: React escapes it, so record content cannot
+                      inject markup (E2E-LOG-14). */}
+                  {line.message}
+                </span>
+              ))
+            )}
+          </div>
+          {!following ? (
+            <Button
+              className={styles.jumpToLatest}
+              variant="secondary"
+              size="sm"
+              icon={<PlayIcon />}
+              onClick={() => {
+                setFollowing(true);
+              }}
+            >
+              <FormattedMessage {...messages.e2eJumpToLatest} />
+            </Button>
+          ) : null}
         </div>
       </StackItem>
     </Stack>
@@ -879,7 +1125,19 @@ export function SelectedRunPane({
     };
   }, [api, runId]);
 
-  const { detail, status } = useLiveRunDetail(runId, snapshot, observability);
+  // Logs are paged (and live-appended) independently of the steps snapshot, so a
+  // slow or failed log read never blanks the steps (E2E-LOG-19/20).
+  const logs = useRunLogs(runId);
+  // The live tail opens only while the run is in progress (E2E-LOG-21); the decision
+  // comes from the loaded snapshot's terminal state.
+  const live = snapshot !== null && isRunning(snapshot);
+  const { detail, status } = useLiveRunDetail(
+    runId,
+    snapshot,
+    live,
+    logs.appendLive,
+    observability,
+  );
 
   if (detail === null) {
     return backendUnavailable ? (
@@ -1029,6 +1287,7 @@ export function SelectedRunPane({
             ) : (
               <StepsTable
                 detail={detail}
+                logLines={logs.lines}
                 selectedStepId={selectedStepId}
                 onSelectStep={(id) => {
                   controls.onStep(id);
@@ -1051,6 +1310,7 @@ export function SelectedRunPane({
           <div className={styles.tabBody}>
             <LogPane
               detail={detail}
+              logs={logs}
               selectedStepId={selectedStepId}
               onSelectScope={controls.onStep}
               search={controls.exec.logQuery}
