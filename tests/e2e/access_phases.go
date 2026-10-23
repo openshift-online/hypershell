@@ -273,6 +273,13 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 		// seeded identities get from the realm setup. Grant exactly that: the check
 		// needs authentication plus a gateway binding, not gateway:creator.
 		s.Require().NoError(s.driver.AssignRealmRole(ctx, viewerUsername, "hypershell-users"), "grant the viewer user hypershell-users")
+		// A grant requires the user to be resolvable in the identity directory, which
+		// lags Keycloak user creation; wait for it the same way P2.5 does before
+		// granting access to a runtime-created user.
+		s.Require().NoError(harness.Poll(ctx, time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+			users, err := s.admin.GatewayAccesses().SearchDirectory(ctx, s.primary.ID, viewerUsername)
+			return err == nil && directoryContains(users.Items, viewerUsername), nil
+		}), "gateway directory picks up the runtime viewer user")
 		grant, err := s.admin.GatewayAccesses().Create(ctx, s.primary.ID, &sdktypes.GatewayAccessGrantRequest{
 			Username: viewerUsername,
 			Role:     sdktypes.GatewayAccessRoleUser,
