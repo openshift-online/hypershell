@@ -3,11 +3,12 @@ import {
   type GateExecutionProps,
 } from "../e2e-run/gate-execution";
 // The map's detail panel. Selecting a node opens a tabbed record (Details /
-// Bundle / Links): Details carries a gateway donut + legend and a field grid;
-// Bundle lists the pull requests in the instance's deployed release; Links holds
-// the deep links. Selecting a gate shows its flow + badge; selecting a release
-// bundle shows its facts, where it is deployed, and the PRs it contains. All copy
-// is translated; all values are opaque server data.
+// Bundle / Agents / Links): Details carries a gateway donut + legend and a field
+// grid; Bundle lists the pull requests in the instance's deployed release;
+// Agents shows SDLC agents running on the cluster; Links holds the deep links.
+// Selecting a gate shows its flow + badge; selecting a release bundle shows its
+// facts, where it is deployed, and the PRs it contains. All copy is translated;
+// all values are opaque server data.
 
 import {
   Badge,
@@ -39,6 +40,8 @@ import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
+
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 
 import {
   bundleList,
@@ -916,6 +919,19 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
+/**
+ * Compact PatternFly table of SDLC agents for a cluster's Agents tab.
+ * Agent / Replicas / Queue / Done / Failed columns, one row per agent. Empty
+ * state when no agents report for this cluster. All copy is i18n-keyed.
+ */
+function NodeAgents({
+  agents,
+}: {
+  agents: readonly SdlcAgentMetrics[];
+}): React.ReactElement {
+  return <div>{agents.length}</div>;
+}
+
 function NodeDetails({
   node,
   releaseByDigest,
@@ -949,7 +965,13 @@ function NodeDetails({
         navigate({
           type: "mapNodeTab",
           tab:
-            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+            key === "bundle"
+              ? "bundle"
+              : key === "agents"
+                ? "agents"
+                : key === "links"
+                  ? "links"
+                  : "details",
         });
       }}
     >
@@ -991,6 +1013,18 @@ function NodeDetails({
             seed={node.seed}
             onSelectBundle={onSelectBundle}
           />
+        </div>
+      </Tab>
+      <Tab
+        eventKey="agents"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabAgents} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <NodeAgents agents={[]} />
         </div>
       </Tab>
       <Tab

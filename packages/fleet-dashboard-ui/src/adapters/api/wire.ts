@@ -55,6 +55,11 @@ import type {
   TopologyHub,
   TopologySpoke,
 } from "../../domain/topology";
+import type {
+  SdlcAgentsData,
+  SdlcAgentMetrics,
+  SdlcAgentSeries,
+} from "../../domain/sdlc-agents";
 
 /** A pull request within a release bundle, as the delivery GitHub App reports it. */
 interface WirePR {
@@ -900,5 +905,64 @@ export function mapE2eStreamStatus(raw: unknown): E2eStreamStatus {
   return {
     state: mapStreamState(wire.state),
     droppedEntries: num(wire.droppedEntries),
+  };
+}
+
+// --- SDLC Agents (runtime telemetry) ----------------------------------------
+
+interface WireSdlcAgentSeries {
+  times?: readonly number[];
+  queueDepth?: readonly number[];
+  itemsProcessed?: readonly number[];
+  itemsFailed?: readonly number[];
+  provisionSeconds?: readonly number[];
+}
+
+interface WireSdlcAgentMetrics {
+  name?: string;
+  env?: string;
+  replicasOn?: number;
+  replicasTotal?: number;
+  queueDepth?: number;
+  itemsProcessed?: number;
+  itemsFailed?: number;
+  provisionSeconds?: number;
+  series?: WireSdlcAgentSeries;
+}
+
+interface WireSdlcAgents {
+  envs?: readonly string[];
+  agents?: readonly WireSdlcAgentMetrics[];
+}
+
+function mapSdlcAgentSeries(w?: WireSdlcAgentSeries): SdlcAgentSeries {
+  return {
+    times: w?.times ?? [],
+    queueDepth: w?.queueDepth ?? [],
+    itemsProcessed: w?.itemsProcessed ?? [],
+    itemsFailed: w?.itemsFailed ?? [],
+    provisionSeconds: w?.provisionSeconds ?? [],
+  };
+}
+
+function mapSdlcAgentRow(w?: WireSdlcAgentMetrics): SdlcAgentMetrics {
+  return {
+    name: w?.name ?? "",
+    env: w?.env ?? "",
+    replicasOn: w?.replicasOn ?? 0,
+    replicasTotal: w?.replicasTotal ?? 0,
+    queueDepth: w?.queueDepth ?? 0,
+    itemsProcessed: w?.itemsProcessed ?? 0,
+    itemsFailed: w?.itemsFailed ?? 0,
+    provisionSeconds: w?.provisionSeconds ?? 0,
+    series: mapSdlcAgentSeries(w?.series),
+  };
+}
+
+export function mapSdlcAgents(raw: unknown): SdlcAgentsData {
+  const w = (raw ?? {}) as WireSdlcAgents;
+  return {
+    envs: Array.isArray(w.envs) ? w.envs.map(String) : [],
+    agents: Array.isArray(w.agents) ? w.agents.map(mapSdlcAgentRow) : [],
   };
 }
