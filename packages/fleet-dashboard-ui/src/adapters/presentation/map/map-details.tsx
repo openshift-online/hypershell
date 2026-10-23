@@ -3,11 +3,12 @@ import {
   type GateExecutionProps,
 } from "../e2e-run/gate-execution";
 // The map's detail panel. Selecting a node opens a tabbed record (Details /
-// Bundle / Links): Details carries a gateway donut + legend and a field grid;
-// Bundle lists the pull requests in the instance's deployed release; Links holds
-// the deep links. Selecting a gate shows its flow + badge; selecting a release
-// bundle shows its facts, where it is deployed, and the PRs it contains. All copy
-// is translated; all values are opaque server data.
+// Bundle / Agents / Links): Details carries a gateway donut + legend and a field
+// grid; Bundle lists the pull requests in the instance's deployed release;
+// Agents shows SDLC agents running on the cluster; Links holds the deep links.
+// Selecting a gate shows its flow + badge; selecting a release bundle shows its
+// facts, where it is deployed, and the PRs it contains. All copy is translated;
+// all values are opaque server data.
 
 import {
   Badge,
@@ -32,13 +33,17 @@ import {
   Tooltip,
   Truncate,
 } from "@patternfly/react-core";
+import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
+import RobotIcon from "@patternfly/react-icons/dist/esm/icons/robot-icon";
 import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
+
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 
 import {
   bundleList,
@@ -68,7 +73,7 @@ import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
-import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
+import { GATEWAY_COLOR, TEXT_COLOR, TONE_COLOR, USER_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
@@ -916,6 +921,117 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
+/**
+ * Compact PatternFly table of SDLC agents for a cluster's Agents tab.
+ * Agent / Replicas / Queue / Done / Failed columns, one row per agent. Empty
+ * state when no agents report for this cluster. All copy is i18n-keyed.
+ */
+function NodeAgents({
+  agents,
+}: {
+  agents: readonly SdlcAgentMetrics[];
+}): React.ReactElement {
+  const intl = useIntl();
+  const subtle = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+  const tabNums: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
+  if (agents.length === 0) {
+    return (
+      <Content component="small">
+        <FormattedMessage {...messages.agentsEmptyForCluster} />
+      </Content>
+    );
+  }
+  return (
+    <Table
+      aria-label={intl.formatMessage(messages.agentsTableAria)}
+      variant="compact"
+      borders={false}
+    >
+      <Thead>
+        <Tr>
+          <Th>
+            <FormattedMessage {...messages.agentsColAgent} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColReplicas} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColQueue} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColDone} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColFailed} />
+          </Th>
+        </Tr>
+      </Thead>
+      <Tbody>
+        {agents.map((agent) => (
+          <Tr
+            key={agent.name}
+            aria-label={intl.formatMessage(messages.sdlcAgentDetailAria, {
+              agent: agent.name,
+            })}
+          >
+            <Td dataLabel={intl.formatMessage(messages.agentsColAgent)}>
+              <Flex
+                alignItems={{ default: "alignItemsCenter" }}
+                spaceItems={{ default: "spaceItemsSm" }}
+                flexWrap={{ default: "nowrap" }}
+              >
+                <FlexItem>
+                  <RobotIcon style={{ color: subtle }} />
+                </FlexItem>
+                <FlexItem>{agent.name}</FlexItem>
+              </Flex>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColReplicas)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.replicasOn > 0 ? TONE_COLOR.success : subtle,
+                }}
+              >
+                {agent.replicasOn}
+              </span>
+              <span style={{ color: subtle }}>
+                <FormattedMessage {...messages.replicasRatioSeparator} />
+                {agent.replicasTotal}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColQueue)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.queueDepth > 0 ? USER_COLOR : subtle,
+                }}
+              >
+                {agent.queueDepth}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColDone)}>
+              <span style={{ ...tabNums, color: TEXT_COLOR }}>
+                {agent.itemsProcessed}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColFailed)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.itemsFailed > 0 ? TONE_COLOR.danger : subtle,
+                }}
+              >
+                {agent.itemsFailed}
+              </span>
+            </Td>
+          </Tr>
+        ))}
+      </Tbody>
+    </Table>
+  );
+}
+
 function NodeDetails({
   node,
   releaseByDigest,
@@ -949,7 +1065,13 @@ function NodeDetails({
         navigate({
           type: "mapNodeTab",
           tab:
-            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+            key === "bundle"
+              ? "bundle"
+              : key === "agents"
+                ? "agents"
+                : key === "links"
+                  ? "links"
+                  : "details",
         });
       }}
     >
@@ -991,6 +1113,18 @@ function NodeDetails({
             seed={node.seed}
             onSelectBundle={onSelectBundle}
           />
+        </div>
+      </Tab>
+      <Tab
+        eventKey="agents"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabAgents} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <NodeAgents agents={[]} />
         </div>
       </Tab>
       <Tab
