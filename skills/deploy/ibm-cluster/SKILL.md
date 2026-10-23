@@ -383,15 +383,16 @@ secrets are unnecessary):
 # postgres/RHEL images carry signatures the internal registry rejects -> --remove-signatures
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
-# Resolve each tag's digest first (e.g. `skopeo inspect --format '{{.Digest}}' docker://<ref>`
-# or the Quay tag API) and pin by @sha256:<digest> instead of the bare tag below once you
-# have it; a bare tag is a mutable reference and only a last-resort fallback.
+# Source images are pinned by digest (resolved from the Quay tag API at the
+# v0.1.5-rhaiv.2 bump) so the mirror copies the exact build. To re-resolve, use
+# `skopeo inspect --format '{{.Digest}}' docker://<ref>`; a bare tag is a mutable
+# reference and only a last-resort fallback.
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2    docker://$REG/openshift/openshell-gateway:v0.1.5-rhaiv.2
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2@sha256:717bdf624c39ff7a8c1d8d7713f7c2e252e310f4f372ccf5978b9cd6fe1f33a3    docker://$REG/openshift/openshell-gateway:v0.1.5-rhaiv.2
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.2 docker://$REG/openshift/openshell-supervisor:v0.1.5-rhaiv.2
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.2@sha256:9bc79930196d6a2e5d2914e277f03177ed39cb829ca1d48152f3ddf6d2310233 docker://$REG/openshift/openshell-supervisor:v0.1.5-rhaiv.2
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.5-rhaiv.2 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.5-rhaiv.2
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.5-rhaiv.2@sha256:8a26e42ad6aa40239b54779f70f2fd1941a406b52f3641c7a91d975a8c370115 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.5-rhaiv.2
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 
