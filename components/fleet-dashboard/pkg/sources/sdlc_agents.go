@@ -107,7 +107,10 @@ func (p *Prometheus) SdlcAgents(ctx context.Context) (any, error) {
 		k := agentKey{name: it.Metric["name"], env: it.Metric["env"]}
 		get(k).ItemsFailed = sampleValue(it.Value)
 	})
-	runInstant(`sum by (name, env) (sdlc_gateway_provision_seconds)`, func(it promResultItem) {
+	// Provision duration is a per-replica gauge; aggregate with max (not sum) so a
+	// (name, env) with several replicas reports one representative duration rather
+	// than an inflated total.
+	runInstant(`max by (name, env) (sdlc_gateway_provision_seconds)`, func(it promResultItem) {
 		k := agentKey{name: it.Metric["name"], env: it.Metric["env"]}
 		get(k).ProvisionSeconds = sampleValue(it.Value)
 	})
@@ -160,8 +163,10 @@ func (p *Prometheus) SdlcAgents(ctx context.Context) (any, error) {
 	rangeInto(`sum by (name, env) (sdlc_items_failed)`, func(pt *agentHistPoint, v float64) {
 		pt.itemsFailed += v
 	})
-	rangeInto(`sum by (name, env) (sdlc_gateway_provision_seconds)`, func(pt *agentHistPoint, v float64) {
-		pt.provisionSeconds += v
+	// max (not sum): one representative provision duration per (name, env), matching
+	// the instant query above.
+	rangeInto(`max by (name, env) (sdlc_gateway_provision_seconds)`, func(pt *agentHistPoint, v float64) {
+		pt.provisionSeconds = v
 	})
 
 	// Build the per-agent series aligned to each agent's sorted timestamp axis.

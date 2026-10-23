@@ -153,7 +153,10 @@ The source SHALL reuse the existing Prometheus helpers and idioms from
 - **Instant queries** for current values: `replicasOn` from
   `sum by (name, env) (sdlc_agent)`, `replicasTotal` from
   `count by (name, env) (sdlc_agent)`, and `sum by (name, env)` for queue
-  depth, items processed, items failed, and provision seconds.
+  depth, items processed, and items failed. Provision seconds is a per-replica
+  duration gauge, so it SHALL aggregate with `max by (name, env)
+  (sdlc_gateway_provision_seconds)` -- one representative duration per
+  `(name, env)` rather than a total inflated by replica count.
 - **Range queries** for each `series.*` field, grouped by `(name, env)`.
 - **Best-effort subqueries**: the `subErrs` pattern from `Prometheus.Fleet`
   SHALL be reused -- collect per-query errors, warn once, and still return a
