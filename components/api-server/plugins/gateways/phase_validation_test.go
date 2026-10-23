@@ -18,7 +18,7 @@ import (
 
 // TestGRPCControlPlaneRejectsUnknownPhaseOnUpdate proves that phase is a
 // control-plane-managed field (PLAT-DATA-23): the control plane writes it, and when it
-// does the API server enforces the canonical phase vocabulary
+// does, the API server enforces the canonical phase vocabulary
 // (specs/platform/gateway-phase-vocabulary.spec.md) -- an unknown phase is rejected with
 // InvalidArgument and never persisted, a canonical phase is accepted. A user or import
 // write of phase is rejected earlier by the field policy (policy_test.go), so this test
