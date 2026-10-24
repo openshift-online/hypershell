@@ -268,10 +268,12 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 				subt.Errorf("delete viewer user: %v", err)
 			}
 		}()
-		// A runtime-created Keycloak user starts with no realm roles and cannot
-		// authenticate until it holds the base hypershell-users role, which the
-		// seeded identities get from the realm setup. Grant exactly that: the check
-		// needs authentication plus a gateway binding, not gateway:creator.
+		// The API server only recognizes callers whose token carries the base
+		// hypershell-users role, which the seeded identities get from the realm
+		// setup and a runtime-created Keycloak user does not. Grant exactly that:
+		// the check needs API access plus a gateway binding, not gateway:creator.
+		// (Authentication itself is a separate trap: see the profile fields in
+		// createKeycloakTestUser.)
 		s.Require().NoError(s.driver.AssignRealmRole(ctx, viewerUsername, "hypershell-users"), "grant the viewer user hypershell-users")
 		// A grant requires the user to be resolvable in the identity directory, which
 		// lags Keycloak user creation; wait for it the same way P2.5 does before
