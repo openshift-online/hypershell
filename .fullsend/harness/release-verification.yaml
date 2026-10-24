@@ -1,0 +1,52 @@
+---
+# release-verification harness (ported from run.sh; hyp0: Vertex via ADC, github provider, no mint).
+agent: agents/release-verification.md
+description: "Verify a pending release and record a verdict"
+role: review
+slug: fullsend-release-verification
+image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55
+policy: policies/base.yaml
+providers:
+  - vertex-ai
+  - github
+host_files:
+  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
+    dest: /tmp/.gcp-credentials.json
+    optional: true
+  - src: ${ITEM_KUBECONFIG_FILE}
+    dest: /tmp/kubeconfig
+    optional: true
+model: claude-sonnet-5
+effort: high
+env:
+  runner:
+    FULLSEND_FORGE: github
+    GH_TOKEN: ${GH_TOKEN}
+    REPOSITORY: ${REPOSITORY}
+  sandbox:
+    FULLSEND_FORGE: github
+    CLAUDE_CODE_USE_VERTEX: "1"
+    ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID}
+    CLOUD_ML_REGION: ${CLOUD_ML_REGION}
+    GOOGLE_APPLICATION_CREDENTIALS: /tmp/.gcp-credentials.json
+    REPOSITORY: ${REPOSITORY}
+    REPO_FULL_NAME: ${REPO_FULL_NAME}
+    GITHUB_REPO_URL: https://github.com/${REPOSITORY}
+    LABEL_SCOPE: ${LABEL_SCOPE}
+    TRUSTED_BRANCH: main
+    DRY_RUN: ${DRY_RUN}
+    GITHUB_ISSUE_URL: ${FULLSEND_WORK_ITEM_URL}
+    ISSUE_NUMBER: ${ISSUE_NUMBER}
+    RELEASE_BUNDLE: ${RELEASE_BUNDLE}
+    GITOPS_REPO: ${GITOPS_REPO}
+    KUBECONFIG: /tmp/kubeconfig
+    RELEASE_STRATEGY_OVERLAY: ${RELEASE_STRATEGY_OVERLAY}
+timeout_minutes: 30
+trigger: |
+  event.transition.kind == "label_changed"
+    && event.transition.label.action == "added"
+    && (event.transition.label.name == "agent/release-pending")
+    && event.entity.kind == "work_item"
+    && event.state.labels.exists(l, l == "agent/scope/hyp0")
+    && !event.state.labels.exists(l, l == "agent/release-verified")
+    && !event.state.labels.exists(l, l == "agent/release-verification-failed")
