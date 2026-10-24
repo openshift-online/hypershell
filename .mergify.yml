@@ -269,6 +269,7 @@ scopes:
           - components/agents/**
           - .tekton/hypershell-agent-runtime-*
           - .tekton/hypershell-agent-runtime-slim-*
+          - .tekton/hypershell-fullsend-sandbox-*
           - components/cli/**
           - .tekton/hypershell-cli-*
           - scripts/generate-cli.sh
