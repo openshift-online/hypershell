@@ -8,7 +8,7 @@ require (
 	github.com/go-gormigrate/gormigrate/v2 v2.1.6
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/gorilla/mux v1.7.3
-	github.com/jackc/pgx/v5 v5.6.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/lib/pq v1.10.9
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261021105531-fc88cf69871f
