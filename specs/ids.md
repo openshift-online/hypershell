@@ -169,6 +169,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
+| `STD-RCON` | `standards/control-plane/reconciliation-contract.spec.md` | 13 |
 
 ### UIS
 

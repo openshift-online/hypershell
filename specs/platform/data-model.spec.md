@@ -390,6 +390,11 @@ A Gateway SHALL carry a monotonic `generation` and an `observed_generation`
 that together let the control plane distinguish a genuine desired-state change
 from a redundant reconciliation event.
 
+This requirement refines the convergence-latch guarantee of the control-plane
+reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-06); it refines that contract and does not weaken it.
+
 The API server SHALL increment `generation` whenever any field of the Gateway's
 desired spec changes, including `name`, the platform-managed workload fields
 `image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`,
