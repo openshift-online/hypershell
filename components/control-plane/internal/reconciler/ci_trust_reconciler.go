@@ -106,9 +106,9 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 	statusWorkspace := workspace
 	statusWorkflowHint := fmt.Sprintf("openshell token-exchange --workspace %s --gateway %s", workspace, trust.GetGatewayId())
 	_, err = r.ciTrustSvc.UpdateCITrust(ctx, &pb.UpdateCITrustRequest{
-		Id:                  id,
-		StatusWorkspace:     &statusWorkspace,
-		StatusWorkflowHint:  &statusWorkflowHint,
+		Id:                 id,
+		StatusWorkspace:    &statusWorkspace,
+		StatusWorkflowHint: &statusWorkflowHint,
 	})
 	if err != nil {
 		return fmt.Errorf("updating CI trust %s status: %w", id, err)

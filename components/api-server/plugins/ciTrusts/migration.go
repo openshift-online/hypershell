@@ -10,8 +10,8 @@ import (
 func migration() *gormigrate.Migration {
 	type CITrust struct {
 		db.Model
-		CIProviderID           string  `gorm:"column:ci_provider_id;index"`
-		GatewayID              string  `gorm:"column:gateway_id;index"`
+		CIProviderID           string `gorm:"column:ci_provider_id;index"`
+		GatewayID              string `gorm:"column:gateway_id;index"`
 		SubjectRepository      *string
 		SubjectProjectPath     *string
 		SubjectRef             *string
