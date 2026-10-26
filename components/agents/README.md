@@ -14,6 +14,18 @@ Build context: repository root. Containerfiles: `Containerfile.agent-runtime` an
 Both variants bake the same reviewed, SHA-256-locked CLI tools -- including the
 `fullsend` CLI -- via `install-tools.py`, so tooling never drifts between images.
 
+## Fullsend sandbox image
+
+`Containerfile.fullsend-sandbox` builds the image a **Fullsend harness runs the
+agent inside** (the sandbox, not the runner). It extends Fullsend's sandbox base
+(`ghcr.io/fullsend-ai/fullsend-sandbox`, which ships the `tirith` security-hook
+binary, pinned Claude Code, pi, codex and the python hooks) with the Go toolchain
+plus `make`/`gcc`, so coder and update-openshell agents can `go build`/`go vet`/`go
+test` and `make check` in-sandbox. A plain `agent-runtime` image cannot be a
+Fullsend sandbox: it lacks `tirith` and every Bash `PreToolUse` hook fails. Per
+Fullsend's design, per-org sandboxes extend `fullsend-sandbox` rather than replace
+it.
+
 Rust comes from Red Hat's signed RPM toolchain, including its standard library
 and source; rustup and automatic toolchain downloads are not installed. Claude
 Code uses its native executable; slim contains no Node.js/npm or compilers.
@@ -26,6 +38,7 @@ cluster tooling and credentials from their harness or a dedicated future variant
 ```sh
 podman build --layers -f components/agents/Containerfile.agent-runtime-slim -t localhost/agent-runtime-slim .
 podman build --layers -f components/agents/Containerfile.agent-runtime -t localhost/agent-runtime .
+podman build --layers -f components/agents/Containerfile.fullsend-sandbox -t localhost/hypershell-fullsend-sandbox .
 ```
 
 Konflux builds Linux amd64 and arm64 natively using the multi-platform controller.
