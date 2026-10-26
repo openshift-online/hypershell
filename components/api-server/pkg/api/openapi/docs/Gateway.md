@@ -12,22 +12,23 @@ Name | Type | Description | Notes
 **Name** | **string** |  |
 **ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. |
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly]
-**ExternalDns** | Pointer to **string** |  | [optional]
-**TlsMode** | Pointer to **string** |  | [optional]
-**ServiceType** | Pointer to **string** |  | [optional]
-**Status** | Pointer to **string** |  | [optional]
-**Phase** | Pointer to **string** |  | [optional]
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional]
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional]
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional]
+**ExternalDns** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**TlsMode** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**ServiceType** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**Status** | Pointer to **string** | Control-plane-observed operational status (PLAT-DATA-23) | [optional] [readonly]
+**Phase** | Pointer to **string** | Control-plane-observed lifecycle phase (PLAT-DATA-23) | [optional] [readonly]
+**Image** | Pointer to **string** | Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly]
 **ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly]
 **ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly]
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional]
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional]
+**Route** | Pointer to **string** | JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**WorkspaceMode** | Pointer to **string** | How the OpenShell Kubernetes driver maps workspaces to namespaces. \&quot;shared\&quot; places all sandboxes in the gateway namespace; \&quot;managed\&quot; auto-creates per-workspace namespaces; \&quot;operator\&quot; uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \&quot;managed\&quot; at create, and no caller can set or change it. Null (legacy gateways) keeps the chart&#39;s \&quot;shared\&quot; default. | [optional] [readonly]
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
 **ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly]
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly]
@@ -640,6 +641,31 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *Gateway) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
+
+### GetWorkspaceMode
+
+`func (o *Gateway) GetWorkspaceMode() string`
+
+GetWorkspaceMode returns the WorkspaceMode field if non-nil, zero value otherwise.
+
+### GetWorkspaceModeOk
+
+`func (o *Gateway) GetWorkspaceModeOk() (*string, bool)`
+
+GetWorkspaceModeOk returns a tuple with the WorkspaceMode field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaceMode
+
+`func (o *Gateway) SetWorkspaceMode(v string)`
+
+SetWorkspaceMode sets WorkspaceMode field to given value.
+
+### HasWorkspaceMode
+
+`func (o *Gateway) HasWorkspaceMode() bool`
+
+HasWorkspaceMode returns a boolean if a field has been set.
 
 ### GetActiveSandboxCount
 

@@ -226,3 +226,27 @@ func TestValidateGatewayConfig_SandboxRuntimeImage(t *testing.T) {
 		t.Fatal("invalid sandbox runtime image accepted")
 	}
 }
+
+// TestValidateGatewayConfigWorkspaceMode covers the reconcile-time vocabulary
+// check for the OpenShell workspace mode (openshell-gateway.spec.md, "Gateway
+// Workspace Mode"): the three chart-supported values pass, anything else fails,
+// and an empty mode (legacy gateways) is accepted.
+func TestValidateGatewayConfigWorkspaceMode(t *testing.T) {
+	for _, mode := range []string{"shared", "managed", "operator"} {
+		if err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode}); err != nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) error = %v, want nil", mode, err)
+		}
+	}
+	if err := ValidateGatewayConfig(GatewayConfig{}); err != nil {
+		t.Errorf("ValidateGatewayConfig(empty workspaceMode) error = %v, want nil", err)
+	}
+	for _, mode := range []string{"combined", "Managed", ""} {
+		if mode == "" {
+			continue
+		}
+		err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode})
+		if err == nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) = nil, want error", mode)
+		}
+	}
+}

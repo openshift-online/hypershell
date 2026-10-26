@@ -1409,6 +1409,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -3013,6 +3019,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -3693,76 +3705,15 @@
             "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement."
           },
           {
-            "name": "credential_driver",
-            "type": "string",
-            "required": false,
-            "description": "JSON-encoded credential storage driver configuration"
-          },
-          {
-            "name": "external_dns",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "image",
-            "type": "string",
-            "required": false,
-            "description": "Container image for the gateway deployment"
-          },
-          {
             "name": "name",
             "type": "string",
             "required": true
-          },
-          {
-            "name": "oidc",
-            "type": "string",
-            "required": false,
-            "description": "JSON-encoded OIDC authentication configuration"
-          },
-          {
-            "name": "phase",
-            "type": "string",
-            "required": false
           },
           {
             "name": "placement",
             "type": "object",
             "required": false,
             "description": "Exactly one of selector or mode must be supplied."
-          },
-          {
-            "name": "route",
-            "type": "string",
-            "required": false,
-            "description": "JSON-encoded route configuration"
-          },
-          {
-            "name": "server_dns_names",
-            "type": "array",
-            "required": false,
-            "description": "DNS names for TLS certificate SANs"
-          },
-          {
-            "name": "service_type",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "status",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "supervisor_image",
-            "type": "string",
-            "required": false,
-            "description": "Container image for the supervisor sidecar"
-          },
-          {
-            "name": "tls_mode",
-            "type": "string",
-            "required": false
           }
         ]
       },
@@ -8495,72 +8446,7 @@
         "contentType": "application/json",
         "fields": [
           {
-            "name": "cluster_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "credential_driver",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "external_dns",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "image",
-            "type": "string",
-            "required": false
-          },
-          {
             "name": "name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "oidc",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "phase",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "route",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "route_address",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "server_dns_names",
-            "type": "array",
-            "required": false
-          },
-          {
-            "name": "service_type",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "status",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "supervisor_image",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "tls_mode",
             "type": "string",
             "required": false
           }

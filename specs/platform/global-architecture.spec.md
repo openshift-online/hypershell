@@ -855,8 +855,10 @@ passthrough / Gateway API `BackendTLSPolicy`), the gateway server certificate
 SHALL list the external ingress hostname (`gw-<tenant>.<base-domain>`, or an
 explicit `route.host`) as a SAN. The control plane derives that hostname, so it
 SHALL inject it into the certificate SANs itself, before cert-manager mints the
-certificate - operators SHALL NOT be required to set `external_dns`/
-`server_dns_names` by hand for the ingress hostname to be covered.
+certificate. `external_dns` and `server_dns_names` are control-plane-managed and
+are not operator-settable inputs (see [`data-model.spec.md`](./data-model.spec.md),
+"Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23); the ingress
+hostname is covered without any operator-authored DNS field.
 
 #### Scenario: PLAT-ARCH-14.01 -- Derived hostname appears in the served certificate
 

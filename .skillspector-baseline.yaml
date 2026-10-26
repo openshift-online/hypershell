@@ -132,6 +132,21 @@ rules:
   path: ".hypershell/agents/release-verification/SKILL.md"
   reason: "Read-only kubeconfig accepted as a documented skill input for Argo CD/kube verification - no agent credential access"
 
+# PE3: Fullsend harnesses declare the credential env the fullsend RUNNER injects
+# per role (GH_TOKEN from the minted GitHub App token; GOOGLE_APPLICATION_CREDENTIALS
+# from a host_files-mounted Vertex ADC). These are runner-managed, role-scoped env
+# bindings in harness config, not agent prose accessing credentials.
+- id: "PE3"
+  path: ".fullsend/harness/*.yaml"
+  reason: "Fullsend harness declares runner-injected, role-scoped credential env (minted GH token, Vertex ADC) - runner-managed config, not agent credential access"
+
+# PE3: the .fullsend/agents/*.md prompts are mirrored from .hypershell/agents/*/SKILL.md;
+# release-verification documents a read-only kubeconfig input (same accepted finding as the
+# .hypershell original baselined above), not agent credential theft.
+- id: "PE3"
+  path: ".fullsend/agents/release-verification.md"
+  reason: "Read-only kubeconfig accepted as a documented agent input for Argo CD/kube verification - no agent credential access (mirrors the .hypershell/agents/release-verification baseline)"
+
 # SC2: curl/python one-liners against in-cluster Keycloak and API for setup
 # verification - not fetching or executing external scripts.
 - id: "SC2"

@@ -9,29 +9,12 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
 
+// ConvertGateway maps a user create request to a Gateway model. The create contract is
+// restricted to the user-writable allowlist -- name, plus placement/cluster_id resolved
+// by the handler before persistence (PLAT-DATA-23). Every other gateway field is
+// platform-managed and set only by the control plane, so none is copied here.
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	c := &Gateway{}
-	c.Name = gateway.Name
-	// Placement resolves the concrete cluster in the create handler before the
-	// Gateway model is persisted.
-	c.ExternalDns = gateway.ExternalDns
-	c.TlsMode = gateway.TlsMode
-	c.ServiceType = gateway.ServiceType
-	c.Status = gateway.Status
-	c.Phase = gateway.Phase
-	c.Image = gateway.Image
-	c.SupervisorImage = gateway.SupervisorImage
-	c.Oidc = gateway.Oidc
-	c.Route = gateway.Route
-	c.CredentialDriver = gateway.CredentialDriver
-
-	if len(gateway.ServerDnsNames) > 0 {
-		data, _ := json.Marshal(gateway.ServerDnsNames)
-		s := string(data)
-		c.ServerDnsNames = &s
-	}
-
-	return c
+	return &Gateway{Name: gateway.Name}
 }
 
 // gatewayImagePinned reports whether the gateway pins an explicit image. A
@@ -78,6 +61,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		CredentialDriver:   gateway.CredentialDriver,
+		WorkspaceMode:      gateway.WorkspaceMode,
 		RepositoryId:       gateway.RepositoryId,
 		Generation:         &gateway.Generation,
 		ObservedGeneration: &gateway.ObservedGeneration,

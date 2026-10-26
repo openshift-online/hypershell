@@ -91,6 +91,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     supervisor_image: "",
     tls_mode: "",
     updated_at: null,
+    workspace_mode: "managed",
     ...overrides,
   };
 }
@@ -728,7 +729,7 @@ describe("gateway API operations adapter", () => {
     );
   });
 
-  it("provisions from placement intent with hidden request defaults", async () => {
+  it("provisions from placement intent with name and placement only", async () => {
     gatewayApi.create.mockResolvedValue(gateway({}));
 
     await controlPlane.provisionGateway(
@@ -743,7 +744,6 @@ describe("gateway API operations adapter", () => {
       {
         name: "team-gateway",
         placement: { selector: ["network/public", "provider/aws"] },
-        route: '{"enabled":true}',
       },
       { signal: undefined },
     );

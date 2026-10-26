@@ -16,6 +16,10 @@
 # build (skill prose, agent.yaml, kustomize overlays).
 .hypershell/**
 
+# Fullsend agent harnesses (agent prompt, policy, provider/model config) consumed
+# by the fullsend runner at clone time, not by any component build.
+.fullsend/**
+
 # README inside the architecture-site source tree: documentation excludes
 # docs/architecture/** (it is site source, not prose) and the architecture-site
 # lane excludes READMEs, so this one informational file has no lane.

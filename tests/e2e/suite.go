@@ -78,6 +78,11 @@ type E2ESuite struct {
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
+	// primaryWorkspaceMode is the primary gateway's OpenShell workspace mode,
+	// captured when the gateway reaches Running, so sandbox-wait helpers can
+	// locate its sandbox pods (managed mode runs them in per-workspace
+	// namespaces; see openshell-gateway.spec.md, "Gateway Workspace Mode").
+	primaryWorkspaceMode string
 	// primaryGatewayToken is the per-gateway admin token acquired in P1.3 for the
 	// CLI steps (P1.4/P1.5).
 	primaryGatewayToken driver.Token
@@ -516,29 +521,30 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	// output is attributed to the correct step rather than guessed.
 	runner.SetLogger(logger)
 	clone := &E2ESuite{
-		logger:              logger,
-		driver:              s.driver,
-		clients:             s.clients,
-		runner:              runner,
-		reporter:            s.reporter,
-		mode:                s.mode,
-		concurrency:         s.concurrency,
-		ctx:                 s.ctx,
-		runID:               s.runID,
-		startedAt:           s.startedAt,
-		apiHost:             s.apiHost,
-		admin:               api,
-		clusterID:           s.clusterID,
-		sandboxImage:        s.sandboxImage,
-		clusterIDOverride:   s.clusterIDOverride,
-		nameSuffix:          s.nameSuffix,
-		primary:             s.primary,
-		primaryGatewayToken: s.primaryGatewayToken,
-		primaryLocalName:    s.primaryLocalName,
-		serviceAccounts:     s.serviceAccounts,
-		gateways:            s.gateways,
-		cliCache:            s.cliCache,
-		orphan:              s.orphan,
+		logger:               logger,
+		driver:               s.driver,
+		clients:              s.clients,
+		runner:               runner,
+		reporter:             s.reporter,
+		mode:                 s.mode,
+		concurrency:          s.concurrency,
+		ctx:                  s.ctx,
+		runID:                s.runID,
+		startedAt:            s.startedAt,
+		apiHost:              s.apiHost,
+		admin:                api,
+		clusterID:            s.clusterID,
+		sandboxImage:         s.sandboxImage,
+		clusterIDOverride:    s.clusterIDOverride,
+		nameSuffix:           s.nameSuffix,
+		primary:              s.primary,
+		primaryGatewayToken:  s.primaryGatewayToken,
+		primaryLocalName:     s.primaryLocalName,
+		primaryWorkspaceMode: s.primaryWorkspaceMode,
+		serviceAccounts:      s.serviceAccounts,
+		gateways:             s.gateways,
+		cliCache:             s.cliCache,
+		orphan:               s.orphan,
 	}
 	clone.SetT(t)
 	return clone

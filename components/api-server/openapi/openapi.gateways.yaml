@@ -280,25 +280,38 @@ components:
               description: API-assigned Kubernetes namespace derived from the Gateway identifier
             external_dns:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             tls_mode:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             service_type:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             status:
               type: string
+              readOnly: true
+              description: Control-plane-observed operational status (PLAT-DATA-23)
             phase:
               type: string
+              readOnly: true
+              description: Control-plane-observed lifecycle phase (PLAT-DATA-23)
             image:
               type: string
-              description: Container image for the gateway deployment
+              readOnly: true
+              description: Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23)
             supervisor_image:
               type: string
-              description: Container image for the supervisor sidecar
+              readOnly: true
+              description: Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
             server_dns_names:
               type: array
               items:
                 type: string
-              description: DNS names for TLS certificate SANs
+              readOnly: true
+              description: DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23)
             route_address:
               type: string
               readOnly: true
@@ -332,10 +345,26 @@ components:
               description: JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
             route:
               type: string
-              description: JSON-encoded route configuration
+              readOnly: true
+              description: JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23)
             credential_driver:
               type: string
-              description: JSON-encoded credential storage driver configuration
+              readOnly: true
+              description: JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
+            workspace_mode:
+              type: string
+              readOnly: true
+              enum:
+                - shared
+                - managed
+                - operator
+              description: >-
+                How the OpenShell Kubernetes driver maps workspaces to namespaces.
+                "shared" places all sandboxes in the gateway namespace; "managed"
+                auto-creates per-workspace namespaces; "operator" uses
+                pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API
+                server defaults it to "managed" at create, and no caller can set or
+                change it. Null (legacy gateways) keeps the chart's "shared" default.
             active_sandbox_count:
               type: integer
               format: int32
@@ -391,11 +420,13 @@ components:
     GatewayCreateRequest:
       type: object
       description: >-
-        A gateway is created either pinned to a cluster (set cluster_id) or
-        late-bound by placement (set placement). Exactly one of cluster_id or
-        placement must be supplied. The web-console provision form submits only the
-        placement shape; the pinned shape is available to hsctl apply and the
-        declarative .hypershell import.
+        A gateway is created with only its user-writable fields: a name, and exactly
+        one of cluster_id (pinned) or placement (late-bound). Every other gateway field
+        is platform-managed and control-plane-only; it is not part of the create
+        contract and is rejected if supplied (data-model.spec.md "Requirement: Gateway
+        Field Ownership and Write Policy", PLAT-DATA-23). The web-console provision form
+        submits the placement shape; the pinned shape is available to hsctl apply and
+        the declarative .hypershell import.
       required:
         - name
       properties:
@@ -410,36 +441,6 @@ components:
             Late-bind the gateway by capability-label selector. Mutually exclusive
             with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-          description: Container image for the gateway deployment
-        supervisor_image:
-          type: string
-          description: Container image for the supervisor sidecar
-        server_dns_names:
-          type: array
-          items:
-            type: string
-          description: DNS names for TLS certificate SANs
-        oidc:
-          type: string
-          description: JSON-encoded OIDC authentication configuration
-        route:
-          type: string
-          description: JSON-encoded route configuration
-        credential_driver:
-          type: string
-          description: JSON-encoded credential storage driver configuration
     GatewayPlacementIntent:
       type: object
       description: Exactly one of selector or mode must be supplied.
@@ -513,36 +514,14 @@ components:
     GatewayPatchRequest:
     # NEW SCHEMA END
       type: object
+      description: >-
+        The only user-writable gateway field on update is name (rename). Every other
+        gateway field is platform-managed and control-plane-only; it is not part of the
+        update contract and is rejected if a user or import caller changes it
+        (data-model.spec.md "Requirement: Gateway Field Ownership and Write Policy",
+        PLAT-DATA-23).
       properties:
         name:
-          type: string
-        cluster_id:
-          type: string
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-        supervisor_image:
-          type: string
-        server_dns_names:
-          type: array
-          items:
-            type: string
-        route_address:
-          type: string
-        oidc:
-          type: string
-        route:
-          type: string
-        credential_driver:
           type: string
   parameters:
       id:

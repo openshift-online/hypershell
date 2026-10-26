@@ -220,7 +220,7 @@ The adapter SHALL NOT synthesize trend points locally and SHALL NOT fail the clu
 
 ### Requirement: OBS-HCUT-08 -- Widget Usage Trend Sparklines
 
-Each hub-cluster utilization widget (`memory`, `cpu`, `pods`) SHALL render a **usage trend graph** (`TrendSparklineChart`) below its primary chart when historical data is available, matching the gateway-status widget pattern (`platform/gateway-fleet-total-trend.spec.md` OBS-GFT-06).
+Each hub-cluster utilization widget (`memory`, `cpu`) SHALL render a **usage trend graph** (`TrendSparklineChart`) below its primary chart when historical data is available, matching the gateway-status widget pattern (`platform/gateway-fleet-total-trend.spec.md` OBS-GFT-06).
 
 **Memory and CPU widgets** (`UtilizationCard`) SHALL render the existing `UtilizationChart` unchanged for point-in-time capacity utilization.
 
@@ -228,11 +228,11 @@ When `trend.points` contains at least two entries, the widget SHALL render `Tren
 
 **Pods widget** (`PodCapacityCard`) SHALL render the existing `PodCapacityChart` unchanged for point-in-time capacity and phase breakdown.
 
-When `pods.trend.points` contains at least two entries, the widget SHALL render `TrendSparklineChart` below the capacity donut plotting daily **used** pod counts with the localized Pods widget title and **Last 7 days** caption.
+The pods widget SHALL NOT render a trend sparkline, even when `pods.trend.points` is present (`web-console/operational-dashboard.spec.md` WEB-OPS-17).
 
 When `trend` is absent or has fewer than two points, widgets SHALL omit the sparkline with no error state.
 
-If the default layout height clips sparklines after this change, the operational dashboard layout template and persistence key SHALL be bumped so hub-cluster `memory`, `cpu`, and `pods` tiles are tall enough to show the primary chart and sparkline together (same pattern as registered-users and gateway-status height adjustments in WEB-OPS-11).
+If the default layout height clips sparklines after this change, the operational dashboard layout template and persistence key SHALL be bumped so hub-cluster `memory` and `cpu` tiles are tall enough to show the primary chart and sparkline together (same pattern as registered-users and gateway-status height adjustments in WEB-OPS-11).
 
 System-summary rows for memory, CPU, and pods SHALL NOT render trend sparklines. When `trend.points` spans at least two entries and first-to-last change meets the usage-summary threshold (`TREND_CHANGE_THRESHOLD_PERCENT`, 5%), those rows SHALL show the same increase/decrease arrow treatment as `usage-summary` (OBS-GFT-07 pattern). The provision success-rate row SHALL use `successRateTrend` the same way when hourly success-rate history is present.
 

@@ -68,11 +68,12 @@ func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 	defer restore()
 
 	name := "e2e-vault-failclosed-" + s.runID
-	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
-	// Vault-backed with no overrides (black box): the control plane resolves the convention
-	// address and reads the (now corrupted) serving CA, so the pre-deploy reachability probe
-	// fails closed.
-	body.CredentialDriver = `{"type":"vault"}`
+	// Vault-backed with no overrides (black box): credential_driver is
+	// control-plane-managed and not user-settable (PLAT-DATA-23), and the flat
+	// vault default already applies, so the create carries only name + placement.
+	// The control plane resolves the convention address and reads the (now
+	// corrupted) serving CA, so the pre-deploy reachability probe fails closed.
+	body := gatewayCreateRequestForDriver(name, s.driver.Name())
 	status, resp, err := s.admin.RawJSON(ctx, http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create fail-closed gateway")
 	s.Require().Equalf(http.StatusCreated, status, "create fail-closed gateway status (body: %s)", string(resp))

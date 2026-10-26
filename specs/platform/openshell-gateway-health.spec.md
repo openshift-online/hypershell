@@ -245,8 +245,9 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 
 - GIVEN a converged Gateway with `phase` `Running`
   (`observed_generation == generation`)
-- WHEN a client updates its desired spec (e.g. `image`, `route`,
-  `server_dns_names`, `oidc`) and the API server advances `generation`
+- WHEN the desired spec changes (the control plane writes a platform-managed
+  field such as `image`, `route`, `server_dns_names`, or `oidc`, or a user
+  renames the gateway) and the API server advances `generation`
 - THEN the control plane SHALL re-apply the gateway manifests despite the
   `Running` phase
 - AND upon success SHALL set `observed_generation` to the applied `generation`

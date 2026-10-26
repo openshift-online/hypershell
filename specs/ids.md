@@ -51,7 +51,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 14 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 15 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
 | `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 3 |
@@ -138,7 +138,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 22 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 23 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
@@ -152,15 +152,16 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 23 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
 
 ### SEC
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 17 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 18 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

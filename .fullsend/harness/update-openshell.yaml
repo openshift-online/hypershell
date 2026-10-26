@@ -1,0 +1,37 @@
+---
+# update-openshell harness (adapted for hyp0: Vertex via ADC, github RW, no mint).
+agent: agents/update-openshell.md
+description: Bump pinned OpenShell images to latest stable midstream; open a PR
+role: coder
+slug: fullsend-update-openshell
+image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55
+policy: policies/base.yaml
+providers:
+  - vertex-ai
+  - github
+host_files:
+  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
+    dest: /tmp/.gcp-credentials.json
+    optional: true
+model: claude-sonnet-5
+effort: high
+env:
+  runner:
+    FULLSEND_FORGE: github
+    GH_TOKEN: ${GH_TOKEN}
+    REPOSITORY: ${REPOSITORY}
+  sandbox:
+    FULLSEND_FORGE: github
+    CLAUDE_CODE_USE_VERTEX: "1"
+    ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID}
+    CLOUD_ML_REGION: ${CLOUD_ML_REGION}
+    GOOGLE_APPLICATION_CREDENTIALS: /tmp/.gcp-credentials.json
+    REPOSITORY: ${REPOSITORY}
+    REPO_FULL_NAME: ${REPO_FULL_NAME}
+    DRY_RUN: ${DRY_RUN}
+timeout_minutes: 30
+trigger: |
+  event.transition.kind == "comment_added"
+    && event.entity.kind == "work_item"
+    && has(event.transition.comment.command)
+    && event.transition.comment.command == "/fs-update-openshell"

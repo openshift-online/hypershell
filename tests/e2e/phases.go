@@ -189,6 +189,7 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 
 	running := s.waitGatewayRunning(t, created.ID)
 	s.primary.Namespace = running.Namespace
+	s.primaryWorkspaceMode = running.WorkspaceMode
 	s.Require().Equal("Running", running.Phase, "gateway must reach Running")
 	s.Require().NotEmpty(running.RouteAddress, "running gateway publishes route_address")
 	var conditionsErr error
@@ -443,7 +444,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	for _, sandboxName := range names {
 		sandboxName := sandboxName
 		g.Go(func() error {
-			if err := s.waitPodRunning(waitCtx, running.Namespace, "default--"+sandboxName, sandboxTimeout); err != nil {
+			if err := s.waitPodRunning(waitCtx, sandboxPodNamespace(running.WorkspaceMode, running.Namespace, "default"), sandboxPodName(running.WorkspaceMode, "default", sandboxName), sandboxTimeout); err != nil {
 				return fmt.Errorf("sandbox pod %s Running: %w", sandboxName, err)
 			}
 			return nil
@@ -563,7 +564,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
 	// Developer gateway-create: environment-dependent on the RBAC default.
-	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
@@ -583,7 +584,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
 	s.Require().NoError(err, "platform-admin GET /gateways")
 	s.Assert().Equalf(http.StatusOK, st, "platform-admin must list gateways (body: %s)", string(body))
-	platformCreate := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	platformCreate := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name())
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodPost, "/gateways", platformCreate)
 	s.Require().NoError(err, "platform-admin POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
@@ -728,7 +729,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 
 	// 12e: placement, rather than a caller-supplied cluster id, selects the
 	// registered control plane. Unsupported placement requests are rejected.
-	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name())
 	invalidPlacement.Placement = gatewayPlacementIntent{Mode: "invalid"}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
@@ -841,38 +842,31 @@ type gatewayPlacementIntent struct {
 	Selector []string `json:"selector,omitempty"`
 }
 
-// gatewayCreateRequest contains only fields accepted by GatewayCreateRequest.
-// In particular, cluster_id is server-derived from Placement and must not be
-// sent by callers.
+// gatewayCreateRequest contains only the user-writable fields accepted by
+// GatewayCreateRequest: a name and placement. Every other gateway field
+// (cluster_id, route, oidc, credential_driver, image, ...) is platform-managed
+// and control-plane-only; the strict create endpoint rejects a user caller that
+// supplies one (data-model.spec.md, PLAT-DATA-23). cluster_id in particular is
+// server-derived from Placement.
 type gatewayCreateRequest struct {
 	Name      string                 `json:"name"`
 	Placement gatewayPlacementIntent `json:"placement"`
-	Route     string                 `json:"route"`
-	OIDC      string                 `json:"oidc,omitempty"`
-	// CredentialDriver is the JSON-encoded provider-credential driver selection
-	// (GatewayCreateRequest.credential_driver). Omitted resolves to the flat vault
-	// default; the vault-coverage phase sets it to point a gateway at an unreachable
-	// Vault to exercise fail-closed provisioning (HYPERSHELL-369).
-	CredentialDriver string `json:"credential_driver,omitempty"`
 }
 
 // gatewayCreateRequestForDriver builds the infra-specific create payload used by
 // functional and performance e2e tests. Kind resolves the local development
-// control plane; OpenShift resolves an available public AWS control plane.
-func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateRequest {
+// control plane; OpenShift resolves an available public AWS control plane. It
+// carries only name + placement, like any user create: the control plane
+// supplies route (enabled by default), the per-gateway Keycloak OIDC client, and
+// the credential driver (the flat vault default) during reconcile.
+func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest {
 	placement := gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
 	if driverName == "kind" {
 		placement = gatewayPlacementIntent{Mode: "local-kind"}
 	}
-	// HYPERSHELL-369: no credential_driver -> the flat vault default. Both e2e environments
-	// stand up a stand-in Vault (scripts/cluster/vault.sh, run by the kind and openshift
-	// drivers), so the default resolves on either. The fail-closed scenario sets
-	// CredentialDriver explicitly (vault_phases.go).
 	return gatewayCreateRequest{
 		Name:      name,
 		Placement: placement,
-		Route:     `{"enabled":true}`,
-		OIDC:      oidc,
 	}
 }
 
@@ -904,15 +898,16 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 	return nil
 }
 
-// createGateway provisions a gateway via the create endpoint. Route and OIDC are
-// JSON-encoded string fields (matching the seed and the API schema):
-// route.enabled=true makes the control plane create the gateway's GRPCRoute, and
-// the oidc config (issuer/audience) lets the gateway validate the CLI's bearer
-// token. namespace is server-derived and must not be sent. It uses the raw helper
-// rather than the SDK's Create, which also serializes server-managed fields (for
-// example the readOnly namespace) that the strict create endpoint rejects.
+// createGateway provisions a gateway via the create endpoint with only the
+// user-writable fields (name + placement). The control plane supplies the
+// platform-managed workload fields during reconcile: route (enabled by default)
+// makes it create the gateway's GRPCRoute, and the per-gateway Keycloak OIDC
+// client lets the gateway validate the CLI's bearer token. namespace is
+// server-derived and must not be sent. It uses the raw helper rather than the
+// SDK's Create, which also serializes server-managed fields (for example the
+// readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
-	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
+	body := gatewayCreateRequestForDriver(name, s.driver.Name())
 	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")
@@ -922,15 +917,6 @@ func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
 	s.Require().NoError(json.Unmarshal(resp, &created), "unmarshal created gateway")
 	s.Require().NotEmpty(created.ID, "created gateway id")
 	return &created
-}
-
-// gatewayOIDCConfig returns the JSON-encoded gateway OIDC config string. The
-// issuer and audience match what the driver uses to mint tokens (kind defaults,
-// overridable via env); the openshift driver sets these for its environment.
-func (s *E2ESuite) gatewayOIDCConfig() string {
-	issuer := envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell")
-	audience := envOrDefault("E2E_OIDC_CLIENT_ID", "hypershell-frontend")
-	return fmt.Sprintf(`{"issuer":%q,"audience":%q,"roles_claim":"groups","admin_role":"hypershell-admins","user_role":"hypershell-users"}`, issuer, audience)
 }
 
 // apiClientForCreds acquires an OIDC token for creds and returns an API client
@@ -1195,6 +1181,30 @@ func (s *E2ESuite) assertGarbageCollectedEvent(t *testing.T, orphan string) {
 		return len(events.Items) > 0, nil
 	})
 	s.Assert().NoError(err, "GarbageCollected Event for orphan namespace %s", orphan)
+}
+
+// sandboxPodNamespace returns the namespace a gateway's sandbox pods run in
+// for the given workspace, derived from the gateway's workspace mode
+// (openshell-gateway.spec.md, "Gateway Workspace Mode"). Shared mode keeps
+// every sandbox in the gateway namespace; managed mode gives each workspace its
+// own openshell-{gateway_id}-{workspace} namespace, where gateway_id is the
+// hexadecimal suffix of the gateway's API-assigned namespace.
+func sandboxPodNamespace(mode, gatewayNamespace, workspace string) string {
+	if mode == "managed" {
+		return "openshell-" + strings.TrimPrefix(gatewayNamespace, "openshell-") + "-" + workspace
+	}
+	return gatewayNamespace
+}
+
+// sandboxPodName returns the sandbox pod name a gateway creates for a sandbox,
+// derived from the gateway's workspace mode: shared mode prefixes the pod name
+// with the workspace ({workspace}--{name}); managed and operator modes use the
+// plain sandbox name inside the workspace's own namespace.
+func sandboxPodName(mode, workspace, name string) string {
+	if mode == "managed" || mode == "operator" {
+		return name
+	}
+	return workspace + "--" + name
 }
 
 // waitPodRunning waits for the requested workload image, not just a supervisor

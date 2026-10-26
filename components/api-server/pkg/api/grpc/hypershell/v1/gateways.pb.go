@@ -343,7 +343,13 @@ type Gateway struct {
 	// owns this Gateway through the declarative .hypershell import. Null for gateways
 	// created directly through the REST API or hsctl apply. Read-only; set server-side
 	// from the x-hypershell-import-repository-id binding, never from a client body.
-	RepositoryId  *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
+	RepositoryId *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
+	// workspace_mode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces: shared, managed, or operator. Defaults to managed at create;
+	// immutable once stored (a null value may be set exactly once). Null (legacy
+	// gateways) keeps the chart's shared default. See openshell-gateway.spec.md,
+	// "Gateway Workspace Mode".
+	WorkspaceMode *string `protobuf:"bytes,31,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -553,6 +559,13 @@ func (x *Gateway) GetRepositoryId() string {
 	return ""
 }
 
+func (x *Gateway) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
+}
+
 type CreateGatewayRequest struct {
 	state            protoimpl.MessageState  `protogen:"open.v1"`
 	Name             string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -569,8 +582,10 @@ type CreateGatewayRequest struct {
 	Route            *string                 `protobuf:"bytes,15,opt,name=route,proto3,oneof" json:"route,omitempty"`
 	CredentialDriver *string                 `protobuf:"bytes,17,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	Placement        *GatewayPlacementIntent `protobuf:"bytes,18,opt,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// workspace_mode: shared, managed, or operator. Omitted defaults to managed.
+	WorkspaceMode *string `protobuf:"bytes,19,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateGatewayRequest) Reset() {
@@ -699,6 +714,13 @@ func (x *CreateGatewayRequest) GetPlacement() *GatewayPlacementIntent {
 		return x.Placement
 	}
 	return nil
+}
+
+func (x *CreateGatewayRequest) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
 }
 
 type CreateGatewayResponse struct {
@@ -857,8 +879,11 @@ type UpdateGatewayRequest struct {
 	ConsoleAddress         *string                  `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	ProvisioningConditions []*ProvisioningCondition `protobuf:"bytes,21,rep,name=provisioning_conditions,json=provisioningConditions,proto3" json:"provisioning_conditions,omitempty"`
 	ObservedGeneration     *int64                   `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// workspace_mode may only be set on a gateway whose stored value is null
+	// (legacy gateways); changing a stored value is rejected.
+	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -1015,6 +1040,13 @@ func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
 		return *x.ObservedGeneration
 	}
 	return 0
+}
+
+func (x *UpdateGatewayRequest) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
 }
 
 type UpdateGatewayResponse struct {
@@ -1896,8 +1928,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
 	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
-	"\x12LocalKindPlacement\"\xc8\n" +
-	"\n" +
+	"\x12LocalKindPlacement\"\x87\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1928,7 +1959,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x126\n" +
 	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
 	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
-	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01B\x0f\n" +
+	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_mode\x18\x1f \x01(\tH\x12R\rworkspaceMode\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1946,7 +1978,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14_observed_generationB\x17\n" +
 	"\x15_provisioning_versionB\x0f\n" +
 	"\r_image_pinnedB\x10\n" +
-	"\x0e_repository_id\"\x9d\x05\n" +
+	"\x0e_repository_idB\x11\n" +
+	"\x0f_workspace_mode\"\xdc\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1963,7 +1996,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x04oidc\x18\x0e \x01(\tH\aR\x04oidc\x88\x01\x01\x12\x19\n" +
 	"\x05route\x18\x0f \x01(\tH\bR\x05route\x88\x01\x01\x120\n" +
 	"\x11credential_driver\x18\x11 \x01(\tH\tR\x10credentialDriver\x88\x01\x01\x12C\n" +
-	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacementB\x0f\n" +
+	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacement\x12*\n" +
+	"\x0eworkspace_mode\x18\x13 \x01(\tH\n" +
+	"R\rworkspaceMode\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1973,13 +2008,14 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x12_credential_driverB\x11\n" +
+	"\x0f_workspace_mode\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xb5\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -2001,7 +2037,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11credential_driver\x18\x13 \x01(\tH\fR\x10credentialDriver\x88\x01\x01\x12,\n" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
-	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01B\a\n" +
+	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
@@ -2016,7 +2053,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_generation\"I\n" +
+	"\x14_observed_generationB\x11\n" +
+	"\x0f_workspace_mode\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

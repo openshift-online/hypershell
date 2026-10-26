@@ -803,6 +803,48 @@ The import writer SHALL:
 - WHEN the import reconciles that Gateway again with no other field changed
 - THEN the writer SHALL NOT treat the server-assigned `cluster_id` as drift and SHALL make no create or update write
 
+### Requirement: CTRL-CORE-15 -- Import Omits Platform-Managed Gateway Fields
+
+The declarative `.hypershell` import is a NON-privileged writer of Gateway desired
+state: an import write authenticates as the control plane but carries user-authored git
+content. For Gateway field policy it is therefore treated exactly like a direct user and
+is restricted to `name` + placement, per
+[`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23) and
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) ("Requirement:
+Gateway Field Write Policy", SEC-RBAC-18).
+
+When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
+
+- Send ONLY `name` and placement (the `cluster_id` or `placement` mapping of
+  CTRL-CORE-14) in the gRPC create. It SHALL NOT send any platform-managed field
+  (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
+  `service_type`, `external_dns`, `credential_driver`, `dev_build`,
+  `dev_build_metadata`), so an imported Gateway carries the same writable surface as a
+  direct user create.
+- Validate the rendered manifest BEFORE writing: when a `.hypershell` Gateway manifest
+  declares any platform-managed field, the writer SHALL fail the import of that Gateway
+  with a clear error that names the field ("field `<x>` is platform-managed and cannot
+  be declared in a `.hypershell` Gateway manifest"), rather than silently dropping it.
+  This surfaces the git author's mistake early; the server-side rejection (SEC-RBAC-18)
+  is the authoritative backstop even if the writer is bypassed. The error SHALL be
+  collected like any other per-resource import error and SHALL NOT abort the rest of
+  the import.
+
+#### Scenario: CTRL-CORE-15.01 -- Manifest declaring a platform-managed field fails the import
+
+- GIVEN a `.hypershell` Gateway manifest that declares `image` (or `oidc`, `route`, `tls_mode`, etc.)
+- WHEN the import writer reconciles that Gateway
+- THEN it SHALL fail that Gateway's import with an error naming the platform-managed field
+- AND SHALL NOT send a create or update that carries the field
+- AND the error SHALL be collected so the rest of the import still runs
+
+#### Scenario: CTRL-CORE-15.02 -- A valid import sends only name and placement
+
+- GIVEN a `.hypershell` Gateway manifest that declares only `name` and a `placement` selector
+- WHEN the import writer creates the Gateway
+- THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
+
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
 A watch stream SHALL NOT be trusted to stay healthy merely because it has not

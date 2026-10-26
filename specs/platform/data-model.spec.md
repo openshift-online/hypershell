@@ -12,7 +12,7 @@ Gateways and clusters are **top-level resources**. There is no organizational gr
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update) and placement (create only); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -225,14 +225,16 @@ erDiagram
 
 ManagedCluster and Gateway SHALL be top-level resources, scoped by no grouping other than the platform itself.
 
-#### Scenario: PLAT-DATA-01.01 -- Create Gateway With a Direct Image Reference
+#### Scenario: PLAT-DATA-01.01 -- Create Gateway and Provision Its Workload
 
-- GIVEN a valid cluster_id
-- AND an `image` and `supervisor_image` set directly
-- WHEN a POST request is made to `/api/hypershell/v1/gateways`
+- GIVEN a valid `cluster_id` (or a `placement` selector)
+- AND a `name`
+- WHEN a POST request is made to `/api/hypershell/v1/gateways` with only `name` and
+  placement (the user-writable allowlist, PLAT-DATA-23)
 - THEN a new Gateway is created
 - AND the control plane reconciler provisions the gateway workload from the
-  given `image` and `supervisor_image`
+  control-plane-managed `image`/`supervisor_image` (the `GATEWAY_IMAGE`/
+  `GATEWAY_SUPERVISOR_IMAGE` defaults, or an `image` the control plane set explicitly)
 
 ### Requirement: PLAT-DATA-02 -- Gateway Placement and Late Binding
 
@@ -345,20 +347,20 @@ The API server SHALL assign each Gateway an immutable Kubernetes namespace befor
 
 ### Requirement: PLAT-DATA-04 -- Gateway Provisioning Fields
 
-A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster. A Gateway MAY be created with `image` set directly (for example, the branch-build workflow in [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md), which provisions a Gateway from a direct `image`/`supervisor_image` reference), in which case the reconciler uses `image` directly. The REST and gRPC create/update requests SHALL accept a Gateway with no `image` set, in which case the control-plane `GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` environment defaults apply (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
+A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster. These fields are **platform-managed (control-plane-only)** per "Requirement: Gateway Field Ownership and Write Policy" (PLAT-DATA-23): they are NOT part of the user or import create/update contract and are read-only to those callers. When `image` is unset the control-plane `GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` environment defaults apply (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)); when the control plane sets `image` explicitly (for example the branch-build workflow in [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md)) the reconciler uses that reference directly. In every case the value is authored by the control plane or its configuration, never by a user create/`PATCH` or a `.hypershell` import manifest.
 
 > **Relationship to database management fields:** The `image` field provides a direct image reference for the control plane reconciler. A Gateway carries no database configuration at all: the control plane provisions each gateway's database and login role on the platform's gateway database server using the admin credential Secret mounted into the controller (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)).
 
-All fields in the table below SHALL be part of the REST and gRPC Gateway create and update contract as optional inputs (except where marked read-only), exposed through the generated OpenAPI schema (`components/api-server/openapi/openapi.gateways.yaml`) and gRPC message the same way `image`, `supervisor_image`, and `credential_driver` already are. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
+All fields in the table below SHALL be present on the Gateway response schema and on the gRPC message so the control plane can write them over its internal `UpdateGateway` back-channel and every reader can observe them. They SHALL be marked `readOnly` on the REST contract and SHALL be rejected (not silently ignored) when a user or import caller sets or changes them, per PLAT-DATA-23. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
 
-`dev_build` and `dev_build_metadata` SHALL be desired-spec fields because a change
-to either must be re-applied onto workload labels and annotations through Helm
-values. Sandbox workload images are selected per sandbox through OpenShell;
-they are not Gateway resource fields.
+`dev_build` and `dev_build_metadata` SHALL be platform-managed desired-spec fields
+(control-plane-only, like `image`) because a change to either must be re-applied onto
+workload labels and annotations through Helm values. Sandbox workload images are
+selected per sandbox through OpenShell; they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2@sha256:...`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
@@ -366,6 +368,7 @@ they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Null (pre-field Gateways) keeps the chart's `shared` default. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -388,12 +391,16 @@ that together let the control plane distinguish a genuine desired-state change
 from a redundant reconciliation event.
 
 The API server SHALL increment `generation` whenever any field of the Gateway's
-desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
-`oidc`, `route`, `credential_driver`, `external_dns`, `tls_mode`,
-`service_type`, `placement`, and `cluster_id` (including the first time the API
-server assigns a `cluster_id` to a late-bound Gateway). It SHALL NOT
-increment `generation` for changes to control-plane-owned observed fields
-(`status`, `phase`, `route_address`, `observed_generation`).
+desired spec changes, including `name`, the platform-managed workload fields
+`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`,
+`credential_driver`, `external_dns`, `tls_mode`, `service_type`, `placement`, and
+`cluster_id` (including the first time the API server assigns a `cluster_id` to a
+late-bound Gateway). This holds regardless of WHICH writer made the change: a user
+rename and a control-plane write of a platform-managed field both advance
+`generation`; only the control plane may write the platform-managed fields
+(PLAT-DATA-23). It SHALL NOT increment `generation` for changes to
+control-plane-owned observed fields (`status`, `phase`, `route_address`,
+`observed_generation`).
 
 On creation, a Gateway SHALL initialize with `generation = 1` and
 `observed_generation = 0`, so that a newly created Gateway is never spuriously
@@ -432,7 +439,8 @@ permanently mask drift.
 #### Scenario: PLAT-DATA-06.02 -- Spec change advances generation
 - GIVEN a Gateway with `generation` N that has been applied
   (`observed_generation == N`)
-- WHEN a client updates a desired-spec field (e.g. `image`)
+- WHEN a desired-spec field changes (the control plane writes a platform-managed field
+  such as `image`, or a user renames the gateway)
 - THEN the API server SHALL increment `generation` to N+1
 - AND `observed_generation` SHALL remain N until the control plane re-applies
 
@@ -487,7 +495,7 @@ generation, under the same per-row lock that guards `generation`:
 
 #### Scenario: PLAT-DATA-07.02 -- Spec change restarts provisioning conditions
 - GIVEN a converged Gateway at `generation` N with all conditions `Complete`
-- WHEN a client updates a desired-spec field, advancing `generation` to N+1
+- WHEN a desired-spec field changes (a user rename or a control-plane write of a platform-managed field), advancing `generation` to N+1
 - THEN the API server SHALL clear `provisioning_conditions`
 - AND the control plane SHALL repopulate them for the new generation
 
@@ -496,6 +504,139 @@ generation, under the same per-row lock that guards `generation`:
 - WHEN a reconcile pass writes `GatewayDeployed` as `Failed` at the same
   `generation`
 - THEN the API server SHALL record `GatewayDeployed` as `Failed`
+
+### Requirement: PLAT-DATA-23 -- Gateway Field Ownership and Write Policy
+
+The Gateway resource SHALL expose exactly ONE non-privileged-writable field after
+create - `name` - plus placement at create. Every other Gateway field SHALL be
+owned by the control plane and SHALL NOT be writable by an externally-authored
+caller. This is a single, authoritative, default-deny write policy: it is the
+chokepoint through which REST `PATCH`, gRPC `UpdateGateway`, gRPC `CreateGateway`,
+REST create, and `hsctl apply` all funnel, so no write surface can diverge from it.
+
+**Writer classes.** Because every writer calls the same gateway service write funnel
+(`Replace` for update, `Create` for create), the authorization layer SHALL mark each
+write request with one of three caller kinds, and the field policy SHALL key off that
+marker (enforced for gRPC and REST in [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Gateway Field Write Policy"):
+
+| Writer class | How identified | May write |
+|---|---|---|
+| **User** | normal authenticated REST / gRPC / `hsctl apply` caller | the allowlist below |
+| **Import** | control-plane gRPC request carrying the `x-hypershell-import-repository-id` metadata (the declarative `.hypershell` GitOps import; detected exactly as for import ownership) | the allowlist below - identical to a user |
+| **Control plane** | control-plane gRPC request WITHOUT import metadata (the internal reconcile write-back path) | all fields (platform-managed and observed) |
+
+The declarative `.hypershell` import is a NON-privileged writer: an import write
+authenticates as the control plane but carries user-authored git content, so for
+field-policy purposes it is treated exactly like a direct user and is held to the
+same allowlist. Only the control plane's own internal reconcile logic (a
+control-plane gRPC write WITHOUT import metadata) retains full write access.
+
+**Allowlist (the ONLY non-privileged-writable fields).**
+
+- UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`.
+- CREATE (REST create, gRPC `CreateGateway`): `name`, and exactly one of `placement`
+  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding").
+
+For a User or Import caller, any field NOT in the allowlist SHALL be rejected when it
+**differs from the stored value** (update) or is **set at all** (create), with the
+rejected field named: `403 Forbidden` over REST, `PermissionDenied` over gRPC. For an
+Import caller the rejection surfaces back through the `RepositoryReconciler` as a
+failed import of that Gateway, so the git author sees the manifest is invalid.
+Re-sending an unchanged platform-managed value SHALL be a no-op (not a rejection), so
+`hsctl apply` and idempotent clients that resend the whole object still work; this
+mirrors the existing "re-sending the stored `cluster_id` is not a reassignment"
+pattern.
+
+**Field ownership.** Every Gateway field SHALL be classified as exactly one of:
+
+- **User-writable (allowlist):** `name` (create + update); `placement` / `cluster_id`
+  (create only; `cluster_id` is otherwise control-plane-assigned by late binding and
+  is NOT user-writable on update).
+- **Platform-managed (control-plane-only desired workload spec):** `image`,
+  `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
+  `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
+  `dev_build`, `dev_build_metadata`. These are purely platform-managed; no
+  externally-authored input (direct user API or GitOps import) may declare them.
+  The control plane sets them from its configuration and provisioning logic (for
+  example the `GATEWAY_IMAGE` / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway
+  Keycloak OIDC client, and the derived ingress hostname). `workspace_mode` is
+  additionally server-defaulted: the API server applies `managed` at create in the
+  service funnel (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md),
+  "OSG-CORE-18"), and its value semantics (vocabulary, immutability) are enforced
+  there for every writer class, the control plane included.
+- **Control-plane-observed (control-plane-only):** `status`, `phase`, `route_address`,
+  `console_address`, `provisioning_conditions`, `gateway_version`,
+  `observed_generation`, `active_sandbox_count`.
+- **Server-owned (no caller writes):** `namespace`, `generation`, `repository_id`,
+  and the timestamps.
+
+**Default-deny guarantee.** Because the policy is an allowlist, a newly added Gateway
+model field SHALL be control-plane-only automatically, with no per-field change. The
+API server SHALL carry a field-census test that enumerates every Gateway model field
+and asserts each is classified as user-writable (allowlisted) or control-plane-only;
+the test SHALL FAIL when a field is added whose ownership is left undeclared, so the
+default-deny rule is enforced in CI rather than by review alone.
+
+This policy is consistent with the pre-existing read-only treatment of `oidc`
+([`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md),
+"OSG-OIDC-01.02"), `generation`/`observed_generation` (PLAT-DATA-06),
+`provisioning_conditions` (PLAT-DATA-07), `namespace` (PLAT-DATA-03),
+`console_address`, and `active_sandbox_count`; it extends the same control-plane
+ownership to the remaining workload fields.
+
+#### Scenario: PLAT-DATA-23.01 -- User PATCH of a locked field is rejected
+
+- GIVEN an existing Gateway and a `gateway:owner` user caller
+- WHEN the user PATCHes a field outside the allowlist (for example `image`, `oidc`,
+  `route`, `tls_mode`, `cluster_id`, `status`, or `phase`) to a value that differs
+  from the stored one
+- THEN the API server SHALL reject the request with `403 Forbidden` naming the field
+- AND the stored Gateway SHALL be unchanged
+
+#### Scenario: PLAT-DATA-23.02 -- User rename is accepted
+
+- GIVEN an existing Gateway and a `gateway:owner` or `gateway:admin` caller
+- WHEN the caller PATCHes only `name`
+- THEN the API server SHALL accept the request and persist the new name
+
+#### Scenario: PLAT-DATA-23.03 -- Resending an unchanged locked field is a no-op
+
+- GIVEN a Gateway whose `image` is `I`
+- WHEN a user caller sends an update that includes `image: I` (unchanged) and a new `name`
+- THEN the API server SHALL accept the rename and SHALL NOT reject on `image`
+
+#### Scenario: PLAT-DATA-23.04 -- User create may set only name and placement
+
+- GIVEN a create request from a user caller
+- WHEN the request sets `name` and exactly one of `placement` or `cluster_id` and
+  nothing else
+- THEN the API server SHALL accept it
+- WHEN the request additionally sets any platform-managed field (for example `image`
+  or `oidc`)
+- THEN the API server SHALL reject it with `400`/`403` naming the field
+
+#### Scenario: PLAT-DATA-23.05 -- GitOps import is held to the same allowlist
+
+- GIVEN a `.hypershell` Gateway manifest that declares a platform-managed field (for
+  example `image`)
+- WHEN the `RepositoryReconciler` imports it (an Import-kind write)
+- THEN the API server SHALL reject the write naming the field
+- AND the import of that Gateway SHALL fail so the git author sees the manifest is invalid
+
+#### Scenario: PLAT-DATA-23.06 -- Control-plane internal write retains full access
+
+- GIVEN a control-plane gRPC `UpdateGateway` with NO import metadata
+- WHEN it writes platform-managed or observed fields (for example `image`, `route`,
+  `status`, `phase`, `route_address`, `console_address`, `observed_generation`)
+- THEN the API server SHALL accept the write
+
+#### Scenario: PLAT-DATA-23.07 -- A new model field defaults to control-plane-only
+
+- GIVEN a new field is added to the Gateway model without being added to the allowlist
+- WHEN the field-census test runs
+- THEN it SHALL fail until the field's ownership is explicitly declared
+- AND until then a user or import write of the field SHALL be rejected
 
 ### Requirement: PLAT-DATA-08 -- AgentRuntime as a Top-Level Resource
 
@@ -746,7 +887,12 @@ the control plane SHALL:
    contract in "Requirement: Gateway Placement and Late Binding"; the pinned
    (`cluster_id`) path is unchanged. The placement-mapping contract is defined
    canonically in [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement:
-   Import Writer Maps Gateway Placement").
+   Import Writer Maps Gateway Placement"). An imported `Gateway` is a NON-privileged
+   write: the writer SHALL send ONLY `name` + placement and SHALL NOT send any
+   platform-managed field, and a manifest that declares one SHALL fail that Gateway's
+   import, per "Requirement: Gateway Field Ownership and Write Policy" (PLAT-DATA-23)
+   and [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement: Import Omits
+   Platform-Managed Gateway Fields").
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
@@ -1277,8 +1423,8 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| --placement <sel>)` (name + placement only, per PLAT-DATA-23) | ✅ implemented |
+| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
 
@@ -1365,7 +1511,7 @@ their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-comman
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector) | ✅ implemented |
+| `Gateway` | `name`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector). A manifest that declares any platform-managed field (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `credential_driver`, `dev_build`, `dev_build_metadata`) is rejected, per PLAT-DATA-23 - a `.hypershell` import is a non-privileged writer | ✅ implemented |
 | `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
@@ -1541,7 +1687,7 @@ hsctl login --url https://api.example.com --issuer-url https://keycloak.example.
 hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
 
 hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0
+hsctl create gateway --name api-gateway --cluster-id eks-1
 ```
 
 

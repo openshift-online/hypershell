@@ -3,6 +3,7 @@ import { IntlProvider } from "react-intl";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentSdlcCard, AgentSdlcData } from "../../../domain/agent-sdlc";
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 import { identiName } from "../../../domain/map/identiname";
 import { parseRoute } from "../../../domain/navigation/route";
 import { createMemoryHistory } from "../../routing/history-port";
@@ -45,7 +46,9 @@ describe("AgentSdlcView board", () => {
           title: "Add tab",
           url: "u",
           phase: "spec",
-          timeInPhaseSeconds: 50,
+          // Older than the replay-on-load window so this settled-card render test is not
+          // perturbed by a load replay flight (which would hold the card out of its column).
+          timeInPhaseSeconds: 5000,
           scope: null,
           escalation: null,
           rework: { count: 2, threshold: 3 },
@@ -314,13 +317,15 @@ describe("AgentSdlcView phase-transition flights", () => {
     vi.unstubAllGlobals();
   });
 
+  // Default age is older than the replay-on-load window, so these live-transition tests start
+  // from a settled board (no load replay) and isolate the prev -> next flight.
   function card(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
     return {
       number: 10,
       title: "Fly me",
       url: "u",
       phase: "spec",
-      timeInPhaseSeconds: 50,
+      timeInPhaseSeconds: 5000,
       scope: null,
       escalation: null,
       rework: null,
@@ -329,7 +334,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     };
   }
 
-  function flightData(phase: string, timeInPhaseSeconds = 50): AgentSdlcData {
+  function flightData(phase: string, timeInPhaseSeconds = 5000): AgentSdlcData {
     return {
       phases: [
         { key: "spec", sleSeconds: 100 },
@@ -495,6 +500,103 @@ describe("AgentSdlcView phase-transition flights", () => {
   });
 });
 
+describe("AgentSdlcView replay-on-load and landing", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const PHASES = [
+    { key: "intake", sleSeconds: 100 },
+    { key: "workable", sleSeconds: 100 },
+    { key: "spec", sleSeconds: 100 },
+    { key: "spec-approved", sleSeconds: 100 },
+    { key: "shipped", sleSeconds: 0 },
+  ];
+  function replayCard(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
+    return {
+      number: 10,
+      title: "Fly me",
+      url: "u",
+      phase: "spec",
+      timeInPhaseSeconds: 60,
+      scope: null,
+      escalation: null,
+      rework: null,
+      history: [],
+      ...partial,
+    };
+  }
+  function renderBoard(cards: AgentSdlcCard[]) {
+    const data: AgentSdlcData = {
+      phases: PHASES,
+      cards,
+      lane: [],
+      matrix: { hubClusters: [], rows: [] },
+    };
+    const history = createMemoryHistory({ path: "/sdlc", search: "" });
+    return render(
+      <IntlProvider locale="en" defaultLocale="en">
+        <RouterProvider history={history}>
+          <AgentSdlcView
+            data={data}
+            selectedBundleSeed={null}
+            nowMs={1_000_000}
+          />
+        </RouterProvider>
+      </IntlProvider>,
+    );
+  }
+
+  // Verifies: SDLC-VIS-24.01
+  it("replays a recently-arrived card on first load, holding it until it lands", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    // On first load (no prior snapshot) a replay flight is airborne and the destination
+    // card is held out of its column until the flying copy lands.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+  });
+
+  // Verifies: SDLC-VIS-24.02
+  it("does not replay a card older than the replay window", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 5000 })]);
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+  });
+
+  // Verifies: SDLC-VIS-20.05
+  it("renders no dust or impact burst beside the flying card", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    const flight = document.querySelector('[data-card-flight="10"]');
+    expect(flight).not.toBeNull();
+    // The flight wrapper carries only the flying clone - no burst/dust sibling.
+    expect(flight?.parentElement?.childElementCount).toBe(1);
+  });
+
+  // Verifies: SDLC-VIS-20.06
+  it("releases the hold when the clone lands, then culls the spent clone", () => {
+    vi.useFakeTimers();
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    // Airborne: clone present, real card held.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+    // At landing (FLIGHT_MS) the hold releases: the real card is back while the clone fades.
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+    // After the settle fade the spent clone is removed.
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+  });
+});
+
 describe("AgentSdlcView stacked-card popover", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -522,7 +624,9 @@ describe("AgentSdlcView stacked-card popover", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
       phases: [{ key: "spec", sleSeconds: 100 }],
-      cards: [card(1, 600), card(2, 700), card(3, 800)],
+      // All older than the replay-on-load window so no load replay holds a card out of the
+      // stack; the ages stay evenly spaced so cards 2 and 3 still collapse under card 1.
+      cards: [card(1, 700), card(2, 800), card(3, 900)],
     };
     // No nowMs override: the live clock ticks every second.
     renderView({ data });
@@ -536,5 +640,143 @@ describe("AgentSdlcView stacked-card popover", () => {
     });
     expect(screen.getByText("2 items at a similar age")).toBeDefined();
     expect(screen.getByRole("button", { name: /#2 item 2/ })).toBeDefined();
+  });
+});
+
+function makeAgentMetrics(
+  overrides?: Partial<SdlcAgentMetrics>,
+): SdlcAgentMetrics {
+  return {
+    name: "spec-review",
+    env: "integration",
+    replicasOn: 2,
+    replicasTotal: 3,
+    queueDepth: 5,
+    itemsProcessed: 10,
+    itemsFailed: 1,
+    provisionSeconds: 12,
+    series: {
+      times: [],
+      queueDepth: [],
+      itemsProcessed: [],
+      itemsFailed: [1],
+      provisionSeconds: [],
+    },
+    ...overrides,
+  };
+}
+
+describe("AgentSdlcView column agent integration", () => {
+  const data: AgentSdlcData = {
+    ...EMPTY,
+    phases: [{ key: "spec", sleSeconds: 100 }],
+  };
+
+  // Verifies: SDLC-AGT-07.03
+  it("renders the agent name as plain text when there is no runtime telemetry", () => {
+    renderView({ data });
+    expect(screen.getByText("spec-review")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /spec-review/ })).toBeNull();
+  });
+
+  // Verifies: SDLC-AGT-07.02, SDLC-AGT-08.01, SDLC-AGT-08.03
+  it("renders the agent name as a button with a runtime strip, and opens the detail panel on click", () => {
+    const agents = new Map([["spec-review", makeAgentMetrics()]]);
+    renderView({ data, agents });
+
+    const button = screen.getByRole("button", {
+      name: "Open runtime details for the spec-review agent",
+    });
+    expect(screen.getByText("on")).toBeDefined();
+    expect(screen.getByText("2/3")).toBeDefined();
+    expect(screen.getByText("queue")).toBeDefined();
+    expect(screen.getByText("5")).toBeDefined();
+    expect(screen.getByText("fail")).toBeDefined();
+    expect(screen.getByText("1")).toBeDefined();
+
+    fireEvent.click(button);
+    expect(screen.getByText("Queue")).toBeDefined();
+    expect(screen.getByText("Replicas")).toBeDefined();
+  });
+
+  // Verifies: SDLC-AGT-08.02
+  it("mutes queue and failure counts when they are zero", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          queueDepth: 0,
+          itemsFailed: 0,
+          series: {
+            times: [],
+            queueDepth: [],
+            itemsProcessed: [],
+            itemsFailed: [0],
+            provisionSeconds: [],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+
+    const subtle = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+    const queueLabel = screen.getByText("queue");
+    expect(queueLabel.parentElement?.style.color).toBe(subtle);
+    const failLabel = screen.getByText("fail");
+    expect(failLabel.parentElement?.style.color).toBe(subtle);
+  });
+
+  // Regression guard: the fail count must come from the live itemsFailed scalar,
+  // not series.itemsFailed's last sample, which lags behind on the 24h/32-sample
+  // history grid and can diverge from the current count.
+  it("uses the live itemsFailed scalar, not a stale series sample, for the fail count", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          itemsFailed: 4,
+          series: {
+            times: [100],
+            queueDepth: [0],
+            itemsProcessed: [0],
+            itemsFailed: [1],
+            provisionSeconds: [0],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+    expect(screen.getByText("4")).toBeDefined();
+    expect(screen.queryByText("1")).toBeNull();
+  });
+
+  // Verifies: SDLC-AGT-09
+  it("renders capped sparkline tiles for queue, done, and failed history in the detail panel", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({
+          queueDepth: 5,
+          itemsProcessed: 10,
+          itemsFailed: 1,
+          series: {
+            times: [100, 200],
+            queueDepth: [3, 5],
+            itemsProcessed: [8, 10],
+            itemsFailed: [0, 1],
+            provisionSeconds: [1, 2],
+          },
+        }),
+      ],
+    ]);
+    renderView({ data, agents });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open runtime details for the spec-review agent",
+      }),
+    );
+    expect(screen.getByRole("group", { name: "Queue: 5" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "Done: 10" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "Failed: 1" })).toBeDefined();
   });
 });

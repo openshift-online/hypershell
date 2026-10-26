@@ -31,17 +31,22 @@ type Gateway struct {
 	// Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available.
 	ClusterId string `json:"cluster_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
-	Namespace   string  `json:"namespace"`
+	Namespace string `json:"namespace"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
 	ExternalDns *string `json:"external_dns,omitempty"`
-	TlsMode     *string `json:"tls_mode,omitempty"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
+	TlsMode *string `json:"tls_mode,omitempty"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
 	ServiceType *string `json:"service_type,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Phase       *string `json:"phase,omitempty"`
-	// Container image for the gateway deployment
+	// Control-plane-observed operational status (PLAT-DATA-23)
+	Status *string `json:"status,omitempty"`
+	// Control-plane-observed lifecycle phase (PLAT-DATA-23)
+	Phase *string `json:"phase,omitempty"`
+	// Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23)
 	Image *string `json:"image,omitempty"`
-	// Container image for the supervisor sidecar
+	// Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
 	SupervisorImage *string `json:"supervisor_image,omitempty"`
-	// DNS names for TLS certificate SANs
+	// DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23)
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
 	RouteAddress *string `json:"route_address,omitempty"`
@@ -55,10 +60,12 @@ type Gateway struct {
 	ImagePinned *bool `json:"image_pinned,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
-	// JSON-encoded route configuration
+	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	Route *string `json:"route,omitempty"`
-	// JSON-encoded credential storage driver configuration
+	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Null (legacy gateways) keeps the chart's \"shared\" default.
+	WorkspaceMode *string `json:"workspace_mode,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
 	// Ordered list of provisioning conditions describing sub-phase progress
@@ -843,6 +850,38 @@ func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
 }
 
+// GetWorkspaceMode returns the WorkspaceMode field value if set, zero value otherwise.
+func (o *Gateway) GetWorkspaceMode() string {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		var ret string
+		return ret
+	}
+	return *o.WorkspaceMode
+}
+
+// GetWorkspaceModeOk returns a tuple with the WorkspaceMode field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetWorkspaceModeOk() (*string, bool) {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		return nil, false
+	}
+	return o.WorkspaceMode, true
+}
+
+// HasWorkspaceMode returns a boolean if a field has been set.
+func (o *Gateway) HasWorkspaceMode() bool {
+	if o != nil && !IsNil(o.WorkspaceMode) {
+		return true
+	}
+
+	return false
+}
+
+// SetWorkspaceMode gets a reference to the given string and assigns it to the WorkspaceMode field.
+func (o *Gateway) SetWorkspaceMode(v string) {
+	o.WorkspaceMode = &v
+}
+
 // GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
 func (o *Gateway) GetActiveSandboxCount() int32 {
 	if o == nil || IsNil(o.ActiveSandboxCount) {
@@ -1174,6 +1213,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.WorkspaceMode) {
+		toSerialize["workspace_mode"] = o.WorkspaceMode
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount

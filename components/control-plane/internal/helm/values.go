@@ -2,10 +2,33 @@ package helm
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 )
+
+// gatewayNamespacePattern matches API-assigned gateway namespaces
+// (openshell-{16-hex}, the hex encoding of the first eight bytes of the
+// gateway ksuid payload, assigned at create time).
+var gatewayNamespacePattern = regexp.MustCompile(`^openshell-([0-9a-f]{16})$`)
+
+// ManagedGatewayID derives the OpenShell gateway_id for a managed-mode gateway
+// provisioned into the given namespace. The chart's default gateway_id is the
+// release-pinned fullname, which is identical for every gateway, so managed
+// per-workspace namespaces (openshell-{gateway_id}-{workspace}) would collide
+// across gateways on one cluster. Using the hexadecimal suffix of the
+// API-assigned namespace makes the id unique per gateway, keeps the derived
+// namespace within DNS-1123 bounds, and lets the control plane attribute
+// managed namespaces back to their gateway (see
+// gateway.SandboxGatewayNamespace).
+func ManagedGatewayID(namespace string) (string, error) {
+	m := gatewayNamespacePattern.FindStringSubmatch(namespace)
+	if m == nil {
+		return "", fmt.Errorf("managed workspace mode requires an API-assigned gateway namespace of the form openshell-{16-hex}, got %q", namespace)
+	}
+	return m[1], nil
+}
 
 // GatewayConfig represents the configuration for a gateway deployment.
 // This is a local copy to avoid import cycles with the gateway package.
@@ -17,6 +40,11 @@ type GatewayConfig struct {
 	OIDC                OIDCConfig
 	Route               RouteConfig
 	CredentialDriver    *CredentialDriverConfig
+	// WorkspaceMode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces (shared/managed/operator). Empty omits the Helm value so the
+	// chart default (shared) applies (legacy gateways). "managed" also derives a
+	// per-gateway unique gateway_id from the namespace.
+	WorkspaceMode string
 }
 
 // OIDCConfig represents OIDC configuration.
@@ -200,6 +228,22 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, b.Namespace, "server", "sandboxNamespace")
 	if b.SandboxRuntimeClass != "" {
 		setNestedValue(values, b.SandboxRuntimeClass, "server", "defaultRuntimeClassName")
+	}
+
+	// Workspace mode: omitted (legacy gateways with a NULL stored mode) keeps
+	// the chart's shared default. Managed mode also pins a per-gateway unique
+	// gateway_id so per-workspace namespaces (openshell-{gateway_id}-{workspace})
+	// never collide across gateways on one cluster (openshell-gateway.spec.md,
+	// "Gateway Workspace Mode").
+	if b.Gateway.WorkspaceMode != "" {
+		setNestedValue(values, b.Gateway.WorkspaceMode, "server", "drivers", "kubernetes", "workspaceMode")
+		if b.Gateway.WorkspaceMode == "managed" {
+			gatewayID, err := ManagedGatewayID(b.Namespace)
+			if err != nil {
+				return err
+			}
+			setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
+		}
 	}
 
 	// Server DNS names for TLS certificate SANs

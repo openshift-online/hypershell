@@ -143,6 +143,10 @@ type Config struct {
 	// authenticated token budget. Raise FD_REFRESH_SDLC for an unauthenticated
 	// deployment with a large funnel to stay under GitHub's unauthenticated limit.
 	RefreshSDLC time.Duration
+	// RefreshSdlcAgents is the SDLC agent runtime telemetry plane's refresh
+	// cadence. The source queries Prometheus for per-agent replica and
+	// operational metrics (SDLC-AGT spec).
+	RefreshSdlcAgents time.Duration
 	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
 	// query_range sweep of recent runs). Live updates do not use this interval;
 	// they ride the Loki tail (e2e-run-log-visibility.spec E2E-LOG-04/05).
@@ -250,6 +254,7 @@ func Load() (*Config, error) {
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
 		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 60*time.Second),
+		RefreshSdlcAgents:   envDuration("FD_REFRESH_SDLC_AGENTS", 30*time.Second),
 		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
 
 		E2ELokiURL:        strings.TrimRight(env("FD_E2E_LOKI_URL", ""), "/"),

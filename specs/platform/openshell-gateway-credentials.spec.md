@@ -72,10 +72,13 @@ HyperShell concern, for every driver.
 ### Requirement: OSG-CRED-01 -- Credential Driver Configuration Field
 
 The Gateway API resource SHALL include an optional `credential_driver` JSONB field that
-selects the provider-credential storage backend. The field is set only through
-`hsctl create gateway --credential-driver <value>` or a raw `POST`/`PATCH /gateways`
-call; it is not exposed in the web console gateway form or in the end-user `openshell`
-CLI, and it carries the same RBAC as any other gateway field.
+selects the provider-credential storage backend. `credential_driver` is a
+**platform-managed, control-plane-only** field per
+[`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23): it is NOT a user or GitOps-import create/`PATCH` input,
+is not exposed in the web console gateway form or in the end-user `openshell` CLI, and
+is set by the control plane from its configuration (defaulting to `vault`). A user or
+import caller that attempts to set or change it SHALL be rejected.
 
 **Default resolution** (what an omitted or explicit field resolves to):
 
@@ -91,8 +94,10 @@ CLI, and it carries the same RBAC as any other gateway field.
 > selector. **Prerequisite:** every gateway-hosting cluster must already run its
 > per-cluster Vault (stood up by `hypershell-gitops`) before this default takes effect -
 > so the GitOps per-cluster Vault rollout MUST merge before (or together with) this
-> change. An *explicit* `credential_driver` is always honored, so a cluster that does
-> not yet have its Vault should pin new gateways to `kek-db` explicitly until it does.
+> change. An *explicit* `credential_driver` (set by the control plane from its
+> configuration, per PLAT-DATA-23) is always honored, so a cluster that does not yet
+> have its Vault should be configured so the control plane sets `kek-db` explicitly on
+> new gateways until it does.
 
 An **unspecified** `type` - the field omitted/null, *or* an object with an empty
 `type` (`credential_driver: {}`) - is treated the same as omitted and resolves to the
@@ -660,14 +665,27 @@ standard.
 
 ### Requirement: OSG-CRED-13 -- Credential Driver Immutability
 
-The `credential_driver` configuration on a Gateway SHALL be immutable after the gateway
-has stored provider credentials. Changing the driver would orphan credentials in the
-previous backend.
+`credential_driver` is control-plane-managed and is not user- or import-writable
+(`data-model.spec.md` PLAT-DATA-23); a user or import write of the field is
+rejected unconditionally by the field-ownership policy, independent of whether
+credentials have been stored. This requirement governs the remaining writer, the
+control plane: the `credential_driver` configuration on a Gateway SHALL be
+immutable after the gateway has stored provider credentials, because changing the
+driver would orphan credentials in the previous backend.
 
-#### Scenario: OSG-CRED-13.01 -- Attempt to change credential driver
+#### Scenario: OSG-CRED-13.01 -- User or import write of credential driver is rejected
+
+- GIVEN a Gateway with `credential_driver.type` = `vault`
+- WHEN a user or import caller attempts to set `credential_driver.type` to
+  `kubernetes-secrets`
+- THEN the API server SHALL reject the write under the field-ownership policy
+  (`403` / `PermissionDenied`), independent of whether provider credentials have
+  been stored
+
+#### Scenario: OSG-CRED-13.02 -- Control-plane driver change after credentials are stored is rejected
 
 - GIVEN a Gateway with `credential_driver.type` = `vault` that has active provider credentials
-- WHEN a user attempts to change `credential_driver.type` to `kubernetes-secrets`
+- WHEN the control plane attempts to change `credential_driver.type` to `kubernetes-secrets`
 - THEN the API server SHALL reject the update with error: `credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first`
 
 > **Phase 2 (reserved):** Automated credential migration between drivers.
@@ -797,53 +815,47 @@ evaluate the role selectors.
 | `GATEWAY_VAULT_ROLE` | controller env | `openshell-gateway` | Override the shared Vault role (must match GitOps) |
 | `GATEWAY_VAULT_CA_SECRET` | controller env | `openshell-vault/openshell-gateway-vault-tls` | Override the serving-CA source Secret (namespace/name) |
 
-The API server reads no Vault configuration for gateways; the `credential_driver` field
-is the only API-level input, and for the default Vault case it need not be set at all.
+The API server reads no Vault configuration for gateways; `credential_driver` is the
+only API-level credential-storage selector, and for the default Vault case it need not
+be set at all. It is control-plane-managed (set from control-plane configuration, not a
+user or import input; PLAT-DATA-23).
 
 ---
 
 ## Configuration Examples
 
-### Gateway with default (Vault) credential storage - no change from a bare create
+`credential_driver` is control-plane-managed (PLAT-DATA-23): it is NOT declared in a
+user or `.hypershell` Gateway manifest. The examples below show the **effective
+`credential_driver` value the control plane sets** (from its configuration) on the
+Gateway resource, as it appears on reads. A user/import manifest for these gateways
+carries only `name` + placement.
+
+### Default (Vault) credential storage - the effective value on a bare create
 
 ```yaml
-kind: Gateway
-name: openshell-gateway
-project: tenant-a
-image: quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7
-serverDnsNames:
-  - openshell-gateway.tenant-a.svc.cluster.local
-# credential_driver omitted -> Vault, convention-addressed
+# Effective Gateway resource (control-plane-set); user manifest is name + placement only
+credential_driver: null   # omitted -> Vault, convention-addressed
 ```
 
-### Gateway pinned explicitly to the KEK database store (former default)
+### Pinned explicitly to the KEK database store (former default)
 
 ```yaml
-kind: Gateway
-name: openshell-gateway
-project: tenant-a
 credential_driver:
   type: kek-db
 ```
 
-### Gateway with Kubernetes Secrets credential storage
+### Kubernetes Secrets credential storage
 
 ```yaml
-kind: Gateway
-name: openshell-gateway
-project: tenant-a
 credential_driver:
   type: kubernetes-secrets
   kubernetes_secrets:
     namespace: tenant-a
 ```
 
-### Gateway pinned explicitly to Vault (same outcome as omitting the field)
+### Pinned explicitly to Vault (same outcome as omitting the field)
 
 ```yaml
-kind: Gateway
-name: openshell-gateway
-project: tenant-a
 credential_driver:
   type: vault
 # no vault sub-fields exist; Vault is a black box, convention-addressed

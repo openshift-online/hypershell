@@ -34,6 +34,11 @@ type RoleBindingService interface {
 	// gatewayID (one DELETED event each) and returns the number removed. It
 	// performs NO caller authorization.
 	RevokeGatewayAccess(ctx context.Context, userID string, gatewayID string) (int, *errors.ServiceError)
+	// DeleteGatewayBindings deletes every binding scoped to gatewayID, for every
+	// user (one DELETED event each), and returns the number removed. The gateway
+	// delete calls it so no binding outlives its gateway. It performs NO caller
+	// authorization.
+	DeleteGatewayBindings(ctx context.Context, gatewayID string) (int, *errors.ServiceError)
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, *errors.ServiceError)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError)
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
@@ -380,6 +385,25 @@ func (s *sqlRoleBindingService) RevokeGatewayAccess(ctx context.Context, userID,
 	existing, err := s.gatewayBindingsForUser(ctx, userID, gatewayID)
 	if err != nil {
 		return 0, errors.GeneralError("unable to look up existing bindings: %s", err)
+	}
+	for _, b := range existing {
+		if delErr := s.rbDao.Delete(ctx, b.ID); delErr != nil {
+			return 0, services.HandleDeleteError("RoleBinding", errors.GeneralError("unable to delete binding: %s", delErr))
+		}
+		if evErr := s.emitBindingEvent(ctx, b.ID, api.DeleteEventType); evErr != nil {
+			return 0, evErr
+		}
+	}
+	return len(existing), nil
+}
+
+func (s *sqlRoleBindingService) DeleteGatewayBindings(ctx context.Context, gatewayID string) (int, *errors.ServiceError) {
+	if gatewayID == "" {
+		return 0, errors.Validation("gateway_id is required")
+	}
+	existing, err := s.rbDao.FindByGatewayID(ctx, gatewayID)
+	if err != nil {
+		return 0, errors.GeneralError("unable to look up gateway bindings: %s", err)
 	}
 	for _, b := range existing {
 		if delErr := s.rbDao.Delete(ctx, b.ID); delErr != nil {

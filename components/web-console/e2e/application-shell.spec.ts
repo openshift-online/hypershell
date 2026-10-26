@@ -599,7 +599,6 @@ test("provisions a gateway on an existing managed cluster", async ({
       excludedSelector: ["runtime/kata"],
       selector: ["network/public", "provider/aws"],
     },
-    route: '{"enabled":true}',
   });
 });
 
