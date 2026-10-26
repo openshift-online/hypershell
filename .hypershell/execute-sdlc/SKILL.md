@@ -273,6 +273,16 @@ the spec phases, so the item still advances to `agent/review-spec-approved` and
 opens its spec PR for the human to review - gating earlier would deadlock, since
 there would be no spec PR to approve.
 
+In a self-run (the operator's own GitHub identity authored the spec PR, eg.
+running without the dedicated GitHub App installation identity), GitHub refuses
+to let that same identity leave an approving review on its own PR, so the
+review-based release below can never fire. For this case the gate also accepts
+direct removal of `agent/review-spec-blocked` by a human as the approval action,
+with no PR review required. GitHub's issue timeline attributes who removed the
+label and when, which is the audit record for this path; it is weaker than a
+recorded review (no review body, no reviewer-identity check against the PR
+author), so prefer the PR-review path whenever a real review is possible.
+
 # Below, `$SELECTED_WORK_ITEM` is the single record this loop is advancing: the one
 # chosen record under USE_HEADLESS=true or an `$ISSUE_OVERRIDE` run, or the one
 # element of `$SELECTED_WORK_ITEMS` handled by this fan-out subtask under
@@ -316,14 +326,21 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
       # gate exists to enforce. This gate is NOT applied to `agent/review-code-rejected`
       # below: that is a re-implementation after code review, and the spec was already
       # signed off earlier.
+      #
+      # Self-run fallback: if the spec PR's author is the SAME GitHub identity the
+      # orchestrator is running as, GitHub refuses a self-approving review, so the
+      # review check below can never pass. In that case a human directly removing
+      # `agent/review-spec-blocked` (eg. via the GitHub UI or `gh issue edit --remove-label`)
+      # IS the approval - no PR review is required or checked for this path.
       IF $SELECTED_WORK_ITEM has `agent/review-spec-blocked`:
         IF the spec PR has a human approving review:
           # Gate satisfied. Clear the human gate (it is not a phase label, so the
           # normalize step would not remove it) and fall through to implementation.
           Remove `agent/review-spec-blocked` from $SELECTED_WORK_ITEM.
         ELSE:
-          # Still waiting on a person. Do NOT run code-implementation and do NOT
-          # change any labels. Under fan-out this stops only this record's subtask;
+          # Still waiting on a person (either a PR review or, in a self-run, direct
+          # removal of the label - see above). Do NOT run code-implementation and do
+          # NOT change any labels. Under fan-out this stops only this record's subtask;
           # otherwise it ends the run. The next run re-checks and proceeds once the
           # human approves the spec PR.
           STOP this record with: "Waiting on human spec approval
