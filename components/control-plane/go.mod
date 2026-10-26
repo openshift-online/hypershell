@@ -1,8 +1,6 @@
 module github.com/openshift-online/hypershell/components/control-plane
 
-go 1.26.4
-
-toolchain go1.26.7
+go 1.27.0
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
@@ -25,7 +23,7 @@ require (
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
 	sigs.k8s.io/gateway-api v1.6.1
-	sigs.k8s.io/kustomize/kyaml v0.21.2
+	sigs.k8s.io/kustomize/kyaml v0.21.3
 	sigs.k8s.io/yaml v1.6.0
 )
 
