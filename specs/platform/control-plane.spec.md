@@ -10,7 +10,7 @@ The HyperShell control plane is a Go service that watches the API server via gRP
 
 Every control plane is a registered spoke of exactly one hub. There is one control plane per managed cluster, it runs inside that cluster, and it reconciles only the gateways assigned to its own `cluster_id`. The control plane co-located with the hub API server is not special: it registers, filters, and dials the hub exactly like a control plane on a remote cluster.
 
-The reconcilers specified here refine the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-01 through STD-RCON-13), which is the single normative behavior contract for every reconciler. This spec refines that contract and does not weaken it; the one recorded exception is the `RepositoryReconciler` import loop (CTRL-CORE-06), noted in the contract under STD-RCON-12.
+The reconcilers specified here refine the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-01 through STD-RCON-11, with the STD-RCON-12 exception mechanism and the STD-RCON-13 review rule), which is the single normative behavior contract for every reconciler. This spec refines that contract and does not weaken it; the one recorded exception is the `RepositoryReconciler` import loop (CTRL-CORE-06), noted in the contract under STD-RCON-12.
 
 ## Architecture
 
