@@ -273,6 +273,10 @@ the spec phases, so the item still advances to `agent/review-spec-approved` and
 opens its spec PR for the human to review - gating earlier would deadlock, since
 there would be no spec PR to approve.
 
+# Below, `$SELECTED_WORK_ITEM` is the single record this loop is advancing: the one
+# chosen record under USE_HEADLESS=true or an `$ISSUE_OVERRIDE` run, or the one
+# element of `$SELECTED_WORK_ITEMS` handled by this fan-out subtask under
+# USE_HEADLESS=false. The loop is per-record either way.
 WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 
   # Pick the FURTHEST-ALONG active phase, so a stale earlier label never re-runs a
@@ -294,15 +298,24 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
       # `agent/review-spec-blocked`, do not start coding until they have approved the
       # spec PR. The spec PR is this record's `implementer/spec-<JIRA_KEY>-*` PR.
       # "Approved" means it carries at least one review with state APPROVED authored
-      # by a HUMAN - a User account, not a bot, and not this agent's own identity.
-      # Enumerate the reviews and check authorship (eg.
-      # `gh pr view <pr> --json reviews` then keep `.reviews[]` where
-      # `.state == "APPROVED"` and `.author.is_bot == false` and the author is not
-      # the agent). Do NOT rely on `reviewDecision`: GitHub turns it APPROVED on a
-      # bot review or the agent's own approving review, which would bypass the human
-      # sign-off this gate exists to enforce. This gate is NOT applied to
-      # `agent/review-code-rejected` below: that is a re-implementation after code
-      # review, and the spec was already signed off earlier.
+      # by a HUMAN - not a bot, and not this agent's own identity. Note the JSON
+      # shape: `gh pr view <pr> --json reviews` gives each review only
+      # `.author.login` and `.state` - there is NO `.author.is_bot` field, so do not
+      # test it (it is null and would reject every review, including a real human
+      # approval). Identify a human by login instead: keep `.reviews[]` where
+      # `.state == "APPROVED"` and `.author.login` does NOT end in `[bot]` and is not
+      # the agent's own login. Example:
+      #   gh pr view <pr> --json reviews --jq \
+      #     '[.reviews[] | select(.state=="APPROVED")
+      #        | .author.login | select(endswith("[bot]")|not)
+      #        | select(. != "<agent-login>")] | length > 0'
+      # If a login is ambiguous, confirm the account type with
+      # `gh api users/<login> --jq .type` (a person returns `User`, a bot `Bot`).
+      # Do NOT rely on `reviewDecision`: GitHub turns it APPROVED on a bot review or
+      # the agent's own approving review, which would bypass the human sign-off this
+      # gate exists to enforce. This gate is NOT applied to `agent/review-code-rejected`
+      # below: that is a re-implementation after code review, and the spec was already
+      # signed off earlier.
       IF $SELECTED_WORK_ITEM has `agent/review-spec-blocked`:
         IF the spec PR has a human approving review:
           # Gate satisfied. Clear the human gate (it is not a phase label, so the
