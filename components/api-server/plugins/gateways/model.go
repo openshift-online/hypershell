@@ -24,21 +24,29 @@ type Gateway struct {
 	// an explicit ClusterId. The API server resolves it to a concrete ClusterId at
 	// create time and re-evaluates it for late binding. See data-model.spec.md,
 	// "Requirement: Gateway Placement and Late Binding".
-	Placement              *string `json:"placement" gorm:"type:jsonb"`
-	ExternalDns            *string `json:"external_dns"`
-	TlsMode                *string `json:"tls_mode"`
-	ServiceType            *string `json:"service_type"`
-	Status                 *string `json:"status"`
-	Phase                  *string `json:"phase"`
-	Image                  *string `json:"image"`
-	SupervisorImage        *string `json:"supervisor_image"`
-	ServerDnsNames         *string `json:"server_dns_names" gorm:"type:jsonb"`
-	RouteAddress           *string `json:"route_address"`
-	ConsoleAddress         *string `json:"console_address"`
-	GatewayVersion         *string `json:"gateway_version"`
-	Oidc                   *string `json:"oidc" gorm:"type:jsonb"`
-	Route                  *string `json:"route" gorm:"type:jsonb"`
-	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`
+	Placement        *string `json:"placement" gorm:"type:jsonb"`
+	ExternalDns      *string `json:"external_dns"`
+	TlsMode          *string `json:"tls_mode"`
+	ServiceType      *string `json:"service_type"`
+	Status           *string `json:"status"`
+	Phase            *string `json:"phase"`
+	Image            *string `json:"image"`
+	SupervisorImage  *string `json:"supervisor_image"`
+	ServerDnsNames   *string `json:"server_dns_names" gorm:"type:jsonb"`
+	RouteAddress     *string `json:"route_address"`
+	ConsoleAddress   *string `json:"console_address"`
+	GatewayVersion   *string `json:"gateway_version"`
+	Oidc             *string `json:"oidc" gorm:"type:jsonb"`
+	Route            *string `json:"route" gorm:"type:jsonb"`
+	CredentialDriver *string `json:"credential_driver" gorm:"type:jsonb"`
+	// WorkspaceMode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces (shared/managed/operator). Platform-managed (PLAT-DATA-23):
+	// the API server defaults it to "managed" at create; no caller can set or
+	// change it (the service funnel enforces the vocabulary and immutability).
+	// NULL on gateways created before the field existed; those keep the chart's
+	// shared default (openshell-gateway.spec.md, "OSG-CORE-18 -- Gateway Workspace
+	// Mode").
+	WorkspaceMode          *string `json:"workspace_mode"`
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`

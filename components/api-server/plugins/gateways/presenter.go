@@ -61,6 +61,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		CredentialDriver:   gateway.CredentialDriver,
+		WorkspaceMode:      gateway.WorkspaceMode,
 		RepositoryId:       gateway.RepositoryId,
 		Generation:         &gateway.Generation,
 		ObservedGeneration: &gateway.ObservedGeneration,

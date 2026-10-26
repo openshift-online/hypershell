@@ -383,6 +383,23 @@ recreate any owned resource.
 - WHEN the control plane processes the delete
 - THEN it SHALL treat the terminating namespace as success and SHALL NOT error
 
+### Requirement: GTW-DEL-09 -- Platform Role Bindings Are Deleted With Their Gateway
+
+The API server SHALL soft-delete every platform RoleBinding scoped to a Gateway
+(any user, any role) in the same transaction that soft-deletes the Gateway row.
+It SHALL emit one RoleBinding DELETED event per removed binding. A RoleBinding
+SHALL NOT outlive its Gateway. A surviving binding is still delivered to the
+control plane on every RoleBinding resync, and the control plane then looks up
+the missing gateway on every pass.
+
+#### Scenario: GTW-DEL-09.01 -- Gateway delete removes only that gateway's bindings
+
+- GIVEN a Gateway with an owner binding and a viewer binding for two users
+- AND a second Gateway with its own binding
+- WHEN the first Gateway is deleted
+- THEN both of its bindings SHALL be soft-deleted
+- AND the second Gateway's binding SHALL remain
+
 ## Design Decisions
 
 | Decision | Rationale |

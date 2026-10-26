@@ -113,6 +113,7 @@ help:
 	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
+	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
@@ -137,6 +138,9 @@ help:
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
 	@echo "    e2e-console              Run Playwright E2E of the web console and OpenShell console"
+	@echo "    coverage                 Run unit + e2e tests and build a combined coverage report in coverage/"
+	@echo "                             (e2e part needs KIND_COVERAGE=true make kind-up; COVERAGE_E2E=false skips it)"
+	@echo "    coverage-report          Rebuild coverage/report from the data of the last coverage run"
 	@echo "    e2e-performance          Run the performance benchmark (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
@@ -304,7 +308,7 @@ check-mergify-scopes: test-mergify-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_mergify_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-mergify-scopes test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-mergify-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -703,6 +707,26 @@ e2e-console:
 	@E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-console.sh
+
+# Combined unit + e2e coverage (specs/platform/local-development.spec.md
+# DEV-LOC-18). Runs the Go and frontend unit tests with coverage, then e2e and
+# e2e-console against a Kind cluster deployed with KIND_COVERAGE=true make
+# kind-up, plus the hsctl smoke test with a -cover hsctl. It collects the data
+# the instrumented pods and hsctl wrote, and merges everything into
+# coverage/report/. COVERAGE_UNIT, COVERAGE_E2E, COVERAGE_HSCTL_E2E and
+# COVERAGE_CONSOLE_E2E (default true) select the steps.
+.PHONY: coverage
+coverage:
+	@bash scripts/code-coverage/run.sh
+
+# Rebuild coverage/report/ from the data of the last `make coverage` run.
+.PHONY: coverage-report
+coverage-report:
+	@bash scripts/code-coverage/run.sh report
+
+.PHONY: test-coverage-report
+test-coverage-report:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/code-coverage/test_report.py
 
 .PHONY: e2e-performance
 e2e-performance:

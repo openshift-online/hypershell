@@ -9,6 +9,7 @@ import {
   bundleRowSeed,
   cardsInPhase,
   computeCardFlights,
+  computeReplayCardFlights,
   PHASE_SHIPPED,
   reworkRatio,
   reworkSeverity,
@@ -306,5 +307,70 @@ describe("computeCardFlights", () => {
     const flights = computeCardFlights(prev, next);
     expect(flights).toHaveLength(2);
     expect(flights.map((f) => f.number).sort()).toEqual([1, 2]);
+  });
+});
+
+describe("computeReplayCardFlights", () => {
+  const phases: AgentSdlcPhase[] = [
+    { key: "intake", sleSeconds: 100 },
+    { key: "workable", sleSeconds: 100 },
+    { key: "spec", sleSeconds: 100 },
+    { key: "spec-approved", sleSeconds: 100 },
+    { key: PHASE_SHIPPED, sleSeconds: 0 },
+  ];
+  function data(cards: AgentSdlcCard[]): AgentSdlcData {
+    return { phases, cards, lane: [], matrix: { hubClusters: [], rows: [] } };
+  }
+
+  // Verifies: SDLC-VIS-24.01, SDLC-VIS-24.03
+  it("replays a card that arrived within the window, from its funnel predecessor", () => {
+    const flights = computeReplayCardFlights(
+      data([card({ number: 1, phase: "spec", timeInPhaseSeconds: 60 })]),
+      600,
+    );
+    expect(flights).toEqual([
+      {
+        number: 1,
+        fromPhase: "workable",
+        toPhase: "spec",
+        toShipped: false,
+        replay: true,
+      },
+    ]);
+  });
+
+  // Verifies: SDLC-VIS-24.02
+  it("does not replay a card older than the window", () => {
+    const flights = computeReplayCardFlights(
+      data([card({ number: 1, phase: "spec", timeInPhaseSeconds: 5000 })]),
+      600,
+    );
+    expect(flights).toEqual([]);
+  });
+
+  it("flies an intake arrival in from nowhere (fromPhase null)", () => {
+    const flights = computeReplayCardFlights(
+      data([card({ number: 7, phase: "intake", timeInPhaseSeconds: 10 })]),
+      600,
+    );
+    expect(flights).toEqual([
+      {
+        number: 7,
+        fromPhase: null,
+        toPhase: "intake",
+        toShipped: false,
+        replay: true,
+      },
+    ]);
+  });
+
+  it("orders most-recent-first and caps the number of replays", () => {
+    const cards = Array.from({ length: 20 }, (_, i) =>
+      card({ number: i + 1, phase: "spec", timeInPhaseSeconds: i + 1 }),
+    );
+    const flights = computeReplayCardFlights(data(cards), 600, 3);
+    expect(flights).toHaveLength(3);
+    // Freshest (smallest time-in-phase) first.
+    expect(flights.map((f) => f.number)).toEqual([1, 2, 3]);
   });
 });

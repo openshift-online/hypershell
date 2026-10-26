@@ -360,7 +360,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:de1342127b910d4742656774ac352a53ca405d81071bb390fbd7cc772d5754b7`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2@sha256:...`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
@@ -368,6 +368,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Null (pre-field Gateways) keeps the chart's `shared` default. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -554,12 +555,16 @@ pattern.
   is NOT user-writable on update).
 - **Platform-managed (control-plane-only desired workload spec):** `image`,
   `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
-  `service_type`, `external_dns`, `credential_driver`, `dev_build`,
-  `dev_build_metadata`. These are purely platform-managed; no externally-authored
-  input (direct user API or GitOps import) may declare them. The control plane sets
-  them from its configuration and provisioning logic (for example the
-  `GATEWAY_IMAGE` / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway Keycloak OIDC
-  client, and the derived ingress hostname).
+  `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
+  `dev_build`, `dev_build_metadata`. These are purely platform-managed; no
+  externally-authored input (direct user API or GitOps import) may declare them.
+  The control plane sets them from its configuration and provisioning logic (for
+  example the `GATEWAY_IMAGE` / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway
+  Keycloak OIDC client, and the derived ingress hostname). `workspace_mode` is
+  additionally server-defaulted: the API server applies `managed` at create in the
+  service funnel (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md),
+  "OSG-CORE-18"), and its value semantics (vocabulary, immutability) are enforced
+  there for every writer class, the control plane included.
 - **Control-plane-observed (control-plane-only):** `status`, `phase`, `route_address`,
   `console_address`, `provisioning_conditions`, `gateway_version`,
   `observed_generation`, `active_sandbox_count`.

@@ -383,7 +383,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.5-rhaiv.0`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.5-rhaiv.2`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: OSG-CORE-07.03 -- Invalid DNS name
 
@@ -705,6 +705,122 @@ When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OI
 - Default: `allow_unauthenticated_users = false`
 - When OIDC is enabled, the reconciler also injects the `[openshell.gateway.oidc]` section
 
+#### Workspace Mode Section
+
+See the "OSG-CORE-18 -- Gateway Workspace Mode" requirement below.
+
+---
+
+### Requirement: OSG-CORE-18 -- Gateway Workspace Mode
+
+A Gateway SHALL carry a `workspace_mode` field selecting how the OpenShell
+Kubernetes driver maps workspaces to namespaces (`shared`, `managed`, or
+`operator`, the vocabulary the vendored chart and the upstream gateway
+accept). The field is platform-managed (PLAT-DATA-23): the API server SHALL
+default `workspace_mode` to `managed` in the gateway service create funnel,
+after the field-policy check, so every creator class (REST, gRPC, `hsctl
+apply`, `.hypershell` import, control plane) receives the default and no
+caller-supplied value survives. A user or import caller that declares
+`workspace_mode` on create or update SHALL be rejected naming the field. The
+service funnel SHALL also enforce the field's value semantics for every
+writer class, the control plane included: the vocabulary above, and
+immutability of a stored non-null value (re-sending the stored value is a
+no-op; a null value on a Gateway created before this field existed may be
+set exactly once, which only a control-plane internal write can exercise).
+
+A null `workspace_mode` (Gateways created before this field existed) SHALL be
+omitted from the Helm values by the GatewayReconciler so the vendored chart
+default (`shared`) keeps applying: legacy Gateways are provisioned exactly as
+before, and only newly created Gateways pick up the `managed` default.
+
+The GatewayReconciler SHALL pass a non-null `workspace_mode` into the OpenShell
+Helm chart as `server.drivers.kubernetes.workspaceMode`, which the chart
+renders as `workspace_mode` under `[openshell.drivers.kubernetes]` in
+`gateway.toml`.
+
+In `managed` mode the gateway auto-creates one namespace per workspace named
+`openshell-{gateway_id}-{workspace}`. Because HyperShell places many gateways
+on one cluster and the chart's default `gateway_id` is the same
+release-pinned fullname for every gateway, the control plane SHALL set a
+per-gateway unique `gateway_id` when provisioning a `managed` Gateway: the
+hexadecimal suffix of the Gateway's API-assigned namespace
+(`openshell-{id-suffix}`, sixteen hex characters encoding the first eight
+bytes of the Gateway ksuid). The value feeds both
+`[openshell.gateway.gateway_jwt].gateway_id` and
+`[openshell.drivers.kubernetes].gateway_id` through the chart's
+`server.sandboxJwt.gatewayId`, keeping the JWT issuer identity and the
+managed-namespace prefix consistent. The reconciler SHALL reject `managed`
+mode for a Gateway whose namespace does not match the generated
+`openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
+it.
+
+#### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
+
+- GIVEN the API server creates a Gateway with no `workspace_mode`
+- THEN the persisted Gateway SHALL carry `workspace_mode = "managed"`
+- AND the GatewayReconciler SHALL pass `workspaceMode: managed` and a unique
+  `gatewayId` into the Helm chart
+- AND the rendered `gateway.toml` SHALL set `workspace_mode = "managed"` under
+  `[openshell.drivers.kubernetes]`
+- AND sandbox pods SHALL be created in per-workspace namespaces named
+  `openshell-{gateway_id}-{workspace}`
+
+#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected
+
+- GIVEN a user or import caller
+- WHEN the caller creates or updates a Gateway declaring `workspace_mode`
+- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode
+  400 on REST create/PATCH, `PermissionDenied` on gRPC, and the field-policy
+  rejection in the service funnel as the authoritative backstop)
+
+#### Scenario: OSG-CORE-18.03 -- Invalid mode is rejected
+
+- GIVEN a write reaching the service funnel with `workspace_mode` set to a
+  value outside `shared`, `managed`, `operator`
+- WHEN the funnel validates the value
+- THEN the write SHALL be rejected with a validation error naming the
+  accepted values, regardless of writer class
+
+#### Scenario: OSG-CORE-18.04 -- Stored mode is immutable
+
+- GIVEN a Gateway with a stored non-null `workspace_mode`
+- WHEN a control-plane internal update changes it to a different value
+- THEN the update SHALL be rejected with a conflict; re-sending the stored
+  value is a no-op
+
+#### Scenario: OSG-CORE-18.05 -- Legacy gateway keeps shared behavior
+
+- GIVEN a Gateway persisted before this field existed, with null
+  `workspace_mode`
+- WHEN the GatewayReconciler provisions it
+- THEN the Helm values SHALL omit `workspaceMode` entirely
+- AND the vendored chart default (`shared`) SHALL continue to apply unchanged
+
+#### Scenario: OSG-CORE-18.06 -- Active sandbox accounting spans managed namespaces
+
+- GIVEN a Gateway provisioned in `managed` mode with an active sandbox pod in
+  `openshell-{gateway_id}-{workspace}`
+- WHEN the sandbox-count reconciler observes the pod
+- THEN the pod SHALL be attributed to the Gateway's own namespace
+  (`openshell-{id-suffix}`), both for event-driven deltas and for the periodic
+  self-heal pass
+- AND the Gateway's `active_sandbox_count` SHALL include it
+
+#### Scenario: OSG-CORE-18.07 -- Managed namespaces are reclaimed on gateway deletion
+
+- GIVEN a Gateway provisioned in `managed` mode that created per-workspace
+  namespaces labeled `openshell.ai/gateway-id = {gateway_id}`
+- WHEN the Gateway is deleted
+- THEN the deletion flow SHALL best-effort delete those namespaces (recording
+  an orphan when a deletion fails, like other out-of-namespace cleanup)
+
+> **Out of scope:** the sandbox attention metrics (idle, orphaned, expiring,
+> usage, lifetime) enumerate namespaces carrying HyperShell management labels,
+> which gateway-created managed namespaces do not carry; sandboxes of managed
+> gateways are therefore invisible to those metrics until that reconciler
+> learns the `openshell.ai/gateway-id` label. This undercounts but never
+> misclassifies: managed namespaces are excluded, not reported as orphaned.
+
 ---
 
 ### Requirement: OSG-CORE-14 -- OpenShift-Specific Gateway Provisioning
@@ -832,8 +948,8 @@ Control Plane
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.2@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |

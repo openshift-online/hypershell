@@ -59,24 +59,35 @@ type GatewayService interface {
 	OnDelete(ctx context.Context, id string) error
 }
 
+// GatewayBindingCleaner deletes every role binding scoped to a gateway. The
+// gateway delete calls it in the same transaction as the row delete, so no
+// binding outlives its gateway.
+type GatewayBindingCleaner func(ctx context.Context, gatewayID string) *errors.ServiceError
+
+// NewGatewayService builds the gateway service. bindingCleaner may be nil when
+// the role bindings plugin is absent; the gateway delete then skips binding
+// cleanup.
 func NewGatewayService(
 	lockFactory db.LockFactory,
 	gatewayDao GatewayDao,
 	events services.EventService,
+	bindingCleaner GatewayBindingCleaner,
 ) GatewayService {
 	return &sqlGatewayService{
-		lockFactory: lockFactory,
-		gatewayDao:  gatewayDao,
-		events:      events,
+		lockFactory:    lockFactory,
+		gatewayDao:     gatewayDao,
+		events:         events,
+		bindingCleaner: bindingCleaner,
 	}
 }
 
 var _ GatewayService = &sqlGatewayService{}
 
 type sqlGatewayService struct {
-	lockFactory db.LockFactory
-	gatewayDao  GatewayDao
-	events      services.EventService
+	lockFactory    db.LockFactory
+	gatewayDao     GatewayDao
+	events         services.EventService
+	bindingCleaner GatewayBindingCleaner
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -116,6 +127,13 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
 	// Only a control-plane internal write bypasses this.
 	if svcErr := enforceGatewayFieldPolicyCreate(rbac.GatewayWriterKindFromContext(ctx), gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode is platform-managed: the API server applies the managed
+	// default here, after the policy check, so every creator class (REST, gRPC,
+	// import, control plane) gets it and no caller-supplied value survives
+	// (OSG-CORE-18).
+	if svcErr := applyGatewayWorkspaceCreateDefault(gateway); svcErr != nil {
 		return nil, svcErr
 	}
 
@@ -159,6 +177,12 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
 	// under the advisory lock so current is the authoritative stored state.
 	if svcErr := enforceGatewayFieldPolicyUpdate(rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode value semantics apply to every writer class, the control
+	// plane included: vocabulary enforced, stored value immutable, a NULL value
+	// settable exactly once (OSG-CORE-18).
+	if svcErr := enforceGatewayWorkspaceUpdateSemantics(current, gateway); svcErr != nil {
 		return nil, svcErr
 	}
 	newGeneration := current.Generation
@@ -255,7 +279,8 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||
-		!strEq(current.CredentialDriver, next.CredentialDriver)
+		!strEq(current.CredentialDriver, next.CredentialDriver) ||
+		!strEq(current.WorkspaceMode, next.WorkspaceMode)
 }
 
 // jsonEq compares two optional JSON documents semantically. Oidc and Route are
@@ -306,6 +331,16 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
 		serviceErr.HttpCode = http.StatusServiceUnavailable
 		return serviceErr
+	}
+
+	// Delete the gateway's role bindings with it. A binding left behind is
+	// listed by every control-plane role binding resync, which then asks for
+	// the missing gateway on every pass, forever.
+	if s.bindingCleaner != nil {
+		if svcErr := s.bindingCleaner(ctx, id); svcErr != nil {
+			db.MarkForRollback(ctx, svcErr)
+			return svcErr
+		}
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{

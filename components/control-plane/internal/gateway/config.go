@@ -87,6 +87,12 @@ type GatewayConfig struct {
 	OIDC                OIDCConfig              `yaml:"oidc"`
 	Route               RouteConfig             `yaml:"route"`
 	CredentialDriver    *CredentialDriverConfig `yaml:"credentialDriver"`
+	// WorkspaceMode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces (shared/managed/operator). Empty means unset: the Helm
+	// chart default (shared) applies, which is how legacy gateways with a NULL
+	// stored mode keep their behavior (openshell-gateway.spec.md, "Gateway
+	// Workspace Mode").
+	WorkspaceMode string `yaml:"workspaceMode"`
 }
 
 // CredentialDriverConfig selects the provider-credential backend. Vault is

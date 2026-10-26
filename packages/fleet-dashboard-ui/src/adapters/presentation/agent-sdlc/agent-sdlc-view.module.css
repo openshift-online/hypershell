@@ -456,39 +456,15 @@
    .flightTravel keyframe (flight-motion.module.css) carries it to the destination. The
    whole mechanism no-ops under prefers-reduced-motion (handled in the shared CSS + the
    useCardFlights hook, which launches nothing). */
+/* z-index must clear the app chrome (PatternFly Page/Drawer stacking contexts, which sit
+   well above a small local value): the overlay is portalled to <body>, so a z-index of 60
+   lost to the drawer/page wrapper and the flying card painted BEHIND the board columns - it
+   had a layout box but was occluded, so the card appeared to flash in/out of its columns
+   instead of gliding. Keep these above PatternFly's modal/drawer range. */
 .flightClone {
   position: fixed;
-  z-index: 60;
+  z-index: 2000;
   pointer-events: none;
-}
-/* Landing impact (shared with the Fleet Map): a shockwave ring + outward dust specks,
-   centred on the landing point. */
-.flightBurst {
-  position: fixed;
-  z-index: 61;
-  pointer-events: none;
-}
-.flightRing {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 20px;
-  height: 20px;
-  margin-left: -10px;
-  margin-top: -10px;
-  border: 2px solid #e4d7bf;
-  border-radius: 50%;
-}
-.flightDust {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
-  margin-top: -3px;
-  border-radius: 50%;
-  background: #cbb79a;
 }
 
 @keyframes shipEnter {
