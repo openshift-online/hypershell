@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "Review the spec PR and record a verdict."
+description: "Review the spec changes on the work item's pull request and record a verdict."
 ---
 
 ## Runtime context (supplied by the harness as environment variables)

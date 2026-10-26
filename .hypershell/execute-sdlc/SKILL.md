@@ -143,20 +143,29 @@ the same status projection, artifact links, narrative, and terminal closure as a
 Jira-origin record (Scope Reconciliation Covers Both Origins). For an
 `$ISSUE_OVERRIDE` run they apply to the single `$EXECUTION_RECORD`.
 
-- Associate existing artifacts (idempotent reuse, prevents duplicate PRs):
-  Find any PR whose head branch or title contains `<JIRA_KEY>` (eg.
-  `implementer/spec-<JIRA_KEY>-*`). For a GitHub-origin record the Jira key is
-  freshly minted, so its pre-existing PR will NOT match that pattern; also
-  discover the record's natively linked PRs (those referencing this GitHub issue,
-  eg. `gh pr list --search <issue-number>` or the issue's linked pull requests).
-  IF found and not already linked to `$EXECUTION_RECORD`, add a reference comment
-  linking the PR to the record. (Terminal closure does not depend on this step:
-  `reconcile` reads the record's linked PR merge state directly.)
+- Associate the existing artifact (idempotent reuse, prevents duplicate PRs):
+  An execution record has at most ONE funnel pull request, which serves BOTH its
+  spec and code phases (1:1 issue<->PR; see `One Pull Request Across Spec and Code
+  Phases` in `specs/standards/sdlc/jira-github-sync.spec.md`). Resolve it
+  phase-agnostically - do NOT discriminate by a `spec-` versus `code-` branch
+  prefix: find the record's natively linked PR (one referencing this GitHub issue,
+  eg. `gh pr list --search <issue-number>` or the issue's linked pull requests),
+  or any PR whose head branch or title contains `<JIRA_KEY>` (the funnel branch is
+  named `implementer/spec-<JIRA_KEY>-*`, where the `spec-` segment only marks where
+  the branch was born, not the current phase). For a GitHub-origin record the Jira
+  key is freshly minted, so its pre-existing PR is found by the natively-linked
+  path, not the branch-name match. If more than one open PR matches, that is an
+  anomaly (not routing input): warn and take the newest. IF a PR is found and not
+  already linked to `$EXECUTION_RECORD`, add a reference comment linking it to the
+  record. (Terminal
+  closure does not depend on this step: `reconcile` reads the record's linked PR
+  merge state directly.)
 
 - Derive the initial phase label (only if `$EXECUTION_RECORD` carries NO phase
-  label yet, so this never overwrites an advanced state):
-  - an open `implementer/code-<JIRA_KEY>-*` PR exists -> `agent/reviewable-code`
-  - an open `implementer/spec-<JIRA_KEY>-*` PR exists -> `agent/reviewable-spec`
+  label yet, so this never overwrites an advanced state). Because one PR serves
+  both phases, the phase is NOT derived from the PR branch prefix - the GitHub
+  label state machine, not the branch name, tracks the phase:
+  - an open PR for the record exists (resolved as above) -> `agent/reviewable-spec`
   - otherwise -> `agent/workable`
 
 - Phase labels are GitHub-authoritative. Do NOT keep SDLC phase labels on the
@@ -206,10 +215,10 @@ IF `$ISSUE_OVERRIDE` IS EMPTY:
     `agent/duplicate`, `agent/blocked`).
     Also exclude any record held at the human spec-approval gate: a record whose
     highest-precedence ACTIVE phase is `agent/review-spec-approved` that ALSO carries
-    the human-applied `agent/review-spec-blocked` label AND whose spec PR does not
-    yet have an approving review from a human (see Step 3). Such a record is waiting
-    on a person, so picking it would only stall the run; it rejoins the candidate set
-    automatically once the human approves its spec PR.
+    the human-applied `agent/review-spec-blocked` label AND whose pull request does
+    not yet have an approving review from a human (see Step 3). Such a record is
+    waiting on a person, so picking it would only stall the run; it rejoins the
+    candidate set automatically once the human approves its pull request.
     IF the candidate set is empty:
         STOP. No further action. Exit with: "No in-flight or workable items in scope: $LABEL_SCOPE."
     Selection depends on the dispatch mode, because the candidate set is safely
@@ -270,10 +279,10 @@ human spec sign-off before any code is written. It is NOT a phase label and does
 not change the phase map above; it only gates the `agent/review-spec-approved ->
 code-implementation` transition (handled in the loop below). It stays inert during
 the spec phases, so the item still advances to `agent/review-spec-approved` and
-opens its spec PR for the human to review - gating earlier would deadlock, since
-there would be no spec PR to approve.
+opens its pull request for the human to review - gating earlier would deadlock,
+since there would be no pull request to approve.
 
-In a self-run (the operator's own GitHub identity authored the spec PR, eg.
+In a self-run (the operator's own GitHub identity authored the pull request, eg.
 running without the dedicated GitHub App installation identity), GitHub refuses
 to let that same identity leave an approving review on its own PR, so the
 review-based release below can never fire. For this case the gate also accepts
@@ -306,7 +315,11 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
     CASE `agent/review-spec-approved`:
       # Human spec-approval gate (opt-in). If a person applied
       # `agent/review-spec-blocked`, do not start coding until they have approved the
-      # spec PR. The spec PR is this record's `implementer/spec-<JIRA_KEY>-*` PR.
+      # record's pull request. A record has ONE pull request serving both the spec
+      # and code phases (the `implementer/spec-<JIRA_KEY>-*` branch created at the
+      # spec phase and kept through the code phase; see `One Pull Request Across Spec
+      # and Code Phases` in specs/standards/sdlc/jira-github-sync.spec.md). Resolve it
+      # phase-agnostically, the same single PR the review steps act on.
       # "Approved" means it carries at least one review with state APPROVED authored
       # by a HUMAN - not a bot, and not this agent's own identity. Note the JSON
       # shape: `gh pr view <pr> --json reviews` gives each review only
@@ -327,13 +340,13 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
       # below: that is a re-implementation after code review, and the spec was already
       # signed off earlier.
       #
-      # Self-run fallback: if the spec PR's author is the SAME GitHub identity the
+      # Self-run fallback: if the pull request's author is the SAME GitHub identity the
       # orchestrator is running as, GitHub refuses a self-approving review, so the
       # review check below can never pass. In that case a human directly removing
       # `agent/review-spec-blocked` (eg. via the GitHub UI or `gh issue edit --remove-label`)
       # IS the approval - no PR review is required or checked for this path.
       IF $SELECTED_WORK_ITEM has `agent/review-spec-blocked`:
-        IF the spec PR has a human approving review:
+        IF the pull request has a human approving review:
           # Gate satisfied. Clear the human gate (it is not a phase label, so the
           # normalize step would not remove it) and fall through to implementation.
           Remove `agent/review-spec-blocked` from $SELECTED_WORK_ITEM.
@@ -342,7 +355,7 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
           # removal of the label - see above). Do NOT run code-implementation and do
           # NOT change any labels. Under fan-out this stops only this record's subtask;
           # otherwise it ends the run. The next run re-checks and proceeds once the
-          # human approves the spec PR.
+          # human approves the pull request.
           STOP this record with: "Waiting on human spec approval
           (agent/review-spec-blocked) for $SELECTED_WORK_ITEM."
       skill(../agents/code-implementation, $SELECTED_WORK_ITEM)
