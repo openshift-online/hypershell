@@ -28,7 +28,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "7.82.0",
-    "react-intl": "10.1.25",
+    "react-intl": "12.1.4",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -54,7 +54,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "7.82.0",
-    "react-intl": "10.1.25",
+    "react-intl": "12.1.4",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",
     "vite": "8.1.5",
