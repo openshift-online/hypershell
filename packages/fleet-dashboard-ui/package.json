@@ -16,9 +16,9 @@
     "typecheck": "tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@patternfly/react-core": "6.6.1",
+    "@patternfly/react-core": "6.6.2",
     "@patternfly/react-icons": "6.6.1",
-    "@patternfly/react-table": "6.6.1",
+    "@patternfly/react-table": "6.6.2",
     "@tanstack/react-query": "5.101.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

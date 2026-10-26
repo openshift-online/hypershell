@@ -21,9 +21,9 @@
     "shiki": "4.4.1"
   },
   "peerDependencies": {
-    "@patternfly/react-core": "6.6.1",
+    "@patternfly/react-core": "6.6.2",
     "@patternfly/react-icons": "6.6.1",
-    "@patternfly/react-table": "6.6.1",
+    "@patternfly/react-table": "6.6.2",
     "@tanstack/react-query": "5.101.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -33,9 +33,9 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
-    "@patternfly/react-core": "6.6.1",
+    "@patternfly/react-core": "6.6.2",
     "@patternfly/react-icons": "6.6.1",
-    "@patternfly/react-table": "6.6.1",
+    "@patternfly/react-table": "6.6.2",
     "@tanstack/eslint-plugin-query": "5.101.4",
     "@tanstack/react-query": "5.101.4",
     "@testing-library/react": "16.3.2",
