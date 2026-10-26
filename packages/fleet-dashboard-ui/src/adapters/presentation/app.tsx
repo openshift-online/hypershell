@@ -193,6 +193,7 @@ export function App(): React.ReactElement {
                       selectedBundleSeed={selectedBundleSeed}
                       onSelectBundle={onSelectBundle}
                       agentsByEnv={agentsByEnvMap}
+                      agentsPlaneStale={sdlcAgents.data?.stale ?? false}
                     />
                   )}
                 </PlaneSection>
@@ -211,6 +212,7 @@ export function App(): React.ReactElement {
                       data={data}
                       selectedBundleSeed={selectedBundleSeed}
                       agents={agentByName}
+                      planeStale={sdlcAgents.data?.stale ?? false}
                     />
                   )}
                 </PlaneSection>
