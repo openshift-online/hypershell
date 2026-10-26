@@ -1,7 +1,7 @@
 # Build from the repository root. Native builds: set TARGETARCH to amd64 or arm64.
 ARG TARGETARCH=amd64
-FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-amd64
-FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-arm64
+FROM registry.access.redhat.com/hi/go:1.26.10@sha256:e27e29ec86566046ca6e6839aecc4113d05162e3437bf66f98a00d67b7ba6fea AS go-amd64
+FROM registry.access.redhat.com/hi/go:1.26.10@sha256:28bca785695e6ca43d737ae50a8ef3e0ab1b4fb949497887e204c910d6c2e9c0 AS go-arm64
 FROM go-${TARGETARCH} AS hsctl-builder
 WORKDIR /src
 COPY components/cli/go.mod components/cli/go.sum ./
@@ -13,15 +13,15 @@ COPY components/cli/build-release.sh ./
 ARG TARGETARCH
 RUN HSCTL_RELEASE_TARGETS=linux-${TARGETARCH} sh build-release.sh && cp dist/hsctl-linux-${TARGETARCH} /hsctl
 
-FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
-FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
+FROM registry.access.redhat.com/hi/python:3.14.8@sha256:b89bdbd474240400e0874c89d0cce8786480f1daa012c94d973c922321c58a85 AS runtime-base
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:cf6e788a4bb8682fa17d6533deaefff69be225874a09779d4834e7e227785242 AS tools
 USER 0
 COPY components/agents/install-tools.py /inputs/install-tools.py
 COPY components/agents/locks/tools-*.json /inputs/locks/
 ARG TARGETARCH
 RUN python3 /inputs/install-tools.py tools /inputs/locks/tools-${TARGETARCH}.json /tools
 
-FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS assembler
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:cf6e788a4bb8682fa17d6533deaefff69be225874a09779d4834e7e227785242 AS assembler
 USER 0
 COPY --from=runtime-base / /rootfs/
 COPY components/agents/install-tools.py components/agents/assemble-rootfs.sh /inputs/

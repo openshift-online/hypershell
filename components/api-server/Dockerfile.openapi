@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM registry.access.redhat.com/hi/go:1.26.7-builder@sha256:57229d393ce3671dc38bae0a78ae3eb59f39a9e71b2804a7f64fc368521c82cf AS go-toolchain
+FROM registry.access.redhat.com/hi/go:1.26.10-builder@sha256:3b4ef404a1aa7dc3a5b7034eea9ef028f84c9f7bb5413efae4d8c9a79dde31f7 AS go-toolchain
 
-FROM openapitools/openapi-generator-cli:v7.16.0@sha256:e56372add5e038753fb91aa1bbb470724ef58382fdfc35082bf1b3e079ce353c
+FROM openapitools/openapi-generator-cli:v7.26.0@sha256:a304ddf1e2e5f24f68fa3153568d6174cea4959d09aa8e3db6d526fd0782326d
 
 COPY --from=go-toolchain /usr/lib/golang/bin/gofmt /usr/local/bin/gofmt
 

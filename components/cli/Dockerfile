@@ -5,8 +5,8 @@
 ARG BUILDARCH=amd64
 ARG TARGETARCH=amd64
 
-FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-amd64
-FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-arm64
+FROM registry.access.redhat.com/hi/go:1.26.10@sha256:e27e29ec86566046ca6e6839aecc4113d05162e3437bf66f98a00d67b7ba6fea AS go-amd64
+FROM registry.access.redhat.com/hi/go:1.26.10@sha256:28bca785695e6ca43d737ae50a8ef3e0ab1b4fb949497887e204c910d6c2e9c0 AS go-arm64
 FROM go-${BUILDARCH} AS builder
 
 WORKDIR /workspace
