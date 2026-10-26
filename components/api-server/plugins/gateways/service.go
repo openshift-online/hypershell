@@ -59,24 +59,35 @@ type GatewayService interface {
 	OnDelete(ctx context.Context, id string) error
 }
 
+// GatewayBindingCleaner deletes every role binding scoped to a gateway. The
+// gateway delete calls it in the same transaction as the row delete, so no
+// binding outlives its gateway.
+type GatewayBindingCleaner func(ctx context.Context, gatewayID string) *errors.ServiceError
+
+// NewGatewayService builds the gateway service. bindingCleaner may be nil when
+// the role bindings plugin is absent; the gateway delete then skips binding
+// cleanup.
 func NewGatewayService(
 	lockFactory db.LockFactory,
 	gatewayDao GatewayDao,
 	events services.EventService,
+	bindingCleaner GatewayBindingCleaner,
 ) GatewayService {
 	return &sqlGatewayService{
-		lockFactory: lockFactory,
-		gatewayDao:  gatewayDao,
-		events:      events,
+		lockFactory:    lockFactory,
+		gatewayDao:     gatewayDao,
+		events:         events,
+		bindingCleaner: bindingCleaner,
 	}
 }
 
 var _ GatewayService = &sqlGatewayService{}
 
 type sqlGatewayService struct {
-	lockFactory db.LockFactory
-	gatewayDao  GatewayDao
-	events      services.EventService
+	lockFactory    db.LockFactory
+	gatewayDao     GatewayDao
+	events         services.EventService
+	bindingCleaner GatewayBindingCleaner
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -306,6 +317,16 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
 		serviceErr.HttpCode = http.StatusServiceUnavailable
 		return serviceErr
+	}
+
+	// Delete the gateway's role bindings with it. A binding left behind is
+	// listed by every control-plane role binding resync, which then asks for
+	// the missing gateway on every pass, forever.
+	if s.bindingCleaner != nil {
+		if svcErr := s.bindingCleaner(ctx, id); svcErr != nil {
+			db.MarkForRollback(ctx, svcErr)
+			return svcErr
+		}
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{
