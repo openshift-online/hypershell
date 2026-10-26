@@ -76,6 +76,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
 | `standards/sdlc/jira-github-sync.spec.md` | standards | Work item, GitHub execution record, canonical link, phase-to-status projection, per-field authority, ingest (HYPERSHELL-374) | SDLC | - |
+| `standards/sdlc/code-implementation-remediation.spec.md` | standards | Deterministic PR health, rebase/conflict resolution, log-driven test remediation, sandbox-capability routing, bounded self-remediation, observability | SDLC | jira-github-sync, agent-runtime-images |
 | `platform/managed-cluster-registration.spec.md` | platform | ManagedCluster self-registration for every control plane, name-collision 409, gateway cluster_id validation, watch-stream caller binding, last_seen_at heartbeat loop | API, CP | data-model, rbac-enforcement, control-plane, hub-grpc-tls |
 | `platform/hub-grpc-tls.spec.md` | platform | Hub gRPC TLS-only listener, passthrough Route, DNS, authenticated watch streams before exposure (HYPERSHELL-333) | API, CP, GITOPS | control-plane, managed-cluster-registration, oidc-integration |
 | `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
