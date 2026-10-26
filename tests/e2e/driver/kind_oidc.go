@@ -159,6 +159,43 @@ func (d *kindDriver) AcquireGatewayTokenWithRole(ctx context.Context, user Crede
 	return last, nil
 }
 
+// AcquireGatewayToken mints a per-gateway token for user without requiring any
+// role (see the interface doc). It retries only transient token-endpoint errors.
+func (d *kindDriver) AcquireGatewayToken(ctx context.Context, user Credentials, clientID string) (Token, error) {
+	timeout := durationEnv("E2E_GATEWAY_TOKEN_TIMEOUT", 300*time.Second)
+	grant := envOr("E2E_OIDC_GRANT", grantPassword)
+
+	var last Token
+	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
+		var (
+			tok Token
+			err error
+		)
+		switch grant {
+		case grantPassword:
+			tok, err = d.postToken(ctx, d.tokenEndpoint(), map[string]string{
+				"grant_type": grantPassword,
+				"client_id":  clientID,
+				"username":   user.Username,
+				"password":   user.Password,
+			})
+		case grantClientCredentials:
+			tok, err = d.gatewayTokenExchange(ctx, clientID, user.Username)
+		default:
+			return false, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
+		}
+		if err != nil {
+			return false, nil // transient; keep polling until the client is ready
+		}
+		last = tok
+		return true, nil
+	})
+	if err != nil {
+		return Token{}, fmt.Errorf("gateway token for client %s was never issued: %w", clientID, err)
+	}
+	return last, nil
+}
+
 // gatewayTokenExchange exchanges the hypershell-e2e service-account token onto the
 // gateway client audience, optionally impersonating requestedSubject (the seeded
 // developer) when it is not the admin user.

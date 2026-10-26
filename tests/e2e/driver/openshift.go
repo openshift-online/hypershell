@@ -271,6 +271,43 @@ func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user 
 	return last, nil
 }
 
+// AcquireGatewayToken mints a per-gateway token for user without requiring any
+// role (see the interface doc). It retries only transient token-endpoint errors.
+func (d *openshiftDriver) AcquireGatewayToken(ctx context.Context, user Credentials, clientID string) (Token, error) {
+	timeout := durationEnv("E2E_GATEWAY_TOKEN_TIMEOUT", 300*time.Second)
+	grant := envOr("E2E_OIDC_GRANT", grantPassword)
+
+	var last Token
+	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
+		var (
+			tok Token
+			err error
+		)
+		switch grant {
+		case grantPassword:
+			tok, err = postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), map[string]string{
+				"grant_type": grantPassword,
+				"client_id":  clientID,
+				"username":   user.Username,
+				"password":   user.Password,
+			})
+		case grantClientCredentials:
+			tok, err = d.gatewayTokenExchange(ctx, clientID, user.Username)
+		default:
+			return false, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
+		}
+		if err != nil {
+			return false, nil // transient; keep polling until the client is ready
+		}
+		last = tok
+		return true, nil
+	})
+	if err != nil {
+		return Token{}, fmt.Errorf("gateway token for client %s was never issued: %w", clientID, err)
+	}
+	return last, nil
+}
+
 func (d *openshiftDriver) gatewayTokenExchange(ctx context.Context, clientID, requestedSubject string) (Token, error) {
 	subjectTok, err := d.clientCredentialsToken(ctx)
 	if err != nil {
