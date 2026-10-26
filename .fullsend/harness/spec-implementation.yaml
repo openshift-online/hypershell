@@ -1,7 +1,7 @@
 ---
 # spec-implementation harness (ported from run.sh; hyp0: Vertex via ADC, github provider, no mint).
 agent: agents/spec-implementation.md
-description: "Draft the spec change and open a spec PR"
+description: "Draft the spec change and open the work item's pull request"
 role: coder
 slug: fullsend-spec-implementation
 image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55

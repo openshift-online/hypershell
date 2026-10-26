@@ -1,6 +1,6 @@
 ---
 name: code-implementation
-description: "Implement the code change and open a code PR."
+description: "Implement the code change on the work item's pull request."
 ---
 
 ## Runtime context (supplied by the harness as environment variables)
