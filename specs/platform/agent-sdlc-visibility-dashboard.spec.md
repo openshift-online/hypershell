@@ -568,18 +568,24 @@ When an execution-record card changes phase between two SDLC snapshots, the whol
 card SHALL fly from its old slot to its new slot rather than disappear from one
 column and reappear in the next on the following refetch. The flying object SHALL be
 a full-size clone of the card itself (its real size and content), not a shrunken
-identicon or a glyph. The flight SHALL travel along an arc and land with an impact
-("dust") burst, mirroring the Fleet Map promotion flights so the two surfaces read as
-one motion language. A mid-flight scale swell MAY be used but SHALL stay subtle for a
-full-size card. The flight SHALL respect the user's reduced-motion preference
-(`specs/standards/ui/accessibility.spec.md`): when reduced motion is preferred, no
-flight SHALL play and cards SHALL snap to their new slots.
+identicon or a glyph. The flight SHALL travel along an arc, mirroring the Fleet Map
+promotion flights so the two surfaces read as one motion language. A mid-flight scale
+swell MAY be used but SHALL stay subtle for a full-size card. The flight SHALL respect
+the user's reduced-motion preference (`specs/standards/ui/accessibility.spec.md`): when
+reduced motion is preferred, no flight SHALL play and cards SHALL snap to their new
+slots.
+
+The impact ("dust") burst is a Fleet-Map-only flourish: on the dense SDLC grid it
+reads as noise, so the board SHALL NOT render it. Instead, when a flight lands the
+flying clone SHALL cross-fade out while the settled card is revealed beneath it, so the
+handoff from flying clone to resting card is seamless rather than a pop.
 
 This behavior SHALL reuse the Fleet Map's flight motion rather than fork it: the arc
 path, the impact burst, and the shared flight duration (`FLIGHT_MS`) SHALL be a
 single shared presentation primitive used by both the Fleet Map (SVG, flying an
-identicon) and the Agent SDLC board (DOM, flying a full card). The board SHALL NOT
-duplicate the arc, dust, or timing.
+identicon) and the Agent SDLC board (DOM, flying a full card). The board SHALL NOT fork
+the arc, dust, or timing; it consumes the shared primitive and simply omits the dust
+burst when it renders a board flight.
 
 Flights SHALL cover every phase change, not forward moves alone:
 
@@ -600,7 +606,8 @@ Each simultaneous phase change in one refetch SHALL get its own flight.
 - WHEN the board renders the new snapshot
 - THEN a full-size clone of the card SHALL fly along an arc from its old column slot
   to its new column slot
-- AND it SHALL land with the same impact burst as a Fleet Map promotion flight
+- AND on landing the flying clone SHALL cross-fade into the settled card, with no
+  separate impact burst on the board
 
 #### Scenario: SDLC-VIS-20.02 -- Reject loop flies backward
 
@@ -621,6 +628,20 @@ Each simultaneous phase change in one refetch SHALL get its own flight.
 - WHEN any card changes phase
 - THEN no flight SHALL play
 - AND the card SHALL snap to its new slot
+
+#### Scenario: SDLC-VIS-20.05 -- No dust burst on the board
+
+- GIVEN a card is flying between columns
+- WHEN the board renders the flight
+- THEN no impact ("dust") burst SHALL be rendered beside the flying card
+- AND only the flying card clone SHALL be present in the flight overlay
+
+#### Scenario: SDLC-VIS-20.06 -- Landing cross-fades into the settled card
+
+- GIVEN a card clone has reached its destination slot
+- WHEN the flight lands
+- THEN the destination hold SHALL release so the settled card renders beneath the clone
+- AND the spent clone SHALL cross-fade out, then be removed, rather than vanish abruptly
 
 ### Requirement: SDLC-VIS-21 -- Flight Detection and Stability
 
@@ -671,6 +692,53 @@ off-screen; the board SHALL NOT auto-scroll to it.
 - GIVEN two cards change phase in the same refetch
 - WHEN the board renders the new snapshot
 - THEN each card SHALL fly on its own flight
+
+### Requirement: SDLC-VIS-24 -- Replay Recent Transitions on Load
+
+A phase-transition flight (SDLC-VIS-20) is a point-in-time event: it plays only when a
+card's phase changes between two live snapshots, so a viewer who was not watching the
+board at that instant never sees it. Because real funnel transitions are infrequent and
+the animation is brief, the board SHALL replay recent transitions when it first loads,
+so it catches up on motion rather than appearing static.
+
+On the first render, when there is no prior snapshot to diff, the board SHALL emit a
+replay flight for every card whose time-in-phase is within a bounded recency window.
+Each replay flight SHALL fly the card from its previous phase (the funnel-predecessor
+column) into its current column; a card at the first column (intake) SHALL fly in with
+no source column. Cards resting longer than the window SHALL NOT replay. Replay flights
+SHALL be derived purely from the already-fetched snapshot (no new network call), SHALL
+reuse the same shared flight primitive and landing cross-fade as live flights
+(SDLC-VIS-20), and SHALL be capped so a busy board does not launch an unbounded swarm.
+Replay SHALL respect the reduced-motion preference: when reduced motion is preferred, no
+replay flight SHALL play and cards SHALL render in place.
+
+#### Scenario: SDLC-VIS-24.01 -- Recent arrival replays on first load
+
+- GIVEN the board loads with a card whose time-in-phase is within the recency window
+- WHEN the board first renders
+- THEN that card SHALL fly from its funnel-predecessor column into its current column
+- AND its destination SHALL be held until the replayed flight lands
+
+#### Scenario: SDLC-VIS-24.02 -- A settled card does not replay
+
+- GIVEN the board loads with a card whose time-in-phase exceeds the recency window
+- WHEN the board first renders
+- THEN no replay flight SHALL play for that card
+- AND the card SHALL render at rest in its column
+
+#### Scenario: SDLC-VIS-24.03 -- Replay is derived from the snapshot alone
+
+- GIVEN the board replays recent transitions on load
+- WHEN it computes the replay flights
+- THEN they SHALL be derived purely from the loaded snapshot
+- AND no new network call SHALL be made
+
+#### Scenario: SDLC-VIS-24.04 -- Reduced motion suppresses replay
+
+- GIVEN the user prefers reduced motion
+- WHEN the board first loads with recently-arrived cards
+- THEN no replay flight SHALL play
+- AND the cards SHALL render in place
 
 ### Requirement: SDLC-VIS-13 -- SLE Values Are Configuration
 
