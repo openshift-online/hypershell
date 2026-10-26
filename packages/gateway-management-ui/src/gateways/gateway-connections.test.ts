@@ -20,6 +20,10 @@ import {
   vertexProviderProfileUrl,
   type GatewayConnection,
 } from "./gateway-connections";
+// Shared with the Go e2e P2.11 phase (tests/e2e/cli_parity_phases.go), which reads
+// this same file on the merge gate. Imported as a raw string so the path resolves
+// via Vite regardless of the test runner's cwd.
+import installCommandFixture from "./ui-install-command.golden?raw";
 
 const gateway: GatewayConnection = {
   clusterId: "cluster-east",
@@ -68,6 +72,24 @@ describe("gateway connections", () => {
         'export PATH="$HOME/.local/bin:$PATH"',
       ].join("\n"),
     );
+  });
+
+  it("stays in sync with the shared e2e install-command fixture (E2E-COV-05.01)", () => {
+    // The Go P2.11 phase runs on the merge gate where no browser is available, so
+    // it asserts UI parity by reading this fixture. Keep it honest: the real helper
+    // output (with the version replaced by the fixture's sentinel) must equal the
+    // committed fixture, so any change to buildOpenShellInstallCommand fails here
+    // until the fixture is regenerated.
+    const rendered = buildOpenShellInstallCommand(gateway);
+    expect(rendered).toBeDefined();
+    if (rendered === undefined) return;
+    const version = gateway.gatewayVersion ?? "";
+    const installerVersion = version.startsWith("v") ? version : `v${version}`;
+    const templated = rendered
+      .split(installerVersion)
+      .join("__OPENSHELL_INSTALLER_VERSION__");
+    const fixture = installCommandFixture.replace(/\n$/u, "");
+    expect(templated).toBe(fixture);
   });
 
   it("quotes an unsafe gateway version in the installation command", () => {
