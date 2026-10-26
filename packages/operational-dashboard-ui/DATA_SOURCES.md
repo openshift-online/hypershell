@@ -327,12 +327,12 @@ Gateway request metrics reuse the gateway-native Prometheus counters
 `PROMETHEUS_URL` MUST point to an application metrics endpoint that already
 exposes these series for the managed clusters in the fleet.
 
-| Metric ID                | Prometheus type  | Calculation                                                                                                                                                               |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                       |
-| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="OK"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
-| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                              |
-| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                               |
+| Metric ID                | Prometheus type  | Calculation                                                                                                                                                              |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                      |
+| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="0"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
+| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                             |
+| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                              |
 
 Current Gateway namespaces come from the authorized Gateway list for both
 administrators and non-administrators. Historical traffic from a deleted
