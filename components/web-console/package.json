@@ -52,7 +52,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "7.82.0",
-    "react-intl": "10.1.25",
+    "react-intl": "12.1.4",
     "react-router": "8.3.0",
     "victory-area": "37.3.6",
     "victory-axis": "37.3.6",
