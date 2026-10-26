@@ -47,6 +47,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
+				gatewayBindingCleaner(&env.Services),
 			)
 		},
 		list: newGatewayListService(&env.Database.SessionFactory),
@@ -71,6 +72,24 @@ func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup
 			return "", false, svcErr
 		}
 		return gateway.ClusterId, true, nil
+	}
+}
+
+// gatewayBindingCleaner deletes a gateway's role bindings through the role
+// bindings plugin, looked up per call so it follows the service registry. It
+// is a no-op when that plugin is absent.
+func gatewayBindingCleaner(s *environments.Services) GatewayBindingCleaner {
+	return func(ctx context.Context, gatewayID string) *errors.ServiceError {
+		rbService := roleBindings.Service(s)
+		if rbService == nil {
+			return nil
+		}
+		removed, svcErr := rbService.DeleteGatewayBindings(ctx, gatewayID)
+		if svcErr != nil {
+			return svcErr
+		}
+		slog.InfoContext(ctx, "Deleted role bindings of deleted gateway", "gateway_id", gatewayID, "count", removed)
+		return nil
 	}
 }
 
