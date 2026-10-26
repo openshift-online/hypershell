@@ -995,11 +995,13 @@ owning agent is placed on a cluster. The API server SHALL write to the secret
 manager ONLY when a value is supplied; when no value is supplied it SHALL persist
 the `SecretSource` reference alone and SHALL perform no `pkg/secretstore` write. A
 reference-only `SecretSource` SHALL carry its convention path so the value can be
-uploaded later: when the request omits `path`, the API server SHALL derive it as
+uploaded later: the API server SHALL derive it as
 `hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic
-location a value-bearing submission is written to). The late-binding model that
-supplies the value afterward, directly into the assigned cluster's local Vault, is
-defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
+location a value-bearing submission is written to) on every create, and SHALL
+ignore any client-supplied `path`; the `path` SHALL NOT be settable on update. The
+late-binding model that supplies the value afterward, directly into the assigned
+cluster's local Vault, is defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
 
 The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
 resolve a stored secret value in-process, and SHALL NOT clone a git repository.

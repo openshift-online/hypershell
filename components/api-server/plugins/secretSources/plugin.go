@@ -87,7 +87,7 @@ func init() {
 			slog.Warn("secret store configuration error; secret submissions will be rejected", "error", storeErr)
 			store = secretstore.NewErrorStore(storeErr)
 		}
-		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store)
+		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store, newManageAuthorizer(envServices))
 
 		router := extRouter.PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)

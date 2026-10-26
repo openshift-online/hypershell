@@ -139,7 +139,7 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			}
 		}
 
-		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
+		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles, extRequestSurface(r.URL.Path)) {
 			if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
@@ -259,6 +259,59 @@ func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) b
 	return hasUsersInventoryAccess(bindings, jwtRoles) || hasGatewayCreator(bindings)
 }
 
+// extKinds are the Extension API kinds served under /api/hypershell/ext/.
+// They are platform-wide authoring kinds (the hsctl extension commands and
+// hsctl apply). The middleware gate requires gateway:creator or
+// platform:admin for every method; the gateway-scoped kinds among them
+// (agent_runtimes, secret_sources) additionally enforce per-resource tenancy
+// in their handlers. Keep in sync with the plugins registering
+// RegisterPrefixedRoutes(_, "ext", ...).
+var extKinds = map[string]bool{
+	"agent_runtimes":        true,
+	"agent_workspaces":      true,
+	"inference_routes":      true,
+	"provider_bindings":     true,
+	"provider_specs":        true,
+	"repositories":          true,
+	"sandbox_templates":     true,
+	"secret_sources":        true,
+	"workspace_memberships": true,
+}
+
+// extRequestSurface reports whether the request path targets the Extension
+// API (/api/hypershell/ext/...), whose kinds follow the ext authorization
+// rules instead of the /v1 resource rules.
+func extRequestSurface(path string) bool {
+	return strings.HasPrefix(path, "/api/hypershell/ext/")
+}
+
+// CanManageGatewayResources reports whether a caller holding bindings may
+// manage (create, update, delete) a gateway-scoped resource belonging to
+// gatewayID: a gateway:owner or gateway:admin binding on that gateway, or
+// platform:admin (owner-equivalent for management, GTW-ACC-08). A viewer, a
+// caller bound only to other gateways, and an unbound caller may not. It is
+// the shared in-handler tenancy check for the gateway-scoped extension kinds
+// (agent_runtimes, secret_sources); when RBAC enforcement is disabled the
+// handler skips the check entirely rather than calling this with nil
+// bindings.
+func CanManageGatewayResources(bindings []BindingSummary, gatewayID string) bool {
+	if gatewayID == "" {
+		return false
+	}
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope != "gateway" || b.GatewayID == nil || *b.GatewayID != gatewayID {
+			continue
+		}
+		if b.RoleName == "gateway:owner" || b.RoleName == "gateway:admin" {
+			return true
+		}
+	}
+	return false
+}
+
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	resource, resourceID = extractResourceInfoFromRoute(r)
 	if resource != "" {
@@ -312,12 +365,31 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 }
 
 func extractResourceInfoFromPath(path string) (resource string, resourceID string) {
-	const prefix = "/api/hypershell/v1/"
-	if !strings.HasPrefix(path, prefix) {
-		return "", ""
+	const v1Prefix = "/api/hypershell/v1/"
+	if strings.HasPrefix(path, v1Prefix) {
+		return splitResourcePath(strings.Trim(strings.TrimPrefix(path, v1Prefix), "/"))
 	}
+	const extPrefix = "/api/hypershell/ext/"
+	if strings.HasPrefix(path, extPrefix) {
+		// Extension kinds are flat: /<kind> and /<kind>/{id}. The special
+		// gateway-nested shapes live only under /v1.
+		remainder := strings.Trim(strings.TrimPrefix(path, extPrefix), "/")
+		if remainder == "" {
+			return "", ""
+		}
+		parts := strings.Split(remainder, "/")
+		resource = parts[0]
+		if len(parts) > 1 {
+			resourceID = parts[1]
+		}
+		return resource, resourceID
+	}
+	return "", ""
+}
 
-	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+// splitResourcePath parses the remainder of a /api/hypershell/v1/ path into a
+// resource and resource ID, including the gateway-nested sub-resources.
+func splitResourcePath(remainder string) (resource string, resourceID string) {
 	if remainder == "" {
 		return "", ""
 	}
@@ -387,7 +459,7 @@ func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
 	return "", ""
 }
 
-func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string, extSurface bool) bool {
 	// JWT-direct: managed-cluster-registrar is never DB-synced; check JWT claim only.
 	if resource == "registration" && method == http.MethodPost {
 		return hasManagedClusterRegistrar(jwtRoles)
@@ -399,6 +471,20 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "gateway_placement_availability" {
 		return method == http.MethodPost && hasGatewayCreator(bindings)
+	}
+
+	// Extension kinds (/api/hypershell/ext/...): the platform-wide authoring
+	// kinds served to hsctl and the generated SDKs. Every method requires
+	// gateway:creator or platform:admin at this gate (the authoring posture of
+	// "these kinds are authored over HTTP", grpc_authorization.go). The
+	// gateway-scoped kinds (agent_runtimes, secret_sources) additionally
+	// enforce per-resource tenancy in their handlers: the caller must hold
+	// gateway:owner or gateway:admin on the referenced gateway, or be
+	// platform:admin (CanManageGatewayResources). An ext path whose resource
+	// is not a known extension kind fails closed rather than falling through
+	// to the creator fallback below.
+	if extSurface {
+		return extKinds[resource] && hasDashboardInventoryAccess(bindings, jwtRoles)
 	}
 
 	if resource == "managed_clusters" {

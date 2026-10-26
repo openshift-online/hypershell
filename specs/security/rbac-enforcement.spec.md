@@ -699,6 +699,89 @@ needs to author platform-managed fields SHALL do so as the control-plane identit
 - WHEN it writes platform-managed or observed fields
 - THEN the field policy SHALL permit the write
 
+### Requirement: SEC-RBAC-19 -- Extension Kind REST Authorization
+
+The Extension API kinds served under `/api/hypershell/ext/` (`AgentRuntime`,
+`AgentWorkspace`, `WorkspaceMembership`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`) SHALL sit
+behind the same authentication and authorization middleware as the `/v1`
+kinds. The framework's route builder mounts the `ext` prefix on a subrouter
+separate from `/v1`, so the RBAC middleware SHALL be registered on that
+subrouter as well (`RegisterPrefixedRoutes("rbac", "ext", ...)`, exercised by
+`components/api-server/test/authz`). The framework's own authorizer checks
+identity presence only and SHALL NOT be treated as an authorization boundary
+for these routes.
+
+At the middleware gate, every ext method (read and write) SHALL require
+`gateway:creator` or `platform:admin`: these kinds are authored over HTTP
+(`hsctl` and the generated SDKs), which is the authoring posture the gRPC
+rules defer to ("these kinds are authored over HTTP", gRPC Authorization). An
+ext path whose resource is not a known extension kind SHALL be denied (fail
+closed) rather than falling back to the `gateway:creator` default that
+unknown `/v1` resources receive.
+
+The gateway-scoped ext kinds SHALL additionally enforce per-resource tenancy
+in their handlers, because the creator gate alone cannot confine a creator to
+their own gateways:
+
+- `AgentRuntime` create, update, and delete SHALL require `gateway:owner` or
+  `gateway:admin` on the referenced gateway, or `platform:admin`
+  (owner-equivalent for management, GTW-ACC-08).
+- `SecretSource` create, update, and delete SHALL resolve the target
+  `agent_runtime_id` to its `AgentRuntime` and require `gateway:owner` or
+  `gateway:admin` on that runtime's gateway, or `platform:admin`. A submission
+  naming an `AgentRuntime` that does not exist SHALL be rejected with `404`
+  and SHALL write nothing to the secret store.
+- The `SecretSource` secret-store write SHALL happen only after the tenancy
+  check passes; a rejected submission SHALL leave the store and the database
+  unchanged.
+
+The `SecretSource` `path` SHALL be derived server-side from the submission
+identity on every create, value-bearing and reference-only alike; a
+client-supplied `path` SHALL be ignored on create and SHALL NOT be settable on
+update. Honoring a client path would let any creator point a `SecretSource` at
+another tenant's store location, which the control plane would then place
+into the caller's namespace. The control-plane declarative import reconciler
+writes its own paths over gRPC and is unaffected by this rule.
+
+#### Scenario: SEC-RBAC-19.01 -- Unbound creator cannot overwrite another tenant's secret
+
+- GIVEN user A holds `gateway:owner` on gw-1 and has declared an AgentRuntime
+  on gw-1 with a submitted secret
+- AND user B holds `gateway:creator` and no binding on gw-1
+- WHEN user B submits a secret value naming that AgentRuntime and its secret
+  name
+- THEN the response SHALL be `403 Forbidden`
+- AND the secret store entry at the AgentRuntime's deterministic location
+  SHALL be unchanged
+
+#### Scenario: SEC-RBAC-19.02 -- Reference-only create ignores a client-supplied path
+
+- GIVEN a caller authorized on the target AgentRuntime's gateway
+- WHEN the caller creates a reference-only `SecretSource` with a
+  client-supplied `path` pointing at another resource's store location
+- THEN the created record's `path` SHALL be the server-derived convention
+  location, not the client-supplied value
+
+#### Scenario: SEC-RBAC-19.03 -- Unbound creator cannot plant an AgentRuntime on another tenant's gateway
+
+- GIVEN user B holds `gateway:creator` and no binding on gw-1 (owned by user A)
+- WHEN user B creates an `AgentRuntime` referencing gw-1
+- THEN the response SHALL be `403 Forbidden`
+
+#### Scenario: SEC-RBAC-19.04 -- platform:admin manages gateway-scoped ext kinds
+
+- GIVEN user P holds `platform:admin` and no binding on gw-1
+- WHEN user P creates, updates, or deletes an `AgentRuntime` or `SecretSource`
+  scoped to gw-1
+- THEN the request SHALL be authorized (owner-equivalent, GTW-ACC-08)
+
+#### Scenario: SEC-RBAC-19.05 -- Unknown ext resource fails closed
+
+- GIVEN a request to `/api/hypershell/ext/<unknown-kind>`
+- WHEN the RBAC middleware evaluates it
+- THEN the request SHALL be denied even for a `gateway:creator` caller
+
 ### Requirement: SEC-RBAC-10 -- Error Response Opacity
 
 For singleton resource endpoints (`GET /gateways/{id}`), the middleware SHALL return 404
