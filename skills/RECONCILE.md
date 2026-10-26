@@ -141,6 +141,41 @@ Prior: 2026-10-20 (scoped reconciliation of HYPERSHELL-415 / issue #621 / PR #63
 
 **Update (2026-10-16, REPO-C-IMPORT final wave, PR #590):** built the end-to-end `RepositoryReconciler` the #590 re-spec unblocked by replacing git-clone + `hsctl`-binary render with a GitHub-API subtree read + an in-process kustomize library. Green and landed: (1) **`pkg/kustomize` shared library** in `components/cli` (`Build`/`BuildYAML` over a `filesys.FileSystem`, plugins disabled + root-only load restriction via kustomize defaults; dep `sigs.k8s.io/kustomize/api@v0.21.2` + `kyaml@v0.21.2`, both published 2026-09-28/30, >= 14 days old; `k8s.io/kube-openapi` pinned via `replace` to the smd-v6 line `20260721` to avoid the smd-v7 break against apimachinery v0.36.3), unit-tested in memory incl. bases/overlays. (2) **hsctl refactor** - `apply/cmd.go` `loadFromKustomize` now calls `pkg/kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)` instead of shelling out to the `kustomize` binary; the `exec` path is gone and its tests run in-process (no skip-if-missing). (3) **cli->CP wiring** - `components/control-plane/go.mod` requires + locally `replace`s the cli module. (4) **`RepositoryReconciler`** (`internal/reconciler/repository_{reconciler,github,writer}.go`) - periodic idempotent loop: enumerate Repositories -> resolve credential (per-Repository `secret_source_id` via `pkg/secretstore` + `SecretSourceService` lookup takes precedence over the default platform GitHub App token) -> read ONLY the `import_path` subtree over the GitHub git-trees/blobs API into an in-memory `filesys` (no clone, no disk) -> render via `pkg/kustomize.Build` -> filter to the 7 canonical importable Kinds, excluding `Repository` + admin kinds (ManagedCluster/Role/RoleBinding) -> UPSERT over the gRPC write path with server-side ownership via the `x-hypershell-import-repository-id` binding (#585) -> PRUNE Repository-owned resources no longer present, scoped per Repository. Wired into `main.go` behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED` (default off) + `HYPERSHELL_GITHUB_TOKEN_FILE`. Fake-backed tests cover render/filter/7-kind/Repository+admin exclusion, upsert, prune, per-Repository prune scoping, credential precedence, the GitHub fetcher (httptest), and ownership-metadata attachment. **FLAGGED (reconcile honesty clause):** the production gRPC writer fully supports the FIVE import-write ext Kinds (SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource - exactly the rbac import-write set). `Gateway` and `AgentRuntime` are accepted by the importable filter but return a collected `ErrKindNotWritable`: `Gateway`'s proto message has NO `repository_id` ownership field (cannot be ownership-marked or pruned) and `AgentRuntime` has NO gRPC Create/Update/Delete (only status) - the API surface they need does not exist yet, so a declared Gateway/AgentRuntime is surfaced as a per-resource error, never silently dropped. The "platform GitHub App credential" is consumed as a mounted installation-token file (ESO-refreshed, mirroring fleet-dashboard); full App-JWT->installation-token minting from AppID + private key is not implemented. Gate: `make check` (incl. dependency-age), `make lint-cli`, `make lint-control-plane` (gofmt/vet/golangci-lint 0 issues), cli + control-plane `go build`/`go test` all green; no generated-artifact drift.
 
+**Scoped analysis (2026-10-26, CICD-ECC, issue #776 / PR #779):** reconciled the new
+`specs/platform/konflux-enterprise-contract-conformance.spec.md` (CICD-ECC-01..06).
+Landed the issue-sanctioned **Hermeto pilot** for the two clean Go-only components
+(CICD-ECC-02): `api-server` and `cli` now set `hermetic: "true"`,
+`enable-package-registry-proxy: "true"`, and a single-object `prefetch-input`
+`{"type":"gomod","path":"components/<component>"}` in all three pipeline files each
+(push, pull-request, merge-queue) - 6 `.tekton` files, additive params in
+`spec.params`. These two were chosen because their Dockerfiles perform no ad-hoc
+network fetch beyond `go mod download` / `go build` (cli's `build-release.sh` is a
+pure cross-compile loop) and their modules have no `replace` directives, so flipping
+hermetic is a complete migration, not a flag flip. Amber review: APPROVE, no
+Blocker/Critical/Major findings; repo policy checks green (forbidden-terms,
+ci-components, dependency-pins). CICD-ECC-05 (single pipeline source) already
+satisfied: redundant Konflux PR **#774 is CLOSED** and `fullsend-sandbox` keeps one
+authoritative `.tekton` set on `main`.
+
+**Deferred (require Konflux build-log / `ec validate` iteration, unavailable in this
+environment; the spec/issue mandate "confirm one component green, then fan out"):**
+- CICD-ECC-02 for the six remaining components - each needs a real hermetic Dockerfile
+  migration before the flag can flip safely: `control-plane` (`go install
+  helm.sh/helm/v3/cmd/helm@v3.14.0` x2 + multi-module `replace`s to ../cli,
+  ../api-server), `web-console` + `fleet-dashboard` (pnpm workspace, single root
+  `pnpm-lock.yaml`/`pnpm-workspace.yaml` - Hermeto pnpm handling, not npm/yarn),
+  `agent-runtime` + `agent-runtime-slim` (bespoke `components/agents/install-tools.py`
+  offline installer + pip + multi-stage native builds), `fullsend-sandbox`
+  (`ghcr.io/fullsend-ai` base + `curl https://go.dev/dl/...` toolchain fetch; also no
+  in-image `go build`, so its "gomod" scope is unclear). Fan-out recipe is the pilot
+  pattern: add the three params per file, one `prefetch-input` entry per from-source
+  ecosystem pointing at the module dir, after moving each ad-hoc fetch into prefetch.
+- CICD-ECC-03 (trusted attestation) and CICD-ECC-04 (+dirty baked binary) - both
+  require reading the live Konflux `verify` step output / image build log (authoritative
+  rule codes and the dirty binary's ingestion path), which cannot be produced locally.
+- CICD-ECC-06 (Mintmaker base-image bumps) - an operational merge policy, not a code
+  change.
+
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
 **Go E2E update (2026-10-08)**: Delivered the Go/testify harness, its Kind and
