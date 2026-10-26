@@ -195,9 +195,11 @@ func (s *E2ESuite) assertProviderCreateCommand(t *testing.T) {
 	s.runner.Show("%s  # UI-rendered form; the suite runs the --runtime-credentials equivalent", buildProviderCreateCommand(providerName))
 	// The e2e gateway imports no provider profiles by default (profile sources =
 	// ["user"]), and the google-vertex-ai profile the UI example renders is not
-	// registered, so seed a minimal credential-free profile for this gateway and
-	// create a provider against it. E2E-COV-05.03 only requires the provider-create
-	// path to run end to end, not a specific provider type.
+	// registered, so seed a minimal profile whose single credential is minted by
+	// the gateway at runtime (so --runtime-credentials is valid and needs no static
+	// value at create time) and create a provider against it. E2E-COV-05.03 only
+	// requires the provider-create path to run end to end, not a specific provider
+	// type.
 	profileBytes, err := os.ReadFile(filepath.Join(repoRoot(), "tests", "e2e", "testdata", "e2e-provider-profile.yaml"))
 	s.Require().NoError(err, "read the e2e provider profile fixture")
 	// The CLI runs inside a container that only bind-mounts ~/.config/openshell, so

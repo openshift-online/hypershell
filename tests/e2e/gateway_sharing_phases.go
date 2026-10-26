@@ -100,7 +100,10 @@ func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
 	if out, err = s.cli(t, developerLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", name); err != nil {
 		s.Logf("second-user sandbox create returned an error (continuing to poll): %v\n%s", err, out)
 	}
-	s.Require().NoError(s.waitPodRunning(ctx, ref.Namespace, "default--"+name, durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)),
+	s.Require().NoError(s.waitPodRunning(ctx,
+		sandboxPodNamespace(running.WorkspaceMode, running.Namespace, "default"),
+		sandboxPodName(running.WorkspaceMode, "default", name),
+		durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)),
 		"second user may create a sandbox after the grant")
 	s.deleteSandboxAndWaitForCount(t, developerLocal, name, gw.ID, 0)
 
