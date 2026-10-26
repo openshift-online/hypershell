@@ -198,7 +198,11 @@ func (s *E2ESuite) assertProviderCreateCommand(t *testing.T) {
 	// registered, so seed a minimal credential-free profile for this gateway and
 	// create a provider against it. E2E-COV-05.03 only requires the provider-create
 	// path to run end to end, not a specific provider type.
-	profilePath := filepath.Join(repoRoot(), "tests", "e2e", "testdata", "e2e-provider-profile.yaml")
+	profileBytes, err := os.ReadFile(filepath.Join(repoRoot(), "tests", "e2e", "testdata", "e2e-provider-profile.yaml"))
+	s.Require().NoError(err, "read the e2e provider profile fixture")
+	// The CLI runs inside a container that only bind-mounts ~/.config/openshell, so
+	// stage the fixture there and pass the path the containerized CLI actually sees.
+	profilePath := s.stageCLIFile(t, "e2e-provider-profile-"+s.runID+".yaml", profileBytes)
 	out, err := s.cli(t, s.primaryLocalName, "provider", "profile", "import", "--file", profilePath)
 	s.Require().NoErrorf(err, "seed the credential-free e2e provider profile: %s", out)
 	out, err = s.cli(t, s.primaryLocalName, "provider", "create",
