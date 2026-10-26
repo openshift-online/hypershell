@@ -46,7 +46,9 @@ describe("AgentSdlcView board", () => {
           title: "Add tab",
           url: "u",
           phase: "spec",
-          timeInPhaseSeconds: 50,
+          // Older than the replay-on-load window so this settled-card render test is not
+          // perturbed by a load replay flight (which would hold the card out of its column).
+          timeInPhaseSeconds: 5000,
           scope: null,
           escalation: null,
           rework: { count: 2, threshold: 3 },
@@ -315,13 +317,15 @@ describe("AgentSdlcView phase-transition flights", () => {
     vi.unstubAllGlobals();
   });
 
+  // Default age is older than the replay-on-load window, so these live-transition tests start
+  // from a settled board (no load replay) and isolate the prev -> next flight.
   function card(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
     return {
       number: 10,
       title: "Fly me",
       url: "u",
       phase: "spec",
-      timeInPhaseSeconds: 50,
+      timeInPhaseSeconds: 5000,
       scope: null,
       escalation: null,
       rework: null,
@@ -330,7 +334,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     };
   }
 
-  function flightData(phase: string, timeInPhaseSeconds = 50): AgentSdlcData {
+  function flightData(phase: string, timeInPhaseSeconds = 5000): AgentSdlcData {
     return {
       phases: [
         { key: "spec", sleSeconds: 100 },
@@ -496,6 +500,103 @@ describe("AgentSdlcView phase-transition flights", () => {
   });
 });
 
+describe("AgentSdlcView replay-on-load and landing", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const PHASES = [
+    { key: "intake", sleSeconds: 100 },
+    { key: "workable", sleSeconds: 100 },
+    { key: "spec", sleSeconds: 100 },
+    { key: "spec-approved", sleSeconds: 100 },
+    { key: "shipped", sleSeconds: 0 },
+  ];
+  function replayCard(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
+    return {
+      number: 10,
+      title: "Fly me",
+      url: "u",
+      phase: "spec",
+      timeInPhaseSeconds: 60,
+      scope: null,
+      escalation: null,
+      rework: null,
+      history: [],
+      ...partial,
+    };
+  }
+  function renderBoard(cards: AgentSdlcCard[]) {
+    const data: AgentSdlcData = {
+      phases: PHASES,
+      cards,
+      lane: [],
+      matrix: { hubClusters: [], rows: [] },
+    };
+    const history = createMemoryHistory({ path: "/sdlc", search: "" });
+    return render(
+      <IntlProvider locale="en" defaultLocale="en">
+        <RouterProvider history={history}>
+          <AgentSdlcView
+            data={data}
+            selectedBundleSeed={null}
+            nowMs={1_000_000}
+          />
+        </RouterProvider>
+      </IntlProvider>,
+    );
+  }
+
+  // Verifies: SDLC-VIS-24.01
+  it("replays a recently-arrived card on first load, holding it until it lands", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    // On first load (no prior snapshot) a replay flight is airborne and the destination
+    // card is held out of its column until the flying copy lands.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+  });
+
+  // Verifies: SDLC-VIS-24.02
+  it("does not replay a card older than the replay window", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 5000 })]);
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+  });
+
+  // Verifies: SDLC-VIS-20.05
+  it("renders no dust or impact burst beside the flying card", () => {
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    const flight = document.querySelector('[data-card-flight="10"]');
+    expect(flight).not.toBeNull();
+    // The flight wrapper carries only the flying clone - no burst/dust sibling.
+    expect(flight?.parentElement?.childElementCount).toBe(1);
+  });
+
+  // Verifies: SDLC-VIS-20.06
+  it("releases the hold when the clone lands, then culls the spent clone", () => {
+    vi.useFakeTimers();
+    renderBoard([replayCard({ phase: "spec", timeInPhaseSeconds: 60 })]);
+    // Airborne: clone present, real card held.
+    expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
+      1,
+    );
+    expect(document.querySelector('[data-card-number="10"]')).toBeNull();
+    // At landing (FLIGHT_MS) the hold releases: the real card is back while the clone fades.
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(document.querySelector('[data-card-number="10"]')).not.toBeNull();
+    // After the settle fade the spent clone is removed.
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(document.querySelector('[data-card-flight="10"]')).toBeNull();
+  });
+});
+
 describe("AgentSdlcView stacked-card popover", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -523,7 +624,9 @@ describe("AgentSdlcView stacked-card popover", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
       phases: [{ key: "spec", sleSeconds: 100 }],
-      cards: [card(1, 600), card(2, 700), card(3, 800)],
+      // All older than the replay-on-load window so no load replay holds a card out of the
+      // stack; the ages stay evenly spaced so cards 2 and 3 still collapse under card 1.
+      cards: [card(1, 700), card(2, 800), card(3, 900)],
     };
     // No nowMs override: the live clock ticks every second.
     renderView({ data });

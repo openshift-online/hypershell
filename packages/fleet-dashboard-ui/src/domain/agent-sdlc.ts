@@ -243,6 +243,11 @@ export interface CardFlight {
   readonly toPhase: string;
   /** True when the card left the board into the Shipped release matrix. */
   readonly toShipped: boolean;
+  /** True when this flight was synthesized on first load to replay a recent transition
+   *  (no prior snapshot to diff), rather than observed live between two polls. Replay
+   *  flights measure their source from the from-phase column anchor, since the card has no
+   *  previous on-screen slot to launch from. */
+  readonly replay?: boolean;
 }
 
 /** Issue numbers that appear as shipped (tracked) in the matrix for a snapshot. */
@@ -319,5 +324,48 @@ export function computeCardFlights(
     });
   }
 
+  return flights;
+}
+
+/**
+ * Replay flights for cards that arrived in their current phase RECENTLY, synthesized on
+ * first load when there is no prior snapshot to diff. A card whose time-in-phase is within
+ * `windowSeconds` is treated as having just transitioned, and a flight is emitted from its
+ * previous phase (the funnel predecessor column; null for intake, which flies in) to its
+ * current column. This lets the board "catch up" on recent motion the moment it loads,
+ * rather than only animating a transition a viewer happens to be watching live. Cards
+ * resting longer than the window do not replay. Ordered most-recent-first and capped so a
+ * busy board does not launch a swarm. Pure: derived from the snapshot alone.
+ */
+export function computeReplayCardFlights(
+  data: AgentSdlcData,
+  windowSeconds: number,
+  maxFlights = 12,
+): CardFlight[] {
+  const board = boardPhases(data.phases);
+  const indexByKey = new Map(board.map((p, i) => [p.key, i]));
+  const recent = data.cards
+    .filter(
+      (c) =>
+        c.timeInPhaseSeconds >= 0 &&
+        c.timeInPhaseSeconds <= windowSeconds &&
+        indexByKey.has(c.phase),
+    )
+    .slice()
+    .sort((a, b) => a.timeInPhaseSeconds - b.timeInPhaseSeconds)
+    .slice(0, maxFlights);
+
+  const flights: CardFlight[] = [];
+  for (const c of recent) {
+    const idx = indexByKey.get(c.phase) ?? 0;
+    const fromPhase = idx > 0 ? (board[idx - 1]?.key ?? null) : null;
+    flights.push({
+      number: c.number,
+      fromPhase,
+      toPhase: c.phase,
+      toShipped: false,
+      replay: true,
+    });
+  }
   return flights;
 }

@@ -103,6 +103,7 @@ import {
   bundleRowSeed,
   cardsInPhase,
   computeCardFlights,
+  computeReplayCardFlights,
   ESCALATION_BLOCKED,
   ESCALATION_DUPLICATE,
   ESCALATION_NEEDS_INPUT,
@@ -133,8 +134,6 @@ import { identiName } from "../../../domain/map/identiname";
 import {
   arcControl,
   arcTravelVars,
-  DUST,
-  DUST_MS,
   FLIGHT_MS,
   prefersReducedMotion,
 } from "../shared/flight-motion";
@@ -1703,11 +1702,12 @@ interface ActiveCardFlight {
   readonly height: number;
   /** Arc translate keyframe samples (deltas from source to destination). */
   readonly travelVars: Record<string, string>;
-  /** Landing burst centre (viewport px). */
-  readonly burstX: number;
-  readonly burstY: number;
   /** A 1:1 detached clone of the real card element, positioned to fill the flight box. */
   readonly clone: HTMLElement;
+  /** True once the clone has reached its destination: the board releases the hold (the real
+   *  card renders underneath) and the clone cross-fades out, so the handoff is seamless
+   *  instead of the clone vanishing and the card popping in. */
+  readonly landed: boolean;
 }
 
 /** One captured board card: its live rect and a detached clone for a flying copy. */
@@ -1759,6 +1759,13 @@ let cardFlightSeq = 0;
 
 /** Fallback flight-box size when no real card rect is measurable yet (jsdom, or a card
  *  that was already held when its next transition arrived). */
+/** Replay-on-load: a card that entered its current phase within this many seconds is
+ *  treated as a recent transition and replayed when the board first opens. */
+const REPLAY_WINDOW_SECONDS = 600;
+/** Cross-fade duration after a clone lands, during which the real card is revealed beneath
+ *  it, so the handoff from flying clone to settled card is smooth rather than a pop. */
+const SETTLE_MS = 220;
+
 const FALLBACK_CARD_W = 200;
 const FALLBACK_CARD_H = 84;
 
@@ -1805,10 +1812,16 @@ function buildCardFlights(
 
     // Source top-left: the slot the card just left, else its last-known slot, else the
     // from-phase column anchor, else it flies down from the top of the board (intake).
-    const srcRect =
-      prevCards.get(cf.number)?.rect ??
-      lastKnown.get(cf.number)?.rect ??
-      (cf.fromPhase ? (columnRects.get(cf.fromPhase) ?? null) : null);
+    // A REPLAY flight (first load) has no prior on-screen slot - lastKnown already holds the
+    // card's DESTINATION rect from this same commit - so it launches from the from-phase
+    // column anchor directly (or the board top for an intake replay).
+    const srcRect = cf.replay
+      ? cf.fromPhase
+        ? (columnRects.get(cf.fromPhase) ?? null)
+        : null
+      : (prevCards.get(cf.number)?.rect ??
+        lastKnown.get(cf.number)?.rect ??
+        (cf.fromPhase ? (columnRects.get(cf.fromPhase) ?? null) : null));
     let srcLeft: number;
     let srcTop: number;
     if (srcRect) {
@@ -1853,9 +1866,8 @@ function buildCardFlights(
       width,
       height,
       travelVars: arcTravelVars(0, 0, deltaX, deltaY, cx, cy),
-      burstX: dLeft + width / 2,
-      burstY: dTop + height / 2,
       clone,
+      landed: false,
     });
   }
   return active;
@@ -1903,19 +1915,17 @@ function useCardFlights(
   // a clone to fly (SDLC-VIS-21).
   const lastKnownRef = useRef<Map<number, CapturedCard>>(new Map());
   const [flights, setFlights] = useState<readonly ActiveCardFlight[]>([]);
-  // Cull timers, held in a ref so they survive re-renders (browser timers are numbers).
+  // Land/cull timers, held in a ref so they survive re-renders (browser timers are numbers).
   const timers = useRef<Set<number>>(new Set());
-
-  // Clear timers ONLY on unmount - never per render - so an aging re-render or unrelated
-  // poll cannot clearTimeout a pending cull and strand a frozen flying clone (the same
-  // trap the map's useFlights documents).
+  // Guards the timer callbacks instead of clearing the timers on unmount. Clearing stranded
+  // the first batch under StrictMode's mount -> cleanup -> mount cycle (the cull was wiped
+  // before it fired and the second mount did not relaunch), leaving frozen clones stuck on
+  // the board. Letting the timers fire but no-op after a real unmount avoids that.
+  const mounted = useRef(true);
   useEffect(() => {
-    const pending = timers.current;
+    mounted.current = true;
     return () => {
-      pending.forEach((t) => {
-        window.clearTimeout(t);
-      });
-      pending.clear();
+      mounted.current = false;
     };
   }, []);
 
@@ -1941,14 +1951,16 @@ function useCardFlights(
       lastKnown.set(n, cap);
     }
 
-    if (
-      !prevData ||
-      prefersReducedMotion() ||
-      typeof document === "undefined"
-    ) {
+    if (prefersReducedMotion() || typeof document === "undefined") {
       return;
     }
-    const found = computeCardFlights(prevData, data);
+    // First load has no prior snapshot to diff: REPLAY recent transitions from the card
+    // history window so the board catches up on motion the moment it opens, instead of only
+    // animating a transition a viewer happens to be watching live. Subsequent snapshots
+    // diff normally (prev -> next).
+    const found = prevData
+      ? computeCardFlights(prevData, data)
+      : computeReplayCardFlights(data, REPLAY_WINDOW_SECONDS);
     if (found.length === 0) {
       return;
     }
@@ -1965,16 +1977,30 @@ function useCardFlights(
       return;
     }
 
-    const keys = new Set(active.map((a) => a.key));
-    setFlights((cur) => [...cur, ...active]);
-    // Each flight self-expires via a tracked timer; this effect returns NO cleanup so a
-    // later commit cannot cancel an in-flight cull (mirrors the map's useFlights).
     const track = timers.current;
-    const id = window.setTimeout(() => {
-      track.delete(id);
-      setFlights((cur) => cur.filter((a) => !keys.has(a.key)));
-    }, FLIGHT_MS + DUST_MS);
-    track.add(id);
+    // Launch a batch, then run its two-phase landing: at FLIGHT_MS the clone has arrived, so
+    // mark it landed (the board releases the hold and the real card renders underneath while
+    // the clone cross-fades out); at FLIGHT_MS + SETTLE_MS remove the spent clone. Callbacks
+    // are guarded by `mounted`, not cancelled, so a StrictMode remount never strands them.
+    const launch = (batch: readonly ActiveCardFlight[]): void => {
+      const keys = new Set(batch.map((a) => a.key));
+      setFlights((cur) => [...cur, ...batch]);
+      const landId = window.setTimeout(() => {
+        track.delete(landId);
+        if (!mounted.current) return;
+        setFlights((cur) =>
+          cur.map((a) => (keys.has(a.key) ? { ...a, landed: true } : a)),
+        );
+      }, FLIGHT_MS);
+      track.add(landId);
+      const cullId = window.setTimeout(() => {
+        track.delete(cullId);
+        if (!mounted.current) return;
+        setFlights((cur) => cur.filter((a) => !keys.has(a.key)));
+      }, FLIGHT_MS + SETTLE_MS);
+      track.add(cullId);
+    };
+    launch(active);
   }, [data, boardRef, matrixRef]);
 
   // A column-bound flight holds its destination card until the copy lands (no double
@@ -1982,7 +2008,9 @@ function useCardFlights(
   const heldNumbers = useMemo(() => {
     const held = new Set<number>();
     for (const fl of flights) {
-      if (!fl.toShipped) {
+      // Release the hold the moment the clone LANDS (not when it is culled), so the real card
+      // is already painted underneath the fading clone - a seamless handoff, not a pop.
+      if (!fl.toShipped && !fl.landed) {
         held.add(fl.number);
       }
     }
@@ -2002,10 +2030,12 @@ function attachClone(clone: HTMLElement): (el: HTMLDivElement | null) => void {
   };
 }
 
-/** The board flight overlay (SDLC-VIS-20): for each active flight, a 1:1 clone of the
- *  card flies along the shared arc from its old slot to its new one, landing with the
- *  shared impact + dust burst. Rendered into document.body (like the old ship ghost) so a
- *  transformed Drawer ancestor cannot clip or offset the fixed-position copies. */
+/** The board flight overlay (SDLC-VIS-20): for each active flight, a 1:1 clone of the card
+ *  flies along the shared arc from its old slot to its new one. On landing the clone
+ *  cross-fades out while the real card is revealed beneath it (no dust burst on the board -
+ *  the impact effect reads as noise on the dense SDLC grid). Rendered into document.body
+ *  (like the old ship ghost) so a transformed Drawer ancestor cannot clip or offset the
+ *  fixed-position copies. */
 function BoardFlights({
   flights,
 }: {
@@ -2026,6 +2056,10 @@ function BoardFlights({
               top: `${String(fl.top)}px`,
               width: `${String(fl.width)}px`,
               height: `${String(fl.height)}px`,
+              // Cross-fade the spent clone out once it lands; the real card is already painted
+              // underneath (the hold releases on landing), so the handoff is seamless.
+              opacity: fl.landed ? 0 : 1,
+              transition: `opacity ${String(SETTLE_MS)}ms ease-out`,
             }}
           >
             <div
@@ -2050,29 +2084,6 @@ function BoardFlights({
                 />
               </div>
             </div>
-          </div>
-          <div
-            className={styles.flightBurst}
-            style={{
-              left: `${String(fl.burstX)}px`,
-              top: `${String(fl.burstY)}px`,
-            }}
-          >
-            <span
-              className={[styles.flightRing, motion.impactRing].join(" ")}
-            />
-            {DUST.map((p, i) => (
-              <span
-                key={i}
-                className={[styles.flightDust, motion.dust].join(" ")}
-                style={
-                  {
-                    "--dust-dx": p.dx,
-                    "--dust-dy": p.dy,
-                  } as React.CSSProperties
-                }
-              />
-            ))}
           </div>
         </div>
       ))}
