@@ -69,7 +69,12 @@ WRITE action when `--dry-run` is set.
    group for the current head commit and refreshes its expiry, so the reaper does
    not reclaim it mid-investigation (see
    `specs/platform/ephemeral-pr-environments.spec.md`, CICD-PREN-03/05/06). `<n>`
-   is the PR number.
+   is the PR number. `/pr-extend` is honored only from a commenter with
+   write/maintain/admin permission on the origin repo (CICD-PREN-03); if the
+   agent's GitHub identity lacks that permission the comment is acknowledged but
+   changes nothing. Treat the extend as best-effort: the `pr-env-diagnostics-<n>`
+   artifact in step 2 is uploaded before teardown and does not depend on the
+   environment still being up, so diagnosis still proceeds either way.
 
 2. Gather the CI-side evidence, which is always reachable headlessly through `gh`:
    - Read the failing job logs: `gh run view --log-failed` for the run that
@@ -87,7 +92,9 @@ WRITE action when `--dry-run` is set.
 
    ```bash
    # Requires aws/oc/jq on PATH and AWS CLI credentials with read access to
-   # hysh-aws-01/ci/cluster-login. The script masks the server and token.
+   # hysh-aws-01/ci/cluster-login. The script does not print the token (it pipes
+   # oc login to /dev/null and unsets the values); it adds GitHub Actions log masks
+   # only when run inside CI, so do not echo its environment when running locally.
    bash scripts/ci/login-openshift-from-aws.sh
    ```
 

@@ -238,6 +238,13 @@ there is exactly one record, run inline. In BOTH modes the phases WITHIN a singl
 record stay strictly sequential - a record carries exactly one ACTIVE phase label
 at a time, so there is nothing to parallelize inside one record, only across them.
 
+Isolation under fan-out: the phase steps clone and mutate the repository (the
+implementation steps check out and build each record's branch), so concurrent
+subtasks MUST each operate in their own working copy - a separate clone, a git
+worktree, or an equivalently sandboxed checkout. Two subtasks sharing one working
+directory would clobber each other's branch checkout and build state. Independence
+of records holds only when their working copies are also independent.
+
 
 Keep Jira in sync as the GitHub phase advances. Before the loop, record the
 current phase as `$PREVIOUS_PHASE`. After every iteration (every phase
@@ -285,10 +292,15 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
     CASE `agent/review-spec-approved`:
       # Human spec-approval gate (opt-in). If a person applied
       # `agent/review-spec-blocked`, do not start coding until they have approved the
-      # spec PR. The spec PR is this record's `implementer/spec-<JIRA_KEY>-*` PR;
-      # "approved" means it carries an approving review from a HUMAN reviewer (eg.
-      # `gh pr view <pr> --json reviewDecision` == APPROVED, or a human review with
-      # state APPROVED - ignore agent/bot reviews). This gate is NOT applied to
+      # spec PR. The spec PR is this record's `implementer/spec-<JIRA_KEY>-*` PR.
+      # "Approved" means it carries at least one review with state APPROVED authored
+      # by a HUMAN - a User account, not a bot, and not this agent's own identity.
+      # Enumerate the reviews and check authorship (eg.
+      # `gh pr view <pr> --json reviews` then keep `.reviews[]` where
+      # `.state == "APPROVED"` and `.author.is_bot == false` and the author is not
+      # the agent). Do NOT rely on `reviewDecision`: GitHub turns it APPROVED on a
+      # bot review or the agent's own approving review, which would bypass the human
+      # sign-off this gate exists to enforce. This gate is NOT applied to
       # `agent/review-code-rejected` below: that is a re-implementation after code
       # review, and the spec was already signed off earlier.
       IF $SELECTED_WORK_ITEM has `agent/review-spec-blocked`:
