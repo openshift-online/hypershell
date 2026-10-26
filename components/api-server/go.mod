@@ -13,7 +13,7 @@ require (
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261021105531-fc88cf69871f
 	github.com/prometheus/client_golang v1.16.0
-	github.com/prometheus/client_model v0.3.0
+	github.com/prometheus/client_model v0.6.3
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v0.0.7
 	github.com/spf13/pflag v1.0.10
@@ -31,7 +31,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	google.golang.org/grpc v1.83.2
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/resty.v1 v1.12.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.1
