@@ -143,24 +143,38 @@ Prior: 2026-10-20 (scoped reconciliation of HYPERSHELL-415 / issue #621 / PR #63
 
 **Scoped analysis (2026-10-26, CICD-ECC, issue #776 / PR #779):** reconciled the new
 `specs/platform/konflux-enterprise-contract-conformance.spec.md` (CICD-ECC-01..06).
-Landed the issue-sanctioned **Hermeto pilot** for the two clean Go-only components
-(CICD-ECC-02): `api-server` and `cli` now set `hermetic: "true"`,
+Landed the issue-sanctioned **Hermeto pilot** for the single validated Go-only
+component (CICD-ECC-02): `api-server` now sets `hermetic: "true"`,
 `enable-package-registry-proxy: "true"`, and a single-object `prefetch-input`
-`{"type":"gomod","path":"components/<component>"}` in all three pipeline files each
-(push, pull-request, merge-queue) - 6 `.tekton` files, additive params in
-`spec.params`. These two were chosen because their Dockerfiles perform no ad-hoc
-network fetch beyond `go mod download` / `go build` (cli's `build-release.sh` is a
-pure cross-compile loop) and their modules have no `replace` directives, so flipping
-hermetic is a complete migration, not a flag flip. Amber review: APPROVE, no
-Blocker/Critical/Major findings; repo policy checks green (forbidden-terms,
-ci-components, dependency-pins). CICD-ECC-05 (single pipeline source) already
-satisfied: redundant Konflux PR **#774 is CLOSED** and `fullsend-sandbox` keeps one
-authoritative `.tekton` set on `main`.
+`{"type":"gomod","path":"components/api-server"}` in all three pipeline files
+(push, pull-request, merge-queue) - 3 `.tekton` files, additive params in
+`spec.params`. Its build check `hypershell-api-server-main-on-pull-request` is
+**green** with hermetic on, proving the prefetch recipe against the live Konflux
+build. CICD-ECC-05 (single pipeline source) already satisfied: redundant Konflux
+PR **#774 is CLOSED** and `fullsend-sandbox` keeps one authoritative `.tekton` set
+on `main`.
+
+**Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
+also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
+cross-compile loop" and therefore safe. The live Konflux build disproved that:
+`hypershell-cli-main-on-pull-request` went **red** with hermetic on (api-server,
+with the identical three params, stayed green - so the cause is cli-build-specific,
+not param syntax). Per the issue's mandate ("do one Go-only component end to end
+first, confirm it is green, then fan out") and the reviewer's guidance, the cli
+pipeline changes were **reverted** to hermetic off; cli joins the deferred set
+below until its hermetic build is confirmed green against `ec validate` / the
+Konflux build log, which this environment cannot produce. The honesty-clause
+takeaway: do not flip a hermetic flag on an unverified "it looks like a pure
+cross-compile" assumption - require a green build first.
 
 **Deferred (require Konflux build-log / `ec validate` iteration, unavailable in this
 environment; the spec/issue mandate "confirm one component green, then fan out"):**
-- CICD-ECC-02 for the six remaining components - each needs a real hermetic Dockerfile
-  migration before the flag can flip safely: `control-plane` (`go install
+- CICD-ECC-02 for the seven remaining components - each needs a confirmed-green
+  hermetic build before the flag can flip safely:
+  `cli` (hermetic build fails for a cli-build-specific reason - likely the
+  `build-release.sh` multi-target darwin/windows cross-compile or the published
+  `rh-trex-ai/components/api-server` module dep - that must be traced from the
+  Konflux build log and moved into prefetch); `control-plane` (`go install
   helm.sh/helm/v3/cmd/helm@v3.14.0` x2 + multi-module `replace`s to ../cli,
   ../api-server), `web-console` + `fleet-dashboard` (pnpm workspace, single root
   `pnpm-lock.yaml`/`pnpm-workspace.yaml` - Hermeto pnpm handling, not npm/yarn),

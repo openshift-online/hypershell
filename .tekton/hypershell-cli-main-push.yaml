@@ -29,12 +29,6 @@ spec:
     value: Dockerfile
   - name: path-context
     value: components/cli
-  - name: hermetic
-    value: "true"
-  - name: enable-package-registry-proxy
-    value: "true"
-  - name: prefetch-input
-    value: '{"type": "gomod", "path": "components/cli"}'
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
