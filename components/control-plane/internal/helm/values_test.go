@@ -677,3 +677,113 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_ServerDnsNames guards that the gateway's injected ServerDnsNames
+// (which include the gateway's derived external hostname) reach BOTH chart
+// keys that can feed certificate SANs: pkiInitJob.serverDnsNames (certgen hook,
+// cert-manager disabled) and certManager.serverDnsNames (server_sans in
+// gateway.toml and the internal server Certificate, cert-manager enabled).
+// The regression it guards: with cert-manager enabled the chart ignores
+// pkiInitJob.serverDnsNames entirely, so the external hostname never reached
+// server_sans or the Certificate SANs (docs/investigations/per-gateway-certificates.md,
+// Gap C). It also locks in that buildIngressValues keeps winning in Route
+// mode with an external issuer: certManager.serverDnsNames must stay [hostname]
+// there, not the core-values list.
+func TestBuild_ServerDnsNames(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	dnsNames := []string{"gw-test-ns.apps.example.com", "internal.example.com"}
+
+	tests := []struct {
+		name                    string
+		hasCertManager          bool
+		routeEnabled            bool
+		useOpenShiftRoute       bool
+		externalCAIssuer        string
+		wantPkiInitNames        bool
+		wantCertMgrNames        bool
+		wantCertMgrHostnameOnly bool
+	}{
+		{
+			name:             "cert-manager enabled writes both pkiInitJob and certManager serverDnsNames",
+			hasCertManager:   true,
+			wantPkiInitNames: true,
+			wantCertMgrNames: true,
+		},
+		{
+			name:             "cert-manager disabled writes only pkiInitJob serverDnsNames",
+			hasCertManager:   false,
+			wantPkiInitNames: true,
+			wantCertMgrNames: false,
+		},
+		{
+			name:                    "route mode with external issuer keeps certManager serverDnsNames as hostname only",
+			hasCertManager:          true,
+			routeEnabled:            true,
+			useOpenShiftRoute:       true,
+			externalCAIssuer:        "gateway-ca",
+			wantPkiInitNames:        true,
+			wantCertMgrHostnameOnly: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			routeHost := "gw-test-ns.apps.example.com"
+			builder := ValuesBuilder{
+				Gateway: GatewayConfig{
+					Image:          "quay.io/test/gateway:latest",
+					ServerDnsNames: dnsNames,
+					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
+				},
+				Namespace:            "test-ns",
+				HasCertManager:       tc.hasCertManager,
+				IngressBaseDomain:    "apps.example.com",
+				UseOpenShiftRoute:    tc.useOpenShiftRoute,
+				ExternalCAIssuerName: tc.externalCAIssuer,
+				ExternalCAIssuerKind: "ClusterIssuer",
+			}
+
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatalf("Build() returned error: %v", err)
+			}
+
+			pkiNames := nested(values, "pkiInitJob", "serverDnsNames")
+			if tc.wantPkiInitNames {
+				if !reflect.DeepEqual(pkiNames, dnsNames) {
+					t.Errorf("pkiInitJob.serverDnsNames = %v, want %v", pkiNames, dnsNames)
+				}
+			} else if pkiNames != nil {
+				t.Errorf("pkiInitJob.serverDnsNames should be absent, got %v", pkiNames)
+			}
+
+			certMgrNames := nested(values, "certManager", "serverDnsNames")
+			switch {
+			case tc.wantCertMgrHostnameOnly:
+				want := []string{routeHost}
+				if !reflect.DeepEqual(certMgrNames, want) {
+					t.Errorf("certManager.serverDnsNames = %v, want %v (ingress override must win)", certMgrNames, want)
+				}
+			case tc.wantCertMgrNames:
+				if !reflect.DeepEqual(certMgrNames, dnsNames) {
+					t.Errorf("certManager.serverDnsNames = %v, want %v", certMgrNames, dnsNames)
+				}
+			default:
+				if certMgrNames != nil {
+					t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
+				}
+			}
+		})
+	}
+}

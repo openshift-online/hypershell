@@ -249,6 +249,15 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Server DNS names for TLS certificate SANs
 	if len(b.Gateway.ServerDnsNames) > 0 {
 		setNestedValue(values, b.Gateway.ServerDnsNames, "pkiInitJob", "serverDnsNames")
+		if b.HasCertManager {
+			// When cert-manager is enabled the chart ignores pkiInitJob.serverDnsNames:
+			// server_sans in gateway.toml and the internal server Certificate both
+			// come from certManager.serverDnsNames instead. Set both keys from the
+			// same source. buildIngressValues runs after this and deliberately
+			// overwrites certManager.serverDnsNames with just the Route host in
+			// external-issuer passthrough mode, so that later write still wins.
+			setNestedValue(values, b.Gateway.ServerDnsNames, "certManager", "serverDnsNames")
+		}
 	}
 
 	// ServiceAccount configuration
