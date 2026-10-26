@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentActivity,
   agentRowsByEnv,
   aggregateAgentsByName,
+  HEARTBEAT_STALE,
   type SdlcAgentMetrics,
   type SdlcAgentsData,
 } from "./sdlc-agents";
@@ -108,6 +110,18 @@ describe("aggregateAgentsByName", () => {
     expect(agent?.env).toBe("integration+production");
   });
 
+  it("carries the most recent lastReportedAt across environments", () => {
+    const data: SdlcAgentsData = {
+      envs: ["integration", "production"],
+      agents: [
+        makeAgent("spec-review", "integration", { lastReportedAt: 1000 }),
+        makeAgent("spec-review", "production", { lastReportedAt: 2000 }),
+      ],
+    };
+    const result = aggregateAgentsByName(data);
+    expect(result.get("spec-review")?.lastReportedAt).toBe(2000);
+  });
+
   it("merges history series onto the union of timestamps", () => {
     const data: SdlcAgentsData = {
       envs: ["integration", "production"],
@@ -137,5 +151,76 @@ describe("aggregateAgentsByName", () => {
     const series = result.get("spec-review")?.series;
     expect(series?.times).toEqual([100, 200]);
     expect(series?.queueDepth).toEqual([1, 7]);
+  });
+});
+
+describe("agentActivity", () => {
+  // A fixed clock; lastReportedAt values are expressed relative to it in seconds.
+  const NOW_MS = 1_700_000_000_000;
+  const nowS = NOW_MS / 1000;
+  const fresh = nowS - 10; // well within the liveness window
+  const decayed = nowS - (HEARTBEAT_STALE + 60); // older than the window
+
+  const cases: {
+    label: string;
+    agent: Partial<SdlcAgentMetrics>;
+    planeStale: boolean;
+    want: "active" | "notActive" | "blind";
+  }[] = [
+    // SDLC-AGT-16.01: a stale plane is blind regardless of the gauge.
+    {
+      label: "stale plane -> blind",
+      agent: { replicasOn: 1, lastReportedAt: fresh },
+      planeStale: true,
+      want: "blind",
+    },
+    // SDLC-AGT-16.02: running with a fresh timestamp -> active.
+    {
+      label: "replicasOn + fresh timestamp -> active",
+      agent: { replicasOn: 1, lastReportedAt: fresh },
+      planeStale: false,
+      want: "active",
+    },
+    // SDLC-AGT-16.03: running with a stale timestamp (decayed crash) -> notActive.
+    {
+      label: "replicasOn + stale timestamp -> notActive",
+      agent: { replicasOn: 1, lastReportedAt: decayed },
+      planeStale: false,
+      want: "notActive",
+    },
+    // SDLC-AGT-16.04: no running replicas -> notActive.
+    {
+      label: "replicasOn = 0 -> notActive",
+      agent: { replicasOn: 0, lastReportedAt: fresh },
+      planeStale: false,
+      want: "notActive",
+    },
+    // SDLC-AGT-16.05: no timestamp yet, falls back to the raw gauge.
+    {
+      label: "replicasOn + no timestamp -> active (fallback)",
+      agent: { replicasOn: 1, lastReportedAt: 0 },
+      planeStale: false,
+      want: "active",
+    },
+    {
+      label: "replicasOn = 0 + no timestamp -> notActive (fallback)",
+      agent: { replicasOn: 0, lastReportedAt: 0 },
+      planeStale: false,
+      want: "notActive",
+    },
+  ];
+
+  for (const c of cases) {
+    it(c.label, () => {
+      const agent = makeAgent("triage", "integration", c.agent);
+      expect(agentActivity(agent, NOW_MS, c.planeStale)).toBe(c.want);
+    });
+  }
+
+  it("treats a missing lastReportedAt field as the raw-gauge fallback", () => {
+    const agent = makeAgent("triage", "integration", { replicasOn: 1 });
+    // makeAgent leaves lastReportedAt undefined (optional field).
+    expect(agent.lastReportedAt).toBeUndefined();
+    expect(agentActivity(agent, NOW_MS, false)).toBe("active");
   });
 });

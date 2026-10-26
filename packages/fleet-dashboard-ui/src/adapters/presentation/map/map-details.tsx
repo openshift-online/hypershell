@@ -43,7 +43,15 @@ import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
+import {
+  agentActivity,
+  type SdlcAgentMetrics,
+} from "../../../domain/sdlc-agents";
+import {
+  AgentActivityBadge,
+  LastSeen,
+  useLiveNow,
+} from "../shared/agent-activity";
 
 import {
   bundleList,
@@ -198,6 +206,9 @@ export interface MapDetailsProps {
   readonly onSelectNode: (id: string) => void;
   /** SDLC agent rows grouped by environment, for the per-cluster Agents tab. */
   readonly agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  /** The SDLC-agents plane's `stale` flag, driving the "Monitoring blind" activity
+   *  state in the Agents tab (SDLC-AGT-16). */
+  readonly agentsPlaneStale?: boolean;
 }
 
 const PROMO_LABEL: Record<
@@ -925,15 +936,23 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
 
 /**
  * Compact PatternFly table of SDLC agents for a cluster's Agents tab.
- * Agent / Replicas / Queue / Done / Failed columns, one row per agent. Empty
- * state when no agents report for this cluster. All copy is i18n-keyed.
+ * Agent / Activity / Replicas / Queue / Done / Failed columns, one row per agent.
+ * The empty state (never reported) is distinct from the idle state (SDLC-AGT-17.04):
+ * a cluster with no agent rows shows the empty message, while a cluster whose agents
+ * have reported but are idle now shows rows marked "Not active". All copy is i18n-keyed.
  */
 function NodeAgents({
   agents,
+  planeStale,
+  nowMs,
 }: {
   agents: readonly SdlcAgentMetrics[];
+  planeStale: boolean;
+  /** Reference instant for the activity derivation; a live clock when omitted. */
+  nowMs?: number;
 }): React.ReactElement {
   const intl = useIntl();
+  const liveNowMs = useLiveNow(nowMs);
   const subtle = "var(--pf-t--global--text--color--subtle, #9a9da0)";
   const tabNums: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
   if (agents.length === 0) {
@@ -953,6 +972,9 @@ function NodeAgents({
         <Tr>
           <Th>
             <FormattedMessage {...messages.agentsColAgent} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColActivity} />
           </Th>
           <Th>
             <FormattedMessage {...messages.agentsColReplicas} />
@@ -981,6 +1003,25 @@ function NodeAgents({
                   <RobotIcon style={{ color: subtle }} />
                 </FlexItem>
                 <FlexItem>{agent.name}</FlexItem>
+              </Flex>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColActivity)}>
+              <Flex
+                direction={{ default: "column" }}
+                spaceItems={{ default: "spaceItemsNone" }}
+              >
+                <FlexItem>
+                  <AgentActivityBadge
+                    activity={agentActivity(agent, liveNowMs, planeStale)}
+                  />
+                </FlexItem>
+                <FlexItem>
+                  <LastSeen
+                    lastReportedAt={agent.lastReportedAt}
+                    nowMs={liveNowMs}
+                    style={{ color: subtle }}
+                  />
+                </FlexItem>
               </Flex>
             </Td>
             <Td dataLabel={intl.formatMessage(messages.agentsColReplicas)}>
@@ -1034,11 +1075,13 @@ function NodeDetails({
   releaseByDigest,
   onSelectBundle,
   agentsByEnv,
+  agentsPlaneStale,
 }: {
   node: MapNode;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
   agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  agentsPlaneStale?: boolean;
 }): React.ReactElement {
   // The node drawer sub-tab is URL-represented (FLT-NAV-09); the temporal cursor
   // below stays transient.
@@ -1123,7 +1166,10 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <NodeAgents agents={agentsByEnv?.get(node.id) ?? []} />
+          <NodeAgents
+            agents={agentsByEnv?.get(node.id) ?? []}
+            planeStale={agentsPlaneStale ?? false}
+          />
         </div>
       </Tab>
       <Tab
@@ -1297,6 +1343,7 @@ export function MapDetails({
   onSelectNode,
   e2e,
   agentsByEnv,
+  agentsPlaneStale,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -1359,6 +1406,7 @@ export function MapDetails({
           releaseByDigest={releaseByDigest}
           onSelectBundle={onSelectBundle}
           agentsByEnv={agentsByEnv}
+          agentsPlaneStale={agentsPlaneStale}
         />
       ) : null}
       {selection.kind === "gate" ? (

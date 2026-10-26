@@ -17,15 +17,21 @@ type SdlcAgentSeries struct {
 
 // SdlcAgentMetrics is one (agent, env) row.
 type SdlcAgentMetrics struct {
-	Name             string          `json:"name"`
-	Env              string          `json:"env"`
-	ReplicasOn       int             `json:"replicasOn"`
-	ReplicasTotal    int             `json:"replicasTotal"`
-	QueueDepth       float64         `json:"queueDepth"`
-	ItemsProcessed   float64         `json:"itemsProcessed"`
-	ItemsFailed      float64         `json:"itemsFailed"`
-	ProvisionSeconds float64         `json:"provisionSeconds"`
-	Series           SdlcAgentSeries `json:"series"`
+	Name             string  `json:"name"`
+	Env              string  `json:"env"`
+	ReplicasOn       int     `json:"replicasOn"`
+	ReplicasTotal    int     `json:"replicasTotal"`
+	QueueDepth       float64 `json:"queueDepth"`
+	ItemsProcessed   float64 `json:"itemsProcessed"`
+	ItemsFailed      float64 `json:"itemsFailed"`
+	ProvisionSeconds float64 `json:"provisionSeconds"`
+	// LastReportedAt is the unix seconds of the agent's most recent freshness
+	// push (SDLC-AGT-15), the absolute fact the client judges liveness against.
+	// 0 when the freshness series is absent. The BFF reports only this fact; it
+	// does NOT compute any staleness or activity verdict (a server verdict would
+	// go stale inside the cached snapshot).
+	LastReportedAt int64           `json:"lastReportedAt"`
+	Series         SdlcAgentSeries `json:"series"`
 }
 
 // SdlcAgentsData is the /api/sdlc-agents plane payload (the Snapshot.Data value).
@@ -113,6 +119,13 @@ func (p *Prometheus) SdlcAgents(ctx context.Context) (any, error) {
 	runInstant(`max by (name, env) (sdlc_gateway_provision_seconds)`, func(it promResultItem) {
 		k := agentKey{name: it.Metric["name"], env: it.Metric["env"]}
 		get(k).ProvisionSeconds = sampleValue(it.Value)
+	})
+	// Freshness fact (SDLC-AGT-15): the per-replica last-push timestamp, aggregated
+	// with max so each (name, env) reports its most recent push. Reported as the
+	// absolute LastReportedAt (unix seconds); the client judges liveness, not here.
+	runInstant(`max by (name, env) (sdlc_agent_last_report_timestamp_seconds)`, func(it promResultItem) {
+		k := agentKey{name: it.Metric["name"], env: it.Metric["env"]}
+		get(k).LastReportedAt = int64(sampleValue(it.Value))
 	})
 
 	// Range queries for the per-agent history series.

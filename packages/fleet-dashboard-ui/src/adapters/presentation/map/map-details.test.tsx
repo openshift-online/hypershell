@@ -99,6 +99,7 @@ function makeAgent(overrides?: Partial<SdlcAgentMetrics>): SdlcAgentMetrics {
 
 function renderNodeAgentsTab(
   agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>,
+  agentsPlaneStale?: boolean,
 ): void {
   const promotion: PromotionData = {
     order: ["hi"],
@@ -126,6 +127,7 @@ function renderNodeAgentsTab(
           onSelectBundle={noop}
           onSelectNode={noop}
           agentsByEnv={agentsByEnv}
+          agentsPlaneStale={agentsPlaneStale}
         />
       </RouterProvider>
     </IntlProvider>,
@@ -162,6 +164,40 @@ describe("MapDetails - per-cluster Agents tab", () => {
     expect(
       screen.getByText("No SDLC agents are reporting on this cluster."),
     ).toBeTruthy();
+  });
+
+  // An idle cluster shows rows marked "Not active", distinct from the
+  // never-reported empty state.
+  // Verifies: SDLC-AGT-17.04
+  it("shows Not active rows (not the empty state) for a cluster whose agents are idle", () => {
+    const agentsByEnv = new Map<string, readonly SdlcAgentMetrics[]>([
+      ["hi", [makeAgent({ name: "triage", replicasOn: 0 })]],
+    ]);
+    renderNodeAgentsTab(agentsByEnv, false);
+    expect(screen.getByText("Not active")).toBeTruthy();
+    expect(
+      screen.queryByText("No SDLC agents are reporting on this cluster."),
+    ).toBeNull();
+  });
+
+  // Active state on the Agents tab.
+  // Verifies: SDLC-AGT-17.01
+  it("marks a running agent Active", () => {
+    const agentsByEnv = new Map<string, readonly SdlcAgentMetrics[]>([
+      ["hi", [makeAgent({ name: "triage", replicasOn: 1 })]],
+    ]);
+    renderNodeAgentsTab(agentsByEnv, false);
+    expect(screen.getByText("Active")).toBeTruthy();
+  });
+
+  // A stale plane reads as Monitoring blind on the Agents tab.
+  // Verifies: SDLC-AGT-16.01, SDLC-AGT-17.01
+  it("marks every agent Monitoring blind when the plane is stale", () => {
+    const agentsByEnv = new Map<string, readonly SdlcAgentMetrics[]>([
+      ["hi", [makeAgent({ name: "triage", replicasOn: 1 })]],
+    ]);
+    renderNodeAgentsTab(agentsByEnv, true);
+    expect(screen.getByText("Monitoring blind")).toBeTruthy();
   });
 });
 

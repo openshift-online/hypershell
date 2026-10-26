@@ -652,6 +652,7 @@ describe("mapSdlcAgents", () => {
           itemsProcessed: 120,
           itemsFailed: 1,
           provisionSeconds: 45.5,
+          lastReportedAt: 1700000000,
           series: {
             times: [100, 200],
             queueDepth: [4, 5],
@@ -674,6 +675,7 @@ describe("mapSdlcAgents", () => {
       itemsProcessed: 120,
       itemsFailed: 1,
       provisionSeconds: 45.5,
+      lastReportedAt: 1700000000,
       series: {
         times: [100, 200],
         queueDepth: [4, 5],
@@ -699,6 +701,7 @@ describe("mapSdlcAgents", () => {
         itemsProcessed: 0,
         itemsFailed: 0,
         provisionSeconds: 0,
+        lastReportedAt: 0,
         series: {
           times: [],
           queueDepth: [],
