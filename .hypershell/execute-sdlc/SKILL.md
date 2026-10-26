@@ -154,8 +154,10 @@ Jira-origin record (Scope Reconciliation Covers Both Origins). For an
   named `implementer/spec-<JIRA_KEY>-*`, where the `spec-` segment only marks where
   the branch was born, not the current phase). For a GitHub-origin record the Jira
   key is freshly minted, so its pre-existing PR is found by the natively-linked
-  path, not the branch-name match. IF a PR is found and not already linked to
-  `$EXECUTION_RECORD`, add a reference comment linking it to the record. (Terminal
+  path, not the branch-name match. If more than one open PR matches, that is an
+  anomaly (not routing input): warn and take the newest. IF a PR is found and not
+  already linked to `$EXECUTION_RECORD`, add a reference comment linking it to the
+  record. (Terminal
   closure does not depend on this step: `reconcile` reads the record's linked PR
   merge state directly.)
 
