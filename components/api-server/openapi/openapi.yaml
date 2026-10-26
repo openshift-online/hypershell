@@ -100,6 +100,14 @@ paths:
     $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships'
   /api/hypershell/ext/workspace_memberships/{id}:
     $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships~1{id}'
+  /api/hypershell/ext/ci_providers:
+    $ref: 'openapi.ciProviders.yaml#/paths/~1api~1hypershell~1ext~1ci_providers'
+  /api/hypershell/ext/ci_providers/{id}:
+    $ref: 'openapi.ciProviders.yaml#/paths/~1api~1hypershell~1ext~1ci_providers~1{id}'
+  /api/hypershell/ext/ci_trusts:
+    $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts'
+  /api/hypershell/ext/ci_trusts/{id}:
+    $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:

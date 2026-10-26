@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// CITrust wires a CIProvider to a Gateway the caller owns, declaring that CI
+// runs matching the subject claim predicate may exchange their OIDC token for a
+// workspace-scoped OpenShell token on that gateway. No stored secret.
+message CITrust {
+  ObjectReference metadata = 1;
+  string ci_provider_id = 2;
+  string gateway_id = 3;
+  optional string subject_repository = 4;
+  optional string subject_project_path = 5;
+  optional string subject_ref = 6;
+  optional string subject_environment = 7;
+  optional bool subject_ref_protected = 8;
+  string role = 9;
+  optional string status = 10;
+  optional string status_exchange_endpoint = 11;
+  optional string status_workspace = 12;
+  optional string status_workflow_hint = 13;
+}
+
+message GetCITrustRequest {
+  string id = 1;
+}
+
+message GetCITrustResponse {
+  CITrust ci_trust = 1;
+}
+
+message CreateCITrustRequest {
+  string ci_provider_id = 1;
+  string gateway_id = 2;
+  optional string subject_repository = 3;
+  optional string subject_project_path = 4;
+  optional string subject_ref = 5;
+  optional string subject_environment = 6;
+  optional bool subject_ref_protected = 7;
+  string role = 8;
+}
+
+message CreateCITrustResponse {
+  CITrust ci_trust = 1;
+}
+
+message UpdateCITrustRequest {
+  string id = 1;
+  optional string subject_ref = 2;
+  optional string subject_environment = 3;
+  optional bool subject_ref_protected = 4;
+  optional string role = 5;
+  optional string status = 6;
+  optional string status_exchange_endpoint = 7;
+  optional string status_workspace = 8;
+  optional string status_workflow_hint = 9;
+}
+
+message UpdateCITrustResponse {
+  CITrust ci_trust = 1;
+}
+
+message DeleteCITrustRequest {
+  string id = 1;
+}
+
+message DeleteCITrustResponse {}
+
+message ListCITrustsRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListCITrustsResponse {
+  repeated CITrust items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchCITrustsRequest {}
+
+message WatchCITrustsResponse {
+  EventType type = 1;
+  CITrust ci_trust = 2;
+  string resource_id = 3;
+}
+
+service CITrustService {
+  rpc GetCITrust(GetCITrustRequest) returns (GetCITrustResponse);
+  rpc CreateCITrust(CreateCITrustRequest) returns (CreateCITrustResponse);
+  rpc UpdateCITrust(UpdateCITrustRequest) returns (UpdateCITrustResponse);
+  rpc DeleteCITrust(DeleteCITrustRequest) returns (DeleteCITrustResponse);
+  rpc ListCITrusts(ListCITrustsRequest) returns (ListCITrustsResponse);
+  rpc WatchCITrusts(WatchCITrustsRequest) returns (stream WatchCITrustsResponse);
+}

@@ -2,6 +2,8 @@ package create
 
 import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/agentRuntime"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/ciProvider"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/ciTrust"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/inferenceRoute"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/providerBinding"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/providerSpec"
@@ -20,5 +22,7 @@ func init() {
 		providerBinding.Cmd,
 		inferenceRoute.Cmd,
 		secretSource.Cmd,
+		ciProvider.Cmd,
+		ciTrust.Cmd,
 	)
 }

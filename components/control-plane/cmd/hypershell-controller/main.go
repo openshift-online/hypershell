@@ -502,6 +502,23 @@ func main() {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})
 
+	if cfg.CITrustEnabled {
+		if kcClient == nil {
+			log.Printf("WARN CI trust reconciler enabled but no Keycloak client available; CI trust reconciliation will not function until Keycloak is configured")
+		}
+		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
+		supervise("CIProvider watch", func(ctx context.Context) error {
+			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout)
+		})
+		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn)
+		supervise("CITrust watch", func(ctx context.Context) error {
+			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
+		})
+		log.Printf("INFO CI trust reconciler launched (CIProvider + CITrust watches)")
+	} else {
+		log.Printf("INFO CI trust reconciler disabled (HYPERSHELL_CI_TRUST_ENABLED=false)")
+	}
+
 	log.Printf("INFO all %d watch streams launched", watchCount)
 
 	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the

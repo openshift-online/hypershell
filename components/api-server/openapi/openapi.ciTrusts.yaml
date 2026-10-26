@@ -1,0 +1,280 @@
+paths:
+  /api/hypershell/ext/ci_trusts:
+    get:
+      operationId: listCITrusts
+      summary: Returns a list of CI trusts
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of CI trust objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CITrustList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createCITrust
+      summary: Create a CI trust linking a CI provider to a gateway
+      security:
+        - Bearer: []
+      requestBody:
+        description: CI trust data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CITrust'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CITrust'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '422':
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/ci_trusts/{id}:
+    get:
+      operationId: getCITrust
+      summary: Get a CI trust by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: CI trust found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CITrust'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No CI trust with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateCITrust
+      summary: Update a CI trust
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated CI trust data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CITrustPatchRequest'
+      responses:
+        '200':
+          description: CI trust updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CITrust'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No CI trust with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '422':
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteCITrust
+      summary: Delete a CI trust
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: CI trust deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No CI trust with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    CITrust:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - ci_provider_id
+            - gateway_id
+            - subject
+            - role
+          properties:
+            ci_provider_id:
+              type: string
+              description: Reference to the CIProvider whose issuer is trusted
+            gateway_id:
+              type: string
+              description: Reference to the Gateway this CI may operate
+            subject:
+              type: object
+              description: Forge-discriminated claim matcher; only tokens whose claims match are accepted
+              properties:
+                repository:
+                  type: string
+                  description: 'GitHub/Forgejo: owner/name repository identifier'
+                project_path:
+                  type: string
+                  description: 'GitLab: group/project path identifier'
+                ref:
+                  type: string
+                  description: Optional git ref constraint (e.g. refs/heads/main)
+                environment:
+                  type: string
+                  description: Optional deployment environment constraint
+                ref_protected:
+                  type: boolean
+                  description: 'GitLab: require a protected ref'
+            role:
+              type: string
+              description: The gateway role granted to the federated CI session
+            status:
+              type: object
+              readOnly: true
+              properties:
+                exchange_endpoint:
+                  type: string
+                  description: The cluster Keycloak token endpoint for token exchange
+                workspace:
+                  type: string
+                  description: The derived forge-namespaced workspace (e.g. gh-myorg, gl-mygroup)
+                workflow_hint:
+                  type: string
+                  description: A runnable CI snippet the tenant pastes to mint and exchange the token
+    CITrustList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CITrust'
+    CITrustPatchRequest:
+      type: object
+      properties:
+        subject:
+          type: object
+          properties:
+            repository:
+              type: string
+            project_path:
+              type: string
+            ref:
+              type: string
+            environment:
+              type: string
+            ref_protected:
+              type: boolean
+        role:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

@@ -3684,6 +3684,492 @@ paths:
       security:
       - Bearer: []
       summary: Update a workspace membership
+  /api/hypershell/ext/ci_providers:
+    get:
+      operationId: listCIProviders
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProviderList"
+          description: A JSON array of CI provider objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of CI providers
+    post:
+      operationId: createCIProvider
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CIProvider"
+        description: CI provider data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: A CI provider with the same issuer already exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Register a new CI OIDC provider
+  /api/hypershell/ext/ci_providers/{id}:
+    delete:
+      operationId: deleteCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: CI provider deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: CI provider is still referenced by one or more CITrusts
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a CI provider
+    get:
+      operationId: getCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: CI provider found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a CI provider by ID
+    patch:
+      operationId: updateCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CIProviderPatchRequest"
+        description: Updated CI provider data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: CI provider updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a CI provider
+  /api/hypershell/ext/ci_trusts:
+    get:
+      operationId: listCITrusts
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrustList"
+          description: A JSON array of CI trust objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of CI trusts
+    post:
+      operationId: createCITrust
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CITrust"
+        description: CI trust data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a CI trust linking a CI provider to a gateway
+  /api/hypershell/ext/ci_trusts/{id}:
+    delete:
+      operationId: deleteCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: CI trust deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a CI trust
+    get:
+      operationId: getCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: CI trust found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a CI trust by ID
+    patch:
+      operationId: updateCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CITrustPatchRequest"
+        description: Updated CI trust data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: CI trust updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a CI trust
 components:
   parameters:
     id:
@@ -6322,6 +6808,220 @@ components:
         import_path:
           type: string
       type: object
+    CIProviderList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/CIProvider"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - audience: audience
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          forge: github
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          issuer: issuer
+          jwks_url: jwks_url
+          status:
+            idp_alias: idp_alias
+        - audience: audience
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          forge: github
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          issuer: issuer
+          jwks_url: jwks_url
+          status:
+            idp_alias: idp_alias
+    CIProvider:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          forge:
+            description: "The forge family: github, gitlab, or forgejo"
+            enum:
+            - github
+            - gitlab
+            - forgejo
+            type: string
+          issuer:
+            description: The OIDC issuer URL whose tokens this provider validates
+            type: string
+          jwks_url:
+            description: The JWKS endpoint used for signature validation
+            type: string
+          audience:
+            description: The platform-pinned audience every federated CI token must
+              carry
+            type: string
+          status:
+            $ref: "#/components/schemas/CIProvider_allOf_status"
+        required:
+        - audience
+        - forge
+        - issuer
+        - jwks_url
+        type: object
+      example:
+        audience: audience
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        forge: github
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        issuer: issuer
+        jwks_url: jwks_url
+        status:
+          idp_alias: idp_alias
+    CIProviderPatchRequest:
+      example:
+        audience: audience
+        forge: github
+        issuer: issuer
+        jwks_url: jwks_url
+      properties:
+        forge:
+          enum:
+          - github
+          - gitlab
+          - forgejo
+          type: string
+        issuer:
+          type: string
+        jwks_url:
+          type: string
+        audience:
+          type: string
+      type: object
+    CITrustList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/CITrust"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - role: role
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject:
+            ref: ref
+            environment: environment
+            project_path: project_path
+            ref_protected: true
+            repository: repository
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          gateway_id: gateway_id
+          ci_provider_id: ci_provider_id
+          status:
+            workspace: workspace
+            workflow_hint: workflow_hint
+            exchange_endpoint: exchange_endpoint
+        - role: role
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject:
+            ref: ref
+            environment: environment
+            project_path: project_path
+            ref_protected: true
+            repository: repository
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          gateway_id: gateway_id
+          ci_provider_id: ci_provider_id
+          status:
+            workspace: workspace
+            workflow_hint: workflow_hint
+            exchange_endpoint: exchange_endpoint
+    CITrust:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          ci_provider_id:
+            description: Reference to the CIProvider whose issuer is trusted
+            type: string
+          gateway_id:
+            description: Reference to the Gateway this CI may operate
+            type: string
+          subject:
+            $ref: "#/components/schemas/CITrust_allOf_subject"
+          role:
+            description: The gateway role granted to the federated CI session
+            type: string
+          status:
+            $ref: "#/components/schemas/CITrust_allOf_status"
+        required:
+        - ci_provider_id
+        - gateway_id
+        - role
+        - subject
+        type: object
+      example:
+        role: role
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        subject:
+          ref: ref
+          environment: environment
+          project_path: project_path
+          ref_protected: true
+          repository: repository
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        gateway_id: gateway_id
+        ci_provider_id: ci_provider_id
+        status:
+          workspace: workspace
+          workflow_hint: workflow_hint
+          exchange_endpoint: exchange_endpoint
+    CITrustPatchRequest:
+      example:
+        role: role
+        subject:
+          ref: ref
+          environment: environment
+          project_path: project_path
+          ref_protected: true
+          repository: repository
+      properties:
+        subject:
+          $ref: "#/components/schemas/CITrustPatchRequest_subject"
+        role:
+          type: string
+      type: object
     Gateway_allOf_provisioning_conditions:
       example:
         condition_status: Pending
@@ -6344,6 +7044,78 @@ components:
           type: string
       type: object
     Role_allOf_permissions:
+      type: object
+    CIProvider_allOf_status:
+      example:
+        idp_alias: idp_alias
+      properties:
+        idp_alias:
+          description: The Keycloak IdP alias the control plane created or adopted
+          type: string
+      readOnly: true
+      type: object
+    CITrust_allOf_subject:
+      description: Forge-discriminated claim matcher; only tokens whose claims match
+        are accepted
+      example:
+        ref: ref
+        environment: environment
+        project_path: project_path
+        ref_protected: true
+        repository: repository
+      properties:
+        repository:
+          description: "GitHub/Forgejo: owner/name repository identifier"
+          type: string
+        project_path:
+          description: "GitLab: group/project path identifier"
+          type: string
+        ref:
+          description: Optional git ref constraint (e.g. refs/heads/main)
+          type: string
+        environment:
+          description: Optional deployment environment constraint
+          type: string
+        ref_protected:
+          description: "GitLab: require a protected ref"
+          type: boolean
+      type: object
+    CITrust_allOf_status:
+      example:
+        workspace: workspace
+        workflow_hint: workflow_hint
+        exchange_endpoint: exchange_endpoint
+      properties:
+        exchange_endpoint:
+          description: The cluster Keycloak token endpoint for token exchange
+          type: string
+        workspace:
+          description: "The derived forge-namespaced workspace (e.g. gh-myorg, gl-mygroup)"
+          type: string
+        workflow_hint:
+          description: A runnable CI snippet the tenant pastes to mint and exchange
+            the token
+          type: string
+      readOnly: true
+      type: object
+    CITrustPatchRequest_subject:
+      example:
+        ref: ref
+        environment: environment
+        project_path: project_path
+        ref_protected: true
+        repository: repository
+      properties:
+        repository:
+          type: string
+        project_path:
+          type: string
+        ref:
+          type: string
+        environment:
+          type: string
+        ref_protected:
+          type: boolean
       type: object
   securitySchemes:
     Bearer:
