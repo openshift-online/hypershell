@@ -5,7 +5,7 @@ go 1.26.4
 toolchain go1.26.7
 
 require (
-	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/nwidger/jsoncolor v0.3.2
 	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261007150231-ff48c5631a19
 	github.com/spf13/cobra v1.10.2
