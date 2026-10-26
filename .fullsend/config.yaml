@@ -1,6 +1,10 @@
 # fullsend per-repo configuration -- https://github.com/fullsend-ai/fullsend
 version: "1"
 agents:
+    - name: ingest
+      source: harness/ingest.yaml
+    - name: reconcile
+      source: harness/reconcile.yaml
     - name: triage
       source: harness/triage.yaml
     - name: spec-implementation
