@@ -1,7 +1,7 @@
 # Feature Specification: Provisioning Dashboard
 
-**Status**: Draft
-**Version**: 0.2.0
+**Status**: Active
+**Version**: 0.3.0
 **Created**: 2026-10-11
 **Applies to**: `components/web-console`, `packages/operational-dashboard-ui`
 
@@ -122,8 +122,8 @@ As a platform administrator, I want trend direction and percentile information t
 ## Success Criteria
 
 - **SC-001**: A `platform:admin` user can load the dashboard and see all seven widgets when all required metric sources return valid data.
-- **SC-002**: Changing the range from 7 days to 30 days updates all four historical charts to the selected range without changing current snapshot values.
-- **SC-003**: A non-administrator cannot receive Provisioning dashboard metrics when OIDC is enabled.
+- **SC-002**: Changing the range from 7 days to 30 days updates all three historical charts to the selected range without changing current snapshot values.
+- **SC-003**: A non-administrator cannot open the Provisioning dashboard when OIDC is enabled.
 - **SC-004**: Missing daily samples render as visible gaps in 100 percent of affected trend charts.
 - **SC-005**: A failure in one metric source leaves unaffected dashboard widgets interactive and displays a localized unavailable state for the failed source.
 - **SC-006**: The production page matches the approved Provisioning Storybook reference through the repository UI completion gate.

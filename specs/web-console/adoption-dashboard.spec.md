@@ -1,14 +1,14 @@
 # Adoption Dashboard
 
-**Status:** Draft
-**Version:** 0.1.0
+**Status:** Active
+**Version:** 0.2.0
 **Created:** 2026-10-16
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF
 **Tracks:** [GitHub issue 550](https://github.com/openshift-online/hypershell/issues/550), [HYPERSHELL-283](https://redhat.atlassian.net/browse/HYPERSHELL-283), [HYPERSHELL-290](https://redhat.atlassian.net/browse/HYPERSHELL-290)
 
 ## Purpose
 
-Provide an admin-only **Adoption dashboard** at `/dashboard/adoption` where platform administrators can assess HyperShell user adoption, activity, conversion, and retention from aggregate data. The dashboard follows the operational-dashboard architecture: browser presentation code calls an application-owned dashboard port, the host adapter calls a same-origin BFF route, and the BFF obtains aggregates server-side.
+Provide an admin-only **Adoption dashboard** at `/dashboard/adoption` where platform administrators can assess HyperShell user adoption, activity, conversion, and retention from aggregate data. The dashboard shares the operational-dashboard architecture: browser presentation code calls an application-owned dashboard port, the host adapter calls a same-origin BFF route, and the BFF obtains aggregates server-side.
 
 The approved visual reference is the `Mockups/Dashboards/Adoption dashboard` story in `specs/web-console/mockups/dashboards/adoption-dashboard.stories.tsx`. The page surface is `AdoptionDashboardPageSurface` in `specs/web-console/mockups/dashboards/adoption-dashboard.tsx`.
 
@@ -119,9 +119,11 @@ The response SHALL use this contract:
 
 All windows SHALL use UTC calendar days. Today means the current UTC calendar day and may be partial.
 
-Qualifying activity SHALL be one or more authenticated HyperShell API requests by a non-deleted registered user on a UTC calendar day, as recorded in `user_daily_activity`.
+Qualifying activity SHALL be one or more authenticated HyperShell API requests by a non-deleted registered user on a UTC calendar day, as recorded in `user_daily_activities`.
 
-The BFF SHALL compute:
+The API server metrics collectors SHALL compute the source aggregates below from
+the users, role bindings, and daily activity tables. The BFF SHALL query the
+corresponding Prometheus gauges and map them into the adoption response:
 
 - **Registered users:** count of non-deleted rows in `users`.
 - **New registrations, 7 days:** count of non-deleted users whose `users.created_at` is within the rolling 7 by 24-hour UTC window.
@@ -129,7 +131,7 @@ The BFF SHALL compute:
 - **Daily active users:** distinct users with qualifying activity on the current UTC day-to-date.
 - **Weekly active users:** distinct users with qualifying activity in the rolling 7 UTC calendar days inclusive of today.
 - **Monthly active users:** distinct users with qualifying activity in the rolling 30 UTC calendar days inclusive of today.
-- **Inactive users, 30+ days:** non-deleted users whose `created_at` is older than 30 UTC days and who have no `user_daily_activity` row in the trailing 30 UTC calendar days inclusive of today.
+- **Inactive users, 30+ days:** non-deleted users whose `created_at` is older than 30 UTC days and who have no `user_daily_activities` row in the trailing 30 UTC calendar days inclusive of today.
 - **Daily registration trend:** one point per UTC calendar day for the trailing 30 days, where each point is the count of non-deleted users created on that day.
 
 The response field `unique_logins_last_7_days` SHALL represent weekly active users. The response field `unique_logins_last_30_days` SHALL represent monthly active users. The response field `daily_unique_logins` SHALL represent daily active users by UTC day. These names remain in the BFF contract for compatibility with the existing operational metric model.
@@ -137,30 +139,30 @@ The response field `unique_logins_last_7_days` SHALL represent weekly active use
 #### Scenario: ADO-DASH-05.01 -- Weekly active users
 
 - GIVEN users performed qualifying activity on the current UTC day and each of the previous six UTC days
-- WHEN the BFF computes weekly active users
+- WHEN the API server metrics collector computes weekly active users
 - THEN it SHALL count each distinct non-deleted user once across all seven UTC calendar days
 
 ---
 
 ### Requirement: ADO-DASH-06 -- Conversion Definitions
 
-The BFF SHALL compute **first-gateway conversion** as the count of distinct non-deleted users who have ever held a `gateway-owner` role binding. The calculation SHALL count all `role_bindings` rows whose role is `gateway-owner`, regardless of whether the binding or gateway has since been deleted, join those rows to non-deleted users, and count each user once.
+The API server metrics collector SHALL compute **first-gateway conversion** as the count of distinct non-deleted users who have ever held a `gateway-owner` role binding. The calculation SHALL count all `role_bindings` rows whose role is `gateway-owner`, regardless of whether the binding or gateway has since been deleted, join those rows to non-deleted users, and count each user once.
 
-The BFF SHALL compute first-gateway conversion percentage as `users_with_gateway / registered_users * 100`, rounded to one decimal place. If `registered_users` is zero, the route SHALL omit `gateway_conversion_percent` and the dashboard SHALL render the localized unavailable state.
+The BFF SHALL compute first-gateway conversion percentage from the Prometheus values as `users_with_gateway / registered_users * 100`, rounded to one decimal place. If `registered_users` is zero, the route SHALL omit `gateway_conversion_percent` and the dashboard SHALL render the localized unavailable state.
 
 First-sandbox conversion and median time to first resource are unavailable. The route SHALL omit their response fields and the page SHALL render a dash for each summary-row value.
 
 #### Scenario: ADO-DASH-06.01 -- Gateway-owner role was later removed
 
 - GIVEN a non-deleted user held a deleted `gateway-owner` role binding
-- WHEN the BFF computes first-gateway conversion
+- WHEN the API server metrics collector computes first-gateway conversion
 - THEN it SHALL count that user once
 
 ---
 
 ### Requirement: ADO-DASH-07 -- Retention Definitions
 
-The BFF SHALL compute 7-day retention as `|A intersection B| / |B| * 100`, rounded to one decimal place, where `A` is the distinct users with qualifying activity in the current 7 UTC calendar days inclusive of today and `B` is the distinct users with qualifying activity in the immediately preceding 7 UTC calendar days.
+The API server metrics collector SHALL compute 7-day retention as `|A intersection B| / |B| * 100`, where `A` is the distinct users with qualifying activity in the current 7 UTC calendar days inclusive of today and `B` is the distinct users with qualifying activity in the immediately preceding 7 UTC calendar days. The BFF SHALL return the Prometheus gauge value.
 
 If `B` is empty, the route SHALL omit `retention_7_days_percent` and the dashboard SHALL render a dash in the 7-day-retention summary row. The route SHALL NOT substitute zero.
 

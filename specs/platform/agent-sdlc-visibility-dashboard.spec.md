@@ -1,23 +1,23 @@
 # Agent SDLC Visibility Dashboard
 
-**Status:** Draft
-**Applies to:** `components/fleet-dashboard` BFF (new SDLC plane, shared bundle source), `packages/fleet-dashboard-ui` (tab shell, SDLC domain and presentation), `specs/web-console/mockups/dashboards` (approved mockup)
+**Status:** Active
+**Applies to:** `components/fleet-dashboard` BFF (SDLC plane, shared bundle source), `packages/fleet-dashboard-ui` (tab shell, SDLC domain and presentation), `specs/web-console/mockups/dashboards` (approved mockup)
 **Tracks:** [HYPERSHELL-401](https://redhat.atlassian.net/browse/HYPERSHELL-401)
 
 ## Purpose
 
 Make the label-driven agent SDLC funnel observable in the fleet dashboard (the
-"glass" dashboard, `glass.infra.hypershell.app`). The funnel today exists only as
-GitHub issue labels on execution records: each issue moves through a single-valued
+"glass" dashboard, `glass.infra.hypershell.app`). The funnel uses GitHub issue
+labels on execution records: each issue moves through a single-valued
 phase label state machine (`agent/workable` -> `agent/reviewable-spec` ->
 `agent/review-spec-approved` -> `agent/reviewable-code` -> `agent/review-code-approved`
 -> release), with reject/retry loops, paused states, and the `agent/allowed`
 authorization gate (`specs/standards/sdlc/jira-github-sync.spec.md`,
-`.hypershell/README.md`). There is no way to see where each item sits, how long it
-has been there, what is stalled and needs a human, or which issue shipped in which
-release bundle onto which hub cluster.
+`.hypershell/README.md`). The Agent SDLC view shows where each item sits, how long
+it has been there, what is stalled and needs a human, and which issue shipped in
+which release bundle onto which hub cluster.
 
-This specification adds an **Agent SDLC** tab beside the existing Fleet Map. The
+The fleet dashboard provides an **Agent SDLC** tab beside the Fleet Map. The
 tab renders an aging work-in-progress board (time-in-phase is the vertical axis),
 a rework meter toward each in-review item's block threshold, an escalation lane
 for blocked/paused/past-SLE work, and a release-by-hub-cluster matrix that closes
@@ -36,29 +36,29 @@ adapter with no domain or UI change.
 
 ### Relationship to the existing fleet dashboard
 
-| Concern | Fleet Map (existing) | Agent SDLC (this spec) |
-| --- | --- | --- |
-| BFF plane | `/api/promotion`, `/api/fleet`, `/api/topology`, `/api/instances` | new `/api/sdlc` |
-| Source | `pkg/sources/promotion.go`, `prometheus.go`, `topology.go` | new SDLC source + **reused** bundle source (`lock.go`, `bundles.go`, promotion cluster attribution) |
-| UI view | promotion-topology map + freight bar | aging board + escalation lane + release x hub-cluster matrix |
-| Port method | `FleetApi.getPromotion/getFleet/getTopology/getInstances` | `FleetApi.getSdlc` |
-| Freight bar | above the stage | **the same** shared control, same location, drives both tabs |
+| Concern     | Fleet Map (existing)                                              | Agent SDLC (this spec)                                                                          |
+| ----------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| BFF plane   | `/api/promotion`, `/api/fleet`, `/api/topology`, `/api/instances` | `/api/sdlc`                                                                                     |
+| Source      | `pkg/sources/promotion.go`, `prometheus.go`, `topology.go`        | SDLC source + **reused** bundle source (`lock.go`, `bundles.go`, promotion cluster attribution) |
+| UI view     | promotion-topology map + freight bar                              | aging board + escalation lane + release x hub-cluster matrix                                    |
+| Port method | `FleetApi.getPromotion/getFleet/getTopology/getInstances`         | `FleetApi.getSdlc`                                                                              |
+| Freight bar | above the stage                                                   | **the same** shared control, same location, drives both tabs                                    |
 
 ### Source feasibility (scope boundary)
 
-| Fact | Reachable | Notes |
-| --- | --- | --- |
-| Current phase / column, blocked and paused set | Yes (easy) | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23) |
-| Which bundle on which hub cluster | Yes (easy) | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution) |
-| Bundle contents (tracked issues + one-off PRs) | Yes (medium) | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
-| State over time, aging, rework count | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today |
-| Durable SDLC analytics / history store | No | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab |
+| Fact                                           | Reachable            | Notes                                                                                                                                                                                                   |
+| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current phase / column, blocked and paused set | Yes (easy)           | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23)                                                                                                                   |
+| Which bundle on which hub cluster              | Yes (easy)           | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution)                                                                                                 |
+| Bundle contents (tracked issues + one-off PRs) | Yes (medium)         | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
+| State over time, aging, rework count           | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today                                                                                   |
+| Durable SDLC analytics / history store         | No                   | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab                                                                                             |
 
 ## Requirements
 
 ### Requirement: SDLC-VIS-01 -- BFF SDLC Plane
 
-The fleet-dashboard BFF SHALL expose a new read-only plane `GET /api/sdlc` that
+The fleet-dashboard BFF SHALL expose a read-only plane `GET /api/sdlc` that
 serves the agent SDLC funnel state. The plane SHALL be served through the existing
 `pkg/cache.Source` envelope (`Snapshot` with `Data`, `GeneratedAt`, `Stale`,
 `Error`) and the existing handler wrapper, so a never-refreshed source returns HTTP
@@ -258,11 +258,11 @@ firewall rules.
 ### Requirement: SDLC-VIS-06 -- Hexagonal UI Boundary
 
 The Agent SDLC tab SHALL follow the narrow hexagonal UI boundary
-(`specs/standards/ui/hexagonal-architecture.spec.md`). The addition SHALL comprise:
-a new framework-free SDLC domain type, a new `FleetApi.getSdlc(signal?)` port method
-returning the `Plane<SdlcData>` freshness envelope, a new wire mapper in the
+(`specs/standards/ui/hexagonal-architecture.spec.md`). The tab SHALL comprise:
+a framework-free SDLC domain type, an `FleetApi.getSdlc(signal?)` port method
+returning the `Plane<SdlcData>` freshness envelope, a wire mapper in the
 anti-corruption layer (`adapters/api/wire.ts`) that is the only place that knows the
-`/api/sdlc` wire shape, and a new TanStack Query hook with its own
+`/api/sdlc` wire shape, and a TanStack Query hook with its own
 `refetchInterval`. React, TanStack Query, the HTTP adapter, and the generated wire
 shapes SHALL stay outside the port; the domain and presentation SHALL depend only on
 the port and domain types.
@@ -284,7 +284,7 @@ the port and domain types.
 
 ### Requirement: SDLC-VIS-07 -- Tab Shell and Shared Freight Bar
 
-The dashboard SHALL present the existing Fleet Map and the new Agent SDLC view as
+The dashboard SHALL present the Fleet Map and Agent SDLC view as
 two peer tabs sharing the dashboard chrome. The release **freight bar** SHALL be a
 single shared control in the same location (above the stage) on both tabs:
 selecting a bundle SHALL filter the SDLC board and SHALL drive the Fleet Map's open
@@ -836,7 +836,7 @@ plane and view SHALL remain open, matching the other planes.
 
 ### Requirement: SDLC-VIS-18 -- Approved Mockup and Design-Review Stories
 
-Because the Agent SDLC tab is a new production page, its approved visual design
+Because the Agent SDLC tab is a production page, its approved visual design
 SHALL be represented by a mockup trio under
 `specs/web-console/mockups/dashboards/` following the existing dashboard-mockup
 convention: a dashboard surface (`agent-sdlc-dashboard.tsx`), a shell-wrapped
@@ -907,11 +907,11 @@ moment it enters the funnel, not the later bookkeeping step that applies
 The two labels have overlapping but distinct scopes. Switching the filter is NOT a
 strict superset:
 
-| State | Old filter (`agent/execution-record`) | New filter (`agent/allowed`) |
-| --- | --- | --- |
-| Pre-ingest GitHub-origin item (authorized, not yet ingested) | Not shown | Shown (the intended fix) |
-| Inert Jira-origin execution record (ingested, not yet authorized) | Shown | Not shown (deliberately excluded) |
-| Authorized execution record (both labels present) | Shown | Shown |
+| State                                                             | Old filter (`agent/execution-record`) | New filter (`agent/allowed`)      |
+| ----------------------------------------------------------------- | ------------------------------------- | --------------------------------- |
+| Pre-ingest GitHub-origin item (authorized, not yet ingested)      | Not shown                             | Shown (the intended fix)          |
+| Inert Jira-origin execution record (ingested, not yet authorized) | Shown                                 | Not shown (deliberately excluded) |
+| Authorized execution record (both labels present)                 | Shown                                 | Shown                             |
 
 The exclusion of inert Jira-origin records is deliberate: an inert record is
 un-authorized and cannot be acted upon by the funnel (SDLC-JIRA-01). Showing it on

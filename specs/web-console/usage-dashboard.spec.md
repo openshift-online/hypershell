@@ -1,7 +1,7 @@
 # Usage Dashboard
 
-**Status:** Draft
-**Version:** 0.1.0
+**Status:** Active
+**Version:** 0.2.0
 **Created:** 2026-10-15
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF, control-plane sandbox metrics
 **Tracks:** [HYPERSHELL-287](https://redhat.atlassian.net/browse/HYPERSHELL-287), [GitHub issue 544](https://github.com/openshift-online/hypershell/issues/544)
@@ -14,7 +14,7 @@ The dashboard uses the same BFF-to-Prometheus architecture as the other operatio
 
 ## Scope
 
-- Add `/dashboard/usage` as a route available to every authenticated user.
+- Provide `/dashboard/usage` as a route available to every authenticated user.
 - Reuse the operational dashboard's shared widget components, secondary navigation, time-range controls, refresh behavior, and localized unavailable states.
 - Show fleet-wide usage statistics to users with `platform:admin`.
 - Show non-admin users only data for gateways and sandboxes they are authorized to access.
@@ -27,7 +27,7 @@ The dashboard uses the same BFF-to-Prometheus architecture as the other operatio
   - provisioned but unused gateways
   - sandbox utilization
   - sandbox lifetime
-- Add control-plane Prometheus metrics for total provisioned sandboxes and sandbox lifetime.
+- Consume control-plane Prometheus metrics for total provisioned sandboxes and sandbox lifetime.
 - Preserve the approved administrator and non-administrator states in the repository mockup.
 
 ## Non-goals
@@ -40,16 +40,12 @@ The dashboard uses the same BFF-to-Prometheus architecture as the other operatio
 
 ## Relationship to the operational dashboard
 
-| Concern         | Operational dashboard                              | Usage dashboard                                |
-| --------------- | -------------------------------------------------- | ---------------------------------------------- |
-| Route           | `/dashboard`                                       | `/dashboard/usage`                             |
-| Access          | Authenticated users with dashboard resource access | All authenticated users                        |
-| Admin scope     | Fleet-wide                                         | Fleet-wide with `System` on every usage widget |
-| Non-admin scope | Authorized resources                               | Authorized gateways and sandboxes              |
-| Metrics port    | `getOperationalMetrics`                            | `getUsageMetrics`                              |
-| Time ranges     | 7 or 30 days                                       | 7 or 30 days                                   |
-| Refresh         | 15-minute automatic refresh                        | Same                                           |
-| Partial failure | Independent metric sources                         | Same                                           |
+The Usage dashboard shares the operational dashboard package, navigation,
+widget framework, 7- and 30-day controls, 15-minute refresh, partial-failure
+handling, and localized unavailable states. It uses the dedicated
+`getUsageMetrics` workflow and layout key, and differs in authorization: every
+authenticated user can open it, with fleet-wide `System` values for platform
+administrators and server-side authorized-resource scope for other users.
 
 ## Metric sources
 
@@ -158,13 +154,13 @@ No-auth development mode SHALL treat the caller as `platform:admin` only when OI
 
 ### Requirement: WEB-USE-04 -- SPA and BFF route surfaces
 
-The web console SHALL add:
+The web console SHALL provide:
 
-- `/dashboard/usage` to `components/web-console/app/route-contract.json`
+- `/dashboard/usage` to `components/web-console/route-contract.json`
 - a route module that renders `UsageDashboardPage`
 - a non-admin-only `Usage` entry in the shared dashboard secondary navigation
 
-The BFF SHALL add same-origin, authenticated routes:
+The BFF SHALL provide same-origin, authenticated routes:
 
 - `GET /api/metrics/usage/gateways?range=7|30`
 - `GET /api/metrics/usage/sandboxes?range=7|30`
@@ -210,14 +206,8 @@ The default layout SHALL contain:
 | Sandbox utilization             | `sandbox-utilization`    |
 | Sandbox lifetime                | `sandbox-lifetime`       |
 
-The page SHALL use:
-
-- the shared dashboard secondary navigation
-- the shared 7-day and 30-day time-range selector
-- the shared 15-minute automatic refresh interval
-- the shared manual refresh behavior
-- the shared stale-value preservation behavior on refresh failure
-- the shared localized unavailable and partial-data states
+The page SHALL follow the operational dashboard's shared navigation, time-range,
+refresh, stale-value preservation, and localized unavailable-state behavior.
 
 The approved visual reference is:
 
@@ -225,7 +215,7 @@ The approved visual reference is:
 - `specs/web-console/mockups/dashboards/usage-dashboard.stories.tsx`
 - `specs/web-console/mockups/dashboards/usage-dashboard.parity.stories.tsx`
 
-Because the implementation runtime cannot create or compare screenshots, the production page SHALL follow the repository UI build gate's complete-without-visual-review path. All non-parity checks SHALL still run.
+Production page changes SHALL pass the repository web-console UI build gate.
 
 #### Scenario: WEB-USE-05.01 -- Manual refresh preserves stale values
 
@@ -416,9 +406,7 @@ The implementation SHALL include tests for:
 - calculation correctness
 - Storybook/mockup parity
 
-Mockup verification SHALL run `check_mockup_patternfly.py` for every changed mockup TSX or CSS file.
-
-The production page SHALL pass the repository web-console UI build gate using the complete-without-visual-review path because this model cannot create or compare screenshots.
+Mockup verification SHALL run `check_mockup_patternfly.py` for every changed mockup TSX or CSS file. Production page changes SHALL pass the repository web-console UI build gate.
 
 #### Scenario: WEB-USE-11.01 -- Non-admin scope test
 

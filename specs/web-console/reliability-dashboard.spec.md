@@ -1,14 +1,14 @@
 # Reliability Dashboard
 
-**Status:** Draft
-**Version:** 0.3.0
+**Status:** Active
+**Version:** 0.4.0
 **Created:** 2026-09-23
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF
 **Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286)
 
 ## Purpose
 
-Provide a **widgetized reliability dashboard** in the HyperShell web console where administrators can assess API and control-plane reliability at a glance. This specification adds control-plane reconciliation health to the existing API reliability dashboard.
+Provide a **widgetized reliability dashboard** in the HyperShell web console where administrators can assess API and control-plane reliability at a glance. This specification includes control-plane reconciliation health alongside the existing API reliability metrics.
 
 The reliability dashboard lives in the same reusable package as the operational dashboard (`@openshift-online/hypershell-operational-dashboard-ui`) to share hexagonal ports, widgetized-dashboard infrastructure, localization patterns, and presentation helpers - while remaining a **separate route and layout** so reliability metrics do not clutter the operational overview.
 
@@ -18,16 +18,10 @@ Historical reconciliation data SHALL cover the rolling previous **24 hours** and
 
 Authentication failure rate and login failure rate are out of scope for version 1.
 
-### Relationship to the operational dashboard
-
-| Concern                | Operational (`/dashboard`)                  | Reliability (`/dashboard/reliability`)                 |
-| ---------------------- | ------------------------------------------- | ------------------------------------------------------ |
-| Package                | `operational-dashboard-ui`                  | Same package                                           |
-| Page export            | `OperationalDashboardPage`                  | `ReliabilityDashboardPage`                             |
-| Metrics port method    | `getOperationalMetrics`                     | `getReliabilityMetrics`                                |
-| Layout persistence key | `hypershell.operational-dashboard.layout.*` | `hypershell.reliability-dashboard.layout.*` (separate) |
-| Secondary nav          | Shared masthead / page-header nav           | Shared masthead / page-header nav                      |
-| Admin access           | `platform:admin` (WEB-OPS-04)               | Same roles (REL-OBS-GMD-04)                               |
+The reliability dashboard shares the operational dashboard package, navigation,
+refresh interval, widget framework, and application boundary. It keeps separate
+route, metric workflow, layout template, and `localStorage` keys so reliability
+customization does not affect the operational overview.
 
 ## Requirements
 
@@ -139,19 +133,23 @@ The dashboard-dedicated host root (`/` on `dashboard.*` hosts) SHALL continue to
 
 ### Requirement: REL-DASH-06 -- Shared Dashboard Navigation
 
-Both `OperationalDashboardPage` and `ReliabilityDashboardPage` SHALL render the same shared PatternFly **secondary horizontal navigation** and navigation chrome.
+Every implemented dashboard page SHALL render the same shared PatternFly
+**secondary horizontal navigation** and navigation chrome.
 
 The navigation SHALL:
 
 - Appear in the page header region beneath (or as part of) the shared dashboards chrome, consistent with PatternFly secondary horizontal navigation usage
-- Expose the shared dashboard destinations: localized **Operational** (href `/dashboard`), **Provisioning** (href `/dashboard/provisioning`), **Inventory** (href `/dashboard/inventory`), and **Reliability** (href `/dashboard/reliability`)
+- Expose **Overview** and **Usage** to every authenticated dashboard user
+- Expose **Provisioning**, **Inventory**, **Reliability**, and **Adoption** only to users with `platform:admin`
 - Apply the same shared visibility rules as the operational dashboard; destinations that require the platform-admin role SHALL be hidden from users without that role
 - Mark the item matching the current route as selected
 - Use distinct URLs for each item (not in-page Tabs that keep a single URL)
-- Update the visible page title to reflect the selected item (for example, page title **Operational** or **Reliability**, or an equivalent localized pair under a shared dashboards heading)
+- Update the visible page title to reflect the selected item (for example, page title **Overview** or **Reliability**, or an equivalent localized pair under a shared dashboards heading)
 - Be keyboard-accessible and expose an accessible name for the navigation region
 
-The navigation SHALL be visible only to users who can access the dashboards (same admin gate). Non-admin access-denied empty states SHALL NOT show the secondary nav as an alternate entry path.
+The navigation SHALL show only destinations available to the signed-in user.
+Access-denied states SHALL NOT show the secondary navigation as an alternate
+entry path.
 
 PatternFly Tabs SHALL NOT be used as the primary cross-dashboard switcher. Tabs remain appropriate inside a single page for local perspective changes; these are peer destinations with distinct routes.
 
@@ -166,17 +164,17 @@ PatternFly Tabs SHALL NOT be used as the primary cross-dashboard switcher. Tabs 
 #### Scenario: REL-DASH-06.02 -- Operator moves from reliability to operational
 
 - GIVEN an authenticated dashboard administrator is on `/dashboard/reliability`
-- WHEN they activate the **Operational** secondary nav item
+- WHEN they activate the **Overview** secondary nav item
 - THEN the SPA SHALL navigate to `/dashboard`
 - AND `OperationalDashboardPage` SHALL render
-- AND the **Operational** nav item SHALL be selected
+- AND the **Overview** nav item SHALL be selected
 
 #### Scenario: REL-DASH-06.03 -- Selected state matches the route on deep link
 
 - GIVEN an authenticated dashboard administrator opens `/dashboard/reliability` directly
 - WHEN the page renders
 - THEN the **Reliability** secondary nav item SHALL be selected
-- AND the **Operational** item SHALL not be selected
+- AND the **Overview** item SHALL not be selected
 
 ---
 
@@ -184,16 +182,16 @@ PatternFly Tabs SHALL NOT be used as the primary cross-dashboard switcher. Tabs 
 
 Version 1 SHALL connect the following metrics from the `api-reliability` and `control-plane-reconciliation` BFF sources (OBS-REL-04 / REL-DASH-12):
 
-| Widget type                   | Metric ID                                                                                                                                                 | Presentation                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reliability-summary`         | API metrics plus `reconciliation-failures`, `reconciliation-retries`, `reconciliation-successes`, `reconciliation-lag`, and `stale-resource-status-count` | Two-column summary card listing all eight current values. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show the same up/down trend indicator used on the operational dashboard summary cards (WEB-OPS-13) |
-| `api-request-rate`            | `api-request-rate`                                                                                                                                        | Current rate plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                                                                                                |
-| `api-error-rate`              | `api-error-rate`                                                                                                                                          | Current 5xx error percent plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                                                                                   |
-| `api-latency`                 | `api-latency`                                                                                                                                             | Current median latency plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                                                                                      |
-| `reconciliation-failures`     | `reconciliation-failures`                                                                                                                                 | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                                                                                       |
-| `reconciliation-retries`      | `reconciliation-retries`                                                                                                                                  | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                                                                                       |
-| `reconciliation-lag`          | `reconciliation-lag`                                                                                                                                      | Current P50 lag plus 24-hour hourly trend graph                                                                                                                                                                                                                                              |
-| `stale-resource-status-count` | `stale-resource-status-count`                                                                                                                             | Current stale-resource count plus 24-hour hourly trend graph                                                                                                                                                                                                                                 |
+| Widget type                   | Metric ID                                                                                                                                                 | Presentation                                                                                                                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reliability-summary`         | API metrics plus `reconciliation-failures`, `reconciliation-retries`, `reconciliation-successes`, `reconciliation-lag`, and `stale-resource-status-count` | Two-column summary card listing all eight current values. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show an up/down trend indicator. |
+| `api-request-rate`            | `api-request-rate`                                                                                                                                        | Current rate plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                              |
+| `api-error-rate`              | `api-error-rate`                                                                                                                                          | Current 5xx error percent plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                 |
+| `api-latency`                 | `api-latency`                                                                                                                                             | Current median latency plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                    |
+| `reconciliation-failures`     | `reconciliation-failures`                                                                                                                                 | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                     |
+| `reconciliation-retries`      | `reconciliation-retries`                                                                                                                                  | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                     |
+| `reconciliation-lag`          | `reconciliation-lag`                                                                                                                                      | Current P50 lag plus 24-hour hourly trend graph                                                                                                                                                                            |
+| `stale-resource-status-count` | `stale-resource-status-count`                                                                                                                             | Current stale-resource count plus 24-hour hourly trend graph                                                                                                                                                               |
 
 The `reliability-summary` widget SHALL use two columns on sufficiently wide
 layouts, with API metrics in the first column and reconciliation metrics in the
@@ -260,7 +258,7 @@ The default layout SHALL include:
 
 Exact column coordinates MAY be chosen during implementation; the default SHALL place the summary above the seven trend widgets so all eight are visible without opening the drawer.
 
-Users SHALL be able to add widgets from the drawer, drag to rearrange, remove widgets, and reset to the reliability default template. Layout persistence SHALL use a **separate** `localStorage` key from the operational dashboard (for example `hypershell.reliability-dashboard.layout.v1`) so customizing one dashboard does not rewrite the other.
+Users SHALL be able to add widgets from the drawer, drag to rearrange, remove widgets, and reset to the reliability default template. Layout persistence SHALL use the separate `localStorage` key `hypershell.reliability-dashboard.layout.v2` so customizing this dashboard does not rewrite the operational dashboard.
 
 The dashboard body SHALL include the shared navigation row with manual refresh
 and last-refreshed status, followed by a body toolbar with reset-to-default and
