@@ -1065,7 +1065,7 @@ describe("web-console BFF with OIDC enabled", () => {
     }
   });
 
-  // Verifies: WEB-OPS-04.03
+  // Verifies: WEB-OPS-04.03, OBS-GMD-05.04
   it("returns authorized gateway metrics to non-admin callers", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
@@ -1104,6 +1104,42 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(request.url).toContain("/api/hypershell/v1/gateways?");
       expect(request.headers.authorization).toBe("Bearer test-access-token");
     }
+  });
+
+  // Verifies: WEB-OPS-04.04
+  it("scopes gateway metrics for hypershell-admins without platform:admin", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-admins"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/metrics/gateways",
+    });
+
+    // Served from the caller's RBAC-scoped gateway list, not fleet-wide
+    // Prometheus counts. The stub API returns no gateways, so all zeros.
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      activeSandboxes: 0,
+      counts: {
+        Degraded: 0,
+        Failed: 0,
+        Pending: 0,
+        Provisioning: 0,
+        Running: 0,
+      },
+      total: 0,
+    });
+    expect(apiRequests).toHaveLength(1);
+    expect(apiRequests[0]?.url).toContain("/api/hypershell/v1/gateways?");
+    expect(apiRequests[0]?.headers.authorization).toBe(
+      "Bearer test-access-token",
+    );
   });
 
   it("serves /dashboard to hypershell-admins without platform:admin", async () => {

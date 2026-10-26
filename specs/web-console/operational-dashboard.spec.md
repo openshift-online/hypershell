@@ -128,11 +128,14 @@ When OIDC is enabled, the BFF SHALL enforce authentication and resource authoriz
 - WHEN the user sends `GET /api/metrics/gateways`
 - THEN the BFF SHALL return aggregates calculated only from the authorized gateways
 
-#### Scenario: WEB-OPS-04.04 -- Legacy hypershell-admins cannot fetch dashboard metrics without resource access
+#### Scenario: WEB-OPS-04.04 -- Legacy hypershell-admins does not widen dashboard metrics scope
 
 - GIVEN OIDC is enabled and the signed-in user has only `hypershell-admins` (no `platform:admin`)
 - WHEN the user sends `GET /api/metrics/gateways`
-- THEN the BFF SHALL respond with HTTP `403`
+- THEN the BFF SHALL respond with HTTP `200`
+- AND the aggregates SHALL be calculated only from the gateways the user is authorized to see, the same as for any non-admin user (WEB-OPS-04.03)
+- AND the BFF SHALL NOT return fleet-wide Prometheus counts
+- AND a user with no authorized gateways SHALL receive zero counts (an empty authorized-scope response)
 
 #### Scenario: WEB-OPS-04.05 -- Platform admin can fetch all dashboard metrics
 
