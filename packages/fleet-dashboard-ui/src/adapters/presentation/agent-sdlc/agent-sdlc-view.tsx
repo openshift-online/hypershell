@@ -2028,7 +2028,14 @@ function BoardFlights({
               height: `${String(fl.height)}px`,
             }}
           >
-            <div className={motion.flightTravel} style={fl.travelVars}>
+            <div
+              className={motion.flightTravel}
+              // Fill the flight box so the height:100% chain below (scale card -> clone) has a
+              // concrete height to resolve against; without this the flying card collapses to
+              // zero height and the arc is invisible (the card appears to flash in and out of
+              // its columns instead of gliding).
+              style={{ ...fl.travelVars, width: "100%", height: "100%" }}
+            >
               <div
                 className={motion.flightScaleCard}
                 style={{ height: "100%" }}
