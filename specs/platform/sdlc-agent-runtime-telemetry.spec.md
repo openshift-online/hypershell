@@ -2,7 +2,7 @@
 
 **ID prefix:** SDLC-AGT
 
-**Applies to:** `components/fleet-dashboard` BFF (new `/api/sdlc-agents` plane, Prometheus source), `packages/fleet-dashboard-ui` (board integration, per-cluster agents tab, sparkline cap, health verdict removal)
+**Applies to:** `components/fleet-dashboard` BFF (new `/api/sdlc-agents` plane, Prometheus source), `packages/fleet-dashboard-ui` (board integration, per-cluster agents tab, sparkline cap, health verdict removal, agent activity states), the agent-infrastructure producer in hypershell-gitops (the `sdlc_agent_last_report_timestamp_seconds` freshness fact and its metric lifespan)
 
 ## Purpose
 
@@ -26,6 +26,31 @@ detail panel opened from the board, and a per-cluster Agents tab on the
 promotion topology drawer. The runtime signal is integrated directly into the
 Agent SDLC board so both work-in-progress and runtime health are visible in
 one view.
+
+### Agent liveness: Active, Not active, Monitoring blind
+
+The SDLC agents are batch CronJobs: they push `sdlc_*` series in a short burst
+while they run, then exit. Between runs the series expire and vanish, so the
+absence of a metric conflates three distinct situations: an agent finished and
+is idle (fine), an agent crashed or is not running when it should be (not
+fine), and the BFF cannot reach Prometheus at all (the whole board is
+untrustworthy). A blank column communicates none of them.
+
+This specification makes agent liveness a first-class, present-tense signal
+derived from facts rather than inferred from the absence of a metric. There is
+no notion of an expected schedule or an "overdue" state: the only question
+asked is "is this agent active right now, or not." The signal has exactly three
+states -- **Active**, **Not active**, and **Monitoring blind** -- and it is
+distinct from the removed `agentHealth()` verdict (SDLC-AGT-10): activity is
+derived from an absolute freshness fact and the plane's own staleness, not from
+product-guess thresholds, so it is not a disguised SLO.
+
+History is retained alongside the liveness signal. The producer emits an
+absolute freshness timestamp per agent, and the collector's metric lifespan is
+extended so the last-pushed series persists between runs; the 24-hour
+sparklines continue to populate, and once an agent stops reporting its series
+eventually decays. That liveness decay is accepted and communicated plainly (a
+"Not active" state plus a "last seen" timestamp) rather than silently blanked.
 
 ### Relationship to existing dashboard planes
 
@@ -103,6 +128,8 @@ The payload SHALL contain:
   - `itemsProcessed` -- items completed (counter)
   - `itemsFailed` -- items failed (counter)
   - `provisionSeconds` -- latest gateway provision duration
+  - `lastReportedAt` -- unix seconds of the agent's most recent freshness
+    push (SDLC-AGT-15), `0` when the freshness series is absent
   - `series` -- 24-hour history, index-aligned to a shared time axis:
     - `times` -- unix seconds, oldest first
     - `queueDepth`, `itemsProcessed`, `itemsFailed`, `provisionSeconds` --
@@ -146,6 +173,7 @@ infrastructure on the infra cluster:
 | `sdlc_items_processed` | `name`, `env` | Items completed |
 | `sdlc_items_failed` | `name`, `env` | Items failed |
 | `sdlc_gateway_provision_seconds` | `name`, `env` | Provision duration |
+| `sdlc_agent_last_report_timestamp_seconds` | `name`, `env` | Freshness fact: unix seconds of the last push (SDLC-AGT-15) |
 
 The source SHALL reuse the existing Prometheus helpers and idioms from
 `Prometheus.Fleet`:
@@ -156,7 +184,10 @@ The source SHALL reuse the existing Prometheus helpers and idioms from
   depth, items processed, and items failed. Provision seconds is a per-replica
   duration gauge, so it SHALL aggregate with `max by (name, env)
   (sdlc_gateway_provision_seconds)` -- one representative duration per
-  `(name, env)` rather than a total inflated by replica count.
+  `(name, env)` rather than a total inflated by replica count. The freshness
+  fact is a per-replica timestamp gauge, so it SHALL aggregate with
+  `max by (name, env) (sdlc_agent_last_report_timestamp_seconds)` -- the most
+  recent push per `(name, env)` (SDLC-AGT-15).
 - **Range queries** for each `series.*` field, grouped by `(name, env)`.
 - **Best-effort subqueries**: the `subErrs` pattern from `Prometheus.Fleet`
   SHALL be reused -- collect per-query errors, warn once, and still return a
@@ -243,12 +274,16 @@ compiled-in defaults. No fleet-identifying value SHALL be compiled in.
 The frontend SHALL follow the narrow hexagonal UI boundary
 (`specs/standards/ui/hexagonal-architecture.spec.md`). The addition SHALL
 comprise: a framework-free SDLC agents domain type (`SdlcAgentsData`,
-`SdlcAgentMetrics`, `SdlcAgentSeries`), a `FleetApi.getSdlcAgents(signal?)`
+`SdlcAgentMetrics` -- including the optional `lastReportedAt` freshness field
+(SDLC-AGT-15) -- `SdlcAgentSeries`), a `FleetApi.getSdlcAgents(signal?)`
 port method returning the `Plane<SdlcAgentsData>` freshness envelope, a wire
 mapper in the anti-corruption layer (`adapters/api/wire.ts`) that is the only
 place that knows the `/api/sdlc-agents` wire shape, and a TanStack Query
 hook with its own `refetchInterval`. React, TanStack Query, the HTTP adapter,
-and the generated wire shapes SHALL stay outside the port.
+and the generated wire shapes SHALL stay outside the port. The activity
+derivation (SDLC-AGT-16) SHALL live in the domain and SHALL NOT read the clock
+or any framework API; the caller SHALL pass in the current time and the plane's
+staleness.
 
 #### Scenario: SDLC-AGT-06.01 -- Data flows through the port and mapper
 
@@ -390,10 +425,14 @@ reporting on the selected cluster node, with columns: Agent (with
 
 The `NodeTabKey` union SHALL include `"agents"`. The agent rows for a cluster
 SHALL be selected by matching the agent's `env` key to the map node's
-instance identifier.
+instance identifier. Each row SHALL carry the agent's activity cell
+(SDLC-AGT-17) alongside its replica, queue, done, and failed values.
 
-When a cluster has no agents reporting, the tab SHALL show an empty-state
-message.
+The empty state and the idle state SHALL be distinct. A cluster whose agents
+have never reported (no rows) SHALL show the empty-state message. A cluster
+whose agents have reported but are idle now SHALL show rows marked **Not
+active** rather than the empty state, which is the honest distinction this
+specification exists to make.
 
 #### Scenario: SDLC-AGT-11.01 -- Agents tab shows per-cluster agents
 
@@ -458,14 +497,24 @@ The repository SHALL include:
 
 - **Source tests** (`pkg/sources/sdlc_agents_test.go`): an `httptest.Server`
   returning canned Prometheus JSON, asserting env grouping,
-  `replicasOn` vs `replicasTotal`, index-aligned `series` arrays, and
-  NaN-safe coercion.
+  `replicasOn` vs `replicasTotal`, index-aligned `series` arrays, NaN-safe
+  coercion, and `lastReportedAt` mapped per `(name, env)` from
+  `sdlc_agent_last_report_timestamp_seconds` and `0` when that series is absent
+  (SDLC-AGT-15).
 - **Handler tests** (`pkg/api/handlers_test.go`): a cold plane returns 503,
   a NaN payload yields 500 with a JSON error body, following the existing
   `TestServeSDLCColdIs503` and `TestServeEncodeErrorIsVisible` patterns.
-- **Frontend tests**: wire mapper round-trip, board column header rendering
-  with and without agent telemetry, per-cluster agents table with and without
-  rows, sparkline tile height cap.
+- **Domain tests** (`domain/sdlc-agents.test.ts`): table-driven `agentActivity`
+  across every branch (SDLC-AGT-16) -- plane stale maps to `blind`;
+  `replicasOn > 0` with a fresh timestamp maps to `active`; `replicasOn > 0`
+  with a stale timestamp maps to `notActive` (the decayed-crash case);
+  `replicasOn = 0` maps to `notActive`; and no timestamp with `replicasOn > 0`
+  maps to `active` (the raw-gauge fallback).
+- **Frontend tests**: wire mapper round-trip including `lastReportedAt`, board
+  column header rendering of each activity state with its label and of the "last
+  seen" text when a timestamp is present (SDLC-AGT-17), per-cluster agents table
+  with and without rows and its not-active versus never-reported distinction,
+  sparkline tile height cap.
 
 #### Scenario: SDLC-AGT-14.01 -- Source test covers env grouping
 
@@ -479,14 +528,174 @@ The repository SHALL include:
 - WHEN a handler test requests `GET /api/sdlc-agents`
 - THEN the response SHALL be HTTP 503
 
+### Requirement: SDLC-AGT-15 -- Agent Freshness Fact
+
+The agent-infrastructure producer SHALL emit an absolute freshness timestamp
+per agent, `sdlc_agent_last_report_timestamp_seconds{name, env}`, set to the
+unix seconds of each push, as the source of truth for whether an agent's on/off
+gauge is still live. The producer SHALL push the on/off gauge `0` on normal
+exit (so a finished agent reads "not active" immediately) and SHALL stop
+refreshing the freshness timestamp when it crashes (so a crashed agent's stale
+gauge decays once the collector metric lifespan elapses). The collector metric
+lifespan on the infra cluster SHALL be extended so each agent's last-pushed
+series persists between runs, retaining the 24-hour history (SDLC-AGT-04) and
+the last on/off value rather than vanishing between runs. The producer and the
+collector lifespan change live in hypershell-gitops; this specification owns the
+fact's meaning and the dashboard's use of it.
+
+The BFF SHALL query the freshness fact with an instant query
+`max by (name, env) (sdlc_agent_last_report_timestamp_seconds)` and map it onto
+each `(name, env)` row as `LastReportedAt` (unix seconds), reusing the existing
+`runInstant` helper and `sampleValue` coercion. `LastReportedAt` SHALL be
+initialised to `0` when the series is absent. The BFF SHALL report this absolute
+fact only; it SHALL NOT compute any staleness or activity boolean, because the
+plane is cached and a server-computed verdict would itself go stale inside the
+snapshot. No new configuration SHALL be introduced for this fact.
+
+The freshness fact introduces no notion of a schedule or an expected interval;
+it answers only whether the on/off gauge is still live, not whether the agent
+should have run by now.
+
+#### Scenario: SDLC-AGT-15.01 -- Freshness fact maps to LastReportedAt
+
+- GIVEN Prometheus reports
+  `sdlc_agent_last_report_timestamp_seconds{name="triage", env="integration"}`
+- WHEN the source builds the payload
+- THEN that `(name, env)` row's `lastReportedAt` SHALL equal the pushed unix
+  seconds
+
+#### Scenario: SDLC-AGT-15.02 -- Absent freshness series defaults to zero
+
+- GIVEN no `sdlc_agent_last_report_timestamp_seconds` series exists for an agent
+- WHEN the source builds that agent's row
+- THEN its `lastReportedAt` SHALL be `0`
+
+#### Scenario: SDLC-AGT-15.03 -- BFF reports the fact without judging it
+
+- GIVEN the SDLC agents source builds a row
+- WHEN it populates the freshness field
+- THEN it SHALL set only the absolute `lastReportedAt` timestamp
+- AND it SHALL NOT compute any staleness or activity boolean on the server
+
+### Requirement: SDLC-AGT-16 -- Client Activity Derivation
+
+The frontend SHALL derive an agent's present-tense activity in the domain as a
+pure function of the agent row, a caller-supplied current time, and the plane's
+`stale` flag, yielding exactly one of three states:
+`"active" | "notActive" | "blind"`. The derivation SHALL NOT read the clock or
+any framework API itself (SDLC-AGT-06).
+
+The derivation SHALL be:
+
+- **blind** when the plane is stale, because the whole snapshot is then
+  untrustworthy and no per-agent liveness can be asserted.
+- Otherwise the on/off gauge SHALL be treated as **live** when
+  `lastReportedAt > 0` and the current time is within a single generic liveness
+  window (`HEARTBEAT_STALE`, for example 180 seconds) of `lastReportedAt`; when
+  `lastReportedAt` is `0` (no freshness fact yet), liveness SHALL fall back to
+  the raw `replicasOn > 0` gauge.
+- **active** when any replica is on AND the gauge is live; otherwise
+  **notActive**.
+
+`HEARTBEAT_STALE` is a single generic liveness window, NOT a per-agent schedule;
+it only answers whether the on/off gauge is still live. The activity derivation
+is a fact-based signal distinct from the removed `agentHealth()` verdict
+(SDLC-AGT-10) and SHALL NOT reintroduce `agentHealth()`, `HealthDot`, or
+`HEALTH_COLOR`.
+
+#### Scenario: SDLC-AGT-16.01 -- Stale plane is blind
+
+- GIVEN the plane's `stale` flag is true
+- WHEN the activity of any agent is derived
+- THEN the result SHALL be `blind`
+
+#### Scenario: SDLC-AGT-16.02 -- Running agent with a fresh timestamp is active
+
+- GIVEN an agent with `replicasOn > 0` whose `lastReportedAt` is within the
+  liveness window of the current time, and a non-stale plane
+- WHEN its activity is derived
+- THEN the result SHALL be `active`
+
+#### Scenario: SDLC-AGT-16.03 -- Running agent with a stale timestamp is not active
+
+- GIVEN an agent with `replicasOn > 0` whose `lastReportedAt` is older than the
+  liveness window (the decayed-crash case), and a non-stale plane
+- WHEN its activity is derived
+- THEN the result SHALL be `notActive`
+
+#### Scenario: SDLC-AGT-16.04 -- No running replicas is not active
+
+- GIVEN an agent with `replicasOn = 0` and a non-stale plane
+- WHEN its activity is derived
+- THEN the result SHALL be `notActive`
+
+#### Scenario: SDLC-AGT-16.05 -- Fallback to the raw gauge without a timestamp
+
+- GIVEN an agent with `replicasOn > 0` and `lastReportedAt = 0`, and a non-stale
+  plane
+- WHEN its activity is derived
+- THEN the result SHALL be `active`
+
+### Requirement: SDLC-AGT-17 -- Activity Communication on the Board and Agents Tab
+
+The Agent SDLC board column header and the per-cluster Agents table
+(SDLC-AGT-11) SHALL communicate each agent's activity state (SDLC-AGT-16)
+explicitly rather than leaving a blank. Each of the three states SHALL render a
+non-color cue paired with a text label: `active` as an affirmative dot with
+"Active", `notActive` as a muted dot with "Not active", and `blind` as a warning
+dot with "Monitoring blind". Color SHALL NOT be the only channel; the label is
+always present (SDLC-AGT-13).
+
+Because "Not active" is the normal resting state of a cron agent, it SHALL read
+as neutral, not as an alarm; the alarm-worthy states are a real last-run failure
+(the existing failure count) and "Monitoring blind".
+
+When `lastReportedAt > 0`, the surface SHALL append a localized relative "last
+seen {ago} ago" so the accepted liveness decay (Purpose) is communicated rather
+than implied. The sparkline and history row SHALL render in every activity
+state. The agent name SHALL remain a button whenever there is an agent summary
+to open (SDLC-AGT-07), so the history is reachable even when the agent is not
+active.
+
+#### Scenario: SDLC-AGT-17.01 -- Three activity states render with a label
+
+- GIVEN board columns for an active agent, a not-active agent, and (plane stale)
+  a blind agent
+- WHEN the headers render
+- THEN they SHALL show "Active", "Not active", and "Monitoring blind"
+  respectively, each paired with a non-color dot cue
+
+#### Scenario: SDLC-AGT-17.02 -- Last seen is shown when a timestamp exists
+
+- GIVEN a not-active agent whose `lastReportedAt` is greater than `0`
+- WHEN its column header renders
+- THEN it SHALL show a localized "last seen {ago} ago" relative timestamp
+
+#### Scenario: SDLC-AGT-17.03 -- History reachable when not active
+
+- GIVEN a not-active agent that has an agent summary
+- WHEN its column header renders
+- THEN the agent name SHALL remain a button that opens the runtime detail
+- AND the sparkline history SHALL still render
+
+#### Scenario: SDLC-AGT-17.04 -- Idle cluster rows show Not active, not empty state
+
+- GIVEN a cluster whose agents have reported but are idle now
+- WHEN the per-cluster Agents tab renders
+- THEN it SHALL show rows marked "Not active"
+- AND it SHALL NOT show the never-reported empty state (SDLC-AGT-11)
+
 ## Non-Goals
 
-- **Alerting or derived health verdicts.** The plane serves raw telemetry;
-  thresholds and alerting are out of scope. The existing `agentHealth`
-  function is not rendered (SDLC-AGT-10).
+- **Alerting or derived health verdicts.** The plane serves raw telemetry and
+  the absolute freshness fact (SDLC-AGT-15); thresholds and alerting are out of
+  scope. The present-tense activity signal (SDLC-AGT-16) is derived from facts,
+  not a threshold-guessed verdict, and the removed `agentHealth` function is not
+  rendered (SDLC-AGT-10).
+- **An expected schedule or "overdue" state.** Liveness answers only "active or
+  not active" in the present tense; no notion of when an agent should have run is
+  introduced (SDLC-AGT-15, SDLC-AGT-16).
 - **Push or websocket updates.** The plane uses the same bounded-polling
   model as all other fleet dashboard planes.
 - **Per-agent drill-down to individual replicas.** The plane aggregates by
   `(name, env)`; replica-level detail is out of scope.
-- **New Prometheus series.** The source reads existing `sdlc_*` series; no
-  new instrumentation is specified.
