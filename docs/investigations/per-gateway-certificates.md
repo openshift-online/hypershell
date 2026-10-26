@@ -1,305 +1,323 @@
-# Investigation: Per-gateway certificates (opt-in, provision time)
+# Investigation: Per-gateway wildcard certificates for sandbox service exposure
 
-**Date:** 2026-09-29
+**Date:** 2026-09-29 (rev. 2, goal clarified)
 **Status:** Investigation / design proposal - no code changed
-**Scope:** Client-facing TLS for tenant gateways; the shared wildcard certificate on
-the shared Gateway API `Gateway` is the status quo. This document traces today's TLS
-provisioning, identifies what a per-gateway certificate changes, compares options,
-and proposes a recommended plan.
+**Goal:** Make OpenShell sandbox service exposure (ExposeService HTTP
+virtual-hosting) work. Today the platform provisions one wildcard certificate at
+the cluster (spoke) level, which means valid sandbox service URLs cannot be
+generated, certified, or routed to the correct gateway. Hypothesis under test:
+this works if each opted-in gateway gets its own wildcard certificate at
+provision time, rotated by cert-manager.
 
 ---
 
-## 1. How gateway TLS and hostname are provisioned today
+## 1. How sandbox service URLs are supposed to work (upstream model)
 
-### 1.1 The client-facing (external) TLS leg
+The OpenShell gateway serves sandbox services on its **own listener** (port 8080,
+the same one as gRPC) using HTTP virtual-hosting: an exposed service for sandbox
+`sbx` service `svc` answers at
 
 ```
-openshell CLI ──TLS──▶ shared Gateway `openshell-grpc-gateway`
-                       (openshift-ingress, class openshift-default,
-                        Argo CD-owned via hypershell-gitops)
-                       listener grpc-<spoke>, hostname *.<spoke>.infra.hypershell.app
-                       wildcard cert-manager Certificate (e.g. hyp7-wildcard
-                       → secret hyp7-instance-tls, ClusterIssuer letsencrypt-dns01)
-        ──GRPCRoute (tenant ns, host gw-<ns>.<spoke>.infra...)──▶
-        ──BackendTLSPolicy re-encrypt──▶ openshell-gateway Service :8080 ──▶ pod
+https://<sandbox>--<service>.<base-domain>
 ```
 
-- The **shared cluster certificate** is a per-spoke wildcard Certificate
-  (`*.<spoke>.infra.hypershell.app`) living in `openshift-ingress`, owned by
-  hypershell-gitops (`clusters/hshellp01ue1/gateway/certificates.yaml`,
-  `clusters/hypc-aws-00/3-bootstrap-apps/03-ingress-certificate/gateways/`). It is
-  issued and rotated by cert-manager from the `letsencrypt-dns01` ClusterIssuer.
-  Every tenant gateway on a spoke rides this one wildcard; the control plane never
-  touches it (`openshell-gateway.spec.md` § Gateway Ingress TLS Certificate: "The
-  control plane does not create or manage the Gateway-level TLS").
-- The control plane creates, per tenant gateway (reconciler.go
-  `reconcileGatewayAPIResources`): the **GRPCRoute** in the tenant namespace
-  (parentRef → shared Gateway listener, hostname `gw-<ns>.<base-domain>` derived by
-  `exposure.DeriveGatewayAPIHost`, single source of truth), the
-  **BackendTLSPolicy** + **`openshell-gateway-backend-ca` ConfigMap** (contents of
-  the tenant's internal `openshell-server-tls` `ca.crt`), and publishes
-  `routeAddress = grpcs://<host>:443` via the Gateway Exposure port.
-- Hostname opt-in today: the Gateway API resource's `route` JSONB field
-  (`{host: ..., enabled: true}`), parsed by `parseGatewayRouteConfig` in
-  `components/control-plane/internal/reconciler/reconciler.go`. An explicit host
-  under the base domain must be the tenant's own `gw-<ns>` slot (anti-hijack
-  validation in `deriveGatewayHostname`).
+(one DNS label containing the `--` separator, e.g.
+`mysandbox--webapp.gw-openshell-a1b2c3.hyp0-spoke0.infra.hypershell.app`).
 
-### 1.2 The internal (backend) TLS leg
+Three upstream facts drive the design (NVIDIA OpenShell docs / issues; the
+gateway binary itself is not vendored here, so behavior is cited, not read):
 
-- The Helm chart (`charts/openshell/templates/cert-manager-pki.yaml`) creates, in
-  the tenant namespace: self-signed `Issuer` → CA `Certificate` (`openshell-ca` →
-  secret `openshell-ca-tls`) → CA-backed `Issuer` (`openshell-ca-issuer`) → server
-  `Certificate` (`openshell-server` → secret `openshell-server-tls`, SANs from
-  `certManager.serverDnsNames`) and a client `Certificate`. cert-manager rotates
-  all of them.
-- The reconciler injects the external hostname into `ServerDnsNames` before Helm
-  install so the backend cert covers `gw-<ns>...` (BackendTLSPolicy validation
-  hostname is `openshell-gateway.<ns>.svc.cluster.local`, covered by defaults).
-- `client_ca_path` in `gateway.toml` is stripped when routing is enabled (the
-  Gateway proxy cannot present a client cert; BackendTLSPolicy only validates the
-  server side) - `openshell-gateway-tls.spec.md` § Client Certificate Verification
-  Conditional on Routing.
-- The chart already supports an **external server certificate**:
-  `certManager.serverIssuerRef` creates a second `Certificate`
-  (`openshell-gateway-server-external` → secret
-  `openshell-gateway-server-external-tls`) from an operator-configured issuer with
-  only externally-resolvable SANs, mounted at `/etc/openshell-tls/server-external`
-  and presented via SNI by the gateway pod. Today this is wired only for Route
-  passthrough mode (`GATEWAY_INGRESS_MODE=route`, e.g. ROKS), where the pod itself
-  terminates client TLS.
+1. **The gateway derives its base domains from `server_sans`.** Wildcard SANs in
+   `server_sans` (gateway.toml) are stripped of `*.` and used as the base domain
+   for exposed-service hostnames. Without a wildcard SAN naming its external
+   domain, the gateway cannot even generate correct external service URLs - it
+   falls back to internal base domains.
+2. **A single wildcard cert only covers one label.** A SAN of
+   `*.hyp0-spoke0.infra.hypershell.app` matches
+   `gw-<ns>.hyp0-spoke0.infra...` but NOT
+   `<sandbox>--<service>.gw-<ns>.hyp0-spoke0.infra...` (two labels below).
+3. Upstream is aware of the multi-gateway/shared-ingress ambiguity: OpenShell
+   issues #4840 / #4631 propose a `service_routing_gateway_name` setting that
+   hashes (gateway, workspace, sandbox, service) into one label under a single
+   shared wildcard, with a routing proxy that resolves the hash to a gateway.
+   That is the "one cluster wildcard forever" alternative (compared in §4).
 
-### 1.3 Certificate renewal reaching running components (verified)
+Related local tracking: openshift-online/hypershell issues #234 ("Neither route
+nor gateway-api ingress mode provisions routing for OpenShell's per-sandbox
+ExposeService HTTP virtual-hosting") and #700 (shared sandbox-ingress proxy).
 
-- **Gateway listener (shared wildcard):** no reloader or rollout exists anywhere in
-  hypershell or hypershell-gitops for the shared cert. Production already depends
-  on the Gateway API implementation (OpenShift `openshift-default`, Istio-based)
-  hot-reloading the rotated Secret via its SDS/watch path - `hyp7-wildcard` has
-  been rotating in production with no restart mechanism.
-- **Gateway pod (internal/external certs):** no config-hash / Reloader / rollout
-  exists (`applyConfigHashAnnotation` from `openshell-gateway-secret-rotation.spec.md`
-  is aspirational - it is not in the code). Pods keep their loaded keypairs until
-  restarted. Whether the OpenShell gateway binary re-reads the mounted cert at
-  handshake (as the rh-trex-ai framework does for the hub api-server,
-  `hub-grpc-tls.spec.md`) is **unverified** - the gateway is the upstream NVIDIA
-  OpenShell binary, and rh-trex-ai is not vendored here.
+## 2. Why it is broken today (three independent gaps)
 
----
+Current production path (Gateway API mode; verified in this repo and the
+read-only hypershell-gitops checkout):
 
-## 2. What changes for a per-gateway certificate
+```
+client ──▶ DNS *.gwlb / *.<spoke>.infra... ──▶ shared Gateway
+          openshift-ingress/openshell-grpc-gateway (Argo CD-owned)
+          listener grpc-<spoke>, hostname *.<spoke>.infra.hypershell.app
+          wildcard cert hyp7-wildcard / hyp0-spoke0-gateway-tls (letsencrypt-dns01)
+          ──▶ GRPCRoute gw-<ns>.<spoke>... (tenant ns)
+          ──▶ BackendTLSPolicy re-encrypt ──▶ gateway pod :8080
+```
 
-Requirements recap: opt-in, configured on the gateway **at provision time only**;
-no add/switch after provisioning; cert-manager issues **and rotates** it.
+**Gap A - Certificate.** The only cert served for tenant traffic is the spoke
+wildcard `*.<spoke>.infra.hypershell.app`. It covers `gw-<ns>.<spoke>...` but not
+`<sandbox>--<service>.gw-<ns>.<spoke>...`. Any sandbox service URL fails TLS
+validation.
 
-### 2.1 Where the opt-in config lives
+**Gap B - Routing.** The shared Gateway listener hostname
+`*.<spoke>.infra.hypershell.app` also matches only one label, so a request for
+`<sandbox>--<service>.gw-<ns>...` does not match any listener hostname and is not
+routable at all. Even the GRPCRoute's hostname is the exact
+`gw-<ns>.<spoke>...`; nothing provisions a wildcard-hostname route.
 
-The `route` JSONB field on the Gateway API resource is the natural home - a
-dedicated cert only makes sense for a routed (externally exposed) gateway, and the
-field is already provision-time input parsed by the control plane:
+**Gap C - The gateway does not know its external domain (latent config bug).**
+The reconciler injects the derived hostname into `ServerDnsNames`
+(`reconciler.go` `appendDNSNameIfMissing`), but the Helm values builder writes it
+to `pkiInitJob.serverDnsNames` (`helm/values.go` buildCoreValues). When
+`certManager.enabled=true` (production), the chart ignores that key entirely:
+both the cert-manager server `Certificate` SANs and the `server_sans` entry in
+gateway.toml come from `certManager.serverDnsNames`
+(`charts/openshell/templates/cert-manager-pki.yaml`,
+`charts/openshell/templates/_toml.tpl` lines 114-118, `certgen.yaml` lines
+111-119). `certManager.serverDnsNames` is set by the builder only in Route mode
+with an external issuer (`buildIngressValues`). So in Gateway API mode the
+external hostname never reaches `server_sans`, and per upstream fact 1 the
+gateway cannot derive an external base domain. This should be verified against a
+live production gateway (`oc get cm openshell-gateway-config -o yaml` and inspect
+`server_sans`), but the code path is unambiguous.
+
+The user's hypothesis is therefore correct but incomplete: a per-gateway wildcard
+cert fixes Gap A; Gaps B and C must be fixed in the same feature or the URLs
+still do not work end to end.
+
+## 3. Recommended design: per-gateway wildcard cert + per-tenant Gateway
+
+Opt-in at provision time only, on the Gateway resource. All new resources live in
+the tenant namespace and are created by the control-plane reconciler (like the
+GRPCRoute/BackendTLSPolicy today, not by the Helm chart).
+
+### 3.1 Opt-in configuration
+
+Extend the existing `route` JSONB field (already provision-time input, parsed by
+`parseGatewayRouteConfig`):
 
 ```json
 route: {
-  "host": "special.example.com",          // optional, as today
-  "certificate": {
-    "issuerRef": { "name": "letsencrypt-dns01", "kind": "ClusterIssuer" }
-  }
+  "host": "special.example.com",
+  "certificate": { "issuerRef": { "name": "letsencrypt-dns01", "kind": "ClusterIssuer" } }
 }
 ```
 
-- `RouteConfig` (`components/control-plane/internal/gateway/config.go`) gains
-  `Certificate *RouteCertificateConfig { IssuerRef {Name, Kind} }`.
-- `parseGatewayRouteConfig` unmarshals it transparently (JSON passthrough).
-- Validation (`validation.go`): issuer name required, kind ∈ {Issuer,
-  ClusterIssuer}; host must be externally resolvable (the chart's own guard
-  rejects `.svc`/`.localhost` names for external issuers - mirror it).
-- No update support: the API server's update path may reject changes to
-  `route.certificate` after creation (provision-time only), or simply leave it
-  un-enforced (the reconciler only reads it during initial provisioning).
+Wildcards REQUIRE a DNS-01 issuer; the production ClusterIssuer
+(`letsencrypt-dns01`, Route53 solver) already qualifies. HTTP-01 issuers must be
+rejected at validation time.
 
-### 2.2 What the control plane creates (recommended option, see §3)
+### 3.2 What the control plane creates for an opted-in gateway
 
-For an opted-in gateway, in the **tenant namespace** (all names illustrative):
+In the tenant namespace:
 
-1. **`Certificate openshell-gateway-external`** -
-   `dnsNames: [<the gateway's route hostname>]`, `issuerRef` from the opt-in
-   config, `secretName: openshell-gateway-external-tls`,
-   `rotationPolicy: Always`, standard labels
-   (`hypershell.redhat.io/managed=true`, `app.kubernetes.io/managed-by=hypershell-control-plane`).
-   cert-manager owns issuance and renewal from here on.
-2. **`Gateway gw-<ns>`** (per-tenant Gateway API Gateway) - class
-   `openshift-default`, one `grpc` listener, port 443, HTTPS/Terminate, hostname =
-   the gateway's route hostname, `certificateRefs` → the per-gateway secret
-   (same namespace ⇒ no ReferenceGrant needed), `allowedRoutes.namespaces.from:
-   Same`. Same managed labels.
-3. The **GRPCRoute's parentRef** points at this per-tenant Gateway (sectionName
-   `grpc`) instead of the shared Gateway. Everything else (BackendTLSPolicy,
-   backend-CA ConfigMap, routeAddress publishing) is unchanged.
-4. **DNS**: the per-tenant Gateway gets its own proxy Service/LB. Publish it by
-   setting the `external-dns.kubernetes.io/hostname` infrastructure annotation on
-   the per-tenant Gateway (the same mechanism hypershell-gitops uses on the shared
-   Gateway; external-dns is deployed on the AWS spokes). On clusters without
-   external-dns, the operator adds the DNS record as a provision-time manual step.
+1. **`Certificate openshell-gateway-wildcard`** - `dnsNames:
+   ["*.gw-<ns>.<spoke>.infra.hypershell.app"]` (or `*.<explicit host's parent
+   domain>` when `route.host` is set), `issuerRef` from the opt-in config,
+   `secretName: openshell-gateway-wildcard-tls`, `rotationPolicy: Always`,
+   managed labels. cert-manager issues and rotates it from here on. DNS-01
+   issuance needs no pre-existing DNS record (the issuer solves via the Route53
+   API).
+2. **`Gateway gw-<ns>`** (per-tenant Gateway API Gateway, class
+   `openshift-default`) with one listener:
+   - name `sandbox`, port 443, protocol HTTPS, TLS **Terminate**,
+   - hostname `*.gw-<ns>.<spoke>.infra...`,
+   - `certificateRefs` -> the per-gateway wildcard secret (same namespace, no
+     ReferenceGrant),
+   - `allowedRoutes.namespaces.from: Same`.
+3. **`HTTPRoute openshell-gateway-sandbox`** - hostname `*.gw-<ns>.<spoke>...`,
+   parentRef -> the per-tenant Gateway (sectionName `sandbox`), backendRef ->
+   `openshell-gateway:8080`. The existing **BackendTLSPolicy** already targets
+   that Service and re-encrypts with the internal CA, so the proxy->pod leg is
+   TLS with the pod's internal cert (svc-FQDN SAN). The **Host header is
+   preserved** through the proxy, which is what the gateway's virtual-hosting
+   keys on. (Alternative: forward plaintext HTTP; the gateway accepts it when
+   `enable_loopback_service_http=true` - default. Re-encrypt is recommended for
+   consistency with the gRPC path.)
+4. **DNS**: the per-tenant Gateway gets its own proxy Service/LB. Publish the
+   wildcard record by setting `external-dns.kubernetes.io/hostname:
+   *.gw-<ns>.<spoke>.infra...` in the Gateway's `infrastructure.annotations` -
+   the exact mechanism hypershell-gitops already uses for the shared Gateway.
+   On clusters without external-dns, the operator adds the record manually at
+   provision time (acceptable: this is an explicit, special configuration).
 
-### 2.3 Rotation (the key advantage)
+### 3.3 Wiring the gateway's own knowledge (fixes Gap C)
 
-The per-gateway cert is consumed by the **Gateway listener**, not by the gateway
-pod. The Gateway API implementation watches the TLS Secret and serves renewed
-certificates on new handshakes - exactly the mechanism production already relies
-on for the rotating shared wildcard (`hyp7-wildcard`). **No pod restart, no
-Reloader, and no new hot-reload requirement is introduced.** The internal
-per-tenant CA/backend cert keeps today's behavior (renewed by cert-manager, picked
-up on next pod restart), unchanged by this feature.
+- The reconciler injects `*.gw-<ns>.<spoke>.infra...` into `ServerDnsNames` for
+  opted-in gateways, so it lands in `server_sans` and the gateway derives
+  base domain `gw-<ns>.<spoke>.infra...` for exposed-service URLs.
+- Independent fix (needed regardless, it is a bug today): the values builder must
+  write the injected names to `certManager.serverDnsNames` (not
+  `pkiInitJob.serverDnsNames`) when `HasCertManager` is true, or the chart
+  should read one merged list. The internal Certificate gaining a wildcard SAN
+  is harmless (it feeds URL generation and the pod's own cert; external clients
+  trust the listener cert, not this one).
 
-### 2.4 Ownership and garbage collection
+### 3.4 What does NOT change
 
-- Certificate, Gateway, Secret, GRPCRoute, BackendTLSPolicy all live in the tenant
-  namespace → reclaimed by namespace deletion (same as today's tenant resources;
-  `DeleteGatewayResources` comment already documents namespace-deletion GC).
-- Route removal (un-route) / gateway delete: extend `DeleteGatewayAPIResources`
-  to explicitly delete the per-tenant Gateway and Certificate (mirroring today's
-  GRPCRoute/BackendTLSPolicy deletion), so un-routing doesn't leave a live
-  listener serving the tenant's hostname.
+- The gateway's own gRPC hostname `gw-<ns>.<spoke>...` keeps riding the shared
+  Gateway + spoke wildcard (GRPCRoute, routeAddress, CLI connections,
+  BackendTLSPolicy: all untouched). The single-label wildcard
+  `*.gw-<ns>...` does NOT cover `gw-<ns>...` itself, so moving gRPC traffic is a
+  separate decision (§4, variant "full independence").
+- The console HTTPRoute stays on the shared Gateway listener.
+- RBAC: `deploy/base/platform-resources/controller-rbac.yaml` already grants
+  full CRUD on `gateways`, `httproutes`, and cert-manager `certificates` /
+  `issuers`. No change.
+- Rotation reaching the serving path: the wildcard cert is consumed by the
+  Gateway **listener**, not by the gateway pod. The Gateway API implementation
+  hot-reloads rotated listener secrets - production already depends on this for
+  the rotating `hyp7-wildcard`. **No pod restart, no Reloader, no new reload
+  requirement.** (The pod's internal cert renewal behavior is unchanged and
+  orthogonal.)
 
-### 2.5 RBAC
+### 3.5 Ownership and teardown
 
-Already sufficient: `deploy/base/platform-resources/controller-rbac.yaml` grants
-the controller full CRUD on `gateways`, `grpcroutes`, `backendtlspolicies`
-(gateway.networking.k8s.io) and `issuers`, `certificates` (cert-manager.io)
-cluster-wide. No RBAC change needed.
+Certificate, Gateway, HTTPRoute, secret: all in the tenant namespace, reaped by
+namespace deletion. Un-route/gateway-delete must explicitly delete the
+per-tenant Gateway + Certificate + HTTPRoute (extend
+`DeleteGatewayAPIResources` / health-loop teardown), so a removed gateway does
+not leave a live wildcard listener.
 
-### 2.6 Exposure adapter (readiness observation)
+### 3.6 Exposure/readiness
 
-`GatewayAPIExposure.ObserveReadiness` reads `Gateways(gatewayIngressNamespace())`
-with `perTenantGatewayName(namespace)` - which prefers the shared name when
-`GATEWAY_API_GATEWAY_NAME` is set. For an opted-in gateway it must instead read
-the **per-tenant Gateway in the tenant namespace** and report its
-`Programmed`/addresses (a ~20-line change in `gatewayapi.go`; the port interface
-is unchanged, satisfying the routing spec's adapter-isolation requirement).
+`routeAddress` for the gRPC path is unchanged. The per-tenant Gateway's
+`Programmed` status should gate the feature's readiness signal (small extension
+of `GatewayAPIExposure`, which already anticipates per-tenant Gateways via
+`perTenantGatewayName`).
 
-### 2.7 Console
+## 4. Option comparison
 
-The per-gateway console's HTTPRoute keeps attaching to the **shared** Gateway
-listener - `console-<ns>.<spoke>...` remains covered by the spoke wildcard. The
-per-gateway cert applies only to the gateway gRPC data plane. (If a per-gateway
-console cert is ever wanted, the same per-tenant Gateway can gain an `https`
-listener later; explicitly out of scope now.)
-
----
-
-## 3. Option comparison
-
-| | **A. Per-gateway listener on the shared Gateway** | **B. Per-tenant Gateway + controller-created Certificate (recommended)** | **C. Route passthrough + pod-terminated external cert** | **D. User-supplied Secret only** |
+| | **B. Per-gateway wildcard + per-tenant Gateway (recommended, §3)** | **A. Add per-gateway listener to the shared Gateway** | **C. Pod-terminated wildcard (TLS passthrough / SNI external cert)** | **D. Upstream hashed hostnames under the one cluster wildcard (`service_routing_gateway_name`, issues #4840/#4631, hypershell #700)** |
 |---|---|---|---|---|
-| How | Control plane patches a new listener + cert ref onto `openshift-ingress/openshell-grpc-gateway` | Control plane creates per-tenant `Gateway` + `Certificate` in tenant ns; GRPCRoute re-parents | Per-gateway ingress-mode override to `route`; reuse chart's `certManager.serverIssuerRef` + SNI cert mounted in the pod | User pre-creates a secret/issuer; control plane only wires the reference into a per-tenant Gateway |
-| cert-manager rotates | Yes | **Yes** | Yes | Only if user also creates the Certificate (else manual) |
-| Renewal reaches serving path | Yes (listener) | **Yes (listener, proven by shared wildcard)** | Only if gateway pod hot-reloads - **unverified**, and no restart mechanism exists today | Same as B if user uses cert-manager |
-| Argo CD conflict | **Fatal**: shared Gateway is Argo-owned in gitops; Argo reverts control-plane writes | None (tenant-ns resources) | None | None |
-| DNS | Wildcard keeps working | Needs per-gateway DNS record → per-tenant LB (external-dns automatable; manual on some clusters) | Custom host must point at the OpenShift router, or host must move to cluster apps domain | Same as B |
-| Cost per opted-in gateway | None | One extra proxy Deployment + LB per opted-in gateway (Istio data plane) | None extra (uses cluster router) | Same as B |
-| Architecture fit | Breaks "control plane does not touch the shared Gateway" | Fits Gateway API mode; exposure adapter already anticipates per-tenant Gateways | **Requires per-gateway ingress mode** - today `GATEWAY_INGRESS_MODE` is cluster-level, threaded through reconciler, chart values, console, and health loop; a big refactor | Fits, but pushes cert lifecycle correctness onto the user |
-| Risks | Ownership war, drift | New LB/IP per gateway; external-dns dependency; listener count none (separate Gateways) | Mode mixing; mTLS/client_ca semantics change; unverified pod cert reload | Orphaned/expired secrets; violates "cert-manager must rotate" unless enforced |
+| Fixes cert (Gap A) | Yes, per-gateway wildcard from DNS-01 issuer | Yes (listener cert) | Yes (pod presents wildcard via chart's `serverIssuerRef` SNI cert) | Yes, single cluster wildcard covers hashed labels |
+| Fixes routing (Gap B) | Yes, wildcard HTTPRoute on per-tenant Gateway | Yes, but requires writing to the Argo CD-owned shared Gateway - ownership war, Argo reverts | Yes, TLSRoute passthrough on per-tenant Gateway (or Route) | Needs a NEW smart proxy that maps hash -> gateway (hypershell #700's sandbox-ingress) |
+| Fixes gateway knowledge (Gap C) | Yes, wildcard in `server_sans` | Same | Same | Yes, but requires upstream fork support for the new setting |
+| cert-manager rotates | Yes | Yes | Yes, but renewed cert must reach the POD - reload unverified, no restart mechanism exists | Yes |
+| Argo CD conflict | None | **Fatal** | None | None |
+| DNS | Per-gateway wildcard record (external-dns automatable) | Wildcard record still cluster-level | Same as B | Existing cluster wildcard only |
+| Cost per opted-in gateway | One extra proxy Deployment + LB | None | Same as B | One shared proxy for all gateways |
+| Upstream dependency | None | None | None (chart already supports the cert) but pod reload risk | **Requires upstream fork changes + new proxy component** |
+| Per-gateway isolation | Strong (own domain, own cert, own LB) | Shared LB | Strong | Shared everything; hash collisions handled by route index |
 
-**Recommendation: Option B**, with Option D as a later sub-variant (allow
-`route.certificate.secretRef` to reference a user-managed Certificate instead of
-an issuerRef) if users ever want to bring their own PKI. Option A is rejected
-outright (Argo CD ownership). Option C is rejected because it needs a per-gateway
-ingress mode, which cuts against the environment-adaptive single-mode design, and
-because pod cert reload is unverified.
+**Recommendation: B.** It is the only option that fixes all three gaps with no
+Argo CD conflict, no upstream dependency, no pod-side reload requirement, and it
+directly realizes "the gateway has a specific wildcard cert for itself". Option D
+is the long-term fleet-wide answer if per-gateway LBs become a cost problem, but
+it needs upstream `service_routing_gateway_name` support in the
+opendatahub-io/openshell fork plus a new hash-routing proxy - a much larger,
+cross-repo effort. Option A is rejected outright. Option C is a viable fallback
+if listener-level termination proves impossible on some platform, but it moves
+cert rotation onto the unverified pod-reload path.
 
----
+Variant within B ("full independence", deferred): also issue
+`gw-<ns>.<spoke>...` in the per-gateway Certificate, add a second listener for
+it, and move the GRPCRoute to the per-tenant Gateway. Costs one more DNS record
+(`gw-<ns>...` -> per-tenant LB) and touches the main data path; not needed for
+the stated goal, so recommend deferring.
 
-## 4. Spec conflicts and required spec changes
+## 5. Spec conflicts and required spec changes
 
-Conflicts found:
+Conflicts:
 
-1. `openshell-gateway-routing.spec.md` § Shared Gateway (Admin Prerequisite):
-   "The control plane does NOT create Gateway resources." - Option B violates
-   this; needs an explicit exception for per-gateway-cert gateways.
-2. `openshell-gateway.spec.md` § Gateway Ingress TLS Certificate: "The control
-   plane does not create or manage the Gateway-level TLS." - same carve-out
-   needed.
-3. `openshell-gateway-routing.spec.md` § Gateway Exposure Port already says the
-   adapter reads "the **per-tenant** Gateway API `Gateway`" - existing spec/code
-   drift (code prefers the shared name when the env var is set). The new work
-   should reconcile this text.
-4. `openshell-gateway-tls.spec.md` covers only the per-tenant internal PKI; a new
-   requirement section is needed for per-gateway external certificates.
-5. `openshell-gateway-secret-rotation.spec.md` claims a config-hash restart
-   mechanism for TLS renewal that does not exist in code - orthogonal, but worth
-   fixing or annotating while touching TLS specs.
+1. `openshell-gateway-routing.spec.md` / `openshell-gateway.spec.md`: "The
+   control plane does NOT create Gateway resources" / "does not create or manage
+   the Gateway-level TLS" - both need a carve-out for opted-in per-gateway
+   wildcard exposure.
+2. `openshell-gateway.spec.md` § Gateway Configuration documents `server_sans`
+   as `<serverDnsNames from Gateway resource>` - must be updated for the
+   wildcard injection and the `pkiInitJob`/`certManager` values-key fix.
+3. `openshell-gateway.spec.md` line ~160: "This avoids per-tenant certificate
+   issuance for the ingress listener" - now false for opted-in gateways; needs
+   the exception documented.
+4. No spec today covers sandbox service exposure at all (tracked as issues #234
+   / #700) - the new spec section becomes the first.
 
 Spec changes needed:
 
 - `specs/platform/openshell-gateway-routing.spec.md`: new Requirement
-  "Per-Gateway Certificate Exposure" (opt-in `route.certificate` at provision
-  time; per-tenant Gateway + Certificate in tenant ns; GRPCRoute re-parenting;
-  DNS/external-dns expectation; adapter readiness from the per-tenant Gateway;
-  un-route/delete teardown). Amend the Shared Gateway requirement with the
-  carve-out.
+  "Per-Gateway Sandbox Service Exposure" (opt-in `route.certificate`; per-tenant
+  Gateway + wildcard Certificate + wildcard HTTPRoute; DNS/external-dns
+  expectation; teardown; readiness). Amend the Shared Gateway requirement with
+  the carve-out.
 - `specs/platform/openshell-gateway-tls.spec.md`: new Requirement "Per-Gateway
-  External Certificate" (cert-manager Certificate + issuerRef from route config;
-  rotation served by the Gateway listener without pod involvement; SAN rules).
-- `specs/platform/openshell-gateway.spec.md`: extend the `route` field table
-  (`route.certificate.issuerRef.{name,kind}`), the example Gateway config, and
-  the data-model `route` JSONB description.
-- `specs/platform/data-model.spec.md`: update the `route` JSONB column comment.
+  Wildcard Certificate" (cert-manager Certificate, DNS-01 issuer requirement,
+  rotation served by the Gateway listener, wildcard SAN rules, `server_sans`
+  injection).
+- `specs/platform/openshell-gateway.spec.md`: `route` field table
+  (`route.certificate.issuerRef.{name,kind}`), `server_sans` documentation,
+  data-model `route` JSONB description.
+- `specs/platform/data-model.spec.md`: `route` JSONB column comment.
+- `docs/architecture/source/ingress.md`: diagram variant for opted-in gateways.
 
----
-
-## 5. Recommended implementation plan (files to touch)
+## 6. Recommended implementation plan (files to touch)
 
 After plan approval - nothing below is implemented yet:
 
-1. **API / config plumbing**
-   - `components/control-plane/internal/gateway/config.go` - `RouteConfig.Certificate`.
+1. **Bug fix first (Gap C, independent of the feature):**
+   `components/control-plane/internal/helm/values.go` - write injected
+   `ServerDnsNames` to `certManager.serverDnsNames` when `HasCertManager` (keep
+   `pkiInitJob.serverDnsNames` for the certgen path), + `values_test.go`.
+   Verify against a live gateway that `server_sans` is missing the external
+   hostname today.
+2. **Config plumbing:**
+   - `components/control-plane/internal/gateway/config.go` -
+     `RouteConfig.Certificate` (`IssuerRef{Name, Kind}`).
    - `components/control-plane/internal/gateway/validation.go` (+ tests) -
-     issuerRef validation, external-host SAN rules.
-   - `components/api-server/openapi/` - route field schema documentation if the
-     route object is schema'd there (route is a JSON string passthrough today;
-     likely doc-only).
-2. **Reconciler** - `components/control-plane/internal/gateway/reconciler.go`
-   - In `reconcileGatewayAPIResources`: when `route.certificate` is set, create
-     the `Certificate` + per-tenant `Gateway` (labeled, dynamic client,
-     `reconcileResource`), point the GRPCRoute parentRef at it, and wait for the
-     per-gateway secret before proceeding (reuse `waitForSecret`).
+     issuerRef required/kind; reject known HTTP-01-only issuers is not possible
+     statically, so instead document + validate the wildcard/domain shape.
+   - `components/control-plane/internal/reconciler/reconciler.go` - no change
+     needed (JSON passthrough) beyond reading the new key into `RouteConfig`.
+3. **Reconciler** - `components/control-plane/internal/gateway/reconciler.go`:
+   - In `reconcileGatewayAPIResources`, when `route.certificate` is set: create
+     `Certificate` + per-tenant `Gateway` + wildcard `HTTPRoute` (dynamic
+     client, `reconcileResource`, managed labels), wait for the wildcard secret
+     (`waitForSecret`), inject the wildcard into `ServerDnsNames` before the
+     Helm install (the injection currently happens pre-Helm in `Reconcile`, so
+     the wildcard must be added there, keyed off the parsed route config).
    - `DeleteGatewayAPIResources` (+ health-loop teardown): delete the per-tenant
-     Gateway + Certificate on un-route.
-3. **Exposure adapter** - `components/control-plane/internal/exposure/gatewayapi.go`
-   (+ tests): `ObserveReadiness` reads the per-tenant Gateway in the tenant
-   namespace when the gateway is on a per-gateway cert.
-4. **DNS** - set `external-dns.kubernetes.io/hostname` on the per-tenant
-   Gateway's `infrastructure.annotations`; document the manual fallback.
-5. **Tests** - `reconciler_test.go`, `exposure/gatewayapi_test.go`,
-   `charts/openshell/tests/` unaffected (chart not changed). E2E:
-   `tests/e2e/` add a per-gateway-cert scenario (Kind/dev-cluster first; the
-   OpenShift e2e would need an issuer that can issue for the derived host).
-6. **Specs** - as listed in §4.
-7. **Docs** - `deploy/openshift/infrastructure/GATEWAY-SETUP.md` note;
-   `docs/architecture/source/ingress.md` diagram variant.
+     Gateway, Certificate, and HTTPRoute.
+4. **Exposure adapter** - `components/control-plane/internal/exposure/gatewayapi.go`
+   (+ tests): readiness observation for the per-tenant Gateway (tenant
+   namespace) when the feature is active.
+5. **DNS** - `external-dns.kubernetes.io/hostname` infrastructure annotation on
+   the per-tenant Gateway; document the manual fallback for non-external-dns
+   clusters.
+6. **Tests / e2e** - `reconciler_test.go`, `exposure/gatewayapi_test.go`,
+   `helm/values_test.go`; e2e scenario in `tests/e2e/` (needs a DNS-01-capable
+   issuer in the e2e cluster, or a self-signed wildcard Issuer for the test and
+   a DNS-01 issuer only in production).
+7. **Specs** - as listed in §5.
 
-Explicitly **not** needed: RBAC changes, chart changes (the per-tenant Gateway and
-Certificate are reconciler-owned like the GRPCRoute today, not chart-owned), and
-any pod-side reload mechanism.
+Explicitly not needed: RBAC changes, chart template changes (all new resources
+are reconciler-owned), pod-side reload mechanisms, console changes.
 
----
+## 7. Open questions for the user
 
-## 6. Open questions for the user
-
-1. **Issuer choice:** should the opt-in always name an explicit issuer
-   (`route.certificate.issuerRef`), or should an omitted issuerRef fall back to a
-   cluster-configured default external issuer (new env var, e.g.
-   `GATEWAY_EXTERNAL_CA_ISSUER`, mirroring the Route-mode
-   `ExternalCAIssuerName`)?
-2. **Hostname:** is the per-gateway cert expected for the standard derived host
-   `gw-<ns>.<domain>` (likely - SAN = that host), or primarily for explicit
-   custom hosts (`route.host`)? Both work identically in the design.
-3. **DNS:** on spokes without external-dns (IBM?), is a manual provision-time DNS
-   record acceptable, or must per-gateway certs be limited to external-dns
-   clusters?
-4. **Cost:** is one extra Istio proxy Deployment + LB per opted-in gateway
-   acceptable, given this is a special opt-in configuration?
-5. **Update semantics:** "no support for updates" - should the API actively
-   reject `route.certificate` changes after creation (validation error), or is
-   ignoring later changes acceptable (documented best-effort)?
-6. **Console:** confirm the per-gateway console may stay on the shared wildcard
-   (only the gRPC data plane gets the dedicated cert).
+1. **Issuer:** always an explicit `route.certificate.issuerRef`, or fall back to
+   a cluster-configured default (new env var, e.g. `GATEWAY_SANDBOX_WILDCARD_ISSUER`)?
+   Wildcards require DNS-01 - confirm `letsencrypt-dns01` is the intended issuer
+   for opted-in gateways.
+2. **Hostname scope:** opt-in with the standard derived host
+   (`*.gw-<ns>.<spoke>...`) only, or also explicit `route.host` parents (custom
+   vanity domains, e.g. `*.special.example.com`)?
+3. **DNS:** is a per-gateway wildcard DNS record via external-dns acceptable on
+   AWS spokes, and is a manual record acceptable elsewhere (IBM)? Without
+   external-dns this needs an operator step at provision time.
+4. **Cost:** one extra proxy Deployment + LB per opted-in gateway - acceptable
+   for a special opt-in configuration? (If many gateways opt in, option D's
+   shared hash-routing proxy becomes the better economics.)
+5. **Full independence variant:** should the gateway's own gRPC hostname also
+   move to the per-gateway cert eventually (deferred in this plan), or is
+   sandbox-service traffic the only motivation?
+6. **Update semantics:** "provision time only" - reject `route.certificate`
+   changes after creation (API validation) or ignore them silently?
+7. **Gap C bug:** confirm you want the `pkiInitJob`/`certManager`
+   `serverDnsNames` fix landed as an independent bug fix ahead of the feature
+   (recommended; it affects every cert-manager gateway's `server_sans` today).
