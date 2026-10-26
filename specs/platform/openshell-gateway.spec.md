@@ -159,6 +159,8 @@ The shared Gateway terminates external TLS using a wildcard certificate for `*.<
 
 This avoids per-tenant certificate issuance for the ingress listener -- the `gw-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate. The control plane does not create or manage the Gateway-level TLS; it only creates per-tenant route resources (GRPCRoute, BackendTLSPolicy) that attach to the shared Gateway.
 
+**Per-gateway exception:** a Gateway that opts in via `route.certificate` (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) § Per-Gateway Dedicated Route and Certificate) does not use the shared Gateway or the spoke wildcard. For that Gateway the control plane creates a per-tenant Gateway and a per-gateway cert-manager Certificate with exact + wildcard SANs, and manages both (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
+
 ### Route TLS Strategy
 
 The Gateway API approach uses HTTPS on the listener and BackendTLSPolicy for re-encryption:
@@ -682,6 +684,12 @@ OpenShell's `sandbox create --from <image>`, including an internal-registry mirr
 on restricted-egress clusters. The control plane SHALL NOT patch the rendered
 ConfigMap to select a workload image.
 
+#### server_sans and Exposed-Service Base Domains
+
+`server_sans` carries the `serverDnsNames` from the Gateway resource. The gateway derives its exposed-service base domains from wildcard SANs in this list: it strips the `*.` prefix and uses the remainder as the base domain for ExposeService URLs (`<sandbox>--<service>.<base-domain>`). Without a wildcard SAN naming its external domain, the gateway cannot generate correct external service URLs and falls back to internal base domains.
+
+For a Gateway that opts in via `route.certificate`, the reconciler SHALL inject both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` into `server_sans`, so exposed-service URLs are served under the Gateway's own domain subtree and covered by the per-gateway wildcard certificate (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
+
 #### Sandbox Runtime Class (optional)
 
 The control plane MAY pass a Kubernetes `RuntimeClass` name to the OpenShell Helm chart as `server.defaultRuntimeClassName`, sourced from the `GATEWAY_SANDBOX_RUNTIME_CLASS` environment variable on the control-plane deployment. When set, every sandbox pod provisioned by every gateway on the cluster carries `runtimeClassName: <value>`, routing sandbox scheduling through the named runtime.
@@ -938,6 +946,7 @@ Control Plane
 | `oidc.scopes_claim` | No | `""` | Dot-delimited path to scopes array in JWT claims |
 | `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
+| `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |
@@ -985,7 +994,7 @@ The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, and `rou
 Gateway {
     ...existing fields...
     jsonb  oidc         "nullable - OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
-    jsonb  route        "nullable - route exposure config (host)"
+    jsonb  route        "nullable - route exposure config (host, certificate: per-gateway dedicated route/cert opt-in, provision-time only)"
     text   routeAddress "nullable - read-only external address populated by control plane"
 }
 ```
