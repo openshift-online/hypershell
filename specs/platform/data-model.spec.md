@@ -21,6 +21,8 @@ Current model:
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
+- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-admin-scoped; referenced by many CITrusts; holds no secret.
+- **CITrust** - a gateway owner's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they own. The self-service, secret-less way to enable CI on a gateway.
 
 ## Entity Relationship Diagram
 
@@ -201,6 +203,31 @@ erDiagram
         time deleted_at
     }
 
+    CIProvider {
+        string ID PK
+        string name
+        string forge
+        string issuer
+        string jwks_url
+        string audience
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    CITrust {
+        string ID PK
+        string ci_provider_id FK
+        string gateway_id FK
+        jsonb subject
+        string role
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     ManagedCluster ||--o{ Gateway : "hosts"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     ManagedCluster ||--o{ AgentRuntime : "runs"
@@ -217,6 +244,8 @@ erDiagram
     ProviderSpec ||--o{ ProviderBinding : "bound_by"
     SecretSource ||--o{ ProviderBinding : "credentials_for"
     ProviderBinding ||--o| InferenceRoute : "routed_by"
+    CIProvider ||--o{ CITrust : "federated_by"
+    Gateway ||--o{ CITrust : "trusts_ci"
 ```
 
 ## Requirements
@@ -1383,6 +1412,94 @@ gateway-side provisioning failure.
 
 ---
 
+### Requirement: PLAT-DATA-24 -- CIProvider
+
+`CIProvider` SHALL be a standalone, top-level extension resource that registers a CI OIDC issuer (a continuous-integration system that mints workload OIDC tokens) so that `CITrust` records may federate those tokens into gateway-scoped OpenShell access. It is platform-admin-scoped: typically one record per forge or self-managed forge instance. It carries no tenant or gateway data and holds no secret.
+
+`CIProvider.forge` SHALL be one of:
+- `github` - GitHub Actions OIDC (issuer `https://token.actions.githubusercontent.com`)
+- `gitlab` - GitLab CI/CD `id_tokens` (issuer is the instance URL)
+- `forgejo` - Forgejo Actions OIDC
+
+`CIProvider` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `forge` | string | The forge family, from the enum above. Selects the claim shape `CITrust.subject` uses. |
+| `issuer` | string | The OIDC issuer URL whose tokens this provider validates (e.g. `https://token.actions.githubusercontent.com`, `https://gitlab.cee.redhat.com`) |
+| `jwks_url` | string | The issuer's JWKS endpoint used for signature validation. For a standards-compliant issuer the control plane MAY derive it from OIDC discovery instead |
+| `audience` | string | The platform-pinned audience every federated CI token MUST carry (`aud`). Set once per fleet; tenants cannot override it |
+
+The control plane realizes a `CIProvider` as a validation-only OIDC identity provider on the cluster Keycloak (signature + issuer + audience validation only, no authorization-code flow and no stored client secret). The realization contract is specified in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) and the platform federation design in the gitops `specs/ci-oidc-federation.spec.md`.
+
+`CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane created or adopted (e.g. `github-actions`, `gitlab-ci`).
+
+#### Scenario: PLAT-DATA-24.01 -- CIProvider Referenced by Multiple CITrusts
+
+- GIVEN a `CIProvider` named `github-actions`
+- WHEN two gateway owners each create a `CITrust` referencing it
+- THEN both `CITrust` records SHALL reference the same `CIProvider`
+- AND deleting one `CITrust` SHALL NOT delete the `CIProvider`
+- AND the `CIProvider` SHALL only be deletable when no `CITrust` references it
+
+#### Scenario: PLAT-DATA-24.02 -- CIProvider Issuer Immutable After Trust
+
+- GIVEN a `CIProvider` with one or more `CITrust` records referencing it
+- WHEN a PATCH request attempts to change `issuer` or `audience`
+- THEN the API server SHALL reject the request with 422
+
+---
+
+### Requirement: PLAT-DATA-25 -- CITrust
+
+A `CITrust` wires a `CIProvider` to a single `Gateway` the caller owns, declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret.
+
+`CITrust` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `provider` | ref | The `CIProvider` whose issuer is trusted |
+| `subject` | object | A forge-discriminated claim matcher (see below). Only tokens whose claims match SHALL be accepted |
+| `gateway` | ref | The `Gateway` this CI may operate. The caller MUST own it (see security below) |
+| `role` | string | The gateway role granted to the federated session. It SHALL NOT exceed the caller's own rights on the gateway |
+
+`CITrust.subject` is discriminated by the referenced `CIProvider.forge`:
+
+| Forge | Required | Optional (tighter) |
+|---|---|---|
+| `github` | `repository` (`owner/name`) | `ref`, `environment` |
+| `gitlab` | `project_path` (`group/project`) | `ref`, `ref_protected`, `environment` |
+| `forgejo` | `repository` | `ref` |
+
+The audience is NOT a `CITrust` field; it is inherited, pinned, from the `CIProvider`. The control plane compiles `subject` into an immutable claim predicate and derives the forge-namespaced workspace (`gh-<owner>` for GitHub, `gl-<namespace>` for GitLab) so identities cannot collide across forges or tenants.
+
+The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace mapper, a token-exchange permission from the shared federation client onto the gateway audience, and a gateway RBAC binding granting `role` in the derived workspace. No raw credential or `Secret` is rendered. The realization contract is in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md).
+
+`CITrust.status` SHALL surface `exchange_endpoint` (the cluster Keycloak token endpoint), `workspace` (the derived workspace), and `workflow_hint` (the exact CI snippet the tenant pastes to mint and exchange the token).
+
+#### Scenario: PLAT-DATA-25.01 -- CITrust on an Owned Gateway
+
+- GIVEN a `CIProvider` named `github-actions`
+- AND a `Gateway` the caller owns
+- WHEN the caller creates a `CITrust` referencing both with `subject.repository = myorg/myrepo`
+- THEN the control plane SHALL realize the scoped token-exchange mapping and gateway RBAC binding
+- AND `status.workspace` SHALL be `gh-myorg`
+- AND `status.workflow_hint` SHALL contain a runnable CI snippet
+
+#### Scenario: PLAT-DATA-25.02 -- CITrust on a Non-Owned Gateway Rejected
+
+- GIVEN a `Gateway` the caller does NOT own
+- WHEN the caller creates a `CITrust` referencing it
+- THEN the API server SHALL reject the request with 403
+
+#### Scenario: PLAT-DATA-25.03 -- CITrust Role Cannot Exceed Caller Rights
+
+- GIVEN a caller whose rights on the target `Gateway` are below `role`
+- WHEN the caller creates a `CITrust` requesting that `role`
+- THEN the API server SHALL reject the request with 403
+
+---
+
 ## API Reference
 
 ### Standard kinds - `/api/hypershell/v1/`
@@ -1417,6 +1534,10 @@ gateway-side provisioning failure.
 | GET/PATCH/DELETE | `/secret_sources/{id}` | Get/Update/Delete |
 | GET/POST | `/repositories` | List/Create |
 | GET/PATCH/DELETE | `/repositories/{id}` | Get/Update/Delete |
+| GET/POST | `/ci_providers` | List/Create |
+| GET/PATCH/DELETE | `/ci_providers/{id}` | Get/Update/Delete |
+| GET/POST | `/ci_trusts` | List/Create |
+| GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
