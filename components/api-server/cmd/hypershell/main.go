@@ -51,7 +51,7 @@ func main() {
 		if err := logging.Install(pkgenv.Environment().Config.Logging); err != nil {
 			return fmt.Errorf("configure logging: %w", err)
 		}
-		return nil
+		return registerAdvisoryLockMetrics()
 	}
 	rootCmd.AddCommand(
 		pkgcmd.NewMigrateCommand("hypershell"),
