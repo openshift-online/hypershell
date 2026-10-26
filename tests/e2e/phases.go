@@ -189,6 +189,7 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 
 	running := s.waitGatewayRunning(t, created.ID)
 	s.primary.Namespace = running.Namespace
+	s.primaryWorkspaceMode = running.WorkspaceMode
 	s.Require().Equal("Running", running.Phase, "gateway must reach Running")
 	s.Require().NotEmpty(running.RouteAddress, "running gateway publishes route_address")
 	var conditionsErr error
@@ -443,7 +444,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	for _, sandboxName := range names {
 		sandboxName := sandboxName
 		g.Go(func() error {
-			if err := s.waitPodRunning(waitCtx, running.Namespace, "default--"+sandboxName, sandboxTimeout); err != nil {
+			if err := s.waitPodRunning(waitCtx, sandboxPodNamespace(running.WorkspaceMode, running.Namespace, "default"), sandboxPodName(running.WorkspaceMode, "default", sandboxName), sandboxTimeout); err != nil {
 				return fmt.Errorf("sandbox pod %s Running: %w", sandboxName, err)
 			}
 			return nil
@@ -1180,6 +1181,30 @@ func (s *E2ESuite) assertGarbageCollectedEvent(t *testing.T, orphan string) {
 		return len(events.Items) > 0, nil
 	})
 	s.Assert().NoError(err, "GarbageCollected Event for orphan namespace %s", orphan)
+}
+
+// sandboxPodNamespace returns the namespace a gateway's sandbox pods run in
+// for the given workspace, derived from the gateway's workspace mode
+// (openshell-gateway.spec.md, "Gateway Workspace Mode"). Shared mode keeps
+// every sandbox in the gateway namespace; managed mode gives each workspace its
+// own openshell-{gateway_id}-{workspace} namespace, where gateway_id is the
+// hexadecimal suffix of the gateway's API-assigned namespace.
+func sandboxPodNamespace(mode, gatewayNamespace, workspace string) string {
+	if mode == "managed" {
+		return "openshell-" + strings.TrimPrefix(gatewayNamespace, "openshell-") + "-" + workspace
+	}
+	return gatewayNamespace
+}
+
+// sandboxPodName returns the sandbox pod name a gateway creates for a sandbox,
+// derived from the gateway's workspace mode: shared mode prefixes the pod name
+// with the workspace ({workspace}--{name}); managed and operator modes use the
+// plain sandbox name inside the workspace's own namespace.
+func sandboxPodName(mode, workspace, name string) string {
+	if mode == "managed" || mode == "operator" {
+		return name
+	}
+	return workspace + "--" + name
 }
 
 // waitPodRunning waits for the requested workload image, not just a supervisor

@@ -67,6 +67,18 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	// The API server already enforces the workspace-mode vocabulary on write;
+	// this is the reconcile-time defense in depth so a bad stored value can
+	// never reach the Helm chart (openshell-gateway.spec.md, "Gateway Workspace
+	// Mode").
+	if config.WorkspaceMode != "" {
+		switch config.WorkspaceMode {
+		case "shared", "managed", "operator":
+		default:
+			return fmt.Errorf("invalid workspaceMode %q: must be one of shared, managed, operator", config.WorkspaceMode)
+		}
+	}
+
 	for i, dns := range config.ServerDnsNames {
 		if err := ValidateDNSName(dns); err != nil {
 			return fmt.Errorf("invalid serverDnsNames[%d]: %w", i, err)

@@ -2,17 +2,24 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
+
+// OpenShellGatewayIDLabel is the label the OpenShell Kubernetes driver stamps on
+// the per-workspace namespaces it creates in managed workspace mode, carrying
+// the gateway's configured gateway_id.
+const OpenShellGatewayIDLabel = "openshell.ai/gateway-id"
 
 // Labels EnsureManagedNamespace stamps on namespaces this control-plane instance
 // owns. Periodic GC selects on the instance label so two HyperShells on one
@@ -174,6 +181,47 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 	}
 	log.Printf("INFO deleted namespace %s", namespace)
 	return true, nil
+}
+
+// DeleteManagedWorkspaceNamespaces deletes the per-workspace namespaces a
+// managed-mode gateway auto-created (openshell-{gateway_id}-{workspace}),
+// best-effort and idempotent. The OpenShell Kubernetes driver labels those
+// namespaces with its gateway id; HyperShell provisions managed gateways with
+// gateway_id derived from the gateway's API-assigned namespace, so they are
+// selectable here. The namespaces are cluster-scoped and created by the gateway
+// process rather than the control plane, so neither the Helm uninstall nor the
+// managed-namespace GC reaps them; without this sweep every deleted managed
+// gateway would leak its workspace namespaces. A namespace that does not follow
+// the API-assigned openshell-{16-hex} shape cannot have created conventional
+// managed namespaces, so it is a no-op. Per-namespace failures are aggregated so
+// the caller can record orphans and retry the delete reconcile.
+func DeleteManagedWorkspaceNamespaces(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	gatewayID, err := helm.ManagedGatewayID(namespace)
+	if err != nil {
+		return nil
+	}
+	selector := fmt.Sprintf("%s=%s", OpenShellGatewayIDLabel, gatewayID)
+	list, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return fmt.Errorf("list managed workspace namespaces of %s: %w", namespace, err)
+	}
+	var errs []error
+	for i := range list.Items {
+		name := list.Items[i].Name
+		if name == namespace {
+			// Defensive: the gateway namespace itself never carries the label.
+			continue
+		}
+		if err := client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("delete managed workspace namespace %s: %w", name, err))
+		} else {
+			log.Printf("INFO deleted managed workspace namespace %s of gateway namespace %s", name, namespace)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // EnsureManagedNamespace creates namespace if it is absent, and otherwise

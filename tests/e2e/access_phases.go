@@ -163,7 +163,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	if out, err = s.cli(t, developerLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", name); err != nil {
 		s.Logf("developer sandbox create returned an error (continuing to poll): %v\n%s", err, out)
 	}
-	s.Require().NoError(s.waitPodRunning(ctx, s.primary.Namespace, "default--"+name,
+	s.Require().NoError(s.waitPodRunning(ctx, sandboxPodNamespace(s.primaryWorkspaceMode, s.primary.Namespace, "default"), sandboxPodName(s.primaryWorkspaceMode, "default", name),
 		durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)), "developer may create sandbox as workspace user")
 	s.deleteSandboxAndWaitForCount(t, developerLocal, name, s.primary.ID, 0)
 }

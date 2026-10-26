@@ -122,6 +122,22 @@ func migrationBackfillLegacyCredentialDriverKEK() *gormigrate.Migration {
 	}
 }
 
+// migrationAddGatewayWorkspaceMode persists the per-gateway OpenShell workspace
+// mode (shared/managed/operator). Existing rows stay NULL so legacy gateways
+// keep the chart's shared default; the create path defaults new gateways to
+// managed (openshell-gateway.spec.md, "Gateway Workspace Mode").
+func migrationAddGatewayWorkspaceMode() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102012000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS workspace_mode TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS workspace_mode").Error
+		},
+	}
+}
+
 func migrationAddSupervisorImage() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080712000002",

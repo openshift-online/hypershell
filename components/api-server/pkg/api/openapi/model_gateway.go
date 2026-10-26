@@ -64,6 +64,8 @@ type Gateway struct {
 	Route *string `json:"route,omitempty"`
 	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Null (legacy gateways) keeps the chart's \"shared\" default.
+	WorkspaceMode *string `json:"workspace_mode,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
 	// Ordered list of provisioning conditions describing sub-phase progress
@@ -848,6 +850,38 @@ func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
 }
 
+// GetWorkspaceMode returns the WorkspaceMode field value if set, zero value otherwise.
+func (o *Gateway) GetWorkspaceMode() string {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		var ret string
+		return ret
+	}
+	return *o.WorkspaceMode
+}
+
+// GetWorkspaceModeOk returns a tuple with the WorkspaceMode field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetWorkspaceModeOk() (*string, bool) {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		return nil, false
+	}
+	return o.WorkspaceMode, true
+}
+
+// HasWorkspaceMode returns a boolean if a field has been set.
+func (o *Gateway) HasWorkspaceMode() bool {
+	if o != nil && !IsNil(o.WorkspaceMode) {
+		return true
+	}
+
+	return false
+}
+
+// SetWorkspaceMode gets a reference to the given string and assigns it to the WorkspaceMode field.
+func (o *Gateway) SetWorkspaceMode(v string) {
+	o.WorkspaceMode = &v
+}
+
 // GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
 func (o *Gateway) GetActiveSandboxCount() int32 {
 	if o == nil || IsNil(o.ActiveSandboxCount) {
@@ -1179,6 +1213,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.WorkspaceMode) {
+		toSerialize["workspace_mode"] = o.WorkspaceMode
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount

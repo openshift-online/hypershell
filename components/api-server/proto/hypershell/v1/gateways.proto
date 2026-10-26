@@ -71,6 +71,12 @@ message Gateway {
   // created directly through the REST API or hsctl apply. Read-only; set server-side
   // from the x-hypershell-import-repository-id binding, never from a client body.
   optional string repository_id = 30;
+  // workspace_mode selects how the OpenShell Kubernetes driver maps workspaces
+  // to namespaces: shared, managed, or operator. Defaults to managed at create;
+  // immutable once stored (a null value may be set exactly once). Null (legacy
+  // gateways) keeps the chart's shared default. See openshell-gateway.spec.md,
+  // "Gateway Workspace Mode".
+  optional string workspace_mode = 31;
 }
 
 message CreateGatewayRequest {
@@ -88,6 +94,8 @@ message CreateGatewayRequest {
   optional string route = 15;
   optional string credential_driver = 17;
   GatewayPlacementIntent placement = 18;
+  // workspace_mode: shared, managed, or operator. Omitted defaults to managed.
+  optional string workspace_mode = 19;
 }
 
 message CreateGatewayResponse {
@@ -125,6 +133,9 @@ message UpdateGatewayRequest {
   optional string console_address = 20;
   repeated ProvisioningCondition provisioning_conditions = 21;
   optional int64 observed_generation = 23;
+  // workspace_mode may only be set on a gateway whose stored value is null
+  // (legacy gateways); changing a stored value is rejected.
+  optional string workspace_mode = 24;
 }
 
 message UpdateGatewayResponse {

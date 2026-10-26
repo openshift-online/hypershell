@@ -4168,6 +4168,19 @@ components:
               \ control-plane-only (PLAT-DATA-23)"
             readOnly: true
             type: string
+          workspace_mode:
+            description: "How the OpenShell Kubernetes driver maps workspaces to namespaces.\
+              \ \"shared\" places all sandboxes in the gateway namespace; \"managed\"\
+              \ auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned\
+              \ namespaces. Platform-managed (PLAT-DATA-23): the API server defaults\
+              \ it to \"managed\" at create, and no caller can set or change it. Null\
+              \ (legacy gateways) keeps the chart's \"shared\" default."
+            enum:
+            - shared
+            - managed
+            - operator
+            readOnly: true
+            type: string
           active_sandbox_count:
             description: Number of active (Running or Pending) agent sandboxes observed
               in the gateway namespace by the control plane
@@ -4253,6 +4266,7 @@ components:
           message: message
         kind: kind
         console_address: console_address
+        workspace_mode: shared
         can_edit: true
         route_address: route_address
         oidc: oidc
@@ -4312,6 +4326,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          workspace_mode: shared
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -4352,6 +4367,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          workspace_mode: shared
           can_edit: true
           route_address: route_address
           oidc: oidc

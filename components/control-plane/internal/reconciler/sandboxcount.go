@@ -177,7 +177,9 @@ func (r *SandboxCountReconciler) onAdd(obj interface{}) {
 		return
 	}
 	if gateway.IsActiveSandboxPod(pod) {
-		r.applyDelta(pod.Namespace, 1)
+		// Managed workspace mode runs sandbox pods in per-workspace namespaces;
+		// attribute them to the owning gateway's namespace.
+		r.applyDelta(gateway.SandboxGatewayNamespace(pod.Namespace), 1)
 	}
 }
 
@@ -201,9 +203,9 @@ func (r *SandboxCountReconciler) onUpdate(oldObj, newObj interface{}) {
 	now := gateway.IsActiveSandboxPod(newPod)
 	switch {
 	case !was && now:
-		r.applyDelta(newPod.Namespace, 1)
+		r.applyDelta(gateway.SandboxGatewayNamespace(newPod.Namespace), 1)
 	case was && !now:
-		r.applyDelta(newPod.Namespace, -1)
+		r.applyDelta(gateway.SandboxGatewayNamespace(newPod.Namespace), -1)
 	}
 }
 
@@ -226,7 +228,9 @@ func (r *SandboxCountReconciler) onDelete(obj interface{}) {
 		}
 	}
 	if gateway.IsActiveSandboxPod(pod) {
-		r.applyDelta(pod.Namespace, -1)
+		// Managed workspace mode runs sandbox pods in per-workspace namespaces;
+		// attribute them to the owning gateway's namespace.
+		r.applyDelta(gateway.SandboxGatewayNamespace(pod.Namespace), -1)
 	}
 }
 
@@ -317,29 +321,33 @@ func (r *SandboxCountReconciler) healNamespace(ctx context.Context, lister corel
 	return nil
 }
 
-// countActiveSandboxes tallies the active sandbox pods a namespace holds in the
-// informer cache. The informer is label-selected to sandbox pods, so the cache
-// holds only sandbox pods; the accounting reuses activeSandboxesByNamespace so
-// the active-pod filter has a single source of truth.
+// countActiveSandboxes tallies the active sandbox pods attributed to a gateway
+// namespace. The informer is label-selected to sandbox pods across all
+// namespaces, so the cache holds every sandbox pod on the cluster; a pod counts
+// toward the gateway when its own namespace maps to the gateway namespace,
+// which covers both shared mode (pods in the gateway namespace) and managed
+// mode (pods in the gateway's per-workspace namespaces). The active-pod filter
+// reuses SandboxGatewayNamespace and IsActiveSandboxPod so the attribution has
+// a single source of truth.
 func countActiveSandboxes(lister corelisters.PodLister, namespace string) (int, error) {
-	pods, err := lister.Pods(namespace).List(labels.Everything())
+	pods, err := lister.List(labels.Everything())
 	if err != nil {
 		return 0, err
 	}
-	return activeSandboxesByNamespace(pods)[namespace], nil
+	return countActiveSandboxesForGateway(pods, namespace), nil
 }
 
-// activeSandboxesByNamespace tallies active sandbox pods per namespace from a
-// cache snapshot. It is pure so the self-heal accounting can be unit tested
-// without an informer.
-func activeSandboxesByNamespace(pods []*corev1.Pod) map[string]int {
-	counts := make(map[string]int)
+// countActiveSandboxesForGateway tallies the active sandbox pods attributed to
+// one gateway namespace from a cache snapshot. It is pure so the self-heal
+// accounting can be unit tested without an informer.
+func countActiveSandboxesForGateway(pods []*corev1.Pod, gatewayNamespace string) int {
+	count := 0
 	for _, pod := range pods {
-		if gateway.IsActiveSandboxPod(pod) {
-			counts[pod.Namespace]++
+		if gateway.IsActiveSandboxPod(pod) && gateway.SandboxGatewayNamespace(pod.Namespace) == gatewayNamespace {
+			count++
 		}
 	}
-	return counts
+	return count
 }
 
 func (r *SandboxCountReconciler) grpcAdjust(ctx context.Context, namespace string, delta int) error {

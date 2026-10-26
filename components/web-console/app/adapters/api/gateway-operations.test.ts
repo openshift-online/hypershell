@@ -91,6 +91,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     supervisor_image: "",
     tls_mode: "",
     updated_at: null,
+    workspace_mode: "managed",
     ...overrides,
   };
 }
