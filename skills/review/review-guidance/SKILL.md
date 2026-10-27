@@ -40,6 +40,11 @@ Before analyzing any PR, load:
 - [ ] `gofmt -w .` applied
 - [ ] `go vet ./...` passes
 - [ ] Reconcile pattern used (not create-or-skip)
+- [ ] New or materially changed reconciliation code complies with the
+      reconciliation contract (`specs/standards/control-plane/reconciliation-contract.spec.md`,
+      STD-RCON-01 through STD-RCON-11), or records an explicit exception
+      (STD-RCON-12). Covers Gateway, RoleBinding, AgentRuntime, `Repository`
+      import, service accounts, and per-gateway databases.
 
 ### General
 

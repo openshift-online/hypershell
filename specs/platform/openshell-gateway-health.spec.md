@@ -15,7 +15,11 @@ manifests. A gateway whose pod is crash-looping must never be reported as
 
 This spec is a sub-spec of [`control-plane.spec.md`](./control-plane.spec.md)
 and refines its "Gateway Reconciliation" and "Status Synchronization"
-requirements. Provisioning mechanics are defined in
+requirements. Its provisioning gate and continuous-health behavior refine the
+control-plane reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-02, STD-RCON-06); it refines that contract and does not weaken it.
+Provisioning mechanics are defined in
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md). The canonical
 representation of the `phase`/`status` vocabulary used here - the allowed values
 and the single shared source of truth every component draws from - is defined in

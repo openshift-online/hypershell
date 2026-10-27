@@ -31,6 +31,11 @@ governs how many provisions may run at once. Where
 `reconcile.queue.depth` and `reconcile.queue.wait.duration` metrics, those metrics
 observe the same queue this specification tunes.
 
+This specification refines the per-resource serialization, bounded worker pool,
+and single-replica guarantees of the control-plane reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-03, STD-RCON-11); it refines that contract and does not weaken it.
+
 ### Non-goals
 
 - **Multi-replica correctness.** The in-process queue guarantees per-gateway
