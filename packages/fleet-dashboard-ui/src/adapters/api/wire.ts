@@ -955,6 +955,7 @@ interface WireSdlcAgentMetrics {
   itemsProcessed?: number;
   itemsFailed?: number;
   provisionSeconds?: number;
+  lastReportedAt?: number;
   series?: WireSdlcAgentSeries;
 }
 
@@ -983,6 +984,9 @@ function mapSdlcAgentRow(w?: WireSdlcAgentMetrics): SdlcAgentMetrics {
     itemsProcessed: w?.itemsProcessed ?? 0,
     itemsFailed: w?.itemsFailed ?? 0,
     provisionSeconds: w?.provisionSeconds ?? 0,
+    // Freshness fact (SDLC-AGT-15): defensively default to 0 when absent, matching
+    // the BFF's own 0-when-absent contract.
+    lastReportedAt: w?.lastReportedAt ?? 0,
     series: mapSdlcAgentSeries(w?.series),
   };
 }

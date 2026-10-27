@@ -1,7 +1,7 @@
 ---
 # spec-review harness (ported from run.sh; hyp0: Vertex via ADC, github provider, no mint).
 agent: agents/spec-review.md
-description: "Review the spec PR and record a verdict"
+description: "Review the spec changes on the work item's pull request and record a verdict"
 role: review
 slug: fullsend-spec-review
 image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55

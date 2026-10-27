@@ -239,6 +239,7 @@ func TestHandle_OwnClusterGatewayReachesKeycloak(t *testing.T) {
 // ERROR on every reconnect and resync interval, forever, for every such binding.
 // An unroutable Keycloak proves the no-op happens before any Keycloak call: if
 // the reconciler proceeded past the missing gateway it would fail loudly instead.
+// Verifies: OSG-KCLK-10.03
 func TestHandle_MissingGatewayIsBenignNoOp(t *testing.T) {
 	// No gateway is set on the recorder, so GetGateway returns codes.NotFound for
 	// any id -- exactly the missing-gateway condition under test.

@@ -32,11 +32,13 @@ COMPONENTS = (
     "hypershell-agent-runtime-main",
     "hypershell-agent-runtime-slim-main",
 )
-# Components built by the hypershell-main Konflux application that ship on their
-# own rather than through the release bundle. The fleet-dashboard is pinned by its
-# own :main image digest (not the bundle), so it is tolerated in a Snapshot or the
-# release artifacts and excluded here instead of rejected as unexpected.
-EXCLUDED_COMPONENTS = ("hypershell-fleet-dashboard-main",)
+# These application components are distributed independently of the six-image
+# release bundle: the fleet dashboard and the Fullsend harness sandbox. Accept
+# them in snapshots and managed artifacts without adding them to the bundle.
+EXCLUDED_COMPONENTS = (
+    "hypershell-fleet-dashboard-main",
+    "hypershell-fullsend-sandbox-main",
+)
 BUNDLE_REPOSITORY = BUILD_PREFIX + COMPONENTS[0]
 MANIFEST_PATHS = (
     "deploy/hub",

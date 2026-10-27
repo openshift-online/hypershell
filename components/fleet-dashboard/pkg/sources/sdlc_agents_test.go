@@ -209,6 +209,61 @@ func TestSdlcAgentsHistoryAlignment(t *testing.T) {
 	}
 }
 
+// TestSdlcAgentsLastReportedAt covers the freshness fact: the instant query
+// max by (name, env) (sdlc_agent_last_report_timestamp_seconds) is mapped onto
+// each row as LastReportedAt (unix seconds), and defaults to 0 when the series is
+// absent for an agent.
+// Verifies: SDLC-AGT-15.01, SDLC-AGT-15.02
+func TestSdlcAgentsLastReportedAt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "sum by (name, env) (sdlc_agent)"):
+			// Two agents report on the on/off gauge; only one reports a freshness fact.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"name":"triage","env":"integration"},"value":[1,"1"]},` +
+				`{"metric":{"name":"spec-review","env":"integration"},"value":[1,"0"]}` +
+				`]}}`))
+		case strings.Contains(q, "sdlc_agent_last_report_timestamp_seconds"):
+			// Only triage has pushed a freshness timestamp.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"name":"triage","env":"integration"},"value":[1,"1700000000"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:   srv.URL,
+		client: srv.Client(),
+		logger: slog.Default(),
+	}
+
+	out, err := p.SdlcAgents(context.Background())
+	if err != nil {
+		t.Fatalf("SdlcAgents: %v", err)
+	}
+	data := out.(SdlcAgentsData)
+	byName := map[string]SdlcAgentMetrics{}
+	for _, a := range data.Agents {
+		byName[a.Name] = a
+	}
+
+	// SDLC-AGT-15.01: the freshness fact maps to the pushed unix seconds.
+	if got := byName["triage"].LastReportedAt; got != 1700000000 {
+		t.Errorf("triage LastReportedAt = %d, want 1700000000", got)
+	}
+	// SDLC-AGT-15.02: an agent with no freshness series defaults to 0.
+	if got := byName["spec-review"].LastReportedAt; got != 0 {
+		t.Errorf("spec-review LastReportedAt = %d, want 0 (absent series)", got)
+	}
+}
+
 // TestSdlcAgentsNaN covers the NaN guard: a Prometheus NaN sample must collapse
 // to 0 so it does not break JSON marshaling.
 func TestSdlcAgentsNaN(t *testing.T) {

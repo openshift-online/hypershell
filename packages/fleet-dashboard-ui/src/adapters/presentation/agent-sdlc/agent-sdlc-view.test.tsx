@@ -780,3 +780,68 @@ describe("AgentSdlcView column agent integration", () => {
     expect(screen.getByRole("group", { name: "Failed: 1" })).toBeDefined();
   });
 });
+
+describe("AgentSdlcView column agent activity (SDLC-AGT-17)", () => {
+  const data: AgentSdlcData = {
+    ...EMPTY,
+    phases: [{ key: "spec", sleSeconds: 100 }],
+  };
+  const NOW_MS = 1_700_000_000_000;
+  const nowS = NOW_MS / 1000;
+
+  // Verifies: SDLC-AGT-17.01, SDLC-AGT-17.02
+  it("renders Active with a last-seen line for a running agent with a fresh timestamp", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({ replicasOn: 2, lastReportedAt: nowS - 30 }),
+      ],
+    ]);
+    renderView({ data, agents, nowMs: NOW_MS, planeStale: false });
+    expect(screen.getByText("Active")).toBeDefined();
+    expect(screen.getByText(/last seen .* ago/)).toBeDefined();
+  });
+
+  // Verifies: SDLC-AGT-17.01
+  it("renders Not active for an idle agent (no running replicas)", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({ replicasOn: 0, lastReportedAt: nowS - 30 }),
+      ],
+    ]);
+    renderView({ data, agents, nowMs: NOW_MS, planeStale: false });
+    expect(screen.getByText("Not active")).toBeDefined();
+  });
+
+  // Blind state on the board column header.
+  // Verifies: SDLC-AGT-17.01
+  it("renders Monitoring blind for every agent when the plane is stale", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({ replicasOn: 2, lastReportedAt: nowS - 30 }),
+      ],
+    ]);
+    renderView({ data, agents, nowMs: NOW_MS, planeStale: true });
+    expect(screen.getByText("Monitoring blind")).toBeDefined();
+    expect(screen.queryByText("Active")).toBeNull();
+  });
+
+  // Verifies: SDLC-AGT-17.03
+  it("keeps the agent name a button (history reachable) even when not active", () => {
+    const agents = new Map([
+      [
+        "spec-review",
+        makeAgentMetrics({ replicasOn: 0, lastReportedAt: nowS - 30 }),
+      ],
+    ]);
+    renderView({ data, agents, nowMs: NOW_MS, planeStale: false });
+    expect(screen.getByText("Not active")).toBeDefined();
+    expect(
+      screen.getByRole("button", {
+        name: "Open runtime details for the spec-review agent",
+      }),
+    ).toBeDefined();
+  });
+});
