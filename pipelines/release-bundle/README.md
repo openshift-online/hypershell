@@ -36,8 +36,10 @@ The publisher requires all of these conditions:
 
 - The Release uses `hypershell-releaseplan` in `hcm-eng-prod-tenant`.
 - The managed pipeline has status `True` and reason `Succeeded`.
-- The Snapshot contains exactly the six expected components.
-- The release lists at least one image, with no unknown or duplicate components.
+- The Snapshot contains all six required bundle components. Fleet-dashboard and
+  Fullsend sandbox are accepted but excluded from the bundle.
+- After those exclusions, the release artifact list may be partial or empty;
+  unknown or duplicate bundle components are rejected.
 - Each image listed in the release matches the Snapshot digest and release repository.
 - All six Snapshot digests are available in their fixed release repositories.
 - Each source revision belongs to the history of `hypershell` main.
