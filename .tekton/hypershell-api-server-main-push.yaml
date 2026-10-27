@@ -1,4 +1,5 @@
 # Trigger a release bundle to verify promotion from main and PostSync analysis.
+# ci: no-op rebuild trigger to verify enterprise-contract passes
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
