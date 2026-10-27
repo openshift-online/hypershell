@@ -274,6 +274,7 @@ vendor-openshell-chart:
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_quay_digest.py
 
 .PHONY: check-openshell-version
 check-openshell-version: test-openshell-version-policy

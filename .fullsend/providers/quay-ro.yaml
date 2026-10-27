@@ -1,0 +1,5 @@
+---
+# Network-only provider for the public Quay tag API (profiles/hypershell-quay-ro.yaml).
+# It carries no credential.
+name: quay-ro
+type: hypershell-quay-ro

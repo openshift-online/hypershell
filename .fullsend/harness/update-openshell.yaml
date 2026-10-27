@@ -9,6 +9,11 @@ policy: policies/base.yaml
 providers:
   - vertex-ai
   - github
+  # Read-only Quay tag API for image digests (python3 only).
+  - providers/quay-ro.yaml
+openshell:
+  profiles:
+    - profiles/hypershell-quay-ro.yaml
 host_files:
   - src: ${GOOGLE_APPLICATION_CREDENTIALS}
     dest: /tmp/.gcp-credentials.json

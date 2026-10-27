@@ -9,7 +9,7 @@ metadata:
   name: update-openshell
   description: SDLC automation agent (update-openshell)
 spec:
-  sandbox_template_id: agent-runtime-slim
+  sandbox_template_id: agent-runtime-slim-quay
   gateway_id: agents-gateway
   repository_id: openshift-online/hypershell
   cron: "*/5 * * * *"

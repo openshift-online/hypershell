@@ -418,9 +418,13 @@ be investigated rather than retaining the old pin silently.
 
    ```bash
    # List available console image tags (newest first)
-   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?limit=20" \
-     | python3 -c "import sys,json; [print(t['name'],t.get('manifest_digest','')) for t in json.load(sys.stdin)['tags']]"
+   python3 scripts/quay_digest.py --list gkrumbach07/openshell-dashboard
    ```
+
+   This sandbox reaches `quay.io` only through `python3` (read-only, the v1 tag
+   API). `curl` and `skopeo` cannot reach it here. Resolve any image digest with
+   `python3 scripts/quay_digest.py <namespace/repo> <tag>`, for example
+   `opendatahub/odh-openshell-gateway v0.1.5-rhaiv.1`.
 
    When updating, set both files - they must agree:
    - `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`
