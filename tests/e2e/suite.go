@@ -386,6 +386,10 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
 		// P2.7 (vault-fail-closed) is NOT here: it makes the cluster Vault unreachable
 		// cluster-wide, so it runs serially as the final step (see TestPhases, Phase-P4).
+		s.parallelStep("P2.8", "gateway-sharing-rolebindings", tagLong, (*E2ESuite).p2_8GatewaySharingRoleBindings),
+		s.parallelStep("P2.9", "kata-runtime", tagLong, (*E2ESuite).p2_9KataRuntime),
+		s.parallelStep("P2.10", "alerting-signal", tagLong, (*E2ESuite).p2_10AlertingSignal),
+		s.parallelStep("P2.11", "cli-ui-parity", tagLong, (*E2ESuite).p2_11CLIUIParity),
 	}
 }
 
@@ -493,6 +497,10 @@ func plannedReportSteps() []harness.PlannedStep {
 		{StepID: "P2.4", Name: "managedcluster-lifecycle"},
 		{StepID: "P2.5", Name: "gateway-access-management"},
 		{StepID: "P2.6", Name: "gateway-service-accounts"},
+		{StepID: "P2.8", Name: "gateway-sharing-rolebindings"},
+		{StepID: "P2.9", Name: "kata-runtime"},
+		{StepID: "P2.10", Name: "alerting-signal"},
+		{StepID: "P2.11", Name: "cli-ui-parity"},
 		{StepID: "P3.1", Name: "admin-inventory-validation"},
 		// P2.7 runs serially last (it makes the cluster Vault unreachable); see TestPhases.
 		{StepID: "P2.7", Name: "vault-fail-closed"},

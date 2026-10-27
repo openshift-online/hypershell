@@ -60,6 +60,12 @@ type E2EInfraDriver interface {
 	// OIDC + authenticated API access. Grant selected by E2E_OIDC_GRANT.
 	AcquireOIDCToken(ctx context.Context, user Credentials) (Token, error)
 	AcquireGatewayTokenWithRole(ctx context.Context, user Credentials, clientID, role string) (Token, error)
+	// AcquireGatewayToken mints a per-gateway token for user WITHOUT requiring any
+	// particular role, returning whatever roles the user currently carries. Unlike
+	// AcquireGatewayTokenWithRole it does not poll for a role, so callers can assert
+	// on the claims of a freshly minted token (for example that a revoked role is
+	// gone) and use it for an operation that must be denied.
+	AcquireGatewayToken(ctx context.Context, user Credentials, clientID string) (Token, error)
 	// ValidateGatewayDeviceAuthorization exercises the public OAuth device flow
 	// with PKCE for a reconciled per-gateway client.
 	ValidateGatewayDeviceAuthorization(ctx context.Context, clientID string) error

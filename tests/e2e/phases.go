@@ -749,6 +749,13 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().True(found, "second managed cluster %q is registered and selectable", secondName)
 	}
 	s.assertManagedClusterGRPCIdentity(t)
+
+	// E2E-COV-06: deleting a registered ManagedCluster detaches its gateways until
+	// the control plane re-registers, which restores the same cluster_id. Runs only
+	// under E2E_MULTICLUSTER=1 against a real second cluster.
+	t.Run("delete-and-re-register", func(t *testing.T) {
+		s.assertManagedClusterDeleteAndReRegister(t)
+	})
 }
 
 // waitDisruptiveGate blocks until gate exists, which is how
@@ -1121,6 +1128,43 @@ func (s *E2ESuite) waitNamespaceGone(ctx context.Context, ns string, timeout tim
 		}
 		return false, nil
 	})
+}
+
+// deleteGatewayAndWaitGC deletes gatewayID, waits for the API record to reach a
+// 404, and (when ns is non-empty) waits for its managed namespace to be
+// garbage-collected. Shared by every phase that owns and tears down a gateway
+// beyond the primary.
+func (s *E2ESuite) deleteGatewayAndWaitGC(t *testing.T, gatewayID, ns string) {
+	ctx := t.Context()
+	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gatewayID, ns)
+	// The delete-path service-account cleanup barrier (deletion_cleanup.go) holds a
+	// per-gateway lock across the Keycloak cleanup call; under concurrent phase load
+	// it can transiently report 503 "cleanup is unavailable" even though no
+	// service accounts exist for this gateway. That status is the server's own
+	// retry signal, so poll it rather than failing the phase on a transient lock
+	// contention/provisioner hiccup.
+	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+		status, body, err := s.admin.RawJSON(ctx, http.MethodDelete, "/gateways/"+gatewayID, nil)
+		if err != nil {
+			return false, err
+		}
+		switch status {
+		case http.StatusNoContent, http.StatusOK, http.StatusAccepted:
+			return true, nil
+		case http.StatusServiceUnavailable:
+			s.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gatewayID, body)
+			return false, nil
+		default:
+			return false, fmt.Errorf("delete gateway status %d: %s", status, body)
+		}
+	}), "delete gateway")
+	s.Require().NoError(harness.Poll(ctx, time.Second, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second), func(ctx context.Context) (bool, error) {
+		status, _, err := s.admin.RawJSON(ctx, http.MethodGet, "/gateways/"+gatewayID, nil)
+		return err == nil && status == http.StatusNotFound, nil
+	}), "deleted gateway API record reaches 404")
+	if ns != "" {
+		s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
+	}
 }
 
 // seedOrphanNamespace creates a synthetic managed namespace that the periodic GC

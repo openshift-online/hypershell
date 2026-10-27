@@ -35,12 +35,13 @@ parallel wave (`p2ParallelSteps()`), each a `func (s *E2ESuite) p2_N<name>(t *te
 This spec additionally defines one **cross-component coverage addition**: an
 extension of the existing `managedcluster-lifecycle` phase (P2.4) (see
 [Cross-Component Route Coverage Additions](#cross-component-route-coverage-additions)).
-Proposed identifiers below (P2.7-P2.11) are assigned when the steps are appended;
-the slug is the stable name.
+Proposed identifiers below (P2.8-P2.11) are assigned when the steps are appended;
+the slug is the stable name. P2.7 is the separately-owned `vault-fail-closed`
+phase; credential-driver selection is control-plane-only under PLAT-DATA-23 and is
+not exercised as a dedicated per-gateway phase (see Requirement E2E-COV-01).
 
 | Proposed step | Slug | Feature |
 |---|---|---|
-| P2.7 | `credential-drivers` | Provider credential drivers |
 | P2.8 | `gateway-sharing-rolebindings` | Gateway sharing via `role_bindings` |
 | P2.9 | `kata-runtime` | Kata-runtime sandboxes |
 | P2.10 | `alerting-signal` | Alerting / incident signal |
@@ -83,109 +84,20 @@ counterpart), and authoring a `PrometheusRule` for the alerting feature (see
 
 ### Requirement: E2E-COV-01 -- Provider Credential Driver Coverage
 
-The e2e test suite SHALL validate the per-gateway credential storage drivers
-specified in `openshell-gateway-credentials.spec.md` across all three explicit
-types (`vault`, `kubernetes-secrets`, `kek-db`) and the deployment-selectable
-default an omitted `credential_driver` resolves to. The omitted-driver default is
-not fixed: the control plane resolves it per deployment via
-`GATEWAY_DEFAULT_CREDENTIAL_DRIVER` (`defaultCredentialDriverType()` in
-`components/control-plane/internal/gateway/helm_deploy.go`), which is `kek-db`
-today but whose target is `vault`. The suite SHALL NOT assume the omitted default
-is KEK. This is the `credential-drivers` phase (P2.7), long-tagged (it provisions
-additional gateways and, for Vault, depends on external infrastructure).
-
-The suite SHALL cover the **Kubernetes Secrets** driver unconditionally in long
-mode on every target, because Kind can host it. It SHALL provision a gateway with
-`credential_driver.type = kubernetes-secrets` through the typed `apiclient`
-(`Gateways().Create`), wait for `Running`, and assert the control-plane reconciled
-the driver, reading cluster state through `harness.Clients` (client-go): the
-generated gateway configuration carries `credential_drivers = ["kubernetes-secrets"]`
-and omits `[openshell.gateway.credential_storage]`, the chart-generated KEK
-Secret is absent (name `<fullname>-credential-storage-key-encryption-key`, from
-the chart helper `openshell.credentialStorageKeyEncryptionKeySecretName`,
-`charts/openshell/templates/_helpers.tpl`), the KEK env var
-`OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` is absent from the gateway
-Deployment, and the Role and RoleBinding `openshell-gateway-credential-secrets`
-exist in the credential namespace bound to the `openshell-gateway` ServiceAccount.
-
-The suite SHALL cover the **Vault** driver only when `E2E_QUALIFY_VAULT=1` and a
-reachable Vault is supplied through `E2E_VAULT_ADDR` / `E2E_VAULT_ROLE`, because
-the Kind gate hosts no Vault server. When enabled, it SHALL provision a gateway
-with `credential_driver.type = vault`, wait for `Running`, and assert the
-generated configuration carries `credential_drivers = ["vault"]`, omits the KEK
-sections, and that the gateway Deployment mounts a projected ServiceAccount token
-volume with audience `vault` at `/var/run/secrets/vault`. When `E2E_QUALIFY_VAULT`
-is unset the Vault sub-check SHALL `t.Skipf`, never a false pass.
-
-The suite SHALL cover the **explicit KEK** driver unconditionally in long mode by
-provisioning a gateway with `credential_driver.type = kek-db`, which provisions
-the KEK store on every cluster regardless of the deployment default: the generated
-configuration carries the `[openshell.gateway.credential_storage]` section, the
-chart-generated KEK Secret exists (name
-`<fullname>-credential-storage-key-encryption-key`, key `key-encryption-key` -
-the same Secret the Deployment's
-`OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` env var references via
-`secretKeyRef`, so the suite may resolve the exact name from the Deployment), and
-the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` is on the
-Deployment. This keeps KEK coverage portable rather than depending on the
-omitted-driver default. (`openshell-gateway-credentials.spec.md` still names the
-Secret `openshell-gateway-credential-kek`, its pre-chart-adoption name; that
-owning spec needs the same correction.)
-
-The suite SHALL assert the **omitted-driver** gateway resolves to the deployment's
-configured default rather than a hard-coded driver: it SHALL read the resolved
-default (the control plane's `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`, or the reconciled
-configuration of a gateway created with no `credential_driver`) and assert the
-generated config matches that resolved type - KEK sections present on a `kek-db`
-default, the vault driver section on a `vault` default. It SHALL also assert the
-two negative paths from `openshell-gateway-credentials.spec.md`: an unsupported
-`type` is rejected by the API or surfaced as a reconcile error, and a
-driver-change after credentials exist is rejected.
-
-Credential-driver gateways SHALL be owned and torn down by the phase (delete plus
-namespace-GC wait, as the `deletion-namespace-gc` phase (P2.3) does for its own
-gateway), leaving nothing behind.
-
-#### Scenario: E2E-COV-01.01 -- Kubernetes Secrets driver reconciled
-
-- GIVEN a long-mode run on any target
-- WHEN the suite creates a gateway with `credential_driver.type = kubernetes-secrets` and waits for `Running`
-- THEN the generated gateway configuration SHALL contain `credential_drivers = ["kubernetes-secrets"]` and SHALL NOT contain `[openshell.gateway.credential_storage]`
-- AND the chart-generated KEK Secret (`<fullname>-credential-storage-key-encryption-key`) SHALL NOT exist and the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL NOT be on the Deployment
-- AND a Role and RoleBinding `openshell-gateway-credential-secrets` SHALL exist in the credential namespace, bound to the `openshell-gateway` ServiceAccount
-
-#### Scenario: E2E-COV-01.02 -- Vault driver qualification (opt-in)
-
-- GIVEN `E2E_QUALIFY_VAULT=1` with `E2E_VAULT_ADDR` and `E2E_VAULT_ROLE` set to a reachable Vault
-- WHEN the suite creates a gateway with `credential_driver.type = vault` and waits for `Running`
-- THEN the generated configuration SHALL contain `credential_drivers = ["vault"]` and SHALL omit the KEK sections
-- AND the gateway Deployment SHALL mount a projected ServiceAccount token volume with audience `vault` at `/var/run/secrets/vault`
-
-#### Scenario: E2E-COV-01.03 -- Vault qualification skipped by default
-
-- GIVEN `E2E_QUALIFY_VAULT` is unset
-- WHEN the suite reaches the Vault sub-check of the `credential-drivers` phase
-- THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
-
-#### Scenario: E2E-COV-01.04 -- Explicit kek-db driver provisions the KEK store
-
-- GIVEN a long-mode run on any target, regardless of `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
-- WHEN the suite creates a gateway with `credential_driver.type = kek-db` and waits for `Running`
-- THEN the generated config SHALL contain `[openshell.gateway.credential_storage]`, the chart-generated KEK Secret (`<fullname>-credential-storage-key-encryption-key`, key `key-encryption-key`) SHALL exist, and the env var `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` SHALL be on the Deployment
-
-#### Scenario: E2E-COV-01.05 -- Omitted driver resolves to the deployment default
-
-- GIVEN a gateway created with no `credential_driver` and the deployment's resolved `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
-- WHEN the `credential-drivers` phase inspects its reconciled configuration
-- THEN the generated config SHALL match the resolved default (KEK sections on a `kek-db` default; the vault driver section and no KEK on a `vault` default)
-- AND the suite SHALL NOT assert KEK unconditionally for the omitted-driver gateway
-
-#### Scenario: E2E-COV-01.06 -- Invalid driver and post-storage change rejected
-
-- GIVEN a gateway-create request with `credential_driver.type = s3`
-- WHEN the suite submits it through the API
-- THEN the request SHALL be rejected (at the API, or surfaced as a reconcile error) rather than silently accepted
-- AND when the suite attempts to change a gateway's `credential_driver` after provider credentials have been stored, the API SHALL reject the update
+A gateway's `credential_driver` is a control-plane-only field. Per PLAT-DATA-23
+(`data-model.spec.md`) and `openshell-gateway-credentials.spec.md`, `name` is the
+only user-writable gateway field and the API rejects a user-supplied
+`credential_driver` on both create and update; the control plane resolves the
+driver from the deployment's `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
+(`defaultCredentialDriverType()` in
+`components/control-plane/internal/gateway/helm_deploy.go`), not from a per-gateway
+create request. There is therefore no API path for the suite to provision a gateway
+with an explicit per-gateway driver, so the earlier dedicated `credential-drivers`
+phase and its per-type create assertions are NOT part of this coverage. Driver
+behavior is exercised instead by the deployment default applied to every gateway
+and by the separately-owned serial `vault-fail-closed` phase (P2.7). This
+requirement records that explicit per-gateway driver e2e coverage is intentionally
+dropped under PLAT-DATA-23; it defines no scenarios.
 
 ### Requirement: E2E-COV-02 -- Gateway Sharing Coverage
 
@@ -293,49 +205,31 @@ field is set SHALL suffice and the readiness wait SHALL `t.Skipf`, not fail.
 ### Requirement: E2E-COV-04 -- Alerting and Incident Signal Coverage
 
 The e2e test suite SHALL validate that an operational fault surfaces an observable
-signal. This is the `alerting-signal` phase (P2.10), long-tagged.
+signal. This is the `alerting-signal` phase (P2.10), long-tagged and gated on
+`E2E_QUALIFY_ALERTING=1`; it is deferred for two reasons and SHALL `t.Skipf` (never
+false-pass) until both are resolved:
 
-The repository today defines **metrics but no alert rules**: there is no
-`PrometheusRule` and no alert definition in any spec (the observability and
-reconciliation-metrics specs define counters and histograms only). The phase
-therefore has two tiers:
+1. **No alert rule.** The repository defines metrics but no alert rules: there is
+   no `PrometheusRule` and no alert definition in any spec. Asserting an alert
+   fires requires a rule to exist first.
 
-1. **Metric signal (unconditional, long mode).** The suite SHALL provoke a
-   reconcile fault condition and assert the corresponding control-plane metric
-   moves. The control plane does not host an HTTP `/metrics` listener: it exports
-   OTLP to the `otel-collector` service
-   (`otel-collector.hypershell-system.svc.cluster.local:4317`), and the durable,
-   scrape-independent assertion is a **Prometheus query**. The suite SHALL query
-   the in-cluster Prometheus (`PROMETHEUS_URL`; reached via `harness.Clients`
-   port-forward) once it reports ready, capture a baseline for the reconcile
-   outcome/error series defined in `control-plane-reconciliation-metrics.spec.md`,
-   drive a condition that fails a reconcile (for example a Vault-backed gateway
-   whose serving-CA source Secret is absent, which the reconciler fails closed
-   on), and assert (with `harness.Poll`,
-   allowing for the scrape interval) that the failure series increments above the
-   baseline while the condition holds. Prometheus and the otel-collector ship in the
-   Kind deploy (`deploy/kind/`), so this tier is testable on Kind; where Prometheus
-   is not reachable the tier SHALL `t.Skipf` with a reason rather than fail.
+2. **No API-reachable reconcile fault.** The suite previously provoked a metric
+   fault by creating a Vault-backed gateway whose serving-CA source Secret is
+   absent. Under PLAT-DATA-23 `credential_driver` (and every gateway field except
+   `name`) is control-plane-only and rejected on create, so a user can no longer
+   provision a gateway that deterministically faults; the serial `vault-fail-closed`
+   phase (P2.7) exercises that fault path itself.
 
-2. **Alert firing (deferred, opt-in).** Asserting that an alert actually fires
-   requires an alert rule to exist first. Until a `PrometheusRule` (or equivalent
-   alerting artifact) is authored for the platform, this tier SHALL be gated on
-   `E2E_QUALIFY_ALERTING=1` and SHALL `t.Skipf` when unset. When a rule and an
-   Alertmanager are present, the suite SHALL provoke the rule's condition and
-   assert the alert reaches `firing` (via the Alertmanager/Prometheus API) and is
-   cleared when the condition resolves. This tier SHALL NOT be added to the Kind
-   gate until the alerting feature lands; its presence here records the contract so
-   the e2e follows the feature rather than blocking on it.
+When a qualification harness supplies both a reachable fault and an authored alert
+rule (plus a reachable Alertmanager/Prometheus), the phase SHALL provoke the rule's
+condition, assert the alert reaches `firing`, and assert it clears when the
+condition resolves, restoring any state it perturbed on every exit path.
 
-The suite SHALL restore any state it perturbed (delete the fault-inducing gateway,
-wait out its namespace GC) on every exit path.
+#### Scenario: E2E-COV-04.01 -- Alerting signal deferred by default
 
-#### Scenario: E2E-COV-04.01 -- Reconcile fault increments the failure metric
-
-- GIVEN a ready in-cluster Prometheus and a baseline query of the reconcile failure/outcome series (`PROMETHEUS_URL`, the control plane exports via OTLP to the otel-collector)
-- WHEN the suite drives a condition that fails a reconcile
-- THEN a follow-up Prometheus query SHALL show the failure series incremented above the baseline within the provisioning timeout, allowing for the scrape interval
-- AND the suite SHALL clear the condition and clean up the gateway it created
+- GIVEN `E2E_QUALIFY_ALERTING` is unset (the default while no `PrometheusRule` exists and no API-reachable reconcile fault is available)
+- WHEN the suite reaches the `alerting-signal` phase
+- THEN it SHALL `t.Skipf` with a reason and SHALL NOT report a false pass
 
 #### Scenario: E2E-COV-04.02 -- Alert firing qualification (deferred)
 
@@ -499,10 +393,9 @@ rather than restating their content here; this spec owns their content.
 
 | Proposed step | Slug | Mode | Gate |
 |------|-------|------|------|
-| P2.7 | `credential-drivers` | long | Kubernetes Secrets always; Vault on `E2E_QUALIFY_VAULT=1` |
 | P2.8 | `gateway-sharing-rolebindings` | long | long-tagged; owns a dedicated gateway (no primary-gateway race with P2.5) |
 | P2.9 | `kata-runtime` | long | `E2E_QUALIFY_KATA=1` |
-| P2.10 | `alerting-signal` | long | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
+| P2.10 | `alerting-signal` | long | `E2E_QUALIFY_ALERTING=1` (deferred: no PrometheusRule yet, and the reconcile-fault provocation is not API-reachable under PLAT-DATA-23) |
 | P2.11 | `cli-ui-parity` | long | none (Kind-hostable) |
 | P2.4 (ext) | `managedcluster-lifecycle` | long | `E2E_MULTICLUSTER=1` (single-cluster skips the delete) |
 
@@ -517,8 +410,8 @@ rather than restating their content here; this spec owns their content.
 
 - GIVEN `E2E_MODE=long` (or unset)
 - WHEN the suite runs
-- THEN `credential-drivers` (Kubernetes Secrets tier), `gateway-sharing-rolebindings`, and `cli-ui-parity` SHALL execute on every target
-- AND `kata-runtime`, the Vault tier of `credential-drivers`, and the alert-firing tier of `alerting-signal` SHALL execute only when their opt-in variable is set, otherwise `t.Skipf`
+- THEN `gateway-sharing-rolebindings` and `cli-ui-parity` SHALL execute on every target
+- AND `kata-runtime` and `alerting-signal` SHALL execute only when their opt-in variable is set, otherwise `t.Skipf`
 - AND the P2.4 cluster-delete sub-check SHALL execute only under `E2E_MULTICLUSTER=1` and otherwise `t.Skipf`
 
 ## Environment Variables
@@ -528,21 +421,18 @@ These extend the variables the Go suite already reads (via `envOrDefault` /
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `E2E_QUALIFY_VAULT` | `0` | `1` runs the Vault tier of the `credential-drivers` phase; requires a reachable Vault |
-| `E2E_VAULT_ADDR` | (unset) | Vault server URL for the Vault tier |
-| `E2E_VAULT_ROLE` | (unset) | Vault role for the gateway's Kubernetes auth in the Vault tier |
 | `E2E_QUALIFY_KATA` | `0` | `1` runs the `kata-runtime` phase; requires a Kata RuntimeClass on the cluster |
 | `E2E_KATA_RUNTIME_CLASS` | `kata-containers` | RuntimeClass name the `kata-runtime` gateway configures and asserts on the sandbox pod |
-| `E2E_QUALIFY_ALERTING` | `0` | `1` runs the deferred alert-firing tier of `alerting-signal`; requires an authored alert rule and a reachable Alertmanager/Prometheus |
-| `PROMETHEUS_URL` | `http://prometheus-operated.hypershell-system.svc.cluster.local:9090` | In-cluster Prometheus the `alerting-signal` metric tier queries; a new suite variable mirroring the web-console BFF's deployment env of the same name |
+| `E2E_QUALIFY_ALERTING` | `0` | `1` runs the `alerting-signal` phase; deferred until a PrometheusRule and an API-reachable reconcile fault exist, so the phase skips when unset |
 
 The `gateway-sharing-rolebindings` phase reuses the suite's existing
 `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD` (the seeded second identity) and the admin
 token (`authentication` phase P0.1, `admin-inventory-validation` phase P3.1) for
 `/users` discovery, and resolves the `gateway:viewer` role id from `Roles().List`.
-The `alerting-signal` metric tier queries the in-cluster Prometheus
-(`PROMETHEUS_URL`, a new suite variable listed above), since the control plane
-exports via OTLP to the otel-collector rather than hosting a `/metrics` listener.
+The `alerting-signal` phase is deferred (see Requirement E2E-COV-04): no
+PrometheusRule is authored yet, and the reconcile-fault provocation it relied on is
+no longer reachable through the API under PLAT-DATA-23, so it skips unless
+`E2E_QUALIFY_ALERTING=1`.
 The `cli-ui-parity` phase reuses `OPENSHELL_BIN` and
 `scripts/install-openshell.sh`, and ports the version helpers
 (`openshell_cli_image_tag`, `openshell_cli_matches_version`) from

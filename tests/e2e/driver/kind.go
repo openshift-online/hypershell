@@ -263,6 +263,14 @@ func tokenHasRole(token, role string) bool {
 	return slices.Contains(extractHypershellRoles(claims), role)
 }
 
+// TokenHasRole reports whether a per-gateway access token carries role. It is the
+// canonical role extractor, handling both the nested {"hypershell":{"roles":[...]}}
+// and the flat {"hypershell.roles":[...]} claim shapes, so callers outside this
+// package do not reimplement a partial (nested-only) check.
+func TokenHasRole(token, role string) bool {
+	return tokenHasRole(token, role)
+}
+
 func extractHypershellRoles(claims map[string]any) []string {
 	var out []string
 	collect := func(v any) {
