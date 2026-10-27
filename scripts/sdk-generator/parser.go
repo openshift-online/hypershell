@@ -100,6 +100,16 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 		}
 	}
 
+	// Optional in-place role action: an item "<item>/role" POST with a named
+	// request schema. The response reuses the item schema with 200/202.
+	roleUpdateRequestType := ""
+	if roleOperation := operationAt(document, itemPath+"/role", "POST"); roleOperation != nil {
+		roleUpdateRequestType = requestSchemaName(document, roleOperation)
+		if roleUpdateRequestType == "" {
+			return Resource{}, fmt.Errorf("item role action requires a named request schema")
+		}
+	}
+
 	// Optional directory sub-collection search: a "<collection>/directory" GET.
 	directoryPath := strings.TrimSuffix(collection.Path, "/") + "/directory"
 	directoryListType := ""
@@ -119,7 +129,7 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 	itemParameterName := lastPathParameter(itemPath)
 	itemParameter := newPathParameter(itemParameterName)
 
-	roots := []string{listType, itemType, createRequestType, createResponseType, getResponseType, patchRequestType, patchResponseType, directoryListType}
+	roots := []string{listType, itemType, createRequestType, createResponseType, getResponseType, patchRequestType, patchResponseType, roleUpdateRequestType, directoryListType}
 	models := projectModels(document, roots)
 	listParameters := make([]Field, 0)
 	for _, parameter := range listOperation.Parameters {
@@ -148,6 +158,7 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 		optional(hasGet, getResponseType),
 		itemType,
 		listType,
+		optional(roleUpdateRequestType != "", roleUpdateRequestType),
 		optional(hasPatch, patchRequestType),
 		optional(hasPatch, patchResponseType),
 		optional(hasDirectorySearch, directoryListType),
@@ -155,32 +166,34 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 	})
 
 	resource := Resource{
-		Name:               name,
-		Plural:             resourcePlural(name),
-		PathSegment:        lastLiteralSegment(collection.Path),
-		Scoped:             true,
-		ScopeParameters:    scopeParameters,
-		ItemParameter:      &itemParameter,
-		GoCollectionPath:   goPathExpression(collection.Path, scopeParameters, nil),
-		GoItemPath:         goPathExpression(itemPath, scopeParameters, &itemParameter),
-		TSCollectionPath:   tsPathExpression(collection.Path, scopeParameters, nil),
-		TSItemPath:         tsPathExpression(itemPath, scopeParameters, &itemParameter),
-		ListType:           listType,
-		ItemType:           itemType,
-		CreateRequestType:  createRequestType,
-		CreateResponseType: createResponseType,
-		GetResponseType:    getResponseType,
-		Models:             models,
-		ListParameters:     listParameters,
-		HasDelete:          operationAt(document, itemPath, "DELETE") != nil,
-		HasGet:             hasGet,
-		HasRevoke:          hasRevoke,
-		HasPatch:           hasPatch,
-		PatchRequestType:   patchRequestType,
-		PatchResponseType:  patchResponseType,
-		HasDirectorySearch: hasDirectorySearch,
-		DirectoryListType:  directoryListType,
-		TSImports:          tsImports,
+		Name:                  name,
+		Plural:                resourcePlural(name),
+		PathSegment:           lastLiteralSegment(collection.Path),
+		Scoped:                true,
+		ScopeParameters:       scopeParameters,
+		ItemParameter:         &itemParameter,
+		GoCollectionPath:      goPathExpression(collection.Path, scopeParameters, nil),
+		GoItemPath:            goPathExpression(itemPath, scopeParameters, &itemParameter),
+		TSCollectionPath:      tsPathExpression(collection.Path, scopeParameters, nil),
+		TSItemPath:            tsPathExpression(itemPath, scopeParameters, &itemParameter),
+		ListType:              listType,
+		ItemType:              itemType,
+		CreateRequestType:     createRequestType,
+		CreateResponseType:    createResponseType,
+		GetResponseType:       getResponseType,
+		Models:                models,
+		ListParameters:        listParameters,
+		HasDelete:             operationAt(document, itemPath, "DELETE") != nil,
+		HasGet:                hasGet,
+		HasRevoke:             hasRevoke,
+		HasRoleUpdate:         roleUpdateRequestType != "",
+		RoleUpdateRequestType: roleUpdateRequestType,
+		HasPatch:              hasPatch,
+		PatchRequestType:      patchRequestType,
+		PatchResponseType:     patchResponseType,
+		HasDirectorySearch:    hasDirectorySearch,
+		DirectoryListType:     directoryListType,
+		TSImports:             tsImports,
 	}
 	if hasDirectorySearch {
 		resource.GoDirectoryPath = goPathExpression(directoryPath, scopeParameters, nil)
@@ -188,6 +201,10 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 	}
 	if hasRevoke {
 		resource.Actions = []string{"revoke"}
+	}
+	if roleUpdateRequestType != "" {
+		resource.Actions = append(resource.Actions, "role")
+		sort.Strings(resource.Actions)
 	}
 	return resource, nil
 }

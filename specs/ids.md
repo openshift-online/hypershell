@@ -127,7 +127,7 @@ or group is added here before any requirement uses it.
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 4 |
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
-| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 17 |
+| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
 | `OSG-TLS` | `platform/openshell-gateway-tls.spec.md` | 5 |

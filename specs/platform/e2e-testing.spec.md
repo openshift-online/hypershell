@@ -2019,7 +2019,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
 | P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner, admin, and user access grants and the gateway user directory, on the Kind password-grant environment |
-| P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
+| P2.6 Gateway service accounts | skipped | create, use, change the role in place, revoke, and delete a gateway service account; the creator-cap check (a viewer-created account cannot be raised above its creator's gateway role, even by an owner) runs on the Kind password-grant environment |
 | P2.7-P2.11 Feature-coverage phases (credential drivers, gateway sharing, Kata runtime, alerting signal, CLI/UI parity) | skipped | see `e2e-feature-coverage.spec.md` E2E-COV-01 through E2E-COV-05 for each phase's long-mode checks |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 

@@ -83,6 +83,7 @@ Method | HTTP request | Description
 [**UpdateCIProvider**](DefaultAPI.md#UpdateCIProvider) | **Patch** /api/hypershell/ext/ci_providers/{id} | Update a CI provider
 [**UpdateCITrust**](DefaultAPI.md#UpdateCITrust) | **Patch** /api/hypershell/ext/ci_trusts/{id} | Update a CI trust
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
+[**UpdateGatewayServiceAccountRole**](DefaultAPI.md#UpdateGatewayServiceAccountRole) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role | Change an OpenShell gateway service account&#39;s role
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 [**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
@@ -5470,6 +5471,81 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**Gateway**](Gateway.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateGatewayServiceAccountRole
+
+> OpenShellGatewayServiceAccountListItem UpdateGatewayServiceAccountRole(ctx, gatewayId, serviceAccountId).OpenShellGatewayServiceAccountRoleUpdateRequest(openShellGatewayServiceAccountRoleUpdateRequest).Execute()
+
+Change an OpenShell gateway service account's role
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	serviceAccountId := "serviceAccountId_example" // string | OpenShellGatewayServiceAccount ID
+	openShellGatewayServiceAccountRoleUpdateRequest := *openapiclient.NewOpenShellGatewayServiceAccountRoleUpdateRequest(openapiclient.OpenShellGatewayServiceAccountRole("openshell-user")) // OpenShellGatewayServiceAccountRoleUpdateRequest |
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateGatewayServiceAccountRole(context.Background(), gatewayId, serviceAccountId).OpenShellGatewayServiceAccountRoleUpdateRequest(openShellGatewayServiceAccountRoleUpdateRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateGatewayServiceAccountRole``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateGatewayServiceAccountRole`: OpenShellGatewayServiceAccountListItem
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateGatewayServiceAccountRole`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID |
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateGatewayServiceAccountRoleRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+ **openShellGatewayServiceAccountRoleUpdateRequest** | [**OpenShellGatewayServiceAccountRoleUpdateRequest**](OpenShellGatewayServiceAccountRoleUpdateRequest.md) |  |
+
+### Return type
+
+[**OpenShellGatewayServiceAccountListItem**](OpenShellGatewayServiceAccountListItem.md)
 
 ### Authorization
 

@@ -25,7 +25,8 @@ export type GatewayAction =
   | "get-service-account"
   | "revoke-access"
   | "revoke-service-account"
-  | "search-directory";
+  | "search-directory"
+  | "update-service-account-role";
 export type GatewayProbeOutcome =
   "started" | "succeeded" | "failed" | "cancelled" | "denied" | "conflicted";
 export type GatewayProbeName =

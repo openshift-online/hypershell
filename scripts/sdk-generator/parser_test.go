@@ -45,6 +45,32 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 		resource.GetResponseType != "OpenShellGatewayServiceAccountGetResponse" {
 		t.Fatalf("operation-specific schemas were not preserved: %#v", resource)
 	}
+	// The in-place role action must project as a request-carrying action with
+	// the shared item response type, distinct from the bodyless revoke action.
+	if !resource.HasRoleUpdate || resource.RoleUpdateRequestType != "OpenShellGatewayServiceAccountRoleUpdateRequest" {
+		t.Fatalf("role action was not projected: HasRoleUpdate=%v request=%q", resource.HasRoleUpdate, resource.RoleUpdateRequestType)
+	}
+	if len(resource.Actions) != 2 || resource.Actions[0] != "revoke" || resource.Actions[1] != "role" {
+		t.Fatalf("actions = %#v, want [revoke role]", resource.Actions)
+	}
+	roleRequest, ok := modelByName(resource.Models, "OpenShellGatewayServiceAccountRoleUpdateRequest")
+	if !ok {
+		t.Fatal("role update request model was not projected")
+	}
+	for _, field := range roleRequest.Fields {
+		if field.Name == "role" && !field.Required {
+			t.Fatal("role update request role field must be required")
+		}
+	}
+	foundImport := false
+	for _, name := range resource.TSImports {
+		if name == "OpenShellGatewayServiceAccountRoleUpdateRequest" {
+			foundImport = true
+		}
+	}
+	if !foundImport {
+		t.Fatal("role update request type missing from TS imports")
+	}
 
 	models := make(map[string]Model, len(resource.Models))
 	for _, model := range resource.Models {
@@ -73,6 +99,15 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 			}
 		}
 	}
+}
+
+func modelByName(models []Model, name string) (Model, bool) {
+	for _, model := range models {
+		if model.Name == name {
+			return model, true
+		}
+	}
+	return Model{}, false
 }
 
 func TestParseSpecProjectsGatewayCreateRequestFromOperationSchema(t *testing.T) {
