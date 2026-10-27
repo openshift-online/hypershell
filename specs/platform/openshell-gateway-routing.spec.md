@@ -108,6 +108,17 @@ A Gateway MAY opt in to a dedicated route and external certificate at provision 
 
 The opt-in exists to make OpenShell sandbox service exposure (ExposeService HTTP virtual-hosting) work: a shared spoke-level wildcard certificate covers only one DNS label, so `<sandbox>--<service>.gw-<ns>.<base-domain>` URLs are neither certificate-valid nor routable through the shared Gateway. An opted-in Gateway gets its own domain subtree, its own certificate, and its own load balancer.
 
+The opt-in's shape is validated at the API boundary, not only during provisioning: a create or update whose route document combines `certificate` with `host`, or whose `certificate` value carries fields, SHALL be rejected with an immediate 400 naming the problem - an invalid shape must not be accepted with a 201 and discovered later as an asynchronously failing provisioning pass.
+
+#### Scenario: Invalid opt-in shapes rejected at the API boundary
+
+- GIVEN a Gateway create request with `route: {"host": "x.example.com", "certificate": {}}`
+- WHEN the API server processes the request
+- THEN it SHALL reject it with 400 and a reason naming that `route.host` is not supported with `route.certificate`
+- GIVEN a Gateway create request with `route: {"certificate": {"issuer": "custom"}}`
+- WHEN the API server processes the request
+- THEN it SHALL reject it with 400 and a reason stating `route.certificate` accepts no fields (the issuer is cluster infrastructure)
+
 For an opted-in Gateway the control plane SHALL create, in the tenant namespace:
 
 1. A cert-manager `Certificate` `openshell-gateway-external`:

@@ -123,6 +123,17 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// The route.certificate opt-in is validated at the API boundary, not just
+	// during provisioning: an invalid shape would otherwise be accepted and only
+	// fail asynchronously in the control plane, with the actionable detail buried
+	// in controller logs rather than the user-visible condition message. The
+	// route field is control-plane-authored (PLAT-DATA-23), so this guards the
+	// privileged authoring path; it runs before the field policy so the author
+	// gets the specific shape error rather than a generic rejection.
+	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
+		return nil, svcErr
+	}
+
 	// Default-deny field policy: a user or import caller may create a gateway with only
 	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
 	// Only a control-plane internal write bypasses this.
@@ -136,7 +147,6 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 	if svcErr := applyGatewayWorkspaceCreateDefault(gateway); svcErr != nil {
 		return nil, svcErr
 	}
-
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
@@ -182,8 +192,13 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	// conflict rather than the generic field-policy rejection (an unchanged route
 	// is a no-op for both checks).
 	if routeCertificateChanged(current.Route, gateway.Route) {
-		return nil, errors.Conflict(
-			"route.certificate is provision-time only and cannot be added, removed, or changed after gateway creation; delete and re-create the gateway to change certificate provisioning")
+		return nil, errors.Conflict("%s", routeCertificateImmutableReason)
+	}
+	// Shape is validated after the immutability check so an update that both
+	// alters the opt-in and carries an invalid shape reports the more
+	// fundamental provision-time violation.
+	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
+		return nil, svcErr
 	}
 	// Default-deny field policy: a user or import caller may change only name; any other
 	// changed field is rejected (PLAT-DATA-23 / SEC-RBAC-18). Re-sending an unchanged
@@ -323,6 +338,15 @@ func strEq(a, b *string) bool {
 	return *a == *b
 }
 
+// routeCertificateImmutableReason is the user-facing reason for rejecting a
+// route.certificate mutation after creation. It is a named constant so the
+// gRPC handler can recognize this one conflict and present it as
+// FailedPrecondition instead of the framework's blanket 409-to-AlreadyExists
+// mapping (API UX review finding 4): "the resource exists in a state that
+// forbids this change", not "you are creating a duplicate".
+const routeCertificateImmutableReason = "route.certificate is provision-time only and cannot be added, removed, or changed after gateway creation; delete and re-create the gateway to change certificate provisioning. " +
+	"PATCH replaces the whole route document, so keep certificate: {} unchanged when editing other route keys on an opted-in gateway"
+
 // routeCertificate returns the parsed value of the route JSON's certificate
 // sub-key. A nil value means the gateway is not opted in to per-gateway
 // certificate provisioning: the key is absent, explicitly JSON null, or the
@@ -368,6 +392,45 @@ func routeCertificateChanged(current, next *string) bool {
 		return false
 	}
 	return !reflect.DeepEqual(currentCert, nextCert)
+}
+
+// validateRouteCertificateShape rejects route documents whose certificate
+// sub-key cannot mean what the caller intends, at the API boundary where the
+// caller gets an immediate, actionable 400 instead of an asynchronously failing
+// provisioning pass. Two shapes are invalid:
+//
+//   - a non-empty certificate object (or a non-object value): the certificate
+//     issuer is cluster infrastructure (GATEWAY_EXTERNAL_ISSUER on the control
+//     plane), never gateway input, so fields like issuer would be silently
+//     discarded - a natural cert-manager idiom the API must not swallow
+//   - certificate combined with host: a dedicated-certificate gateway always
+//     uses the derived gw-<namespace> hostname (mirrors the control plane's
+//     ValidateGatewayConfig, which fails provisioning on this combination)
+//
+// A route that is not valid JSON is left to the jsonb column to reject, and a
+// route without a certificate key is unconstrained here.
+func validateRouteCertificateShape(route *string) *errors.ServiceError {
+	if route == nil {
+		return nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(*route), &doc); err != nil {
+		return nil
+	}
+	cert, present := doc["certificate"]
+	if !present || cert == nil {
+		return nil
+	}
+	obj, isObject := cert.(map[string]any)
+	if !isObject || len(obj) > 0 {
+		return errors.BadRequest(
+			"route.certificate accepts no fields: the certificate issuer is cluster infrastructure (GATEWAY_EXTERNAL_ISSUER on the control plane), never gateway input; write the opt-in as an empty object (\"certificate\": {})")
+	}
+	if host, hasHost := doc["host"]; hasHost && host != nil && host != "" {
+		return errors.BadRequest(
+			"route.host is not supported with route.certificate: a dedicated-certificate gateway uses the derived gw-<namespace> hostname")
+	}
+	return nil
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

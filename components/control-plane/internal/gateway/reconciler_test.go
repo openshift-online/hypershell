@@ -847,3 +847,46 @@ func TestDeleteGatewayAPIRouteResourcesRemovesDedicatedCertificateResources(t *t
 		t.Fatalf("deleteGatewayAPIRouteResources (second pass): %v", err)
 	}
 }
+
+// TestGatewayDeployedConditionMessage guards the API UX contract that a
+// dedicated-certificate provisioning failure carries its actionable cause in
+// the user-visible ConditionGatewayDeployed message (openshell-gateway-routing
+// spec, "Opt-in without GATEWAY_EXTERNAL_ISSUER fails provisioning"): a UI
+// user must be able to tell "the operator must configure an issuer" and
+// "certificate issuance did not complete" apart from the generic
+// network-routing failure (API UX review finding 2).
+func TestGatewayDeployedConditionMessage(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "issuer unset names the env var and the operator",
+			err:  fmt.Errorf("reconcile Gateway API resources in ns: route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller: %w", errExternalIssuerUnset),
+			want: "Gateway deployment failed - dedicated certificate provisioning is unavailable: GATEWAY_EXTERNAL_ISSUER is not set on the controller (contact the platform operator)",
+		},
+		{
+			name: "certificate not issued points at the Certificate status",
+			err:  fmt.Errorf("wait for external TLS secret in ns: timed out: %w", errExternalCertificateNotIssued),
+			want: "Gateway deployment failed - the dedicated gateway certificate was not issued in time; check the openshell-gateway-external Certificate's status conditions and the issuer named by GATEWAY_EXTERNAL_ISSUER",
+		},
+		{
+			name: "generic failures keep the network-routing message",
+			err:  fmt.Errorf("reconcile GRPCRoute: connection refused"),
+			want: "Gateway deployment failed - unable to configure network routing",
+		},
+		{
+			name: "nil error keeps the generic message",
+			err:  nil,
+			want: "Gateway deployment failed - unable to configure network routing",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := gatewayDeployedConditionMessage(NamespaceConfig{}, c.err); got != c.want {
+				t.Errorf("gatewayDeployedConditionMessage() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

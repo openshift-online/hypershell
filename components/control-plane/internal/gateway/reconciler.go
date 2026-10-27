@@ -186,7 +186,7 @@ func ReconcileGateway(
 	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to configure network routing")
+				report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
 				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
@@ -416,6 +416,35 @@ func DeleteLabeledNamespaceResources(
 			}
 			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
 		}
+	}
+}
+
+// Sentinel errors for the dedicated-certificate provisioning path. They let
+// gatewayDeployedConditionMessage surface the actionable cause in the
+// user-visible ConditionGatewayDeployed message (API UX review finding 2)
+// instead of the generic network-routing text, which a UI user cannot tell
+// apart from an actual network failure.
+var (
+	// errExternalIssuerUnset: the controller deployment is missing the issuer
+	// configuration; only the platform operator can fix it.
+	errExternalIssuerUnset = errors.New("dedicated certificate provisioning is unavailable: GATEWAY_EXTERNAL_ISSUER is not set on the controller (contact the platform operator)")
+	// errExternalCertificateNotIssued: cert-manager did not produce the
+	// external certificate Secret within the provisioning wait window.
+	errExternalCertificateNotIssued = errors.New("the dedicated gateway certificate was not issued in time; check the openshell-gateway-external Certificate's status conditions and the issuer named by GATEWAY_EXTERNAL_ISSUER")
+)
+
+// gatewayDeployedConditionMessage translates a Gateway API resource
+// reconciliation failure into the user-visible ConditionGatewayDeployed
+// message. The generic message covers the shared-Gateway path; the
+// dedicated-certificate sentinels carry their actionable causes.
+func gatewayDeployedConditionMessage(nsConfig NamespaceConfig, err error) string {
+	switch {
+	case errors.Is(err, errExternalIssuerUnset):
+		return "Gateway deployment failed - " + errExternalIssuerUnset.Error()
+	case errors.Is(err, errExternalCertificateNotIssued):
+		return "Gateway deployment failed - " + errExternalCertificateNotIssued.Error()
+	default:
+		return "Gateway deployment failed - unable to configure network routing"
 	}
 }
 
@@ -1850,7 +1879,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	if dedicatedCert {
 		if gatewayExternalIssuerName() == "" {
 			log.Printf("WARN route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
-			return fmt.Errorf("route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
+			return fmt.Errorf("route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller: %w", errExternalIssuerUnset)
 		}
 	} else {
 		gwName = gatewayIngressName()
@@ -1900,7 +1929,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		// cert-manager to mint it before creating them (mirroring the
 		// openshell-server-tls wait below).
 		if err := waitForSecret(ctx, clientset, namespace, externalCertificateSecretName, 60*time.Second); err != nil {
-			return fmt.Errorf("wait for external TLS secret in %s: %w", namespace, err)
+			return fmt.Errorf("wait for external TLS secret in %s: %w: %w", namespace, err, errExternalCertificateNotIssued)
 		}
 
 		// The wait above can run for up to a minute; mirror the RouteStillDesired
