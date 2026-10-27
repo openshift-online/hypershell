@@ -169,8 +169,8 @@ cross-compile" assumption - require a green build first.
 
 **Deferred (require Konflux build-log / `ec validate` iteration, unavailable in this
 environment; the spec/issue mandate "confirm one component green, then fan out"):**
-- CICD-ECC-02 for the seven remaining components - each needs a confirmed-green
-  hermetic build before the flag can flip safely:
+- CICD-ECC-02 for the six remaining from-source components - each needs a
+  confirmed-green hermetic build before the flag can flip safely:
   `cli` (hermetic build fails for a cli-build-specific reason - likely the
   `build-release.sh` multi-target darwin/windows cross-compile or the published
   `rh-trex-ai/components/api-server` module dep - that must be traced from the
@@ -179,11 +179,17 @@ environment; the spec/issue mandate "confirm one component green, then fan out")
   ../api-server), `web-console` + `fleet-dashboard` (pnpm workspace, single root
   `pnpm-lock.yaml`/`pnpm-workspace.yaml` - Hermeto pnpm handling, not npm/yarn),
   `agent-runtime` + `agent-runtime-slim` (bespoke `components/agents/install-tools.py`
-  offline installer + pip + multi-stage native builds), `fullsend-sandbox`
-  (`ghcr.io/fullsend-ai` base + `curl https://go.dev/dl/...` toolchain fetch; also no
-  in-image `go build`, so its "gomod" scope is unclear). Fan-out recipe is the pilot
+  offline installer + pip + multi-stage native builds). Fan-out recipe is the pilot
   pattern: add the three params per file, one `prefetch-input` entry per from-source
   ecosystem pointing at the module dir, after moving each ad-hoc fetch into prefetch.
+- `fullsend-sandbox` is handled by CICD-ECC-02's checksum-pinned path, NOT by a
+  hermetic flip. PR **#797 (merged)** rebased it off `ghcr.io/fullsend-ai` onto a
+  digest-pinned `registry.access.redhat.com/ubi9/ubi` base (removing the
+  base-registry EC violation that was failing the whole application snapshot) and
+  assembles its toolchain + the `tirith` binary from SHA-256-verified downloads. It
+  builds no repository module from source, so it has no Hermeto-resolvable
+  ecosystem and SHALL NOT set `hermetic: "true"`; vendoring those downloads for a
+  fully hermetic build is a deferred goal of CICD-ECC-02.
 - CICD-ECC-03 (trusted attestation) and CICD-ECC-04 (+dirty baked binary) - both
   require reading the live Konflux `verify` step output / image build log (authoritative
   rule codes and the dirty binary's ingestion path), which cannot be produced locally.

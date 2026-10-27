@@ -13,12 +13,14 @@ spec defines the desired state in which every Konflux component image is
 Conforma-conformant, so `enterprise-contract` passes consistently on `main`.
 
 Conformance has four standing properties for each component image: its build
-resolves every from-source dependency through Hermeto so the SBOM carries full
-dependency attribution; its build produces a valid, trusted SLSA provenance
-attestation; it ships no non-reproducible (`+dirty`) or otherwise
-unattributed baked binary; and its Konflux pipeline definition has a single
-source of truth in `.tekton/`. The platform also keeps base images current so
-images do not accumulate unapplied base-image fixes.
+attributes every dependency (resolving each from-source ecosystem through Hermeto
+where the component builds from one, and verifying checksum-pinned downloads by
+their published digest where it does not) so the SBOM is complete; its build
+produces a valid, trusted SLSA provenance attestation; it ships no
+non-reproducible (`+dirty`) or otherwise unattributed baked binary; and its
+Konflux pipeline definition has a single source of truth in `.tekton/`. The
+platform also keeps base images current so images do not accumulate unapplied
+base-image fixes.
 
 The Konflux components in scope are the eight that build images in this
 repository. Each has three pipeline files,
@@ -33,7 +35,15 @@ repository. Each has three pipeline files,
 | `fleet-dashboard` | `components/fleet-dashboard/Dockerfile` | Go (gomod) + Node (npm/pnpm) |
 | `agent-runtime` | `components/agents/Containerfile.agent-runtime` | Go (gomod) + Python (pip) |
 | `agent-runtime-slim` | `components/agents/Containerfile.agent-runtime-slim` | Go (gomod) + Python (pip) |
-| `fullsend-sandbox` | `components/agents/Containerfile.fullsend-sandbox` | Go (gomod) |
+| `fullsend-sandbox` | `components/agents/Containerfile.fullsend-sandbox` | None from source (self-contained UBI9 image; checksum-pinned downloads) |
+
+`fullsend-sandbox` is a HyperShell-owned, self-contained image built on Red Hat
+UBI9 (`registry.access.redhat.com/ubi9/ubi`, digest-pinned). It builds no
+repository module from source: it assembles its toolchain and the `tirith`
+security-hook binary from checksum-verified downloads. It therefore has no
+Hermeto-resolvable from-source ecosystem, and its dependency attribution and
+hermetic migration are addressed by Requirement CICD-ECC-02's checksum-pinned
+path rather than by a `gomod`/`npm`/`pip` prefetch.
 
 The Konflux build particulars of the two agent runtime images (staged builds,
 native multi-arch, Trusted Artifacts from clone and prefetch) are specified in
@@ -89,9 +99,11 @@ so the application-wide check does not regress.
 **Verification:** Inspection -- the `.tekton` pipeline parameters and the resulting
 image SBOM are reviewed against the component's from-source ecosystems.
 
-Each component image SHALL resolve its from-source dependencies through Hermeto so
-its SBOM carries full dependency attribution. For every component, all three
-pipeline files SHALL set:
+Each component image SHALL attribute every dependency in its SBOM. For a
+component that builds from one or more Hermeto-resolvable ecosystems (every
+component except `fullsend-sandbox`, per the Purpose table), the build SHALL
+resolve those dependencies through Hermeto, and all three pipeline files SHALL
+set:
 
 - `hermetic: "true"` -- the build runs with network isolation and may use only
   prefetched inputs.
@@ -112,11 +124,25 @@ Enabling `hermetic: "true"` SHALL be a complete migration, not a flag flip: any
 ad-hoc network fetch in that component's Dockerfile or Containerfile stages SHALL
 be moved into Hermeto prefetch so the hermetic build still succeeds. The image
 SBOM SHALL list the prefetched dependencies for every from-source ecosystem of
-that component.
+that component. A hermetic flag SHALL be flipped for a component only after that
+component's hermetic build is confirmed green (traced from the Konflux build log
+or `ec validate`); an unverified flip that breaks the component build is not
+permitted, because a broken or stale image makes the application-wide check
+worse, not better.
+
+`fullsend-sandbox` has no Hermeto-resolvable from-source ecosystem: it assembles
+its toolchain and the `tirith` binary from checksum-pinned downloads. For such a
+component the build SHALL verify every downloaded input against its published
+SHA-256 digest so no input is unattributed or non-reproducible, and the image
+SHALL still satisfy Requirements CICD-ECC-03 through CICD-ECC-05. Vendoring those
+downloads so `fullsend-sandbox` can also build hermetically is a deferred goal of
+this specification; until it is done, `fullsend-sandbox` SHALL NOT set
+`hermetic: "true"`, because it cannot build without fetching its checksum-pinned
+inputs.
 
 #### Scenario: CICD-ECC-02.01 -- Single-ecosystem Go component prefetches gomod
 
-- GIVEN a Go-only component (for example `api-server`, `control-plane`, `cli`, or `fullsend-sandbox`)
+- GIVEN a Go-only component that builds from repository source (for example `api-server`, `control-plane`, or `cli`)
 - WHEN its pipeline files are configured
 - THEN `hermetic` SHALL be `"true"` and `enable-package-registry-proxy` SHALL be `"true"`
 - AND `prefetch-input` SHALL declare a `gomod` entry whose `path` is that component's module directory
@@ -142,6 +168,14 @@ that component.
 - WHEN `hermetic` is set to `"true"`
 - THEN that input SHALL be supplied through Hermeto prefetch
 - AND the hermetic build SHALL succeed without a live network fetch
+
+#### Scenario: CICD-ECC-02.05 -- Checksum-pinned component attributes its downloads
+
+- GIVEN a component with no Hermeto-resolvable from-source ecosystem (for example `fullsend-sandbox`)
+- WHEN its image is built from checksum-pinned downloaded toolchains and binaries
+- THEN every downloaded input SHALL be verified against its published SHA-256 digest
+- AND no input SHALL appear in the SBOM as unattributed or non-reproducible
+- AND the component SHALL NOT set `hermetic: "true"` until those downloads are vendored for a hermetic build
 
 ### Requirement: CICD-ECC-03 -- Valid, Trusted Build Attestation
 
@@ -242,15 +276,19 @@ of truth for its pipeline definition.
 **Verification:** Inspection -- base-image references and the state of automated
 base-image bump pull requests are reviewed.
 
-The platform SHALL keep the `registry.access.redhat.com/hi/*` base images
-referenced by component image definitions current by merging the automated
-Mintmaker base-image bump pull requests promptly after their required checks pass,
-so component images do not accumulate unapplied base-image fixes that would make
-them non-conformant over time.
+The platform SHALL keep the Red Hat base images referenced by component image
+definitions current by merging the automated Mintmaker base-image bump pull
+requests promptly after their required checks pass, so component images do not
+accumulate unapplied base-image fixes that would make them non-conformant over
+time. This applies to every Red Hat base registry the components use, including
+the `registry.access.redhat.com/hi/*` Hardened Images used by most components and
+the `registry.access.redhat.com/ubi9/*` image used by `fullsend-sandbox`. Base
+images SHALL be drawn only from allowed Red Hat registries (Requirement
+CICD-ECC-03) and SHALL be digest-pinned.
 
 #### Scenario: CICD-ECC-06.01 -- Mintmaker base-image bump is merged promptly
 
-- GIVEN an automated Mintmaker pull request bumping a `registry.access.redhat.com/hi/*` base image
+- GIVEN an automated Mintmaker pull request bumping a Red Hat base image (for example `registry.access.redhat.com/hi/*` or `registry.access.redhat.com/ubi9/*`)
 - WHEN its required checks pass
 - THEN the bump SHALL be merged promptly
 - AND the component images SHALL NOT accumulate unapplied base-image fixes
