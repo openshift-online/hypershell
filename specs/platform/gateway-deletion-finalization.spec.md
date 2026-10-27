@@ -47,6 +47,12 @@ spec remains authoritative for that resource. This spec defines the enumeration
 that binds them together, the resume-on-disconnect contract, and the
 finalization and no-silent-orphan guarantees that span all of them.
 
+This spec refines the durable-deletion and fail-closed guarantees of the
+control-plane reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-07, STD-RCON-08, STD-RCON-09); it refines that contract and does not
+weaken it.
+
 ## Domain Vocabulary
 
 - **Gateway-owned resource** - any resource whose lifecycle is bound to a single

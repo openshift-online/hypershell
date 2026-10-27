@@ -5873,10 +5873,10 @@ components:
             type: string
           path:
             description: "Logical, mount-relative path to the secret in the backend.\
-              \ Optional on create - when omitted the API server derives the convention\
-              \ path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value\
-              \ is submitted the path is set server-side to the location the value\
-              \ was written to."
+              \ Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name};\
+              \ a client-supplied path is ignored, and the field cannot be changed\
+              \ on update. When a value is submitted the path is the location the\
+              \ value was written to."
             type: string
           key_mappings:
             description: JSON-encoded mapping of backend secret keys to environment
@@ -5964,6 +5964,9 @@ components:
           value: value
           agent_runtime_id: agent_runtime_id
     SecretSourcePatchRequest:
+      description: "Mutable SecretSource fields. The path is not patchable: it is\
+        \ the server-derived location of the submitted material, and a path supplied\
+        \ here is ignored."
       example:
         path: path
         purpose: purpose
@@ -5978,6 +5981,8 @@ components:
         backend:
           type: string
         path:
+          description: Ignored. The path is derived server-side on create and cannot
+            be re-pointed.
           type: string
         key_mappings:
           type: string

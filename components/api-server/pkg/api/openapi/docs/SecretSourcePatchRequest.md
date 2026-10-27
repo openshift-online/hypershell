@@ -7,7 +7,7 @@ Name | Type | Description | Notes
 **Name** | Pointer to **string** |  | [optional]
 **Purpose** | Pointer to **string** |  | [optional]
 **Backend** | Pointer to **string** |  | [optional]
-**Path** | Pointer to **string** |  | [optional]
+**Path** | Pointer to **string** | Ignored. The path is derived server-side on create and cannot be re-pointed. | [optional]
 **KeyMappings** | Pointer to **string** |  | [optional]
 
 ## Methods
