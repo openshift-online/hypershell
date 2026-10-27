@@ -1,7 +1,7 @@
 # OpenShell Gateway Additional Destination CA Specification
 
 **Date:** 2026-08-25
-**Status:** Draft (planning -- blocked on upstream [NVIDIA/OpenShell#3292](https://github.com/NVIDIA/OpenShell/pull/3292) merging and shipping in a tagged release)
+**Status:** In progress (upstream [NVIDIA/OpenShell#3292](https://github.com/NVIDIA/OpenShell/pull/3292) MERGED to main 2026-10-27 as `2c31ac7e` and re-diffed against this plan; remaining gate is the opendatahub fork syncing + tagging a release with images built)
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 **Related:** `openshell-gateway-tls.spec.md` - trusted CA bundle injection (the pattern this feature extends); `openshell-gateway-oidc.spec.md` - OIDC issuer trust (separate trust domain); `data-model.spec.md` - Gateway provisioning fields (this spec adds one)
 
@@ -23,9 +23,9 @@ the API field and validation, control-plane materialization into the tenant
 namespace, Helm value plumbing, gateway workload rolling on bundle change, and
 certificate-rotation operations.
 
-This document is a **plan** written against the upstream PR diff; it must be
-re-validated against the merged result (the PR is currently labeled
-`gator:blocked` and has unchecked CI lanes).
+This document was a **plan** written against the upstream PR diff; the merged
+result has since been re-validated against it (2026-10-27, see "Re-diff
+status" under Background) with no material divergence.
 
 ---
 
@@ -41,9 +41,11 @@ re-validated against the merged result (the PR is currently labeled
   length to stay under the ConfigMap data limit).
 - Gateway workload template (`_gateway-workload.tpl`): when the value is set, the
   operator-owned ConfigMap is mounted read-only at
-  `/etc/openshell-tls/additional-ca-source/ca.crt` (subPath), a writable
-  `gateway-state` emptyDir is added at `/var/lib/openshell-state`, and
-  `XDG_STATE_HOME=/var/lib/openshell-state` is set on the gateway container.
+  `/etc/openshell-tls/additional-ca-source/ca.crt` (subPath). A writable
+  `gateway-state` emptyDir at `/var/lib/openshell-state` and
+  `XDG_STATE_HOME=/var/lib/openshell-state` on the gateway container are
+  rendered UNCONDITIONALLY in the merged result (the PR diff had tied them to
+  additional CA; re-diff 2026-10-27).
 - Gateway TOML template (`_toml.tpl`): derives
   `[openshell.supervisor.network] additional_ca_bundle` from the mount path.
   `gatewayConfig` defining `openshell.supervisor.network` fails rendering -- the
@@ -71,7 +73,23 @@ re-validated against the merged result (the PR is currently labeled
   file's contents to change.
 
 Upstream depends on #3996 (already merged to main) and carries its own
-cross-driver e2e (`e2e/rust/tests/additional_ca.rs`).
+cross-driver e2e (`e2e/rust/tests/additional_ca.rs`) and Helm chart unit
+tests (`deploy/helm/openshell/tests/network_additional_ca_test.yaml`) --
+the latter is the reference for this spec's deferred chart-render test.
+
+**Re-diff status (2026-10-27):** the PR merged to upstream main as
+`2c31ac7e` (merged 2026-10-27). All chart-surface claims above were verified
+against the merged result: value path
+`supervisor.network.additionalCaConfigMapName`, mount path/subPath, TOML
+derivation and the `gatewayConfig` table guard, shared-mode namespaced Role
+`configmaps get/create` gating, ClusterRole for non-shared modes only, the
+`checksum/gateway-config` non-coverage comment, and the top-level
+`podAnnotations` surface this spec's rotation mechanism relies on. The only
+deltas from the PR-diff description are the unconditional state volume noted
+above and the chart unit tests. The opendatahub fork's `main`
+(`v0.1.5-rhaiv.4`) does NOT yet contain the merge: the fork must sync
+upstream main and cut a new tag (and build the `odh-openshell-*` images at
+it) before Phase 1 can vendor.
 
 The upstream value names ONE ConfigMap per OpenShell gateway deployment. Because
 HyperShell deploys one OpenShell gateway (one Helm release) per Gateway resource
@@ -193,16 +211,19 @@ value, rolling the gateway back to default trust roots on the next reconcile.
 
 ## Integration plan
 
-### Phase 0 -- Trigger (upstream; BLOCKER)
+### Phase 0 -- Trigger (upstream; fork tag remains the blocker)
 
-1. Upstream PR merges (currently `gator:blocked`; unchecked: full `mise run
-   test`, Docker/K8s/VM CI e2e lanes). **Re-diff the merged result against this
-   plan** -- value names, mount paths, and RBAC gating are taken from the PR diff
-   and may move. Do not execute Phase 1 without this re-diff.
-2. The opendatahub fork (`OPENSHELL_CHART_REPO`) tags a release containing the
-   merge.
+1. Upstream PR merged 2026-10-27 as `2c31ac7e` (previously `gator:blocked`).
+   Re-diff of the merged result against this plan: DONE 2026-10-27 (see
+   "Re-diff status" above) -- no value-name, mount-path, or RBAC changes;
+   only the unconditional state volume and chart unit tests differ from the
+   PR-diff description.
+2. The opendatahub fork (`OPENSHELL_CHART_REPO`) syncs upstream main and tags
+   a release containing the merge, with `odh-openshell-*` images built at
+   that tag. PENDING as of 2026-10-27 (fork `main` is still at the
+   pre-merge `v0.1.5-rhaiv.4`).
 
-### Phase 1 -- Vendored chart bump (this repo; after Phase 0)
+### Phase 1 -- Vendored chart bump (this repo; after the fork tag)
 
 1. Bump `OPENSHELL_TAG` in `OPENSHELL_VERSION`; run `make sync-openshell-version`
    and `make vendor-openshell-chart` (Makefile ~line 257; clones the fork tag
@@ -336,7 +357,8 @@ Resolved during spec review (2026-08-25):
 
 ## Work-item checklist
 
-- [ ] Phase 0: upstream merge + fork tag (BLOCKED; re-diff before Phase 1)
+- [x] Phase 0a: upstream merge (merged 2026-10-27, `2c31ac7e`) + re-diff (done, no material divergence)
+- [ ] Phase 0b: fork sync + tag + images (PENDING; fork main still pre-merge)
 - [x] Phase 2: API field + validation + migration (pre-merge safe; landed)
 - [x] Phase 2: control-plane materialization + values plumbing + roll-on-change + tests (pre-merge safe; landed)
 - [ ] Phase 1: `OPENSHELL_TAG` bump, `vendor-openshell-chart`, chart diff review, chart-render test
