@@ -98,7 +98,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("agentRuntimes", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewAgentRuntimeHandler(Service(envServices), generic.Service(envServices))
+		h := NewAgentRuntimeHandler(Service(envServices), generic.Service(envServices), newManageAuthorizer(envServices))
 
 		router := extRouter.PathPrefix("/agent_runtimes").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)

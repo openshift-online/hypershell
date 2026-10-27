@@ -4581,7 +4581,7 @@
             "name": "path",
             "type": "string",
             "required": false,
-            "description": "Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to."
+            "description": "Logical, mount-relative path to the secret in the backend. Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name}; a client-supplied path is ignored, and the field cannot be changed on update. When a value is submitted the path is the location the value was written to."
           },
           {
             "name": "purpose",
@@ -8911,7 +8911,8 @@
           {
             "name": "path",
             "type": "string",
-            "required": false
+            "required": false,
+            "description": "Ignored. The path is derived server-side on create and cannot be re-pointed."
           },
           {
             "name": "purpose",

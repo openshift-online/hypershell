@@ -181,11 +181,14 @@ defines; when no material is supplied the api-server SHALL persist the `SecretSo
 reference alone and SHALL perform no `pkg/secretstore` write.
 
 A reference-only `SecretSource` SHALL carry its convention path so the material can be
-uploaded later to a known location. When the create request omits `path`, the
-api-server SHALL derive it from the submission identity as
-`hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic
-location a material-bearing submission is written to). The derived path SHALL be
-stable across re-submission of the same `SecretSource`.
+uploaded later to a known location. The api-server SHALL derive that path from the
+submission identity as `hypershell/secret-sources/<agent_runtime_id>/<name>` (the
+same deterministic location a material-bearing submission is written to) on EVERY
+create, and SHALL ignore any client-supplied `path`: honoring a client path would let
+any `gateway:creator` pin a reference at another tenant's store location, which the
+control plane would then materialize into the caller's namespace. The `path` SHALL
+NOT be settable on update either. The derived path SHALL be stable across
+re-submission of the same `SecretSource`.
 
 In the distributed late-binding flow (path 2 of "Two Material Resolution Paths") the
 `AgentRuntime` `SecretSource` material SHALL NOT be submitted to the hub api-server at
@@ -200,7 +203,7 @@ distributed `AgentRuntime` credentials.
 
 - GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO material
 - WHEN the api-server accepts the request
-- THEN it SHALL persist the `SecretSource` reference with `path = hypershell/secret-sources/<agent_runtime_id>/<name>`
+- THEN it SHALL persist the `SecretSource` reference with `path = hypershell/secret-sources/<agent_runtime_id>/<name>`, ignoring any client-supplied `path`
 - AND it SHALL NOT perform any `pkg/secretstore` write
 - AND the created `SecretSource` SHALL be a valid, consumable resource
 
