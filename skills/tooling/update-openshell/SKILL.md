@@ -100,7 +100,8 @@ $ARGUMENTS
 
 The **authoritative** release coordinates live in `OPENSHELL_VERSION`.
 Edit that file first, vendor the selected chart, and run
-`make sync-openshell-version` to update the deployment pins and console constant.
+`make sync-openshell-version` to update the deployment pins, including the
+`HYPERSHELL_CONSOLE_IMAGE` console pin.
 The workload-image entry `OPENSHELL_SANDBOX_IMAGE` is derived from the vendored
 chart's `sandbox.image` values and is used only for e2e requests and Kind preload.
 It is not a control-plane environment variable or a compiled Go default.
@@ -144,7 +145,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 |------|----------------|-------|
 | `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`, `OPENSHELL_SANDBOX_IMAGE` | Edit release coordinates first; vendoring derives the workload image from the selected chart, independent of `OPENSHELL_TAG` |
 | `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
-| `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest) and the release named in its comment | `make sync-openshell-version` stamps the digest from `OPENSHELL_CONSOLE_DIGEST`; edit the comment by hand (Step 3b) |
+| `deploy/base/platform-resources/controller.yaml` | `HYPERSHELL_CONSOLE_IMAGE` env var (digest) and the release named in the comment above it | `make sync-openshell-version` stamps the value from `OPENSHELL_CONSOLE_IMAGE` and `OPENSHELL_CONSOLE_DIGEST`; edit the comment by hand (Step 3b). The control plane has no built-in console image and refuses to start without it |
 | `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE` env vars | Generated pins; run `make sync-openshell-version` |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
@@ -383,7 +384,7 @@ be investigated rather than retaining the old pin silently.
    - **Pin a release, by digest.** Release images carry tags `X.Y.N` and `X.Y`.
      The `latest`, `sha-<commit>` and `pr-<N>` tags are unreleased `main` and
      pull-request builds; keep them for manual trials. Name the release in the
-     `defaultConsoleImage` comment in `config.go`, e.g. "Pinned by digest to
+     comment above `HYPERSHELL_CONSOLE_IMAGE` in `deploy/base/platform-resources/controller.yaml`, e.g. "Pinned by digest to
      dashboard release v0.1.1 (gateway line 0.1)".
    - **No release on the line yet** (a new gateway minor the dashboard has not
      caught up with): keep the current pin, mark it `needs-decision`, and file an
@@ -401,8 +402,9 @@ be investigated rather than retaining the old pin silently.
      a renamed one, or a changed default for `PORT`, `AUTH_TOKEN_HEADER` or
      `AUTH_USER_HEADER` is a code change, not a pin bump.
    - **Write the pin.** Set `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and
-     run `make sync-openshell-version`; it stamps `defaultConsoleImage`, and
-     `make check` fails when the two disagree.
+     run `make sync-openshell-version`; it stamps `HYPERSHELL_CONSOLE_IMAGE`
+     in the base controller manifest, and `make check` fails when the two
+     disagree.
    - **Trial on one gateway first** (optional, needs a live cluster). On the
      gateway's cluster run
      `oc set image deploy/openshell-console -n <gateway-namespace> dashboard=quay.io/gkrumbach07/openshell-dashboard@<digest>`.
@@ -486,7 +488,8 @@ Before considering the update done:
 6. `OPENSHELL_SANDBOX_IMAGE` matches the selected chart's workload-image default
    (`make check` verifies this); e2e requests and Kind preload use that entry.
 7. `OPENSHELL_CONSOLE_DIGEST` is the newest dashboard release on the new
-   gateway's release line and the `config.go` comment names that release, or
+   gateway's release line and the comment above `HYPERSHELL_CONSOLE_IMAGE`
+   names that release, or
    the gap is filed as `needs-decision`.
 
 ## Self-reinforcement
@@ -807,8 +810,9 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
     responses - the sandbox list UI showed an infinite loading spinner with no
     error. Updated to `sha-71335e5` (built 2026-09-23,
     `sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927`).
-    Both `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and `defaultConsoleImage`
-    in `config.go` must be updated together and must agree. See Step 3b.
+    The console pin now lives only in `OPENSHELL_CONSOLE_DIGEST`;
+    `make sync-openshell-version` stamps it into `HYPERSHELL_CONSOLE_IMAGE` in
+    `deploy/base/platform-resources/controller.yaml`. See Step 3b.
   - **`appArmorProfile` in Kind.** v0.1.2 chart sets
     `securityContext.appArmorProfile: type: RuntimeDefault` on pods. Kind does not
     support AppArmor, so pods fail to schedule. Suppressed via a Helm values

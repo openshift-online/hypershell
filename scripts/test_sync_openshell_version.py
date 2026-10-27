@@ -174,94 +174,90 @@ class SyncOpenshellVersionTest(unittest.TestCase):
         path.unlink()
         self.assertEqual(mismatches, [])
 
-    def test_detects_stale_console_digest(self):
-        go_src = (
-            'const defaultConsoleImage = '
-            '"quay.io/gkrumbach07/openshell-dashboard'
-            '@sha256:' + 'b' * 64 + '"\n'
-        )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".go", delete=False
-        ) as f:
-            f.write(go_src)
-            f.flush()
-            path = Path(f.name)
+    CONSOLE_REPO = "quay.io/gkrumbach07/openshell-dashboard"
 
-        mismatches = MOD.stamp_console_image(
-            path,
-            "quay.io/gkrumbach07/openshell-dashboard",
-            "sha256:" + "a" * 64,
-            check_only=True,
+    def _write_console_manifest(self, value_line):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            f.write(
+                "          env:\n"
+                "            - name: HYPERSHELL_CONSOLE_IMAGE\n"
+                f"{value_line}\n"
+                "            - name: OTHER\n"
+                "              value: keep\n"
+            )
+            path = Path(f.name)
+        self.addCleanup(path.unlink)
+        return path
+
+    def test_detects_stale_console_digest(self):
+        path = self._write_console_manifest(
+            f"              value: {self.CONSOLE_REPO}@sha256:{'b' * 64}"
         )
-        path.unlink()
+        mismatches = MOD.stamp_console_image(
+            path, self.CONSOLE_REPO, "sha256:" + "a" * 64, check_only=True
+        )
         self.assertEqual(len(mismatches), 1)
+        self.assertIn("HYPERSHELL_CONSOLE_IMAGE", mismatches[0])
         self.assertIn("b" * 64, mismatches[0])
+        # Check mode does not write.
+        self.assertIn("b" * 64, path.read_text())
 
     def test_stamps_console_digest(self):
-        go_src = (
-            'const defaultConsoleImage = '
-            '"quay.io/gkrumbach07/openshell-dashboard'
-            '@sha256:' + 'b' * 64 + '"\n'
+        path = self._write_console_manifest(
+            f"              value: {self.CONSOLE_REPO}@sha256:{'b' * 64}"
         )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".go", delete=False
-        ) as f:
-            f.write(go_src)
-            f.flush()
-            path = Path(f.name)
-
         new_digest = "sha256:" + "a" * 64
         MOD.stamp_console_image(
-            path,
-            "quay.io/gkrumbach07/openshell-dashboard",
-            new_digest,
-            check_only=False,
+            path, self.CONSOLE_REPO, new_digest, check_only=False
         )
         content = path.read_text()
-        path.unlink()
-        self.assertIn("@" + new_digest, content)
+        self.assertIn(
+            f"              value: {self.CONSOLE_REPO}@{new_digest}\n", content
+        )
         self.assertNotIn("b" * 64, content)
+        self.assertIn("value: keep", content)
 
-    def test_error_when_console_constant_missing(self):
-        go_src = 'package gateway\n\nconst somethingElse = "foo"\n'
+    def test_stamps_mirrored_console_image(self):
+        # A manifest pointing at another registry is moved to the pinned image.
+        path = self._write_console_manifest(
+            "              value: registry.example.com/dashboard:v0.0.9"
+        )
+        digest = "sha256:" + "a" * 64
+        MOD.stamp_console_image(path, self.CONSOLE_REPO, digest, check_only=False)
+        self.assertIn(f"value: {self.CONSOLE_REPO}@{digest}", path.read_text())
+
+    def test_error_when_console_env_missing(self):
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".go", delete=False
+            mode="w", suffix=".yaml", delete=False
         ) as f:
-            f.write(go_src)
-            f.flush()
+            f.write("          env:\n            - name: OTHER\n              value: x\n")
             path = Path(f.name)
+        self.addCleanup(path.unlink)
 
         with self.assertRaises(RuntimeError) as ctx:
             MOD.stamp_console_image(
-                path,
-                "quay.io/gkrumbach07/openshell-dashboard",
-                "sha256:" + "a" * 64,
-                check_only=True,
+                path, self.CONSOLE_REPO, "sha256:" + "a" * 64, check_only=True
             )
-        path.unlink()
-        self.assertIn("defaultConsoleImage constant not found", str(ctx.exception))
+        self.assertIn("HYPERSHELL_CONSOLE_IMAGE env var not found", str(ctx.exception))
+
+    def test_error_when_console_value_missing(self):
+        path = self._write_console_manifest("              valueFrom: {}")
+        with self.assertRaises(RuntimeError) as ctx:
+            MOD.stamp_console_image(
+                path, self.CONSOLE_REPO, "sha256:" + "a" * 64, check_only=True
+            )
+        self.assertIn("has no value line", str(ctx.exception))
 
     def test_no_mismatch_when_console_current(self):
         digest = "sha256:" + "a" * 64
-        go_src = (
-            'const defaultConsoleImage = '
-            '"quay.io/gkrumbach07/openshell-dashboard'
-            '@' + digest + '"\n'
+        path = self._write_console_manifest(
+            f"              value: {self.CONSOLE_REPO}@{digest}"
         )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".go", delete=False
-        ) as f:
-            f.write(go_src)
-            f.flush()
-            path = Path(f.name)
-
         mismatches = MOD.stamp_console_image(
-            path,
-            "quay.io/gkrumbach07/openshell-dashboard",
-            digest,
-            check_only=True,
+            path, self.CONSOLE_REPO, digest, check_only=True
         )
-        path.unlink()
         self.assertEqual(mismatches, [])
 
 
@@ -271,6 +267,20 @@ class SandboxImageSyncTest(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.values = Path(directory.name) / "values.yaml"
         self.version = Path(directory.name) / "OPENSHELL_VERSION"
+        self.directory = Path(directory.name)
+
+    CONSOLE_PINS = (
+        "OPENSHELL_CONSOLE_IMAGE=example/dashboard\n"
+        "OPENSHELL_CONSOLE_DIGEST=sha256:" + "c" * 64 + "\n"
+    )
+
+    def _console_manifest(self):
+        path = self.directory / "controller.yaml"
+        path.write_text(
+            "            - name: HYPERSHELL_CONSOLE_IMAGE\n"
+            "              value: example/dashboard@sha256:" + "c" * 64 + "\n"
+        )
+        return path
 
     def test_chart_image_resolution(self):
         for fields, expected in (
@@ -321,16 +331,32 @@ class SandboxImageSyncTest(unittest.TestCase):
 
     def test_main_check_fails_on_workload_drift(self):
         self.values.write_text('sandbox:\n  image:\n    repository: example/new\n    tag: "2"\n')
-        original = "OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/old:1\n"
+        original = (
+            "OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/old:1\n"
+            + self.CONSOLE_PINS
+        )
         self.version.write_text(original)
         output = io.StringIO()
         with patch.multiple(
             MOD, VERSION_FILE=self.version, CHART_VALUES_FILE=self.values,
             MANAGED_FILES=[], CAPABILITY_FILES=[],
+            CONSOLE_IMAGE_FILE=self._console_manifest(),
         ), patch.object(MOD.sys, "argv", ["sync_openshell_version.py"]), contextlib.redirect_stdout(output):
             self.assertEqual(MOD.main(), 1)
         self.assertIn("OPENSHELL_SANDBOX_IMAGE=example/new:2", output.getvalue())
         self.assertEqual(self.version.read_text(), original)
+
+    def test_main_fails_without_console_pins(self):
+        self.values.write_text('sandbox:\n  image:\n    repository: example/new\n    tag: "2"\n')
+        self.version.write_text("OPENSHELL_TAG=v1.2.3\nOPENSHELL_SANDBOX_IMAGE=example/new:2\n")
+        output = io.StringIO()
+        with patch.multiple(
+            MOD, VERSION_FILE=self.version, CHART_VALUES_FILE=self.values,
+            MANAGED_FILES=[], CAPABILITY_FILES=[],
+            CONSOLE_IMAGE_FILE=self._console_manifest(),
+        ), patch.object(MOD.sys, "argv", ["sync_openshell_version.py"]), contextlib.redirect_stdout(output):
+            self.assertEqual(MOD.main(), 1)
+        self.assertIn("OPENSHELL_CONSOLE_DIGEST must", output.getvalue())
 
 
 if __name__ == "__main__":

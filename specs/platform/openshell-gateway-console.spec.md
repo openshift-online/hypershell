@@ -169,7 +169,7 @@ Every console resource must carry the standard gateway labels, with `app.kuberne
 
 #### Dashboard container
 
-- Image: the control-plane default (see ImageDefaults); a per-gateway value can override it.
+- Image: `HYPERSHELL_CONSOLE_IMAGE` on the control plane (required, no built-in default; see ImageDefaults); a per-gateway value can override it.
 - Listen port: `8000`. The dashboard binds all interfaces, so the kubelet can run the probe. The Service does not expose port `8000`. The NetworkPolicies do not allow ingress to port `8000`, so only the in-pod oauth2-proxy reaches the dashboard.
 - Environment (the dashboard BFF reads these; see the upstream contract):
   - `PORT = 8000`
@@ -386,14 +386,14 @@ The gateway has no user field for the console. The console follows the route.
 |---|---|---|
 | `GATEWAY_INGRESS_MODE` | auto-detect | Selects `gateway-api`, `route`, or no managed ingress for both the gateway and its console |
 | `GATEWAY_API_HTTP_LISTENER_NAME` | `https` | The `sectionName` of the shared Gateway HTTP listener for console HTTPRoutes; it has no effect in `route` mode |
-| `HYPERSHELL_CONSOLE_IMAGE` | *(ImageDefaults default)* | The OpenShell dashboard image |
+| `HYPERSHELL_CONSOLE_IMAGE` | *(none, required)* | The OpenShell dashboard image, pinned by digest. The control plane refuses to start when it is unset. Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
 | `HYPERSHELL_OAUTH2_PROXY_IMAGE` | *(ImageDefaults default)* | The oauth2-proxy image |
 
 The reconciler reuses `GATEWAY_API_BASE_DOMAIN` (see `openshell-gateway-routing.spec.md`) for the console hostname.
 
 ### ImageDefaults
 
-The `ImageDefaults` interface (`internal/gateway/config.go`) must add `DefaultConsoleImage()` and `DefaultOAuth2ProxyImage()`. They use the same override order as the other images.
+The `ImageDefaults` interface (`internal/gateway/config.go`) must add `DefaultConsoleImage()` and `DefaultOAuth2ProxyImage()`. `DefaultConsoleImage()` reads only `HYPERSHELL_CONSOLE_IMAGE` and has no built-in fallback, like `GATEWAY_IMAGE`. Console reconciliation fails before any Keycloak or cluster write when it is empty. `DefaultOAuth2ProxyImage()` reads `HYPERSHELL_OAUTH2_PROXY_IMAGE` and falls back to a built-in default.
 
 ---
 
@@ -437,7 +437,7 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 ## Prerequisites
 
 1. **Ingress controller.** In `gateway-api` mode, the admin must add an HTTP listener to the shared Gateway (HTTPS/Terminate, port 443, wildcard `*.<base-domain>` certificate). The listener must accept HTTPRoutes from gateway namespaces. Its `sectionName` must match `GATEWAY_API_HTTP_LISTENER_NAME`. In `route` mode, an OpenShift ingress controller must admit Routes for `*.<base-domain>` and serve its router certificate.
-2. **Dashboard image.** The upstream project ([Gkrumbach07/openshell-dashboard](https://github.com/Gkrumbach07/openshell-dashboard)) publishes the dashboard to `quay.io/gkrumbach07/openshell-dashboard`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. A dashboard release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest dashboard release on the line of the pinned gateway version. The control plane's `ImageDefaults` pin it by digest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE`. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, and the `X-Forwarded-Access-Token` relay) is an upstream dependency.
+2. **Dashboard image.** The upstream project ([Gkrumbach07/openshell-dashboard](https://github.com/Gkrumbach07/openshell-dashboard)) publishes the dashboard to `quay.io/gkrumbach07/openshell-dashboard`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. A dashboard release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest dashboard release on the line of the pinned gateway version. `OPENSHELL_VERSION` pins it by digest (`OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`), and `make sync-openshell-version` stamps that pin into `HYPERSHELL_CONSOLE_IMAGE` in the base controller manifest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE` in its overlay. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, and the `X-Forwarded-Access-Token` relay) is an upstream dependency.
 3. **Keycloak realm.** The realm prerequisites in `openshell-gateway-keycloak.spec.md` apply. The console adds no realm-level object.
 
 ---

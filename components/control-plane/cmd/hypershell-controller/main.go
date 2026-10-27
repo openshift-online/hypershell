@@ -134,6 +134,12 @@ func main() {
 	}
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
+	// The console image has no built-in default. Fail here with a clear message
+	// instead of logging a console warning for every gateway later.
+	if err := gateway.ValidateConsoleImage(); err != nil {
+		log.Fatalf("console image: %v", err)
+	}
+
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
 	log.Printf("INFO hypershell-controller starting")
 	log.Printf("INFO build %s", buildInfo())
