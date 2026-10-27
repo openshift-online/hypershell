@@ -69,7 +69,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `E2E-CORE` | `platform/e2e-testing.spec.md` | 46 |
 | `E2E-COV` | `platform/e2e-feature-coverage.spec.md` | 7 |
-| `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 22 |
+| `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 26 |
 
 ### FLT
 
