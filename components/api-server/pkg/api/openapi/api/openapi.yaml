@@ -4646,7 +4646,10 @@ components:
             type: string
           route:
             description: "JSON-encoded route configuration; platform-managed, control-plane-only\
-              \ (PLAT-DATA-23)"
+              \ (PLAT-DATA-23). The optional certificate sub-key (an empty object)\
+              \ marks a gateway opted in to dedicated per-gateway certificate provisioning;\
+              \ it is provision-time only and cannot be added, removed, or changed\
+              \ after creation."
             readOnly: true
             type: string
           credential_driver:

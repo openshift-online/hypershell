@@ -172,6 +172,19 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	if getErr != nil {
 		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
 	}
+
+	// route.certificate is a provision-time-only opt-in (docs/investigations/
+	// per-gateway-certificates.md §7.7): the dedicated certificate provisioning
+	// path is chosen when the gateway is created, so any update that adds,
+	// removes, or alters the key is rejected. Other route sub-keys (e.g. host)
+	// keep their normal update semantics. Checked before the default-deny field
+	// policy below so a route.certificate mutation gets this specific, actionable
+	// conflict rather than the generic field-policy rejection (an unchanged route
+	// is a no-op for both checks).
+	if routeCertificateChanged(current.Route, gateway.Route) {
+		return nil, errors.Conflict(
+			"route.certificate is provision-time only and cannot be added, removed, or changed after gateway creation; delete and re-create the gateway to change certificate provisioning")
+	}
 	// Default-deny field policy: a user or import caller may change only name; any other
 	// changed field is rejected (PLAT-DATA-23 / SEC-RBAC-18). Re-sending an unchanged
 	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
@@ -308,6 +321,53 @@ func strEq(a, b *string) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+// routeCertificate returns the parsed value of the route JSON's certificate
+// sub-key. A nil value means the gateway is not opted in to per-gateway
+// certificate provisioning: the key is absent, explicitly JSON null, or the
+// document is not a JSON object. Any non-null value, including the empty
+// object ({}), means opted in. ok is false only when the route text is not
+// valid JSON at all; such a write cannot pass the jsonb column constraint, so
+// callers skip the immutability check and let the database reject it.
+func routeCertificate(route *string) (value any, ok bool) {
+	if route == nil {
+		return nil, true
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(*route), &doc); err != nil {
+		return nil, false
+	}
+	obj, isObject := doc.(map[string]any)
+	if !isObject {
+		return nil, true
+	}
+	cert, present := obj["certificate"]
+	if !present || cert == nil {
+		return nil, true
+	}
+	return cert, true
+}
+
+// routeCertificateChanged reports whether the provision-time-only certificate
+// opt-in differs between the stored route and the incoming route: absent vs
+// present, or present with a different value. The comparison is on the parsed
+// certificate sub-key, so whitespace and key-order differences elsewhere in
+// the route document never trigger it, and certificate:null counts as absent.
+// See docs/investigations/per-gateway-certificates.md §7.7.
+func routeCertificateChanged(current, next *string) bool {
+	currentCert, currentOK := routeCertificate(current)
+	nextCert, nextOK := routeCertificate(next)
+	if !currentOK || !nextOK {
+		return false
+	}
+	if (currentCert == nil) != (nextCert == nil) {
+		return true
+	}
+	if currentCert == nil {
+		return false
+	}
+	return !reflect.DeepEqual(currentCert, nextCert)
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

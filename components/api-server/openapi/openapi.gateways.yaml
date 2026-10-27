@@ -346,7 +346,12 @@ components:
             route:
               type: string
               readOnly: true
-              description: JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23)
+              description: >-
+                JSON-encoded route configuration; platform-managed,
+                control-plane-only (PLAT-DATA-23). The optional certificate
+                sub-key (an empty object) marks a gateway opted in to dedicated
+                per-gateway certificate provisioning; it is provision-time only
+                and cannot be added, removed, or changed after creation.
             credential_driver:
               type: string
               readOnly: true
@@ -441,6 +446,7 @@ components:
             Late-bind the gateway by capability-label selector. Mutually exclusive
             with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
+
     GatewayPlacementIntent:
       type: object
       description: Exactly one of selector or mode must be supplied.
