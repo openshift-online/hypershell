@@ -205,7 +205,20 @@ type KubernetesSecretsConfig struct {
 type RouteConfig struct {
 	Host    string `yaml:"host" json:"host,omitempty"`
 	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	// Certificate opts the gateway in to the dedicated per-gateway certificate
+	// provisioning path (route.certificate: {} in the route JSONB): the gateway
+	// gets its own wildcard certificate and Gateway API route instead of riding
+	// the shared spoke-level wildcard. Provision-time only - the API rejects
+	// changes after creation. See
+	// docs/investigations/per-gateway-certificates.md.
+	Certificate *RouteCertificateConfig `yaml:"certificate" json:"certificate,omitempty"`
 }
+
+// RouteCertificateConfig is the opt-in marker for the dedicated per-gateway
+// certificate path. It intentionally carries no fields: the issuer is cluster
+// infrastructure (GATEWAY_EXTERNAL_ISSUER on the controller), never user
+// input, and the hostnames are derived, not chosen.
+type RouteCertificateConfig struct{}
 
 type OIDCConfig struct {
 	Issuer string `yaml:"issuer" json:"issuer,omitempty"`

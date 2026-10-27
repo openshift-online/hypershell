@@ -1167,7 +1167,26 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 		log.Printf("WARN console address for %s: %v", gatewayID, err)
 		return false
 	}
-	url, hasURL := gateway.ConsoleURL(namespace)
+	// Gateways opted in to the dedicated per-gateway certificate serve their
+	// console from the per-tenant Gateway's own domain
+	// (console-<ns>.gw-<ns>.<base-domain>), not the shared base domain, so the
+	// published address must be derived with the gateway's parsed route config.
+	// An unparseable route is treated as not opted in: the provisioning path
+	// reports the invalid value, and publishing the shared-domain address keeps
+	// the button consistent with what the console exposure actually serves.
+	routeConfig := gateway.RouteConfig{}
+	if gw.Route != nil {
+		parsed, parseErr := parseGatewayRouteConfig(*gw.Route)
+		if parseErr != nil {
+			log.Printf("WARN console address for %s: invalid route config: %v", gatewayID, parseErr)
+		} else {
+			routeConfig = parsed
+		}
+	}
+	url, hasURL := gateway.ConsoleURLFor(gateway.NamespaceConfig{
+		Name:    namespace,
+		Gateway: gateway.GatewayConfig{Route: routeConfig},
+	})
 	ready := false
 	if hasURL {
 		ready, _, err = gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)

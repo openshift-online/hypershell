@@ -372,6 +372,13 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
+		// The route.certificate immutability conflict is an inherent property of
+		// the stored gateway (the opt-in is provision-time only), not a duplicate
+		// creation, so present it as FailedPrecondition rather than the framework's
+		// blanket 409-to-AlreadyExists mapping (API UX review finding 4).
+		if svcErr.Reason == routeCertificateImmutableReason {
+			return nil, status.Error(codes.FailedPrecondition, svcErr.Reason)
+		}
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.UpdateGatewayResponse{Gateway: gatewayToProto(result)}, nil

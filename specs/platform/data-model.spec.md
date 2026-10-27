@@ -53,7 +53,7 @@ erDiagram
         string supervisor_image
         string[] server_dns_names
         jsonb oidc
-        jsonb route
+        jsonb route "nullable - route exposure config (host, certificate)"
         text route_address
         jsonb credential_driver
         string external_dns
@@ -393,7 +393,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
-| `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
+| `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host, certificate}`. `certificate` is a bare opt-in sub-key for the per-gateway dedicated route and external certificate; it may only be set at creation time (the API rejects changes after the Gateway exists). See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |

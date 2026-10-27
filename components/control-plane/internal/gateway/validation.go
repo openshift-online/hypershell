@@ -85,6 +85,15 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	// A dedicated-certificate gateway (route.certificate) always uses the
+	// derived gw-<namespace> hostname: its certificate, listeners, and DNS
+	// records are all provisioned from that derivation, so an explicit
+	// route.host has no meaning on that path and is rejected rather than
+	// silently ignored. Explicit hosts keep today's shared-Gateway semantics.
+	if config.Route.Certificate != nil && config.Route.Host != "" {
+		return fmt.Errorf("route.host is not supported with route.certificate: a dedicated-certificate gateway uses the derived gw-<namespace> hostname")
+	}
+
 	// An explicit route host lands verbatim in the Route spec.host and the
 	// gateway certificate SANs, so it must be a well-formed DNS name just like
 	// ServerDnsNames. The per-tenant slot constraint (it must be the tenant's

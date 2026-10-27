@@ -60,7 +60,7 @@ type Gateway struct {
 	ImagePinned *bool `json:"image_pinned,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
-	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23)
+	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
 	Route *string `json:"route,omitempty"`
 	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
