@@ -175,6 +175,13 @@ spec:
       - name: basic-auth
         workspace: git-auth
     - name: prefetch-dependencies
+      # Skip the TaskRun itself when there are no dependencies to prefetch.
+      # Conforma misreads parameters on TaskRuns without status.results.
+      when:
+      - input: $(params.prefetch-input)
+        operator: notin
+        values:
+        - ""
       params:
       - name: input
         value: $(params.prefetch-input)
