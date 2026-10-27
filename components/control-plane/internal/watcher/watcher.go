@@ -937,6 +937,66 @@ func isRoleBindingRetryable(err error) bool {
 		isKeycloakHTTPNotFound(err)
 }
 
+// WatchCIProviders streams CIProvider events and drives each through the handler.
+// CIProvider is a platform-level resource (not cluster-scoped), so the watch takes
+// no cluster filter, mirroring WatchManagedClusters and WatchRepositories.
+func WatchCIProviders(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CIProvider], idleTimeout time.Duration) error {
+	client := pb.NewCIProviderServiceClient(conn)
+	return watchLoop(ctx, "CIProvider", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchCIProviders(ctx, &pb.WatchCIProvidersRequest{})
+		if err != nil {
+			return fmt.Errorf("starting CI provider watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving CI provider event: %w", err)
+			}
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.CIProvider]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.CiProvider,
+			}); err != nil {
+				log.Printf("ERROR handling CI provider %s: %v", event.ResourceId, err)
+			}
+		}
+	})
+}
+
+// WatchCITrusts streams CITrust events and drives each through the handler.
+// CITrust is a platform-level resource (not cluster-scoped), so the watch takes
+// no cluster filter, mirroring WatchManagedClusters and WatchRepositories.
+func WatchCITrusts(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CITrust], idleTimeout time.Duration) error {
+	client := pb.NewCITrustServiceClient(conn)
+	return watchLoop(ctx, "CITrust", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchCITrusts(ctx, &pb.WatchCITrustsRequest{})
+		if err != nil {
+			return fmt.Errorf("starting CI trust watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving CI trust event: %w", err)
+			}
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.CITrust]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.CiTrust,
+			}); err != nil {
+				log.Printf("ERROR handling CI trust %s: %v", event.ResourceId, err)
+			}
+		}
+	})
+}
+
 // watchLoop connects a watch stream, drives connectAndRecv, and reconnects with
 // exponential backoff on any return. connectAndRecv receives a heartbeat callback
 // it MUST call on every received event (and on the subscription header) so the

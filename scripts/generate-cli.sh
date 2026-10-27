@@ -51,7 +51,7 @@ HAND_MAINTAINED_COMMANDS=(
   cmd/hsctl/get/repository/cmd.go
   cmd/hsctl/list/repositories/cmd.go
 )
-for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource; do
+for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource ciProvider ciTrust; do
   for verb in create get delete; do
     HAND_MAINTAINED_COMMANDS+=("cmd/hsctl/$verb/$kind/cmd.go")
   done

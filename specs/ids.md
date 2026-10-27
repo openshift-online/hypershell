@@ -137,8 +137,9 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 7 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 23 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 

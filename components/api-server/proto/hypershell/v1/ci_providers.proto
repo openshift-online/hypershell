@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+// CIProvider is a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD,
+// Forgejo) whose workload tokens may be federated into gateway access.
+// Platform-admin-scoped; referenced by many CITrusts; holds no secret.
+message CIProvider {
+  ObjectReference metadata = 1;
+  string forge = 2;
+  string issuer = 3;
+  string jwks_url = 4;
+  string audience = 5;
+  optional string status = 6;
+  optional string status_idp_alias = 7;
+}
+
+message GetCIProviderRequest {
+  string id = 1;
+}
+
+message GetCIProviderResponse {
+  CIProvider ci_provider = 1;
+}
+
+message CreateCIProviderRequest {
+  string forge = 1;
+  string issuer = 2;
+  string jwks_url = 3;
+  string audience = 4;
+}
+
+message CreateCIProviderResponse {
+  CIProvider ci_provider = 1;
+}
+
+message UpdateCIProviderRequest {
+  string id = 1;
+  optional string jwks_url = 2;
+  optional string status = 3;
+  optional string status_idp_alias = 4;
+}
+
+message UpdateCIProviderResponse {
+  CIProvider ci_provider = 1;
+}
+
+message DeleteCIProviderRequest {
+  string id = 1;
+}
+
+message DeleteCIProviderResponse {}
+
+message ListCIProvidersRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListCIProvidersResponse {
+  repeated CIProvider items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchCIProvidersRequest {}
+
+message WatchCIProvidersResponse {
+  EventType type = 1;
+  CIProvider ci_provider = 2;
+  string resource_id = 3;
+}
+
+service CIProviderService {
+  rpc GetCIProvider(GetCIProviderRequest) returns (GetCIProviderResponse);
+  rpc CreateCIProvider(CreateCIProviderRequest) returns (CreateCIProviderResponse);
+  rpc UpdateCIProvider(UpdateCIProviderRequest) returns (UpdateCIProviderResponse);
+  rpc DeleteCIProvider(DeleteCIProviderRequest) returns (DeleteCIProviderResponse);
+  rpc ListCIProviders(ListCIProvidersRequest) returns (ListCIProvidersResponse);
+  rpc WatchCIProviders(WatchCIProvidersRequest) returns (stream WatchCIProvidersResponse);
+}
