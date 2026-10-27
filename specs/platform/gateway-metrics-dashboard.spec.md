@@ -21,7 +21,7 @@ The widgetized **operational dashboard** at `/dashboard` is specified separately
 
 The API server SHALL expose a custom Prometheus Collector named `hypershell_gateways_total` with a `phase` label that reports the current count of Gateway instances in each known lifecycle phase. The canonical phase vocabulary SHALL be owned by `components/api-server/pkg/gatewayhealth` (single source of truth shared with the control plane); the web console mirrors it via `gatewayCanonicalPhaseStrings` in `@openshift-online/hypershell-gateway-management-ui`. See `platform/gateway-phase-vocabulary.spec.md`. The BFF metrics route and this collector SHALL emit every phase in that vocabulary on every scrape/response, even when a phase count is zero.
 
-The Collector SHALL query the database once per scrape via `CountByPhase`  -  a single `SELECT phase, count(*) FROM gateways GROUP BY phase`  -  and emit one `GaugeValue` sample per phase. All five canonical phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
+The Collector SHALL query the database once per scrape via `CountByPhase` - a single `SELECT phase, count(*) FROM gateways GROUP BY phase` - and emit one `GaugeValue` sample per phase. All five canonical phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
 
 When the database query fails, the Collector SHALL emit a `prometheus.NewInvalidMetric` so the scrape registers as failed and the error is surfaced to Prometheus rather than silently dropped.
 
@@ -74,7 +74,7 @@ The `/metrics` path SHALL remain unauthenticated, consistent with the existing `
 
 Every cluster to which HyperShell is deployed SHALL include a Prometheus Operator and a Prometheus instance capable of scraping the `hypershell_gateways_total` metric without requiring cluster-specific manual configuration.
 
-The Prometheus Operator SHALL be vendored as `deploy/kind/infrastructure/prometheus-operator-bundle.yaml` (pinned to a specific release) and applied as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager.
+The pinned Prometheus Operator bundle SHALL be applied by `deploy/kind/infrastructure/kustomization.yaml` as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager.
 
 A `Prometheus` CR, a `ServiceAccount`, a `ClusterRole`, and a `ClusterRoleBinding` SHALL be declared in `deploy/base/prometheus/` and applied as application-level resources. The `Prometheus` CR SHALL:
 
@@ -191,12 +191,13 @@ The `gateway-management-ui` shared library SHALL export a `GatewayMetricsDashboa
 
 Each card SHALL display the phase name (localized via `react-intl`) in the PatternFly semantic status color for that phase, the numeric count in a large heading, and a pluralized gateway count label. The phase-to-color mapping SHALL be:
 
-| Phase | PatternFly token |
-|---|---|
-| Running | `--pf-t--global--color--status--success--default` |
-| Provisioning | `--pf-t--global--color--status--info--default` |
-| Degraded | `--pf-t--global--color--status--warning--default` |
-| Failed | `--pf-t--global--color--status--danger--default` |
+| Phase        | PatternFly token                                  |
+| ------------ | ------------------------------------------------- |
+| Pending      | `--pf-t--global--color--status--info--default`    |
+| Running      | `--pf-t--global--color--status--success--default` |
+| Provisioning | `--pf-t--global--color--status--info--default`    |
+| Degraded     | `--pf-t--global--color--status--warning--default` |
+| Failed       | `--pf-t--global--color--status--danger--default`  |
 
 The component SHALL use TanStack Query with `queryKey: ["gateways", "metrics"]` and SHALL refetch every `30_000` ms to stay aligned with the Prometheus scrape interval.
 
@@ -208,8 +209,8 @@ All user-visible strings SHALL be declared with `defineMessages` and rendered th
 
 - GIVEN `GET /api/metrics/gateways` returns `{ counts: { Running: 5, Provisioning: 2, Degraded: 1, Failed: 0 } }`
 - WHEN `GatewayMetricsDashboard` mounts
-- THEN four cards SHALL be rendered, one per phase, each showing the correct count
-- AND the `Failed` card SHALL show `0`
+- THEN five cards SHALL be rendered, one per canonical phase, each showing the correct count
+- AND the `Pending` and `Failed` cards SHALL show `0`
 
 #### Scenario: OBS-GMD-06.02 -- Loading state shows a spinner
 

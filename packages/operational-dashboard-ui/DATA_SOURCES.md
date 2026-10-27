@@ -1,14 +1,12 @@
 # Operational dashboard data sources
 
 This document tracks which dashboard widgets in the operational-dashboard
-package are backed by live data. Widgets without a connected source still
-appear on the dashboard; they render the localized "Metric unavailable" empty
-state.
+package are backed by live data. When a connected source is unavailable, its
+widgets render the localized "Metric unavailable" empty state.
 
-Reliability and usage dashboard sources are documented in
-[API reliability](#api-reliability) and [Usage dashboard](#usage-dashboard)
-below. They load through separate control-plane methods and must not be added
-to the operational `metricSources` list.
+Reliability, usage, and adoption dashboard sources are documented below. They
+load through separate control-plane methods and must not be added to the
+operational `metricSources` list.
 
 ## Data flow
 
@@ -29,9 +27,11 @@ that selection to the BFF; sources with fixed windows are described below.
 
 ## Refresh
 
-All connected metrics share `operationalDashboardRefreshMilliseconds` (15
-minutes) via `useGetMetricsData`. Manual refresh re-fetches every active source
-immediately (WEB-OPS-09).
+The operational overview and its administrator subpages use
+`useGetMetricsData` with `operationalDashboardRefreshMilliseconds` (15 minutes).
+Reliability, usage, and adoption use their corresponding query hooks; their
+refresh constants also resolve to 15 minutes. Manual refresh re-fetches every
+active source immediately (WEB-OPS-09).
 
 When OIDC is configured, all metric BFF routes require an authenticated
 session. Admin-only metric routes also require `platform:admin` (WEB-OPS-04).
@@ -70,25 +70,25 @@ Widget types in the dashboard pages and shared widget components map to
 `OperationalMetric` ids from the adapter. Summary cards read multiple metrics
 from the same payload.
 
-| Widget type                 | Metric ID               | Notes                                                                                                                           |
-| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway-status`            | `provisioned-gateways`  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`.         |
-| `sandbox-status`            | `provisioned-sandboxes` | Active total plus optional lifecycle attention breakdown. Spec: `platform/gateway-sandbox-attention-status.md`.                 |
-| `active-sandboxes`          | `provisioned-sandboxes` | Daily Active sandbox sparkline for the selected range.                                                                          |
-| `gateway-releases`          | `gateway-releases`      | Per-version counts from the paginated gateway list API; missing or blank versions bucket as `unknown`.                          |
-| `registered-users`          | `registered-users`      | See [Registered users](#registered-users) below.                                                                                |
-| `provision-time`            | `provision-time`        | See [Provision time](#provision-time) below.                                                                                    |
-| `provision-reliability`     | `provision-reliability` | See [Provision reliability](#provision-reliability) below.                                                                      |
-| `memory`                    | `memory`                | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                             |
-| `cpu`                       | `cpu`                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                                    |
-| `pods`                      | `pods`                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                               |
-| `nodes`                     | `nodes`                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                                  |
-| `inventory-summary`         | `managed-clusters`      | Totals and status icons; 30-day creations on the operational page, selected-range creations on the inventory page (WEB-OPS-22). |
-| `managed-cluster-providers` | `managed-clusters`      | Provider donut from `inventoryProviders`.                                                                                       |
-| `managed-cluster-regions`   | `managed-clusters`      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                            |
-| `resource-summary`          | several                 | Gateways, sandboxes, and derived healthy/attention counts.                                                                      |
-| `system-summary`            | several                 | Managed clusters, nodes, pods, gateways, memory, and CPU.                                                                       |
-| `provisioning-snapshot`     | several                 | Gateway provisioning count, provision time, and provision reliability.                                                          |
+| Widget type                 | Metric ID               | Notes                                                                                                                   |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `gateway-status`            | `provisioned-gateways`  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`. |
+| `sandbox-status`            | `provisioned-sandboxes` | Active total plus optional lifecycle attention breakdown. Spec: `platform/gateway-sandbox-attention-status.md`.         |
+| `active-sandboxes`          | `provisioned-sandboxes` | Daily Active sandbox sparkline for the selected range.                                                                  |
+| `gateway-releases`          | `gateway-releases`      | Per-version counts from the paginated gateway list API; missing or blank versions bucket as `unknown`.                  |
+| `registered-users`          | `registered-users`      | See [Registered users](#registered-users) below.                                                                        |
+| `provision-time`            | `provision-time`        | See [Provision time](#provision-time) below.                                                                            |
+| `provision-reliability`     | `provision-reliability` | See [Provision reliability](#provision-reliability) below.                                                              |
+| `memory`                    | `memory`                | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                     |
+| `cpu`                       | `cpu`                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                            |
+| `pods`                      | `pods`                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                       |
+| `nodes`                     | `nodes`                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                          |
+| `inventory-summary`         | `managed-clusters`      | Totals and status icons with selected-range recent creations on the Inventory page.                                     |
+| `managed-cluster-providers` | `managed-clusters`      | Provider donut from `inventoryProviders`.                                                                               |
+| `managed-cluster-regions`   | `managed-clusters`      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                    |
+| `resource-summary`          | several                 | Gateways, sandboxes, and derived healthy/attention counts.                                                              |
+| `system-summary`            | several                 | Managed clusters, nodes, pods, gateways, memory, and CPU.                                                               |
+| `provisioning-snapshot`     | several                 | Gateway provisioning count, provision time, and provision reliability.                                                  |
 
 ### Sandbox status / Active sandboxes
 
@@ -152,6 +152,11 @@ Prometheus histogram `gateway_provision_duration_seconds` (control-plane OTLP
 per OBS-CPL-07). The BFF computes mean, P50, and P95 from increases over the
 selected 7- or 30-day window. Values are presented in **seconds**
 (`unit: "sec"`).
+
+The BFF also returns optional `daily_p50` and `daily_p95` arrays. The adapter
+maps arrays with at least two points to `provisionDuration.p50Trend` and
+`provisionDuration.p95Trend`. The current Provisioning page displays the mean,
+P50, and P95 snapshot values without those trend charts.
 
 Requires control-plane metrics export through the in-cluster OpenTelemetry
 Collector (`deploy/base/prometheus/otel-collector.yaml`).
