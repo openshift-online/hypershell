@@ -250,3 +250,40 @@ func TestValidateGatewayConfigWorkspaceMode(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateGatewayConfigRouteCertificate guards the dedicated-certificate
+// opt-in shape: a route.certificate gateway always uses the derived
+// gw-<namespace> hostname, so pairing it with an explicit route.host is
+// rejected rather than silently ignored.
+func TestValidateGatewayConfigRouteCertificate(t *testing.T) {
+	t.Run("certificate with an explicit host is rejected", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{
+			Host:        "gw-tenant-a.apps.example.com",
+			Certificate: &RouteCertificateConfig{},
+		}}
+		err := ValidateGatewayConfig(cfg)
+		if err == nil {
+			t.Fatal("expected route.host + route.certificate to be rejected, got nil")
+		}
+		if !strings.Contains(err.Error(), "route.host is not supported with route.certificate") {
+			t.Errorf("error does not explain the dedicated-certificate hostname rule: %v", err)
+		}
+	})
+
+	t.Run("certificate alone is valid", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{
+			Enabled:     true,
+			Certificate: &RouteCertificateConfig{},
+		}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.certificate alone must be accepted: %v", err)
+		}
+	})
+
+	t.Run("explicit host without certificate keeps shared-Gateway semantics", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{Host: "gw-tenant-a.apps.example.com"}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.host without route.certificate must stay valid: %v", err)
+		}
+	})
+}
