@@ -59,6 +59,24 @@
   --pf-v6-c-card__body--PaddingInlineStart: var(--pf-t--global--spacer--sm);
 }
 
+.hypershell-dashboard-widget--system .pf-v6-widget-grid-tile__title {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.hypershell-dashboard-widget--system .pf-v6-widget-grid-tile__title::after {
+  background: var(--pf-t--global--color--nonstatus--orange--default);
+  border-radius: var(--pf-t--global--border--radius--pill);
+  color: var(--pf-t--global--text--color--nonstatus--on-orange--default);
+  content: var(--hypershell-system-label, "System");
+  font-size: var(--pf-t--global--font--size--body--sm);
+  font-weight: var(--pf-t--global--font--weight--body--regular);
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+  padding-block: var(--pf-t--global--spacer--xs);
+  padding-inline: var(--pf-t--global--spacer--sm);
+}
+
 .hypershell-dashboard-summary-list {
   display: grid;
   gap: var(--pf-t--global--spacer--sm);

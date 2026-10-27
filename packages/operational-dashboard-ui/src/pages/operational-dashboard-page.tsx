@@ -46,6 +46,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
@@ -221,6 +222,7 @@ function createWidgetMapping(
   metrics: OperationalDashboardMetrics,
   intl: IntlShape,
   template: ExtendedTemplateConfig,
+  isAdmin: boolean,
 ): WidgetMapping {
   const metricById = new Map(
     metrics.metrics.map((metric) => [metric.id, metric]),
@@ -314,6 +316,30 @@ function createWidgetMapping(
     return <UtilizationCard metric={metric} />;
   };
 
+  const systemWidgetConfig = (
+    titleMessage: (typeof messages)[keyof typeof messages],
+    icon: ReactNode,
+  ) => {
+    const title = intl.formatMessage(titleMessage);
+    const systemLabel = intl.formatMessage(messages.summarySystem);
+
+    return {
+      config: {
+        icon,
+        title,
+        wrapperProps: isAdmin
+          ? {
+              "aria-label": `${title} ${systemLabel}`,
+              className: "hypershell-dashboard-widget--system",
+              style: {
+                "--hypershell-system-label": JSON.stringify(systemLabel),
+              } as CSSProperties,
+            }
+          : undefined,
+      },
+    };
+  };
+
   const mapping: WidgetMapping = {
     [SECTION_TITLE_WIDGET_TYPE]: {
       defaults: {
@@ -344,28 +370,25 @@ function createWidgetMapping(
       },
     },
     "resource-summary": {
+      ...systemWidgetConfig(messages.resourceSummaryWidget, <ClusterIcon />),
       defaults: {
         h: USAGE_SUMMARY_WIDGET_HEIGHT,
         maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.resourceSummaryWidget),
-      },
       renderWidget: () => <UsageSummaryCard metrics={metrics.metrics} />,
     },
     "attention-required": {
+      ...systemWidgetConfig(
+        messages.attentionRequiredWidget,
+        <ExclamationCircleIcon />,
+      ),
       defaults: {
         h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
         maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
-      },
-      config: {
-        icon: <ExclamationCircleIcon />,
-        title: intl.formatMessage(messages.attentionRequiredWidget),
       },
       renderWidget: () => <AttentionRequiredCard metrics={metrics.metrics} />,
     },
@@ -402,15 +425,15 @@ function createWidgetMapping(
       ),
     },
     "gateway-status": {
+      ...systemWidgetConfig(
+        messages.gatewayStatusWidget,
+        <ContainerNodeIcon />,
+      ),
       defaults: {
         h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: REGISTERED_USERS_WIDGET_HEIGHT,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
-      },
-      config: {
-        icon: <ContainerNodeIcon />,
-        title: intl.formatMessage(messages.gatewayStatusWidget),
       },
       renderWidget: () =>
         renderMetric(
@@ -421,15 +444,12 @@ function createWidgetMapping(
         ),
     },
     "sandbox-status": {
+      ...systemWidgetConfig(messages.sandboxStatusWidget, <CubesIcon />),
       defaults: {
         h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 2,
-      },
-      config: {
-        icon: <CubesIcon />,
-        title: intl.formatMessage(messages.sandboxStatusWidget),
       },
       renderWidget: () =>
         renderMetric(
@@ -440,15 +460,12 @@ function createWidgetMapping(
         ),
     },
     "active-sandboxes": {
+      ...systemWidgetConfig(messages.activeSandboxesWidget, <CubesIcon />),
       defaults: {
         h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
         maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 2,
-      },
-      config: {
-        icon: <CubesIcon />,
-        title: intl.formatMessage(messages.activeSandboxesWidget),
       },
       renderWidget: () => {
         const metric = metricById.get("provisioned-sandboxes");
@@ -465,15 +482,12 @@ function createWidgetMapping(
       },
     },
     "gateway-releases": {
+      ...systemWidgetConfig(messages.gatewayReleasesWidget, <CodeBranchIcon />),
       defaults: {
         h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
         maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
-      },
-      config: {
-        icon: <CodeBranchIcon />,
-        title: intl.formatMessage(messages.gatewayReleasesWidget),
       },
       renderWidget: () =>
         renderMetric(
@@ -503,15 +517,15 @@ function createWidgetMapping(
         ),
     },
     "provisioning-snapshot": {
+      ...systemWidgetConfig(
+        messages.provisioningSnapshotWidget,
+        <CheckCircleIcon />,
+      ),
       defaults: {
         h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
         maxH: PROVISION_RELIABILITY_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
-      },
-      config: {
-        icon: <CheckCircleIcon />,
-        title: intl.formatMessage(messages.provisioningSnapshotWidget),
       },
       renderWidget: () => (
         <ProvisioningSnapshotCard metrics={metrics.metrics} />
@@ -652,6 +666,7 @@ export function OperationalDashboardPage({
 }: Readonly<OperationalDashboardPageProps>) {
   const intl = useIntl();
   const { probes = noopDashboardProbePublisher } = useDashboardUi();
+  const { isAdmin } = useDashboardUi();
   const pageTitle = title ?? intl.formatMessage(messages.title);
   const [timeRange, setTimeRange] = useState<DashboardTimeRange>(7);
   const [currentTime, setCurrentTime] = useState(0);
@@ -737,9 +752,14 @@ export function OperationalDashboardPage({
   const widgetMapping = useMemo(
     () =>
       dashboardMetrics
-        ? createWidgetMapping(dashboardMetrics, intl, displayTemplate)
+        ? createWidgetMapping(
+            dashboardMetrics,
+            intl,
+            displayTemplate,
+            isAdmin === true,
+          )
         : undefined,
-    [dashboardMetrics, displayTemplate, intl],
+    [dashboardMetrics, displayTemplate, intl, isAdmin],
   );
 
   const hasWidgetsToAdd = useMemo(() => {
