@@ -28,6 +28,8 @@ spec:
     value: components/web-console/Dockerfile
   - name: path-context
     value: .
+  - name: enable-package-registry-proxy
+    value: "true"
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
