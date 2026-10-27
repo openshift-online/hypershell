@@ -241,12 +241,14 @@ RUN python3.12 -m pip install --no-cache-dir \
       "gitlint-core==${GITLINT_VERSION}" \
       "jsonschema==${JSONSCHEMA_VERSION}"
 
-# --- user model (mirrors the OpenShell sandbox: supervisor + sandbox uid 998) ---
+# --- user model (mirrors the OpenShell sandbox: supervisor + sandbox users) ---
+# System uids are auto-assigned (UBI9 already occupies some low gids such as 998);
+# OpenShell does not require a fixed sandbox uid, matching the gitops UBI9 sandbox.
 RUN set -eux; \
     groupadd -r supervisor; \
     useradd -r -g supervisor -s /usr/sbin/nologin supervisor; \
-    groupadd -g 998 sandbox; \
-    useradd -u 998 -g sandbox -d /sandbox -s /bin/bash sandbox; \
+    groupadd -r sandbox; \
+    useradd -r -g sandbox -d /sandbox -s /bin/bash sandbox; \
     mkdir -p /sandbox/.claude \
              /sandbox/.config \
              /sandbox/.cache/go-build \
