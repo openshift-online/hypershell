@@ -154,6 +154,30 @@ build. CICD-ECC-05 (single pipeline source) already satisfied: redundant Konflux
 PR **#774 is CLOSED** and `fullsend-sandbox` keeps one authoritative `.tekton` set
 on `main`.
 
+**Completion (2026-10-27, review follow-up, PR #779):** the earlier revision set the
+three hermetic params on all three `api-server` pipeline files but only the
+pull-request pipeline was migrated to Trusted Artifacts (`git-clone-oci-ta`,
+`prefetch-dependencies-oci-ta`, `buildah-remote-oci-ta`); the push and merge-queue
+pipelines kept the standard (non-TA) `prefetch-dependencies` task. Per the review
+root-cause (the standard prefetch task produces no `status.results`, so Conforma's
+`task.rego` cannot read `enable-package-registry-proxy` and the deny rule fires),
+setting the proxy param on a non-TA pipeline has no effect: the **shipped** image is
+built by the push pipeline, so leaving push non-TA would have kept `api-server`
+non-conformant on `main` even though the PR build was green. Converted the push and
+merge-queue pipelines to the identical multi-arch Trusted-Artifacts `pipelineSpec`
+as the green pull-request pipeline, so all three `api-server` files now share one
+`pipelineSpec` (the repo convention already followed by the `agent-runtime`,
+`agent-runtime-slim`, and `fullsend-sandbox` trios). The task graph is unchanged
+(no task added or removed, so no `trusted_task.trusted` violation, CICD-ECC-03);
+only the task variants and Trusted-Artifact wiring (`SOURCE_ARTIFACT` /
+`PREFETCH_ARTIFACT`, `ociStorage`) changed, plus the shared PVC workspace was
+dropped. Verification: all three `pipelineSpec` bodies are byte-identical, the
+pull-request pipeline (the only CI-verifiable form pre-merge) is unchanged except
+its description text and stays green, and push/merge-queue mirror it. The push and
+merge-queue builds themselves can only be confirmed on the first `main` build after
+merge (push pipelines do not run pre-merge), which matches how the proven
+`agent-runtime` TA push pipelines were landed.
+
 **Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
 also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
 cross-compile loop" and therefore safe. The live Konflux build disproved that:

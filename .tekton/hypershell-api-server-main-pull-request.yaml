@@ -37,7 +37,7 @@ spec:
     value: '{"type": "gomod", "path": "components/api-server"}'
   pipelineSpec:
     description: |
-      Build native Linux AMD64 and ARM64 agent images and publish their combined image index.
+      Build native Linux AMD64 and ARM64 api-server images and publish their combined image index.
 
       Uses digest-pinned Konflux Trusted Artifacts tasks with isolated build
       storage so both architectures can run concurrently. Both must succeed
