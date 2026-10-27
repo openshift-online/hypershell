@@ -26,8 +26,6 @@ spec:
     value: components/agents/Containerfile.agent-runtime-slim
   - name: path-context
     value: .
-  - name: enable-package-registry-proxy
-    value: "true"
   pipelineSpec:
     description: |
       Build native Linux AMD64 and ARM64 agent images and publish their combined image index.
