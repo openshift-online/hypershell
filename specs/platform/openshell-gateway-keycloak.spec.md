@@ -566,11 +566,13 @@ The retry policy SHALL be:
 - Initial backoff: 2 seconds
 - Backoff multiplier: 2x per attempt
 - Maximum backoff: 30 seconds
-- Permanent failures (the RoleBinding's Gateway no longer exists) SHALL NOT be retried
+- A RoleBinding whose Gateway no longer exists SHALL NOT be retried. It is a no-op, not a failure (see below)
 - Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, a watch event whose username or role name has not been enriched yet, and a bound user whose Keycloak identity cannot yet be resolved (the user record has not yet propagated to Keycloak -- a provisioning race between user creation and binding reconciliation)
 - An unresolvable bound user SHALL be classified as a transient failure and retried on the fast capped-backoff schedule above. It SHALL NOT be classified as a permanent failure, because doing so drops the binding from the retry schedule and defers recovery to the periodic RoleBinding resync (`control-plane.spec.md`, "Requirement: Role Binding Resync"), delaying the user's role assignment by up to the resync interval instead of resolving it within seconds
 
-Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level. A permanent missing-gateway failure SHALL be logged at ERROR level and SHALL NOT be retried.
+Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level.
+
+A RoleBinding whose Gateway no longer exists has no Keycloak client left to reconcile. The RoleBindingReconciler SHALL treat it as a no-op: it SHALL log at DEBUG level, SHALL NOT retry, and SHALL NOT report an error to the reconcile queue. It SHALL NOT log at ERROR, because the periodic RoleBinding resync (`control-plane.spec.md`, "Requirement: Role Binding Resync") would repeat that log on every interval for every such binding and bury real errors. Such bindings are rare: deleting a Gateway also deletes its RoleBindings (`gateway-deletion-finalization.spec.md`, GTW-DEL-09). The no-op covers the short window where a binding event is processed after its Gateway is gone.
 
 #### Scenario: OSG-KCLK-10.01 -- RoleBinding arrives before Keycloak client exists
 
@@ -593,8 +595,10 @@ Each retry attempt SHALL be logged at WARN level with the delay, target client, 
 #### Scenario: OSG-KCLK-10.03 -- Gateway for the RoleBinding has been deleted
 
 - GIVEN a RoleBinding whose `gateway_id` no longer resolves
-- WHEN the RoleBindingReconciler attempts to assign a Keycloak role
-- THEN it SHALL log the failure at ERROR level
+- WHEN the RoleBindingReconciler processes that binding
+- THEN it SHALL log at DEBUG level that the gateway no longer exists
+- AND it SHALL NOT call Keycloak
+- AND it SHALL NOT return an error to the reconcile queue
 - AND it SHALL NOT retry that binding
 
 #### Scenario: OSG-KCLK-10.04 -- Owner binding arrives before the owner's Keycloak user is resolvable
