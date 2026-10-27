@@ -261,7 +261,7 @@ Calculations:
 
 - Request volume: `sum(increase(request_counter[<range>]))`, excluding internal `Peer*` gRPC methods.
 - Daily volume: `sum(increase(request_counter[1d]))` evaluated at UTC daily boundaries.
-- Errors: gRPC requests where `code != "OK"` and HTTP requests where `status =~ "5.."`.
+- Errors: gRPC requests where `code != "0"` and HTTP requests where `status =~ "5.."`.
 - Error rate: `errors / total requests * 100`; unavailable when total requests is zero.
 - An absent error series with qualifying traffic represents zero observed errors. A failed error-series query makes the error rate unavailable.
 - A successful absent gRPC or HTTP series contributes zero. A failed gRPC or HTTP query makes request volume, daily request volume, active Gateways, and unused Gateways unavailable.

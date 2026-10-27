@@ -20,7 +20,6 @@ import {
   Flex,
   FlexItem,
   Icon,
-  Label,
   Stack,
   StackItem,
   Title,
@@ -37,7 +36,6 @@ import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
-import { useDashboardUi } from "../dashboard-ui-provider";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -1292,7 +1290,6 @@ export function UsageSummaryCard({
   metrics,
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {
   const intl = useIntl();
-  const { isAdmin } = useDashboardUi();
   const resourceSummary = getResourceSummaryCounts(metrics);
   const items: DashboardSummaryItem[] = USAGE_SUMMARY_METRIC_IDS.map(
     (metricId) => {
@@ -1330,11 +1327,6 @@ export function UsageSummaryCard({
     <WidgetContent
       helpText={<FormattedMessage {...messages.resourceSummaryHelp} />}
     >
-      {isAdmin ? (
-        <Label color="blue">
-          <FormattedMessage {...messages.adminBadge} />
-        </Label>
-      ) : null}
       <DashboardSummaryList
         ariaLabel={intl.formatMessage(messages.summaryUsageAriaLabel)}
         items={[

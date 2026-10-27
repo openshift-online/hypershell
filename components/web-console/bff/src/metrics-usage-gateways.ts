@@ -70,7 +70,7 @@ export function grpcErrorVolumeQuery(
   rangeDays: UsageDashboardRange,
   namespaces?: readonly string[],
 ): string {
-  return `sum(increase(${requestSelector(grpcMetric, namespaces, ['method!~"Peer.*"', 'code!="OK"'])}${rangeSelector(rangeDays)}))`;
+  return `sum(increase(${requestSelector(grpcMetric, namespaces, ['method!~"Peer.*"', 'code!="0"'])}${rangeSelector(rangeDays)}))`;
 }
 
 export function httpErrorVolumeQuery(
@@ -101,18 +101,32 @@ async function optionalInstantCounterNumber(
   source: MetricsSource,
   query: string,
   timeoutMs: number,
-): Promise<number | undefined> {
+): Promise<OptionalInstantCounterResult> {
   try {
-    return (
-      (await queryPrometheusInstantNumberAllowAbsent(
-        source,
-        query,
-        timeoutMs,
-      )) ?? 0
+    const value = await queryPrometheusInstantNumberAllowAbsent(
+      source,
+      query,
+      timeoutMs,
     );
+    return value === undefined
+      ? { status: "absent" }
+      : { status: "success", value };
   } catch {
-    return undefined;
+    return { status: "failed" };
   }
+}
+
+type OptionalInstantCounterResult =
+  | { status: "absent" }
+  | { status: "failed" }
+  | { status: "success"; value: number };
+
+function optionalCounterValue(
+  result: OptionalInstantCounterResult,
+): number | undefined {
+  if (result.status === "success") return result.value;
+  if (result.status === "absent") return 0;
+  return undefined;
 }
 
 type DailySamplesResult =
@@ -191,6 +205,10 @@ function combineDailyErrorSeries(
   }));
 }
 
+function hasDailySamples(points: readonly UsageDailyPoint[]): boolean {
+  return points.some((point) => point.value !== null);
+}
+
 function coverage(points: readonly UsageDailyPoint[]): {
   coverage_end?: string;
   coverage_start?: string;
@@ -242,17 +260,26 @@ export async function queryUsageGatewayMetrics(
   ]);
 
   const response: UsageGatewayMetricsResponse = {};
-  if (grpcVolume !== undefined && httpVolume !== undefined) {
-    response.request_volume = grpcVolume + httpVolume;
+  const volumeQueriesSucceeded =
+    grpcVolume.status !== "failed" && httpVolume.status !== "failed";
+  const hasRequestTelemetry =
+    grpcVolume.status === "success" || httpVolume.status === "success";
+
+  if (volumeQueriesSucceeded && hasRequestTelemetry) {
+    const grpcRequestVolume = optionalCounterValue(grpcVolume) ?? 0;
+    const httpRequestVolume = optionalCounterValue(httpVolume) ?? 0;
+    response.request_volume = grpcRequestVolume + httpRequestVolume;
   }
   const totalRequests = response.request_volume;
   if (
     totalRequests !== undefined &&
     totalRequests > 0 &&
-    grpcErrors !== undefined &&
-    httpErrors !== undefined
+    grpcErrors.status !== "failed" &&
+    httpErrors.status !== "failed"
   ) {
-    const errors = grpcErrors + httpErrors;
+    const errors =
+      (optionalCounterValue(grpcErrors) ?? 0) +
+      (optionalCounterValue(httpErrors) ?? 0);
     response.request_error_rate_percent = (errors / totalRequests) * 100;
   }
 
@@ -262,7 +289,11 @@ export async function queryUsageGatewayMetrics(
 
   const currentNamespaces = options.currentGatewayNamespaces;
 
-  if (currentNamespaces !== undefined) {
+  if (
+    currentNamespaces !== undefined &&
+    volumeQueriesSucceeded &&
+    hasRequestTelemetry
+  ) {
     const activeResults = await Promise.allSettled([
       queryPrometheusInstantLabels(
         source,
@@ -325,13 +356,15 @@ export async function queryUsageGatewayMetrics(
     ]);
 
   const dailyVolume = combineDailySeries(dailyGrpcVolume, dailyHttpVolume);
-  if (dailyVolume !== undefined) {
+  const hasDailyRequestSamples =
+    dailyVolume !== undefined && hasDailySamples(dailyVolume);
+  if (hasDailyRequestSamples) {
     response.daily_request_volume = dailyVolume;
     Object.assign(response, coverage(dailyVolume));
   }
 
   const dailyErrors = combineDailyErrorSeries(dailyGrpcErrors, dailyHttpErrors);
-  if (dailyVolume !== undefined && dailyErrors !== undefined) {
+  if (hasDailyRequestSamples && dailyErrors !== undefined) {
     const totalByDate = new Map(
       dailyVolume.map(({ date, value }) => [date, value]),
     );

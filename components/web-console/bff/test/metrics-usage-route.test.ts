@@ -284,9 +284,7 @@ describe("usage metrics routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      active_gateways: 0,
       total_gateways: 1,
-      unused_gateways: 1,
     });
     expect(apiRequests).toHaveLength(1);
     expect(apiRequests[0]).toMatchObject({

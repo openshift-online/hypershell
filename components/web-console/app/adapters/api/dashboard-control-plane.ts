@@ -929,7 +929,7 @@ function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
     metrics.push({
       id: "gateway-request-volume",
       trend: usageTrend(response.daily_request_volume),
-      value: String(requestVolume),
+      value: String(Math.round(requestVolume)),
     });
   }
 
@@ -942,7 +942,7 @@ function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
     metrics.push({
       id: "gateway-error-rate",
       trend: usageTrend(response.daily_request_error_rate_percent),
-      value: String(errorRate),
+      value: String(Math.round(errorRate)),
     });
   }
 
@@ -986,30 +986,33 @@ function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
 
 function mapUsageSandboxMetricsResponse(body: unknown): UsageMetric[] {
   const response = body as UsageSandboxMetricsResponse;
-  const utilization = usageNumber(
-    response.sandbox_utilization_percent,
+  const activeSandboxes = usageNumber(
+    response.active_sandboxes,
     "usage-sandboxes",
-    "sandbox_utilization_percent",
+    "active_sandboxes",
   );
-  if (utilization === undefined) {
+  if (activeSandboxes === undefined) {
     return [];
   }
 
-  const metric: UsageMetric = {
-    id: "sandbox-utilization",
-    trend: usageTrend(response.daily_utilization_percent),
-    unit: "sandboxes",
-    value: String(utilization),
-  };
-  const total = usageNumber(
+  const totalSandboxes = usageNumber(
     response.total_sandboxes,
     "usage-sandboxes",
     "total_sandboxes",
   );
-  if (total !== undefined) {
-    metric.total = String(total);
+  if (totalSandboxes === undefined) {
+    return [];
   }
-  return [metric];
+
+  return [
+    {
+      id: "sandbox-utilization",
+      trend: usageTrend(response.daily_utilization_percent),
+      unit: "sandboxes",
+      value: String(Math.round(activeSandboxes)),
+      total: String(Math.round(totalSandboxes)),
+    },
+  ];
 }
 
 function mapUsageSandboxLifetimeResponse(body: unknown): UsageMetric[] {
