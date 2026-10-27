@@ -110,7 +110,7 @@ The opt-in exists to make OpenShell sandbox service exposure (ExposeService HTTP
 
 The opt-in's shape is validated at the API boundary, not only during provisioning: a create or update whose route document combines `certificate` with `host`, or whose `certificate` value carries fields, SHALL be rejected with an immediate 400 naming the problem - an invalid shape must not be accepted with a 201 and discovered later as an asynchronously failing provisioning pass.
 
-#### Scenario: Invalid opt-in shapes rejected at the API boundary
+#### Scenario: OSG-ROUT-12.06 -- Invalid opt-in shapes rejected at the API boundary
 
 - GIVEN a Gateway create request with `route: {"host": "x.example.com", "certificate": {}}`
 - WHEN the API server processes the request
@@ -180,10 +180,6 @@ Readiness for an opted-in Gateway SHALL be observed from the per-tenant Gateway 
 - THEN the control plane SHALL delete the `Certificate` `openshell-gateway-external`, the per-tenant `Gateway` `gw-<ns>`, and the `HTTPRoute` `openshell-gateway-sandbox`
 - AND the `routeAddress` SHALL be cleared
 - AND no listener SHALL remain serving the Gateway's hostname or wildcard
-
----
-
-### Requirement: Shared Gateway (Admin Prerequisite)
 
 ---
 

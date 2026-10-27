@@ -98,10 +98,6 @@ The issuer is cluster-configured (`GATEWAY_EXTERNAL_ISSUER` / `GATEWAY_EXTERNAL_
 
 ---
 
-### Requirement: Trusted CA Bundle Injection
-
----
-
 ### Requirement: OSG-TLS-03 -- Trusted CA Bundle Injection
 
 Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP uses a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway's default trust store will not include the required CA.
