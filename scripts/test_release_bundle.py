@@ -65,12 +65,11 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
     def test_excluded_components_are_ignored_not_rejected(self):
-        # The hypershell-main application also builds the fleet-dashboard, which
-        # ships on its own image pin. Its presence in the Snapshot and release
-        # artifacts must not change the bundle or stop publication.
+        # Both independently distributed images can occur in a full application
+        # Snapshot and its release artifacts without changing the six-image bundle.
         release, snapshot = fixtures()
         expected = bundle.make_bundle(release, snapshot)
-        for name in bundle.EXCLUDED_COMPONENTS:
+        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main"):
             digest = "sha256:" + "f" * 64
             snapshot["spec"]["components"].append({
                 "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
@@ -81,20 +80,17 @@ class ReleaseBundleTests(unittest.TestCase):
 
     # Verifies: CLI-REL-06.01
     def test_excluded_only_release_publishes_from_the_snapshot(self):
-        # A merge that changes only an excluded component (the fleet dashboard)
-        # leaves the managed artifact list holding just that component. After
-        # exclusion the list is empty, but the bundle is still assembled from the
-        # complete Snapshot digests and publication proceeds unchanged (CLI-REL-06).
-        release, snapshot = fixtures()
-        expected = bundle.make_bundle(release, snapshot)
-        name = bundle.EXCLUDED_COMPONENTS[0]
-        digest = "sha256:" + "f" * 64
-        snapshot["spec"]["components"].append({
-            "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
-            "source": {"git": {"url": bundle.SOURCE_URL, "revision": "f" * 40}}})
-        release["status"]["artifacts"]["images"] = [{
-            "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]}]
-        self.assertEqual(expected, bundle.make_bundle(release, snapshot))
+        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main"):
+            with self.subTest(component=name):
+                release, snapshot = fixtures()
+                expected = bundle.make_bundle(release, snapshot)
+                digest = "sha256:" + "f" * 64
+                snapshot["spec"]["components"].append({
+                    "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
+                    "source": {"git": {"url": bundle.SOURCE_URL, "revision": "f" * 40}}})
+                release["status"]["artifacts"]["images"] = [{
+                    "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]}]
+                self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
     def test_incomplete_snapshot_and_invalid_artifact_lists_fail(self):
         mutations = (
@@ -102,6 +98,7 @@ class ReleaseBundleTests(unittest.TestCase):
             lambda r, s: s["spec"]["components"].append(copy.deepcopy(s["spec"]["components"][0])),
             lambda r, s: r["status"]["artifacts"]["images"].append(copy.deepcopy(r["status"]["artifacts"]["images"][0])),
             lambda r, s: r["status"]["artifacts"]["images"][0].update(name="unexpected-component"),
+            lambda r, s: s["spec"]["components"].append({"name": "unexpected-component"}),
         )
         for mutate in mutations:
             release, snapshot = fixtures()
