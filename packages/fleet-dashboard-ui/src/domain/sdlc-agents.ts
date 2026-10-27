@@ -15,12 +15,58 @@ export interface SdlcAgentMetrics {
   readonly itemsProcessed: number;
   readonly itemsFailed: number;
   readonly provisionSeconds: number;
+  /** Unix seconds of the agent's most recent freshness push (SDLC-AGT-15); 0 when
+   *  the freshness series is absent. The source of truth for "last seen" and for
+   *  deciding the on/off gauge is still live. */
+  readonly lastReportedAt?: number;
   readonly series: SdlcAgentSeries;
 }
 
 export interface SdlcAgentsData {
   readonly envs: readonly string[];
   readonly agents: readonly SdlcAgentMetrics[];
+}
+
+/** An agent's present-tense liveness, derived from facts (SDLC-AGT-16). */
+export type AgentActivity = "active" | "notActive" | "blind";
+
+/**
+ * A single generic liveness window (seconds), NOT a per-agent schedule: it only
+ * answers whether the on/off gauge is still live. The producer refreshes the
+ * freshness timestamp (and, for long runs, heartbeats) well within this window, so
+ * a gauge last touched longer ago than this is treated as decayed (SDLC-AGT-15).
+ */
+export const HEARTBEAT_STALE = 180;
+
+/**
+ * Derive an agent's present-tense activity (SDLC-AGT-16) as a pure function of the
+ * row, a caller-supplied current time, and the plane's `stale` flag. It never reads
+ * the clock or any framework API (SDLC-AGT-06) - the caller passes `nowMs`.
+ *
+ * - `blind` when the plane is stale: the whole snapshot is untrustworthy, so no
+ *   per-agent liveness can be asserted.
+ * - otherwise the on/off gauge is "live" when a freshness timestamp exists and the
+ *   current time is within the liveness window of it; with no timestamp yet, liveness
+ *   falls back to the raw `replicasOn > 0` gauge.
+ * - `active` when any replica is on AND the gauge is live; else `notActive`.
+ *
+ * This is a fact-based signal, distinct from the removed `agentHealth()` verdict
+ * (SDLC-AGT-10): it reintroduces no threshold-guessed health.
+ */
+export function agentActivity(
+  a: SdlcAgentMetrics,
+  nowMs: number,
+  planeStale: boolean,
+): AgentActivity {
+  if (planeStale) {
+    return "blind";
+  }
+  const lastReportedAt = a.lastReportedAt ?? 0;
+  const live =
+    lastReportedAt > 0
+      ? nowMs / 1000 - lastReportedAt < HEARTBEAT_STALE
+      : a.replicasOn > 0;
+  return a.replicasOn > 0 && live ? "active" : "notActive";
 }
 
 /** Group agent rows by environment key (the join key to the map node id). */
@@ -73,6 +119,9 @@ function sumAgentRows(
     // Not a counter: the slowest recent provision across environments is the more
     // useful signal than an average that could mask one environment running hot.
     provisionSeconds: Math.max(...rows.map((r) => r.provisionSeconds)),
+    // Freshness is a timestamp, not a counter: the most recent push across envs is
+    // the live one, so the merged row reads "active" if any environment is (SDLC-AGT-15).
+    lastReportedAt: Math.max(...rows.map((r) => r.lastReportedAt ?? 0)),
     series: {
       times,
       queueDepth: sumSeriesAt(rows, times, (s) => s.queueDepth),

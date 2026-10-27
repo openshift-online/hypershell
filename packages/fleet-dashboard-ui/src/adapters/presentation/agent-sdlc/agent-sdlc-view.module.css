@@ -177,6 +177,22 @@
   color: var(--pf-t--global--text--color--subtle, #9a9da0);
 }
 
+/* Present-tense liveness cue in the column header (SDLC-AGT-17): the activity
+   state's dot + label, with an optional "last seen" line beneath it. */
+.columnActivity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.columnLastSeen {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+}
+
 /* The aging track: a card's vertical position encodes its time-in-phase
    (SDLC-VIS-08). Fresh at the top, stale toward the bottom. A shallow danger
    gradient toward the floor pairs with the dashed SLE line. */

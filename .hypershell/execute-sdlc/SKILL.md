@@ -32,24 +32,57 @@ $LABEL_SCOPE [$ISSUE_OVERRIDE (Optional)] [$LLM_OVERRIDE (Optional)] [$DRY_RUN]
   from applicable items within `$LABEL_SCOPE`. Note: If `$ISSUE_OVERRIDE` does
   not have `$LABEL_SCOPE` applied, the SDLC will exit.
 - LLM_OVERRIDE (Optional): Defaults to `claude -p`. Override the command invoked
-  to execute each of the agent steps. Eg. `codex --yolo e`
+  to execute each of the agent steps. Eg. `codex --yolo e`. Only consulted when
+  `USE_HEADLESS` is true.
 - $DRY_RUN: Optionally run without any write actions. TRUE if `--dry-run` provided, EMPTY otherwise.
+- USE_HEADLESS (Optional environment variable, not a positional argument): Selects
+  HOW each `skill(...)` step is dispatched. Read it from the environment; when
+  unset or empty, treat it as TRUE. TRUE keeps the historical behavior - shell out
+  to a headless CLI (`$LLM_OVERRIDE`). FALSE dispatches each step as an in-harness
+  agent subtask instead, which is what lets a non-Claude agent runtime execute this
+  SDLC by mapping `skill(...)` onto its own sub-agent primitive rather than assuming
+  `claude -p` exists.
 
 
 ## Invoking a Skill
 
-Whenever `skill(<skill_path>, <args>)` is called, shell out to the following: 
+Each `skill(<skill_path>, <args>)` in the steps below is one unit of work that must
+run to completion in its own fresh agent context. Both dispatch modes run the SAME
+skill with the SAME arguments and the SAME `$DRY_RUN` flag; they differ only in the
+execution mechanism. Choose the mechanism from `USE_HEADLESS` (default TRUE).
+
+### USE_HEADLESS=true (default): headless CLI shell-out
+
+Shell out to the configured LLM CLI:
 
 ```bash
 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 $LLM_OVERRIDE "Execute skill: <skill_path> <args> $DRY_RUN"
 ```
 
-Note: `claude -p` and its wrappers default to a background-wait ceiling of about
-10 minutes, which terminates in-flight subagents before the step can commit and
-push its work, silently losing it. Setting `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`
-forces the invoked process to wait indefinitely for its subagents to complete.
+- If `$LLM_OVERRIDE` is not provided, default to `claude -p`. Override it to target
+  another CLI (eg. `codex --yolo e`).
+- `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` matters because `claude -p` and its
+  wrappers default to a background-wait ceiling of about 10 minutes, which
+  terminates in-flight subagents before the step can commit and push its work,
+  silently losing it. Setting it to 0 forces the invoked process to wait
+  indefinitely for its subagents to complete.
 
-Note: If LLM_OVERRIDE is not provided, default to `claude -p`.
+### USE_HEADLESS=false: in-harness agent subtask
+
+Do NOT shell out to a CLI. Instead schedule the work as an agent subtask using
+whatever subagent/Task primitive the running harness provides, passing the same
+instruction verbatim as the subtask prompt:
+
+```text
+Execute skill: <skill_path> <args> $DRY_RUN
+```
+
+This path assumes nothing about `claude -p` being installed, so the orchestrator
+stays portable across agent runtimes. It also unlocks parallelism: where a step
+below is marked parallelizable (Step 2 and Step 3), `USE_HEADLESS=false` SHOULD
+fan those subtasks out concurrently, one subtask per in-scope work item. Under
+`USE_HEADLESS=true` the same steps run one item at a time, because serial CLI
+shell-outs are the only safe option there.
 
 ## Workflow Steps
 
@@ -110,20 +143,29 @@ the same status projection, artifact links, narrative, and terminal closure as a
 Jira-origin record (Scope Reconciliation Covers Both Origins). For an
 `$ISSUE_OVERRIDE` run they apply to the single `$EXECUTION_RECORD`.
 
-- Associate existing artifacts (idempotent reuse, prevents duplicate PRs):
-  Find any PR whose head branch or title contains `<JIRA_KEY>` (eg.
-  `implementer/spec-<JIRA_KEY>-*`). For a GitHub-origin record the Jira key is
-  freshly minted, so its pre-existing PR will NOT match that pattern; also
-  discover the record's natively linked PRs (those referencing this GitHub issue,
-  eg. `gh pr list --search <issue-number>` or the issue's linked pull requests).
-  IF found and not already linked to `$EXECUTION_RECORD`, add a reference comment
-  linking the PR to the record. (Terminal closure does not depend on this step:
-  `reconcile` reads the record's linked PR merge state directly.)
+- Associate the existing artifact (idempotent reuse, prevents duplicate PRs):
+  An execution record has at most ONE funnel pull request, which serves BOTH its
+  spec and code phases (1:1 issue<->PR; see `One Pull Request Across Spec and Code
+  Phases` in `specs/standards/sdlc/jira-github-sync.spec.md`). Resolve it
+  phase-agnostically - do NOT discriminate by a `spec-` versus `code-` branch
+  prefix: find the record's natively linked PR (one referencing this GitHub issue,
+  eg. `gh pr list --search <issue-number>` or the issue's linked pull requests),
+  or any PR whose head branch or title contains `<JIRA_KEY>` (the funnel branch is
+  named `implementer/spec-<JIRA_KEY>-*`, where the `spec-` segment only marks where
+  the branch was born, not the current phase). For a GitHub-origin record the Jira
+  key is freshly minted, so its pre-existing PR is found by the natively-linked
+  path, not the branch-name match. If more than one open PR matches, that is an
+  anomaly (not routing input): warn and take the newest. IF a PR is found and not
+  already linked to `$EXECUTION_RECORD`, add a reference comment linking it to the
+  record. (Terminal
+  closure does not depend on this step: `reconcile` reads the record's linked PR
+  merge state directly.)
 
 - Derive the initial phase label (only if `$EXECUTION_RECORD` carries NO phase
-  label yet, so this never overwrites an advanced state):
-  - an open `implementer/code-<JIRA_KEY>-*` PR exists -> `agent/reviewable-code`
-  - an open `implementer/spec-<JIRA_KEY>-*` PR exists -> `agent/reviewable-spec`
+  label yet, so this never overwrites an advanced state). Because one PR serves
+  both phases, the phase is NOT derived from the PR branch prefix - the GitHub
+  label state machine, not the branch name, tracks the phase:
+  - an open PR for the record exists (resolved as above) -> `agent/reviewable-spec`
   - otherwise -> `agent/workable`
 
 - Phase labels are GitHub-authoritative. Do NOT keep SDLC phase labels on the
@@ -170,18 +212,48 @@ IF `$ISSUE_OVERRIDE` IS EMPTY:
     Let the candidate set be every execution record that has `$LABEL_SCOPE` AND
     `agent/allowed` AND at least one ACTIVE phase label. Exclude records that are
     terminal or paused (`agent/review-code-approved`, `agent/needs-input`,
-    `agent/duplicate`, `agent/blocked`). Choose one candidate at random.
+    `agent/duplicate`, `agent/blocked`).
+    Also exclude any record held at the human spec-approval gate: a record whose
+    highest-precedence ACTIVE phase is `agent/review-spec-approved` that ALSO carries
+    the human-applied `agent/review-spec-blocked` label AND whose pull request does
+    not yet have an approving review from a human (see Step 3). Such a record is
+    waiting on a person, so picking it would only stall the run; it rejoins the
+    candidate set automatically once the human approves its pull request.
     IF the candidate set is empty:
         STOP. No further action. Exit with: "No in-flight or workable items in scope: $LABEL_SCOPE."
+    Selection depends on the dispatch mode, because the candidate set is safely
+    parallelizable: each execution record advances through its own phases without
+    touching another record's state or branch.
+    - USE_HEADLESS=true (default): choose ONE candidate at random. Serial
+      shell-outs make fan-out unsafe, so a single run advances a single record.
+    - USE_HEADLESS=false: select the ENTIRE candidate set and run Step 3 for every
+      record concurrently, one agent subtask per record (see Step 3).
 ELSE:
     IF `$EXECUTION_RECORD` does not have `$LABEL_SCOPE` label applied:
         STOP. No further action. Exit with: "ERROR: work item does not have required scope label: $LABEL_SCOPE.
     IF `$EXECUTION_RECORD` does not have the `agent/allowed` label applied:
         STOP. No further action. Exit with: "ERROR: work item is not authorized (missing agent/allowed): $EXECUTION_RECORD."
 
-OUTPUT: $SELECTED_WORK_ITEM
+OUTPUT: $SELECTED_WORK_ITEMS (the single chosen record under USE_HEADLESS=true or
+an `$ISSUE_OVERRIDE` run; the whole candidate set under USE_HEADLESS=false)
 
 ### Step 3: Invoke Agents
+
+Run the per-record phase loop below for each record in `$SELECTED_WORK_ITEMS`.
+Under USE_HEADLESS=false fan the records out concurrently, one agent subtask per
+record, and let each subtask run the whole loop for its record to completion; the
+records are independent, so they never need to coordinate. Under USE_HEADLESS=true
+there is exactly one record, run inline. In BOTH modes the phases WITHIN a single
+record stay strictly sequential - a record carries exactly one ACTIVE phase label
+at a time, so there is nothing to parallelize inside one record, only across them.
+
+Isolation under fan-out: the phase steps clone and mutate the repository (the
+implementation steps check out and build each record's branch), so concurrent
+subtasks MUST each operate in their own working copy - a separate clone, a git
+worktree, or an equivalently sandboxed checkout. Two subtasks sharing one working
+directory would clobber each other's branch checkout and build state. Independence
+of records holds only when their working copies are also independent.
+
 
 Keep Jira in sync as the GitHub phase advances. Before the loop, record the
 current phase as `$PREVIOUS_PHASE`. After every iteration (every phase
@@ -202,6 +274,28 @@ ACTIVE phase labels, furthest-along first, map to one step each:
 `agent/review-code-approved` is terminal. `agent/needs-input`, `agent/duplicate`,
 and `agent/blocked` are paused; the loop does not act on them.
 
+`agent/review-spec-blocked` is an OPTIONAL human gate a person applies to force a
+human spec sign-off before any code is written. It is NOT a phase label and does
+not change the phase map above; it only gates the `agent/review-spec-approved ->
+code-implementation` transition (handled in the loop below). It stays inert during
+the spec phases, so the item still advances to `agent/review-spec-approved` and
+opens its pull request for the human to review - gating earlier would deadlock,
+since there would be no pull request to approve.
+
+In a self-run (the operator's own GitHub identity authored the pull request, eg.
+running without the dedicated GitHub App installation identity), GitHub refuses
+to let that same identity leave an approving review on its own PR, so the
+review-based release below can never fire. For this case the gate also accepts
+direct removal of `agent/review-spec-blocked` by a human as the approval action,
+with no PR review required. GitHub's issue timeline attributes who removed the
+label and when, which is the audit record for this path; it is weaker than a
+recorded review (no review body, no reviewer-identity check against the PR
+author), so prefer the PR-review path whenever a real review is possible.
+
+# Below, `$SELECTED_WORK_ITEM` is the single record this loop is advancing: the one
+# chosen record under USE_HEADLESS=true or an `$ISSUE_OVERRIDE` run, or the one
+# element of `$SELECTED_WORK_ITEMS` handled by this fan-out subtask under
+# USE_HEADLESS=false. The loop is per-record either way.
 WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 
   # Pick the FURTHEST-ALONG active phase, so a stale earlier label never re-runs a
@@ -219,6 +313,53 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
       skill(../agents/spec-review, $SELECTED_WORK_ITEM)
       break
     CASE `agent/review-spec-approved`:
+      # Human spec-approval gate (opt-in). If a person applied
+      # `agent/review-spec-blocked`, do not start coding until they have approved the
+      # record's pull request. A record has ONE pull request serving both the spec
+      # and code phases (the `implementer/spec-<JIRA_KEY>-*` branch created at the
+      # spec phase and kept through the code phase; see `One Pull Request Across Spec
+      # and Code Phases` in specs/standards/sdlc/jira-github-sync.spec.md). Resolve it
+      # phase-agnostically, the same single PR the review steps act on.
+      # "Approved" means it carries at least one review with state APPROVED authored
+      # by a HUMAN - not a bot, and not this agent's own identity. Note the JSON
+      # shape: `gh pr view <pr> --json reviews` gives each review only
+      # `.author.login` and `.state` - there is NO `.author.is_bot` field, so do not
+      # test it (it is null and would reject every review, including a real human
+      # approval). Identify a human by login instead: keep `.reviews[]` where
+      # `.state == "APPROVED"` and `.author.login` does NOT end in `[bot]` and is not
+      # the agent's own login. Example:
+      #   gh pr view <pr> --json reviews --jq \
+      #     '[.reviews[] | select(.state=="APPROVED")
+      #        | .author.login | select(endswith("[bot]")|not)
+      #        | select(. != "<agent-login>")] | length > 0'
+      # If a login is ambiguous, confirm the account type with
+      # `gh api users/<login> --jq .type` (a person returns `User`, a bot `Bot`).
+      # Do NOT rely on `reviewDecision`: GitHub turns it APPROVED on a bot review or
+      # the agent's own approving review, which would bypass the human sign-off this
+      # gate exists to enforce. This gate is NOT applied to `agent/review-code-rejected`
+      # below: that is a re-implementation after code review, and the spec was already
+      # signed off earlier.
+      #
+      # Self-run fallback: if the pull request's author is the SAME GitHub identity the
+      # orchestrator is running as, GitHub refuses a self-approving review, so the
+      # review check below can never pass. In that case a human directly removing
+      # `agent/review-spec-blocked` (eg. via the GitHub UI or `gh issue edit --remove-label`)
+      # IS the approval - no PR review is required or checked for this path.
+      IF $SELECTED_WORK_ITEM has `agent/review-spec-blocked`:
+        IF the pull request has a human approving review:
+          # Gate satisfied. Clear the human gate (it is not a phase label, so the
+          # normalize step would not remove it) and fall through to implementation.
+          Remove `agent/review-spec-blocked` from $SELECTED_WORK_ITEM.
+        ELSE:
+          # Still waiting on a person (either a PR review or, in a self-run, direct
+          # removal of the label - see above). Do NOT run code-implementation and do
+          # NOT change any labels. Under fan-out this stops only this record's subtask;
+          # otherwise it ends the run. The next run re-checks and proceeds once the
+          # human approves the pull request.
+          STOP this record with: "Waiting on human spec approval
+          (agent/review-spec-blocked) for $SELECTED_WORK_ITEM."
+      skill(../agents/code-implementation, $SELECTED_WORK_ITEM)
+      break
     CASE `agent/review-code-rejected`:
       skill(../agents/code-implementation, $SELECTED_WORK_ITEM)
       break

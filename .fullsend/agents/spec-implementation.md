@@ -1,6 +1,6 @@
 ---
 name: spec-implementation
-description: "Draft the spec change and open a spec PR."
+description: "Draft the spec change and open the work item's pull request."
 ---
 
 ## Runtime context (supplied by the harness as environment variables)

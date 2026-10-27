@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: "Review the code PR and record a verdict."
+description: "Review the code changes on the work item's pull request and record a verdict."
 ---
 
 ## Runtime context (supplied by the harness as environment variables)

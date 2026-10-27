@@ -133,6 +133,10 @@ do not trust this table blindly; it is a checklist, not a source of truth:
 ```bash
 grep -rln "odh-openshell-\(gateway\|supervisor\|sandbox\):" . | grep -v '\.git/'
 grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'     # older image names (ghcr.io/nvidia)
+# ROKS mirror naming drops the odh- prefix (REG/openshift/openshell-gateway:<TAG>);
+# neither grep above matches it, so it was missed on two prior bumps. See the
+# 2026-10-27 Learnings entry.
+grep -rln 'openshell-\(gateway\|supervisor\|sandbox\(-runtime\)\?\):' . | grep -v '\.git/' | grep -v 'odh-openshell'
 grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intentional fixtures afterwards
 ```
 
@@ -146,7 +150,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
 | `specs/platform/global-architecture.spec.md` | version in the API-compat note | Also re-check the `v1beta1` claim (see below) |
-| `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e |
+| `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e; uses the mirrored name without the `odh-` prefix, so the two main discovery greps above miss it - use the third grep |
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
 | `scripts/kind/lib.sh`, `scripts/kind/up.sh` | Defaults sourced from `OPENSHELL_VERSION` | Kind preload must use the same workload image as e2e |
 | `tests/e2e/{suite.go,phases.go,access_phases.go,smoke.sh}` | Shared workload pin passed explicitly with `sandbox create --from` | No independent image literal; Go suite reads the file, smoke sources it through `lib.sh` |
@@ -508,6 +512,53 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.5-rhaiv.3 (2026-10-27, v0.1.5-rhaiv.2 -> v0.1.5-rhaiv.3, no-arg scheduled run):**
+  Clean mechanical bump. Pins and chart updated; the Python policy checks that make up
+  `make check` (`check_forbidden_terms`, `check_dependency_pins`, `check_ci_components`,
+  `check_deploy_orphans`, `sync_openshell_version` check mode, `check_spec_ids`,
+  `check_mergify_scopes`, `test_release_bundle`, `test_coverage_report`,
+  `test_sync_openshell_version`) all pass run directly. `go build/vet/test` and
+  `check-cli-drift` could not run (no Go toolchain in this runtime, see the 2026-10-23
+  sandbox-limits entry) - only one `.go` file changed
+  (`tests/e2e/cli_test.go`, a string-literal image-tag bump), so this is a recorded gap
+  for CI/a human reviewer to close, not a blocker.
+  - **Step 0:** no `needs-decision` issue named a gateway version; #366 is stale/superseded,
+    and #760/#752 are console-only. Resolved the gateway target directly from the tag list.
+  - **Triage:** `opendatahub-io/openshell` compare API (not a scratch clone - only 24 commits,
+    well under the 300-file API cap) showed 24 commits, same NVIDIA base (`v0.1.5`), no
+    `.proto` file touched. One feature-sized change,
+    `feat(kubernetes): host sandboxes on the shared supervisor` (#4702), adds a chart
+    Deployment/Service/NetworkPolicy and conditional RBAC in `peer-role.yaml`, all gated on
+    `gatewayConfig["openshell.drivers.kubernetes"].supervisor_topology == "gateway"`.
+    Confirmed `grep -rn supervisor_topology components/ charts/ specs/` has no hit outside
+    the vendored chart, so the feature is inert for HyperShell; **not adopted**, same
+    disposition as the equivalent opt-in feature noted in the v0.1.5-rhaiv.2 entry. The
+    remaining commits are build/CI/doc/dependency hygiene (podman timeout, a server lock-wait
+    bound, rpm lockfile refreshes for the Konflux build images, snap publishing, Windows
+    test repair) - mechanical.
+  - **RBAC:** confirmed no escalation needed - the new conditional grants
+    (`services`/`secrets` get on the supervisor's own named objects) never render because
+    `supervisor_topology` is unset, and the unconditional chart RBAC (runtimeclasses,
+    priorityclasses, pvc, services, secrets, networkpolicies, etc.) was already present in
+    `controller-rbac.yaml` from earlier bumps.
+  - **Console:** not bumped. `OPENSHELL_CONSOLE_DIGEST` still pins dashboard release v0.1.1;
+    the newest release on line 0.1 is v0.1.2 (confirmed reachable via
+    `gh api repos/Gkrumbach07/openshell-dashboard/releases`), matching what issues #760 and
+    #752 already describe. `quay.io` is still unreachable from this runtime (`curl` to
+    `quay.io:443` gets "Permission denied" at connect) so the digest still cannot be
+    resolved here; left to whoever can resolve #760/#752, not duplicated as a new issue.
+  - **Footprint gap found and fixed:** `components/pr-test/e2e-openshell-roks.sh`'s
+    `GW_IMAGE`/`GW_SUPERVISOR_IMAGE` defaults were still `0.1.5-rhaiv.0` - unchanged across
+    *two* prior bumps (rhaiv.0 -> rhaiv.2 -> this one). Root cause: both discovery greps in
+    [Version footprint](#version-footprint) match the `odh-openshell-*` quay names, but the
+    ROKS mirror convention drops the `odh-` prefix
+    (`$REG/openshift/openshell-gateway:<TAG>`), so neither grep ever surfaced this file. Added
+    a third discovery grep for the unprefixed mirror name and a note on the table row so the
+    next run does not silently carry a two-bumps-stale ROKS default forward again.
+  - **ibm-cluster mirror digests:** same quay.io gap as the rhaiv.2 run - the three
+    `skopeo copy` source references went tag-only (not paired with the old rhaiv.2 digest)
+    with a comment to resolve and pin before mirroring, per the documented fallback.
 
 - **v0.1.5-rhaiv.2 (2026-10-23, v0.1.5-rhaiv.0 -> v0.1.5-rhaiv.2, no-arg scheduled run):**
   Pins and chart bumped. Could not run `go build/vet/test` or `make check` this run

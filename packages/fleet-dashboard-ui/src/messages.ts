@@ -6,6 +6,35 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  agentActive: {
+    id: "fleet.agents.activity.active",
+    defaultMessage: "Active",
+    description:
+      "Agent liveness state: the agent is running right now (SDLC-AGT-17).",
+  },
+  agentLastSeen: {
+    id: "fleet.agents.activity.lastSeen",
+    defaultMessage: "last seen {ago} ago",
+    description:
+      "Relative time since an agent last reported, shown beside its activity state (SDLC-AGT-17).",
+  },
+  agentMonitoringBlind: {
+    id: "fleet.agents.activity.blind",
+    defaultMessage: "Monitoring blind",
+    description:
+      "Agent liveness state: the telemetry plane is stale, so liveness cannot be asserted (SDLC-AGT-17).",
+  },
+  agentNotActive: {
+    id: "fleet.agents.activity.notActive",
+    defaultMessage: "Not active",
+    description:
+      "Agent liveness state: the agent is not running right now (the normal resting state of a cron agent) (SDLC-AGT-17).",
+  },
+  agentsColActivity: {
+    id: "fleet.agents.col.activity",
+    defaultMessage: "Activity",
+    description: "Agents table column header for the agent activity state.",
+  },
   agentsColAgent: {
     id: "fleet.agents.col.agent",
     defaultMessage: "Agent",

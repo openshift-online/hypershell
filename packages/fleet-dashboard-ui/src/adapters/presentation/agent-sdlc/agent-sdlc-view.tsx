@@ -124,7 +124,16 @@ import {
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { NavLinkButton } from "../nav-link-button";
-import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
+import {
+  agentActivity,
+  type SdlcAgentMetrics,
+} from "../../../domain/sdlc-agents";
+import {
+  AgentActivityBadge,
+  formatDurationShort,
+  LastSeen,
+  useLiveNow,
+} from "../shared/agent-activity";
 import { TEXT_COLOR, TONE_COLOR, USER_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
 import { MetricTile } from "../map/metric-tiles";
@@ -149,6 +158,9 @@ export interface AgentSdlcViewProps {
   readonly agents?: ReadonlyMap<string, SdlcAgentMetrics>;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
+  /** The SDLC-agents plane's `stale` flag. When true every agent reads as "Monitoring
+   *  blind" (SDLC-AGT-16): the snapshot is untrustworthy, so no liveness is asserted. */
+  readonly planeStale?: boolean;
 }
 
 const PHASE_MESSAGE: Record<string, MessageDescriptor> = {
@@ -282,21 +294,9 @@ function BundleIdenticon({
   );
 }
 
-function formatAge(intl: IntlShape, seconds: number): string {
-  const total = Math.max(seconds, 0);
-  const days = Math.floor(total / 86_400);
-  const hours = Math.floor((total % 86_400) / 3_600);
-  const minutes = Math.floor((total % 3_600) / 60);
-  // Show at most two adjacent units, down to minutes, so a young card reads "11m"
-  // or "3h 20m" rather than a misleading "0d 0h".
-  if (days > 0) {
-    return intl.formatMessage(messages.sdlcAge, { days, hours });
-  }
-  if (hours > 0) {
-    return intl.formatMessage(messages.sdlcAgeHm, { hours, minutes });
-  }
-  return intl.formatMessage(messages.sdlcAgeM, { minutes });
-}
+// Card age ("11m", "3h 20m") shares the compact two-unit formatter with the shared
+// "last seen" text (single source of truth, so the two can never drift).
+const formatAge = formatDurationShort;
 
 function formatMergedAgo(
   intl: IntlShape,
@@ -846,6 +846,8 @@ function AgingColumn({
   onSelect,
   agentSummary,
   onSelectAgent,
+  nowMs,
+  planeStale,
 }: {
   phase: AgentSdlcPhase;
   cards: readonly AgentSdlcCard[];
@@ -853,6 +855,10 @@ function AgingColumn({
   onSelect: (card: AgentSdlcCard) => void;
   agentSummary?: SdlcAgentMetrics;
   onSelectAgent?: (name: string) => void;
+  /** Current time for the activity derivation and "last seen" text (SDLC-AGT-16/17). */
+  nowMs: number;
+  /** The agents plane's staleness; drives the "Monitoring blind" state. */
+  planeStale: boolean;
 }): React.ReactElement {
   const intl = useIntl();
   const sleRatio =
@@ -919,6 +925,21 @@ function AgingColumn({
             <span>{phaseLabel}</span>
           </Inline>
         </div>
+        {/* Present-tense liveness (SDLC-AGT-17): an explicit state next to the agent
+            name rather than a blank. Only rendered for columns that have an acting
+            agent summary; the plain phase columns (e.g. shipped) carry no agent. */}
+        {agent !== undefined && agentSummary !== undefined ? (
+          <div className={styles.columnActivity}>
+            <AgentActivityBadge
+              activity={agentActivity(agentSummary, nowMs, planeStale)}
+            />
+            <LastSeen
+              lastReportedAt={agentSummary.lastReportedAt}
+              nowMs={nowMs}
+              className={styles.columnLastSeen}
+            />
+          </div>
+        ) : null}
         {agentSummary ? <ColumnAgentMetrics agent={agentSummary} /> : null}
       </div>
       <div className={styles.track} ref={trackRef} data-phase-col={phase.key}>
@@ -2320,26 +2341,6 @@ function AgentDetailPanel({
   );
 }
 
-// useLiveNow returns a wall-clock timestamp that ticks every second so cards age
-// continuously between the plane's refetches, not just in a jump when new data lands.
-// An explicit override (tests, the dev harness) freezes it for deterministic output
-// and never starts a timer.
-function useLiveNow(override?: number): number {
-  const [now, setNow] = useState<number>(() => override ?? Date.now());
-  useEffect(() => {
-    if (override !== undefined) {
-      return;
-    }
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 1_000);
-    return () => {
-      clearInterval(id);
-    };
-  }, [override]);
-  return override ?? now;
-}
-
 export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const { data } = props;
   const intl = useIntl();
@@ -2653,6 +2654,8 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                       navigate({ type: "sdlcClosePanel" });
                       setSelectedAgentName(name);
                     }}
+                    nowMs={liveNowMs}
+                    planeStale={props.planeStale ?? false}
                   />
                 ))}
               </div>
