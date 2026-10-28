@@ -1006,7 +1006,7 @@ function LogPane({
       }
     }
     retry();
-  }, [buffer.length, retry]);
+  }, [buffer, retry]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;

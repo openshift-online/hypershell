@@ -129,6 +129,7 @@ func testE2E(loki LokiClient) *E2E {
 		E2ELokiSelector:   `{log_type="application"}`,
 		E2EHistoryWindow:  168 * time.Hour,
 		E2ERecentRunLimit: 20,
+		E2ELogPageSize:    150,
 	}
 	return newE2EWithClient(cfg, loki)
 }
@@ -691,6 +692,7 @@ func testE2EWithMargin(loki LokiClient, margin time.Duration) *E2E {
 		E2ELokiSelector:   `{log_type="application"}`,
 		E2EHistoryWindow:  168 * time.Hour,
 		E2ERecentRunLimit: 20,
+		E2ELogPageSize:    150,
 		E2ELogTimeMargin:  margin,
 	}
 	return newE2EWithClient(cfg, loki)

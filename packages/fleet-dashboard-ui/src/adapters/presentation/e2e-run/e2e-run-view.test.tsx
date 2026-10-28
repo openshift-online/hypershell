@@ -797,6 +797,14 @@ describe("log pagination and degraded log pane", () => {
     truncated: false,
   });
 
+  const logStepLine = (sequence: number, stepId: string, message: string) => ({
+    sequence,
+    timestamp: `t${String(sequence)}`,
+    stepId,
+    message,
+    truncated: false,
+  });
+
   // Verifies: E2E-LOG-22.01
   it("auto-loads older pages from the scroll observer (no Load more button) and stops at the end", async () => {
     const user = userEvent.setup();
@@ -955,23 +963,22 @@ describe("log pagination and degraded log pane", () => {
   // Verifies: E2E-LOG-23.01
   it("requests the selected step's logs scoped to that step", async () => {
     const user = userEvent.setup();
-    const getE2eRunLogs = vi.fn((_id, _before, stepId) =>
-      Promise.resolve(
-        plane({
-          entries: [
-            {
-              sequence: 42,
-              timestamp: "ts",
-              stepId: stepId ?? "a",
-              message: stepId === "b" ? "step-b-line" : "run-wide-line",
-              truncated: false,
-            },
-          ],
-          nextCursor: null,
-          hasMore: false,
-        }),
-      ),
-    );
+    const runWidePage = plane({
+      entries: [logStepLine(1, "a", "run-wide-line")],
+      nextCursor: null,
+      hasMore: false,
+    });
+    const stepBPage = plane({
+      entries: [logStepLine(2, "b", "step-b-line")],
+      nextCursor: null,
+      hasMore: false,
+    });
+    // Call order: run-wide reader fetches on open, then the step reader fetches when
+    // step b is selected.
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(runWidePage)
+      .mockResolvedValueOnce(stepBPage);
     const { api } = makeApi(detail(), { getE2eRunLogs });
     renderView(api, enabled([summary()]));
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
@@ -1010,33 +1017,18 @@ describe("log pagination and degraded log pane", () => {
     const stepA = new Promise<Plane<E2eLogPage>>((resolve) => {
       resolveStepA = resolve;
     });
-    const getE2eRunLogs = vi.fn((_id, _before, stepId) => {
-      if (stepId === "a") {
-        // Step a's request is deferred so we can switch away before it resolves.
-        return stepA;
-      }
-      if (stepId === "b") {
-        return Promise.resolve(
-          plane({
-            entries: [
-              {
-                sequence: 2,
-                timestamp: "t",
-                stepId: "b",
-                message: "step-b-line",
-                truncated: false,
-              },
-            ],
-            nextCursor: null,
-            hasMore: false,
-          }),
-        );
-      }
-      // Run-wide reader (stepId null).
-      return Promise.resolve(
-        plane({ entries: [], nextCursor: null, hasMore: false }),
-      );
+    const emptyPage = plane({ entries: [], nextCursor: null, hasMore: false });
+    const stepBPage = plane({
+      entries: [logStepLine(2, "b", "step-b-line")],
+      nextCursor: null,
+      hasMore: false,
     });
+    // Call order: run-wide on open, then step a (deferred), then step b.
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(emptyPage)
+      .mockReturnValueOnce(stepA)
+      .mockResolvedValueOnce(stepBPage);
     const { api } = makeApi(detail(), { getE2eRunLogs });
     renderView(api, enabled([summary()]));
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
@@ -1058,15 +1050,7 @@ describe("log pagination and degraded log pane", () => {
     act(() => {
       resolveStepA(
         plane({
-          entries: [
-            {
-              sequence: 1,
-              timestamp: "t",
-              stepId: "a",
-              message: "step-a-late",
-              truncated: false,
-            },
-          ],
+          entries: [logStepLine(1, "a", "step-a-late")],
           nextCursor: null,
           hasMore: false,
         }),
