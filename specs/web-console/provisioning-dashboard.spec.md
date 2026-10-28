@@ -125,10 +125,10 @@ As a platform administrator, I want trend direction and percentile information t
 - **SC-002**: Changing the range from 7 days to 30 days updates all three historical charts to the selected range without changing current snapshot values.
 - **SC-003**: A non-administrator cannot open the Provisioning dashboard when OIDC is enabled.
 - **SC-004**: Missing daily samples render as visible gaps in 100 percent of affected trend charts.
-- **SC-005**: When the 7-day P99 is greater than 300 seconds, Provision time shows the warning state, the 5-minute target, and the daily P99 trend.
-- **SC-006**: When Last 30 days is selected, P99 shows unavailable while existing provision-time values and unrelated 30-day charts continue to render.
 - **SC-005**: A failure in one metric source leaves unaffected dashboard widgets interactive and displays a localized unavailable state for the failed source.
 - **SC-006**: The production page matches the approved Provisioning Storybook reference through the repository UI completion gate.
+- **SC-007**: When the 7-day P99 is greater than 300 seconds, Provision time shows the warning state, the 5-minute target, and the daily P99 trend.
+- **SC-008**: When Last 30 days is selected, P99 shows unavailable while existing provision-time values and unrelated 30-day charts continue to render.
 
 ## Assumptions
 
