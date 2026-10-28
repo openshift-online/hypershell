@@ -350,8 +350,11 @@ type Gateway struct {
 	// gateways) keeps the chart's shared default. See openshell-gateway.spec.md,
 	// "Gateway Workspace Mode".
 	WorkspaceMode *string `protobuf:"bytes,31,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// dedicated_route records that the gateway requested the dedicated route and
+	// per-gateway wildcard certificate path at creation. Read-only after creation.
+	DedicatedRoute *bool `protobuf:"varint,32,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -566,6 +569,13 @@ func (x *Gateway) GetWorkspaceMode() string {
 	return ""
 }
 
+func (x *Gateway) GetDedicatedRoute() bool {
+	if x != nil && x.DedicatedRoute != nil {
+		return *x.DedicatedRoute
+	}
+	return false
+}
+
 type CreateGatewayRequest struct {
 	state            protoimpl.MessageState  `protogen:"open.v1"`
 	Name             string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -584,8 +594,10 @@ type CreateGatewayRequest struct {
 	Placement        *GatewayPlacementIntent `protobuf:"bytes,18,opt,name=placement,proto3" json:"placement,omitempty"`
 	// workspace_mode: shared, managed, or operator. Omitted defaults to managed.
 	WorkspaceMode *string `protobuf:"bytes,19,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// dedicated_route requests the dedicated route and per-gateway wildcard certificate path.
+	DedicatedRoute *bool `protobuf:"varint,20,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateGatewayRequest) Reset() {
@@ -721,6 +733,13 @@ func (x *CreateGatewayRequest) GetWorkspaceMode() string {
 		return *x.WorkspaceMode
 	}
 	return ""
+}
+
+func (x *CreateGatewayRequest) GetDedicatedRoute() bool {
+	if x != nil && x.DedicatedRoute != nil {
+		return *x.DedicatedRoute
+	}
+	return false
 }
 
 type CreateGatewayResponse struct {
@@ -1928,7 +1947,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
 	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
-	"\x12LocalKindPlacement\"\x87\v\n" +
+	"\x12LocalKindPlacement\"\xc9\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1960,7 +1979,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
 	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
 	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01\x12*\n" +
-	"\x0eworkspace_mode\x18\x1f \x01(\tH\x12R\rworkspaceMode\x88\x01\x01B\x0f\n" +
+	"\x0eworkspace_mode\x18\x1f \x01(\tH\x12R\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x13R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1979,7 +1999,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_provisioning_versionB\x0f\n" +
 	"\r_image_pinnedB\x10\n" +
 	"\x0e_repository_idB\x11\n" +
-	"\x0f_workspace_mode\"\xdc\x05\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_dedicated_route\"\x9e\x06\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1998,7 +2019,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11credential_driver\x18\x11 \x01(\tH\tR\x10credentialDriver\x88\x01\x01\x12C\n" +
 	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacement\x12*\n" +
 	"\x0eworkspace_mode\x18\x13 \x01(\tH\n" +
-	"R\rworkspaceMode\x88\x01\x01B\x0f\n" +
+	"R\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdedicated_route\x18\x14 \x01(\bH\vR\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -2009,7 +2031,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x11\n" +
-	"\x0f_workspace_mode\"I\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_dedicated_route\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +

@@ -12,7 +12,7 @@ Gateways and clusters are **top-level resources**. There is no organizational gr
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update) and placement (create only); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -54,6 +54,7 @@ erDiagram
         string[] server_dns_names
         jsonb oidc
         jsonb route "nullable - route exposure config (host, certificate)"
+        boolean dedicated_route "nullable - create-only dedicated route + certificate request"
         text route_address
         jsonb credential_driver
         string external_dns
@@ -382,6 +383,8 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 
 All fields in the table below SHALL be present on the Gateway response schema and on the gRPC message so the control plane can write them over its internal `UpdateGateway` back-channel and every reader can observe them. They SHALL be marked `readOnly` on the REST contract and SHALL be rejected (not silently ignored) when a user or import caller sets or changes them, per PLAT-DATA-23. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
 
+`dedicated_route` is the table's one exception to platform management: it is the create-only user-writable request flag defined by "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26). It is exposed `readOnly` on Gateway responses, and an update that changes it SHALL be rejected per that requirement.
+
 `dev_build` and `dev_build_metadata` SHALL be platform-managed desired-spec fields
 (control-plane-only, like `image`) because a change to either must be re-applied onto
 workload labels and annotations through Helm values. Sandbox workload images are
@@ -394,6 +397,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host, certificate}`. `certificate` is a bare opt-in sub-key for the per-gateway dedicated route and external certificate; it may only be set at creation time (the API rejects changes after the Gateway exists). See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
+| `dedicated_route` | boolean | Create-only user request for the per-gateway dedicated route and wildcard certificate, translated by the API server into the `route` opt-in at create; readOnly afterwards. Nullable: NULL means not requested (same as false). See "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26) |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
@@ -542,7 +546,8 @@ generation, under the same per-row lock that guards `generation`:
 ### Requirement: PLAT-DATA-23 -- Gateway Field Ownership and Write Policy
 
 The Gateway resource SHALL expose exactly ONE non-privileged-writable field after
-create - `name` - plus placement at create. Every other Gateway field SHALL be
+create - `name` - plus the create-only inputs at create (placement, and the
+`dedicated_route` request flag, PLAT-DATA-26). Every other Gateway field SHALL be
 owned by the control plane and SHALL NOT be writable by an externally-authored
 caller. This is a single, authoritative, default-deny write policy: it is the
 chokepoint through which REST `PATCH`, gRPC `UpdateGateway`, gRPC `CreateGateway`,
@@ -569,8 +574,11 @@ control-plane gRPC write WITHOUT import metadata) retains full write access.
 **Allowlist (the ONLY non-privileged-writable fields).**
 
 - UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`.
-- CREATE (REST create, gRPC `CreateGateway`): `name`, and exactly one of `placement`
-  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding").
+- CREATE (REST create, gRPC `CreateGateway`): `name`, exactly one of `placement`
+  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), and the
+  create-only `dedicated_route` request flag (PLAT-DATA-26). An Import caller
+  SHALL NOT set `dedicated_route`: the service funnel rejects an import create
+  that requests it with 403, per PLAT-DATA-26.
 
 For a User or Import caller, any field NOT in the allowlist SHALL be rejected when it
 **differs from the stored value** (update) or is **set at all** (create), with the
@@ -586,7 +594,10 @@ pattern.
 
 - **User-writable (allowlist):** `name` (create + update); `placement` / `cluster_id`
   (create only; `cluster_id` is otherwise control-plane-assigned by late binding and
-  is NOT user-writable on update).
+  is NOT user-writable on update); `dedicated_route` (create only; persisted as a
+  nullable boolean where NULL and false both mean not requested, and rejected with
+  409 and delete-and-recreate guidance when an update adds, removes, or changes it -
+  see PLAT-DATA-26).
 - **Platform-managed (control-plane-only desired workload spec):** `image`,
   `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
   `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
@@ -640,11 +651,11 @@ ownership to the remaining workload fields.
 - WHEN a user caller sends an update that includes `image: I` (unchanged) and a new `name`
 - THEN the API server SHALL accept the rename and SHALL NOT reject on `image`
 
-#### Scenario: PLAT-DATA-23.04 -- User create may set only name and placement
+#### Scenario: PLAT-DATA-23.04 -- User create may set only name, placement, and the create-only request flag
 
 - GIVEN a create request from a user caller
-- WHEN the request sets `name` and exactly one of `placement` or `cluster_id` and
-  nothing else
+- WHEN the request sets `name` and exactly one of `placement` or `cluster_id`, and
+  nothing else (optionally plus `dedicated_route`, PLAT-DATA-26)
 - THEN the API server SHALL accept it
 - WHEN the request additionally sets any platform-managed field (for example `image`
   or `oidc`)
@@ -671,6 +682,128 @@ ownership to the remaining workload fields.
 - WHEN the field-census test runs
 - THEN it SHALL fail until the field's ownership is explicitly declared
 - AND until then a user or import write of the field SHALL be rejected
+
+### Requirement: PLAT-DATA-26 -- Gateway Dedicated Route Request Field
+
+The Gateway create contract SHALL include an optional, create-only, boolean
+`dedicated_route` request field: the user-facing opt-in to the dedicated per-gateway
+route and wildcard certificate path
+([`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md),
+"Requirement: Per-Gateway Dedicated Route and Certificate", OSG-ROUT-12). The field
+is in the same ownership class as `placement`/`cluster_id` (PLAT-DATA-23): writable
+only at create, never on update.
+
+**Persistence.** `dedicated_route` SHALL be persisted as a nullable boolean column
+on the Gateway (NULL for every Gateway created without the request, including every
+pre-existing Gateway). NULL and `false` SHALL both mean "not requested". The field
+SHALL be exposed readOnly on Gateway responses over REST, gRPC, and the OpenAPI
+contract; it records that the request was made, for display and audit.
+
+**Translation at create.** When a create request sets `dedicated_route = true` and
+supplies no `route`, the API server SHALL apply, in the service write funnel, the
+platform-managed route opt-in the control plane already keys on:
+`route = {"enabled": true, "certificate": {}}`. This is a server-applied create
+default on the precedent of `workspace_mode`
+([`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18), applied
+after the field policy (so the applied route is never mistaken for a caller-supplied
+one) and validated by the same `route.certificate` shape check an authored route
+must satisfy. An explicit control-plane-authored `route` SHALL win: the request flag
+SHALL NOT overwrite or amend a supplied route document. A request that does not set
+the flag (absent or explicit `false`) SHALL leave the Gateway unrouted by this path.
+
+**Entitlement.** Requesting `dedicated_route` SHALL require the platform-wide
+`gateway:dedicated-route-creator` role (`platform:admin` also qualifies), enforced
+at the two create boundaries - the REST gateway Create handler and the gRPC
+`CreateGateway` handler - because the check is body-dependent and cannot live in
+the path authorization middleware, which never sees the request body. A rejected
+request SHALL return 403 (`PermissionDenied` over gRPC) with a reason naming the
+role and the rate-limit rationale (a dedicated per-gateway route and certificate is
+a rate-limited resource). See
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20).
+
+**Import rejection.** The declarative `.hypershell` GitOps import SHALL NOT request
+`dedicated_route`: the service funnel SHALL reject an Import-kind create that sets
+it with 403 and an actionable message (the entitlement is granted per user, and an
+import is authored by a Repository rather than a user who can hold it). Privileged
+control-plane writes bypass the entitlement gate.
+
+**Create-only immutability.** Changing `dedicated_route` after create SHALL be
+rejected for every writer class, the control plane included, with 409 and
+delete-and-recreate guidance; the check runs in the service write funnel before
+the default-deny field policy, so the caller gets the specific reason rather than
+the generic field rejection. Adding the request to a Gateway created without it,
+and removing or falsifying it on a Gateway created with it, are both changes; NULL
+vs `false` is not (both mean not requested), so an idempotent client that resends
+the stored object is not rejected. The REST `PATCH` contract (name only) rejects
+the field at the boundary naming it.
+
+#### Scenario: PLAT-DATA-26.01 -- Create with dedicated_route applies the route opt-in
+
+- GIVEN a user create request carrying `name`, placement, and `dedicated_route = true`,
+  and no `route`
+- WHEN the API server processes the create
+- THEN it SHALL persist the Gateway with `route = {"enabled": true, "certificate": {}}`
+- AND `dedicated_route` SHALL read back as true on the response, over REST and gRPC
+- AND a create that does not set the flag (absent or explicit `false`) SHALL be
+  persisted unrouted, with `dedicated_route` false
+
+#### Scenario: PLAT-DATA-26.02 -- An explicit control-plane route wins
+
+- GIVEN a control-plane create carrying `dedicated_route = true` and an explicit
+  route document
+- WHEN the API server processes the create
+- THEN it SHALL keep the explicit route verbatim
+- AND the request flag SHALL NOT overwrite or amend it
+
+#### Scenario: PLAT-DATA-26.03 -- Requesting the flag requires the entitlement
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway with `dedicated_route = true` (REST or gRPC)
+- THEN the API server SHALL reject the create with 403 naming
+  `gateway:dedicated-route-creator` and the rate-limit rationale
+- AND no Gateway SHALL be persisted
+- GIVEN a caller holding `gateway:dedicated-route-creator` or `platform:admin`
+- WHEN the caller creates a Gateway with `dedicated_route = true`
+- THEN the API server SHALL accept it and apply the translation
+- AND a create that does not request the flag needs no entitlement
+
+#### Scenario: PLAT-DATA-26.04 -- GitOps import may not request the flag
+
+- GIVEN an Import-kind create (a `.hypershell` Gateway manifest rendered by the
+  `RepositoryReconciler`) that sets `dedicated_route = true`
+- WHEN the create reaches the service funnel
+- THEN it SHALL be rejected with 403 and a message directing the author to create
+  the gateway directly (hsctl or the web console)
+- AND an import create that leaves the flag unset is unaffected
+
+#### Scenario: PLAT-DATA-26.05 -- dedicated_route is create-only
+
+- GIVEN a Gateway created without the request
+- WHEN any writer class (user, import, or control plane) updates it to set
+  `dedicated_route = true`
+- THEN the update SHALL be rejected with 409 and delete-and-recreate guidance
+- GIVEN a Gateway created with `dedicated_route = true`
+- WHEN any writer class removes or falsifies it on update
+- THEN the update SHALL likewise be rejected with 409
+
+#### Scenario: PLAT-DATA-26.06 -- Resending the stored value is a no-op
+
+- GIVEN a Gateway created with `dedicated_route = true` and the server-applied route
+- WHEN an update resends the stored Gateway unchanged
+- THEN the update SHALL be accepted
+- AND changing NULL to `false`, or `false` to NULL, SHALL NOT be treated as a change
+
+#### Scenario: PLAT-DATA-26.07 -- The entitlement check fails closed
+
+- GIVEN a create that requests `dedicated_route` from a user caller whose identity
+  or role-binding lookup is unavailable
+- WHEN the create boundary evaluates the entitlement
+- THEN a missing identity or an unwired lookup SHALL fail closed with the 403
+  rejection
+- AND a lookup failure SHALL surface as a server error rather than an authorization
+  denial, so a transient database problem does not tell the caller to request a role
+  it may already hold
 
 ### Requirement: PLAT-DATA-08 -- AgentRuntime as a Top-Level Resource
 
@@ -926,7 +1059,11 @@ the control plane SHALL:
    platform-managed field, and a manifest that declares one SHALL fail that Gateway's
    import, per "Requirement: Gateway Field Ownership and Write Policy" (PLAT-DATA-23)
    and [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement: Import Omits
-   Platform-Managed Gateway Fields").
+   Platform-Managed Gateway Fields"). The import writer SHALL NOT set
+   `dedicated_route` either: an import may not request the dedicated-route
+   entitlement, and an Import-kind create that sets it is rejected by the service
+   funnel with 403 (see "Requirement: Gateway Dedicated Route Request Field",
+   PLAT-DATA-26).
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
@@ -1551,7 +1688,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| --placement <sel>)` (name + placement only, per PLAT-DATA-23) | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| --placement <sel>) [--dedicated-route]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |

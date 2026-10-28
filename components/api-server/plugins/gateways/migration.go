@@ -138,6 +138,26 @@ func migrationAddGatewayWorkspaceMode() *gormigrate.Migration {
 	}
 }
 
+// migrationAddGatewayDedicatedRoute persists the create-only dedicated_route
+// request flag. It is NULL for every gateway created without the request (and for
+// every pre-existing gateway), which means "not requested": the dedicated
+// per-gateway route and certificate path is still selected by the platform-managed
+// route.certificate sub-key, so the control plane is unaffected. Raw idempotent
+// ALTER TABLE is used instead of AutoMigrate because AutoMigrate's add-column
+// introspection breaks under the test session's lib/pq driver with
+// PreferSimpleProtocol (see migrationAddProvisioningFields).
+func migrationAddGatewayDedicatedRoute() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102812000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS dedicated_route BOOLEAN").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS dedicated_route").Error
+		},
+	}
+}
+
 func migrationAddSupervisorImage() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080712000002",

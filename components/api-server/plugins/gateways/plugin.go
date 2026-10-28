@@ -104,6 +104,18 @@ func Service(s *environments.Services) GatewayService {
 	return nil
 }
 
+// gatewayBindingLookup resolves a caller's role bindings through the role bindings
+// plugin, looked up per call so it follows the environment's service registry. It is
+// nil when that plugin is absent; the dedicated_route create gate treats a nil
+// lookup as fail-closed.
+func gatewayBindingLookup(s *environments.Services) rbac.RoleBindingLookup {
+	svc := roleBindings.Service(s)
+	if svc == nil {
+		return nil
+	}
+	return svc
+}
+
 func listService(s *environments.Services) services.GenericService {
 	if s == nil {
 		return nil
@@ -437,7 +449,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), os.Getenv("RBAC_ENFORCE") == "true"), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})
@@ -469,4 +481,5 @@ func init() {
 	db.RegisterMigration(migrationAddRepositoryOwnership())
 	db.RegisterMigration(migrationAddPlacement())
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
+	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
 }

@@ -242,6 +242,32 @@ func hasGatewayCreator(bindings []BindingSummary) bool {
 	return false
 }
 
+// roleGatewayDedicatedRouteCreator mirrors roles.RoleGatewayDedicatedRouteCreator; kept
+// local to avoid an import cycle with the roles plugin package.
+const roleGatewayDedicatedRouteCreator = "gateway:dedicated-route-creator"
+
+// hasGatewayDedicatedRouteCreator reports whether the caller holds the
+// platform-wide role that entitles it to request a dedicated per-gateway route
+// and wildcard certificate at gateway create.
+func hasGatewayDedicatedRouteCreator(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleGatewayDedicatedRouteCreator {
+			return true
+		}
+	}
+	return false
+}
+
+// CanRequestGatewayDedicatedRoute reports whether a caller holding bindings may
+// set GatewayCreateRequest.dedicated_route. The entitlement is platform-wide (a
+// global binding) rather than per-gateway, because the gateway it applies to does
+// not exist yet. platform:admin passes as it does everywhere else; every other
+// caller -- including a plain gateway:creator -- does not, because a dedicated
+// per-gateway route and certificate is a rate-limited resource.
+func CanRequestGatewayDedicatedRoute(bindings []BindingSummary) bool {
+	return hasPlatformAdmin(bindings) || hasGatewayDedicatedRouteCreator(bindings)
+}
+
 func hasPlatformAdmin(bindings []BindingSummary) bool {
 	for _, b := range bindings {
 		if b.RoleName == "platform:admin" {

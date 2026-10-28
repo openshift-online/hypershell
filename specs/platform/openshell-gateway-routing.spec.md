@@ -106,6 +106,21 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 
 A Gateway MAY opt in to a dedicated route and external certificate at provision time by setting `route.certificate` to a bare object (`route: { certificate: {} }`). The opt-in is provision-time only: the API server SHALL reject any change to `route.certificate` after the Gateway exists (changing certificate mode requires deleting and re-provisioning the Gateway). `route.certificate` SHALL NOT be combined with `route.host`.
 
+**User-facing request surface.** A create request SHALL also be able to opt in
+through the create-only `dedicated_route` request field
+([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route
+Request Field", PLAT-DATA-26): when a create sets `dedicated_route = true` and
+authors no `route`, the API server translates the request into exactly this opt-in
+(`route = {"enabled": true, "certificate": {}}`) as a server-applied create
+default. The translation is provision-time only (the flag is create-only and
+immutable afterwards), gated on the `gateway:dedicated-route-creator` entitlement
+or `platform:admin`
+([`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Gateway Dedicated Route Creator Role", SEC-RBAC-20), and rejected
+for the declarative `.hypershell` import. The control-plane-authored route path is
+unchanged: `route.certificate` remains the platform-managed opt-in the control
+plane keys on, and an explicitly authored route wins over the request flag.
+
 The opt-in exists to make OpenShell sandbox service exposure (ExposeService HTTP virtual-hosting) work: a shared spoke-level wildcard certificate covers only one DNS label, so `<sandbox>--<service>.gw-<ns>.<base-domain>` URLs are neither certificate-valid nor routable through the shared Gateway. An opted-in Gateway gets its own domain subtree, its own certificate, and its own load balancer.
 
 The opt-in's shape is validated at the API boundary, not only during provisioning: a create or update whose route document combines `certificate` with `host`, or whose `certificate` value carries fields, SHALL be rejected with an immediate 400 naming the problem - an invalid shape must not be accepted with a 201 and discovered later as an asynchronously failing provisioning pass.
@@ -180,6 +195,16 @@ Readiness for an opted-in Gateway SHALL be observed from the per-tenant Gateway 
 - THEN the control plane SHALL delete the `Certificate` `openshell-gateway-external`, the per-tenant `Gateway` `gw-<ns>`, and the `HTTPRoute` `openshell-gateway-sandbox`
 - AND the `routeAddress` SHALL be cleared
 - AND no listener SHALL remain serving the Gateway's hostname or wildcard
+
+#### Scenario: OSG-ROUT-12.07 -- dedicated_route create request is translated into the opt-in
+
+- GIVEN a gateway create request with `dedicated_route = true` and no `route`, from
+  a caller holding the `gateway:dedicated-route-creator` entitlement (or
+  `platform:admin`)
+- WHEN the API server processes the create
+- THEN the persisted Gateway SHALL carry `route = {"enabled": true, "certificate": {}}`
+- AND the control plane SHALL reconcile it exactly as a Gateway authored with
+  `route: { certificate: {} }`, creating the same per-gateway resources
 
 ---
 

@@ -233,12 +233,12 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		}
 	}
 
-	if role.Name == roles.RoleGatewayCreator {
-		return nil, errors.Forbidden("gateway:creator can only be assigned via Keycloak")
-	}
-
-	if role.Name == roles.RolePlatformAdmin {
-		return nil, errors.Forbidden("platform:admin can only be assigned via Keycloak")
+	// Keycloak-owned entitlements: platform-wide roles whose bindings SyncJWTRoles
+	// reconciles from the caller's JWT. A binding created here would be removed by
+	// that caller's next sign-in, so assignment goes through the identity provider.
+	if role.Name == roles.RoleGatewayCreator || role.Name == roles.RolePlatformAdmin ||
+		role.Name == roles.RoleGatewayDedicatedRouteCreator {
+		return nil, errors.Forbidden("%s can only be assigned via Keycloak", role.Name)
 	}
 
 	rb.CaptureTraceContext(ctx)
@@ -549,7 +549,7 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}
