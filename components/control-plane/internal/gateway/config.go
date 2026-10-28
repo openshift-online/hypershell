@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -21,14 +22,21 @@ type ImageDefaults interface {
 	DefaultOAuth2ProxyImage() string
 }
 
-// defaultConsoleImage is the OpenShell dashboard image (the per-gateway
-// console). The upstream project publishes it to quay.io, so clusters pull it
-// directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to dashboard release v0.1.1 (gateway line 0.1) for
-// reproducibility; the update-openshell skill moves it to the newest release
-// of the gateway's release line. Overridable via
-// HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:880cd6b6ce87faf99d7edd55b660a11248c4c7a3c38438592556b89af13b3f2f"
+// ConsoleImageEnv names the environment variable that sets the OpenShell
+// dashboard image (the per-gateway console). There is no built-in default:
+// the deploy manifests set it, and `make sync-openshell-version` stamps it from
+// OPENSHELL_CONSOLE_IMAGE and OPENSHELL_CONSOLE_DIGEST in OPENSHELL_VERSION.
+const ConsoleImageEnv = "HYPERSHELL_CONSOLE_IMAGE"
+
+// ValidateConsoleImage reports an error when the console image is not
+// configured. The control plane calls it at startup so a missing value stops
+// the process, instead of every console reconcile failing with a warning.
+func ValidateConsoleImage() error {
+	if (StaticImageDefaults{}).DefaultConsoleImage() == "" {
+		return fmt.Errorf("%s is not set; set it to the OpenShell dashboard image pinned by digest", ConsoleImageEnv)
+	}
+	return nil
+}
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
@@ -59,11 +67,11 @@ func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
 	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
 }
 
+// DefaultConsoleImage resolves the OpenShell dashboard image from
+// HYPERSHELL_CONSOLE_IMAGE. It returns an empty string when the variable is
+// unset; console reconciliation then fails (see ValidateConsoleImage).
 func (StaticImageDefaults) DefaultConsoleImage() string {
-	if v := os.Getenv("HYPERSHELL_CONSOLE_IMAGE"); v != "" {
-		return v
-	}
-	return defaultConsoleImage
+	return os.Getenv(ConsoleImageEnv)
 }
 
 func (StaticImageDefaults) DefaultOAuth2ProxyImage() string {

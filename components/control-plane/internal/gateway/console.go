@@ -340,6 +340,12 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		log.Printf("WARN console: gateway name and ID are required; skipping console for namespace %s", namespace)
 		return nil
 	}
+	// Check the image before any Keycloak or cluster writes, so a missing
+	// image does not leave a half-provisioned console behind.
+	consoleImage := images.DefaultConsoleImage()
+	if consoleImage == "" {
+		return fmt.Errorf("console image is not configured for namespace %s; set %s", namespace, ConsoleImageEnv)
+	}
 
 	host, ok := deriveConsoleHost(nsConfig)
 	if !ok {
@@ -400,7 +406,6 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		return fmt.Errorf("reconcile console secret in %s: %w", namespace, err)
 	}
 
-	consoleImage := images.DefaultConsoleImage()
 	proxyImage := images.DefaultOAuth2ProxyImage()
 
 	// oauth2-proxy performs OIDC discovery against the issuer over HTTPS. When the

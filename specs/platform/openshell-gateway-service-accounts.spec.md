@@ -33,6 +33,7 @@ Version 1 does not support WIF, signed client assertions, opaque access tokens, 
 | Can one set of client credentials cover multiple gateways? | No. Automation needs one OpenShellGatewayServiceAccount and one audience-specific access token for each gateway.                                                     |
 | Does `openshell-user` inherit workspace access?            | No. An OpenShell gateway administrator must grant the service-account subject membership in each workspace.                                                          |
 | How are client credentials replaced?                       | Create and verify a replacement OpenShellGatewayServiceAccount. Then, revoke the old OpenShellGatewayServiceAccount. Delete it when you no longer need its metadata. |
+| Can the OpenShell role change after creation?              | Yes. An authorized caller changes the role, and optionally the description, through the role action endpoint. The requested role is capped at the creator's current gateway role. |
 | Are revoke and delete the same action?                     | No. Revoke permanently stops access-token issuance and retains metadata. Delete removes the Keycloak identity and the visible resource.                              |
 | Are OpenShell scopes configurable?                         | No. The gateway has `scopes_claim = ""`. Roles and workspace memberships control access.                                                                             |
 
@@ -194,9 +195,10 @@ All endpoints are nested beneath the selected gateway.
 | `GET`    | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts`                             | List visible OpenShellGatewayServiceAccount metadata                                                          |
 | `GET`    | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}`        | Get visible OpenShellGatewayServiceAccount metadata                                                           |
 | `POST`   | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently stop access-token issuance. Return `200` after disablement or `202` while disablement is pending. |
+| `POST`   | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role`    | Change the OpenShell role and optionally the description. Return `200` after convergence or `202` while convergence is pending.             |
 | `DELETE` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}`        | Revoke when necessary and remove the identity. Return `204` after removal or `202` while removal is pending.  |
 
-Version 1 has no public endpoint to patch an OpenShellGatewayServiceAccount, read a secret, issue an access token, re-enable an account, or transfer ownership. It also has no in-place secret-rotation endpoint.
+Version 1 has no public endpoint to read a secret, issue an access token, re-enable an account, or transfer ownership. It also has no in-place secret-rotation endpoint. The role action endpoint changes only the OpenShell role and the description; it SHALL NOT change audiences, client credentials, expiration, the subject, or access-token lifetimes.
 
 Credential replacement uses four operations: create a new OpenShellGatewayServiceAccount, update the consumer, revoke the old account, and delete the old account. Revocation is the immediate security action. Deletion removes the identity and visible resource.
 
@@ -251,6 +253,19 @@ The caller MAY omit `credential_type`. Its default is `client_secret`. The API S
 The caller MAY omit `role`. Its default is `openshell-user`. The API SHALL accept only `openshell-user` and `openshell-admin`.
 
 The caller MAY omit `expires_at`. Its default is 90 days after creation. The value MUST be between one hour and 365 days after creation. Operators MAY configure a shorter default or maximum. The configured maximum SHALL NOT exceed 365 days.
+
+### Role Update Request
+
+```json
+{
+  "role": "openshell-admin",
+  "description": "Build, test, and deploy the main branch"
+}
+```
+
+The `role` field SHALL be required and SHALL accept only `openshell-user` and `openshell-admin`. The `description` field SHALL be optional. An omitted `description` SHALL leave the stored description unchanged; an explicit value, including the empty string, SHALL replace it. The request SHALL contain no other mutable field.
+
+A successful `200` response SHALL return a standard OpenShellGatewayServiceAccount list item with the new values. It SHALL NOT return a credential bundle: the client credentials are unchanged.
 
 ### One-Time Credential Bundle
 
@@ -320,6 +335,8 @@ The error resource SHALL reserve its name and count against quota until cleanup.
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Gateway does not exist or caller has no gateway binding        | `404 Not Found`                                                                            |
 | Caller is a viewer and explicitly requests `openshell-admin`   | `403 Forbidden`                                                                            |
+| Role update exceeds the creator's current gateway role         | `403 Forbidden` with `role_not_allowed`                                                    |
+| Role update targets a non-mutable status                       | `409 Conflict` with `service_account_not_mutable`                                          |
 | Gateway exists but its OIDC client is not ready                | `409 Conflict` with `gateway_not_ready`                                                    |
 | Name already exists on the gateway                             | `409 Conflict` with `service_account_name_exists`                                          |
 | Lifetime is outside policy                                     | `400 Bad Request` with the allowed range                                                   |
@@ -327,6 +344,7 @@ The error resource SHALL reserve its name and count against quota until cleanup.
 | Keycloak is unavailable or HyperShell cannot verify the result | `503 Service Unavailable`. The response contains no client secret.                         |
 | Revoke request is stored but disablement is not yet verified   | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `revoking` state |
 | Delete request is stored but removal is not yet verified       | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `deleting` state |
+| Role update is stored but Keycloak convergence is not verified | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `degraded` state |
 
 Error bodies SHALL NOT reveal a gateway that is hidden from the caller. They SHALL NOT contain access tokens, client secrets, or raw Keycloak Admin API responses.
 
@@ -623,7 +641,7 @@ Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's
 - WHEN user-a's effective binding on `gw-alpha` changes from owner to viewer
 - THEN HyperShell SHALL remove `openshell-admin` from the Keycloak service-account user and client scope
 - AND the OpenShellGatewayServiceAccount role SHALL become `openshell-user`
-- AND the downgrade SHALL be permanent for that OpenShellGatewayServiceAccount even if user-a is later promoted
+- AND the downgrade SHALL stand until an authorized role update changes it while user-a's current gateway role permits the requested role
 - AND an already-issued admin JWT MAY remain usable only until its short `exp`
 
 #### Scenario: OSG-SACC-06.05 -- Creator loses gateway access
@@ -632,6 +650,77 @@ Each active OpenShellGatewayServiceAccount SHALL remain subject to the creator's
 - WHEN user-a has no remaining owner or viewer binding on `gw-alpha`
 - THEN HyperShell SHALL permanently revoke that OpenShellGatewayServiceAccount
 - AND restoring user-a's binding SHALL NOT re-enable the old client secret
+
+### Requirement: OSG-SACC-18 -- In-Place Role Update
+
+The API SHALL expose `POST .../{service_account_id}/role` to change an OpenShellGatewayServiceAccount's OpenShell role and, optionally, its description after creation. The request SHALL contain a required `role` and an optional `description`. It SHALL NOT accept audience, client-credential, expiration, subject, or access-token-lifetime changes.
+
+The requested role SHALL be capped at the creator's current gateway role, evaluated at request time. The actor's own role SHALL NOT raise this ceiling: an owner MAY update another creator's OpenShellGatewayServiceAccount, but the requested role SHALL still not exceed the creator's current binding. This cap matches the reconciliation invariant that each active OpenShellGatewayServiceAccount remains subject to the creator's current gateway role, so a granted role cannot be reverted by the next reconciliation sweep.
+
+The API SHALL accept the operation only while the OpenShellGatewayServiceAccount status is `ready` or `degraded`. It SHALL return `409 Conflict` with `service_account_not_mutable` for every other status.
+
+The API SHALL persist the new desired role and description before it calls Keycloak. It SHALL return `200` only after the managed Keycloak client converged to the new role. If Keycloak is unavailable or convergence fails, the API SHALL return `202 Accepted` with the OpenShellGatewayServiceAccount in `degraded` state, and background reconciliation SHALL converge the client and restore `ready` without operator action. A persisted role change SHALL survive a crash between persistence and convergence: the standard drift sweep converges the managed client to the persisted role.
+
+The role change SHALL affect the next Client Credentials grant. An access token issued before the change MAY remain valid with the prior role until its `exp`. The access-token lifetime therefore bounds the delay before the change takes effect on in-flight jobs.
+
+The role action SHALL be idempotent. A request whose role and resulting description equal the stored values SHALL return `200` without a Keycloak write.
+
+The role action SHALL NOT regenerate, read, or rotate the client secret. The consumer's stored client credentials remain valid across a role change.
+
+#### Scenario: OSG-SACC-18.01 -- Owner upgrades a user service account in place
+
+- GIVEN user-a has `gateway:owner` on `gw-alpha`
+- AND user-a created an `openshell-user` OpenShellGatewayServiceAccount named `deploy-bot`
+- WHEN user-a changes its role to `openshell-admin`
+- THEN the API SHALL converge the Keycloak service-account user and client scope to both gateway roles
+- AND the next Client Credentials grant SHALL return an access token whose `hypershell.roles` contains `openshell-admin` and `openshell-user`
+- AND the API SHALL NOT return a client secret
+
+#### Scenario: OSG-SACC-18.02 -- Role is downgraded in place
+
+- GIVEN an `openshell-admin` OpenShellGatewayServiceAccount is `ready`
+- WHEN an authorized caller changes its role to `openshell-user`
+- THEN the API SHALL converge the Keycloak role mappings to `openshell-user` only
+- AND the next Client Credentials grant SHALL return an access token without `openshell-admin`
+
+#### Scenario: OSG-SACC-18.03 -- Request exceeds the creator's ceiling
+
+- GIVEN user-b has only `gateway:viewer` on `gw-alpha`
+- AND user-b created an `openshell-user` OpenShellGatewayServiceAccount
+- AND user-a has `gateway:owner` on `gw-alpha`
+- WHEN user-a changes that OpenShellGatewayServiceAccount's role to `openshell-admin`
+- THEN the API SHALL return `403 Forbidden` with `role_not_allowed`
+- AND it SHALL change neither the OpenShellGatewayServiceAccount record nor the Keycloak client
+
+#### Scenario: OSG-SACC-18.04 -- Keycloak is unavailable during a role change
+
+- GIVEN an authorized caller changes the role of a `ready` OpenShellGatewayServiceAccount
+- AND Keycloak is unavailable
+- WHEN the API persists the new role
+- THEN the API SHALL return `202 Accepted` with the OpenShellGatewayServiceAccount in `degraded` state
+- AND background reconciliation SHALL converge the managed client and restore `ready`
+- AND the persisted role SHALL be the converged role
+
+#### Scenario: OSG-SACC-18.05 -- Already-issued token keeps the prior role
+
+- GIVEN an OpenShellGatewayServiceAccount's role changed from `openshell-admin` to `openshell-user`
+- AND a CI job holds an access token issued before the change
+- WHEN the job presents that token before its `exp`
+- THEN the gateway SHALL accept it with the prior role claims
+- AND the next Client Credentials grant SHALL return a token with the new role only
+
+#### Scenario: OSG-SACC-18.06 -- Non-mutable status rejects the operation
+
+- GIVEN an OpenShellGatewayServiceAccount is `revoked`
+- WHEN an authorized caller changes its role
+- THEN the API SHALL return `409 Conflict` with `service_account_not_mutable`
+
+#### Scenario: OSG-SACC-18.07 -- No-op request performs no Keycloak write
+
+- GIVEN a `ready` OpenShellGatewayServiceAccount has role `openshell-user`
+- WHEN an authorized caller submits a role update with role `openshell-user` and no description change
+- THEN the API SHALL return `200`
+- AND it SHALL perform no Keycloak write
 
 ### Requirement: OSG-SACC-07 -- Expiration, Revocation, and Deletion
 
@@ -713,6 +802,8 @@ Version 1 SHALL replace an OpenShellGatewayServiceAccount instead of changing it
 The old and replacement OpenShellGatewayServiceAccounts MAY remain active at the same time. Both accounts count toward quota. This overlap prevents downtime during the change.
 
 Revocation stops new access-token issuance with the old client secret. Deletion is the later cleanup step. HyperShell SHALL NOT enable Keycloak's preview dual-secret rotation feature.
+
+A role change does not require replacement. The role action endpoint changes the OpenShell role in place while the stored client credentials remain valid. Credential replacement remains the flow for a new client secret.
 
 #### Scenario: OSG-SACC-09.01 -- CI client credentials are replaced without downtime
 
@@ -834,6 +925,12 @@ When the user leaves or closes this view, the UI SHALL remove the client secret 
 
 The explicit user-requested download is not browser application storage. The UI SHALL not retain another copy after it completes the download.
 
+The UI SHALL present an edit action on each `ready` or `degraded` service-account row. The action SHALL open a dialog that collects the OpenShell role and an optional description. The role control SHALL reuse the create form's PatternFly Select options and option descriptions. The dialog SHALL preselect the current role and description.
+
+The edit dialog SHALL explain that already-issued access tokens keep the prior role until they expire, and that the next token exchange reflects the change. When the server rejects the request with `role_not_allowed`, the UI SHALL explain that the account is capped by its creator's current gateway role. The UI SHALL map the rejection to localized guidance and SHALL NOT display an unrecognized API reason verbatim.
+
+After a confirmed role update, the UI SHALL refetch the OpenShellGatewayServiceAccount list. A `degraded` response row SHALL follow the existing transitional-state polling behavior.
+
 The UI SHALL present revoke and delete as separate row actions. Each action SHALL require confirmation that names the account and describes the result. The confirmation SHALL state that an issued access token can remain valid until its expiration. The revoke confirmation SHALL explain that Keycloak will stop issuing new access tokens permanently. The OpenShellGatewayServiceAccount row SHALL remain available for audit and later deletion.
 
 The delete action SHALL explain that it removes the Keycloak identity and the visible OpenShellGatewayServiceAccount. Deleting a ready OpenShellGatewayServiceAccount SHALL revoke it first.
@@ -852,6 +949,15 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - WHEN the create form renders
 - THEN `openshell-user` SHALL be the only permitted role value
 - AND the UI SHALL explain that an OpenShell workspace membership may still be required for the service-account subject
+
+#### Scenario: OSG-SACC-11.06 -- Owner edits a service-account role in place
+
+- GIVEN an owner views a `ready` `openshell-user` OpenShellGatewayServiceAccount
+- WHEN the owner opens the edit action and selects `openshell-admin`
+- AND the server converges the role change
+- THEN the UI SHALL show the account with role `openshell-admin`
+- AND the row SHALL remain `ready`
+- AND the dialog SHALL have explained that already-issued tokens keep the prior role until they expire
 
 #### Scenario: OSG-SACC-11.02 -- Interactive connection remains the default
 
@@ -889,7 +995,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 
 ### Requirement: OSG-SACC-12 -- CLI and CI Workflow
 
-The HyperShell CLI SHALL provide create, list, get, revoke, and delete commands. The create command SHALL support these options:
+The HyperShell CLI SHALL provide create, list, get, update-role, revoke, and delete commands. The create command SHALL support these options:
 
 - `--gateway-id`
 - `--name`
@@ -899,6 +1005,8 @@ The HyperShell CLI SHALL provide create, list, get, revoke, and delete commands.
 - Structured output
 
 The `--role` option SHALL accept only `openshell-user` and `openshell-admin`. The CLI SHALL write the credential bundle only to the requested standard output or file.
+
+The update-role command SHALL accept `--gateway-id`, the service-account ID as its argument, a required `--role`, and an optional `--description`. It SHALL accept both the converged `200` and pending `202` responses and write the returned OpenShellGatewayServiceAccount metadata as structured output.
 
 The CLI SHALL never write the credential bundle to standard error, debug logs, shell configuration, or the HyperShell login-token store.
 
@@ -953,11 +1061,12 @@ Access-token scopes provide no additional control while scope enforcement is dis
 
 ### Requirement: OSG-SACC-15 -- Auditability and Secret Redaction
 
-HyperShell SHALL audit creation, creation failure, expiration, role downgrade, revocation, and deletion. Each audit event SHALL include:
+HyperShell SHALL audit creation, creation failure, expiration, role downgrade, role update, revocation, and deletion. Each audit event SHALL include:
 
 - Actor user ID and creator user ID
 - Gateway ID and OpenShellGatewayServiceAccount ID
 - Selected role and expiration
+- Previous role, for role-update events
 - Outcome and correlation ID
 
 Audit events SHALL NOT contain:
@@ -1021,6 +1130,7 @@ Automated verification SHALL cover:
 - Exact `aud`, `sub`, `azp`, `exp`, and `hypershell.roles` claims for `openshell-user` and `openshell-admin` selections.
 - Cross-gateway audience rejection.
 - Owner-to-viewer downgrade and binding-removal revocation.
+- In-place role update authorization, creator-cap enforcement, idempotency, token-lag, degraded convergence, and non-mutable-status rejection.
 - Expiration, explicit revocation, final deletion, gateway cascade cleanup, retries, and orphan reconciliation.
 - CI access-token renewal through another Client Credentials grant.
 - The distinct workspace-membership requirement for `openshell-user` OpenShellGatewayServiceAccounts.

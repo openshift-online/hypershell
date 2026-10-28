@@ -34,6 +34,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousWatchReconnects := watchReconnects
 	previousReconcileOutcomes := reconcileOutcomes
 	previousReconcileFailed := reconcileFailed
+	previousCapabilityInfo := capabilityInfo
+	previousControlPlaneInfo := controlPlaneInfo
 
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -56,6 +58,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	watchReconnects = nil
 	reconcileOutcomes = nil
 	reconcileFailed = nil
+	capabilityInfo = nil
+	controlPlaneInfo = nil
 	t.Cleanup(func() {
 		otel.SetMeterProvider(previousProvider)
 		reconcileDuration = previousReconcileDuration
@@ -76,6 +80,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		watchReconnects = previousWatchReconnects
 		reconcileOutcomes = previousReconcileOutcomes
 		reconcileFailed = previousReconcileFailed
+		capabilityInfo = previousCapabilityInfo
+		controlPlaneInfo = previousControlPlaneInfo
 		_ = provider.Shutdown(context.Background())
 	})
 
@@ -626,5 +632,104 @@ func TestClassifyReconcileOutcome(t *testing.T) {
 				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
 			}
 		})
+	}
+}
+
+// Verifies: OBS-CPL-09.01
+func TestRegisterClusterIdentityInfo(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	unregister, err := RegisterClusterIdentityInfo(
+		"hyp2-spoke1",
+		[]string{"provider/ibm", "gateway-version/v0.1.5-rhaiv.2"},
+		"quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2",
+	)
+	if err != nil {
+		t.Fatalf("RegisterClusterIdentityInfo() returned an error: %v", err)
+	}
+	t.Cleanup(func() { _ = unregister() })
+
+	capabilities := map[string][2]string{}
+	var image string
+	for _, point := range collectInt64Gauge(t, reader, "hypershell.managed_cluster.capability.info") {
+		if point.Value != 1 {
+			t.Fatalf("capability info value = %d, want 1", point.Value)
+		}
+		assertAttribute(t, point.Attributes, "managed_cluster", "hyp2-spoke1")
+		capability := attributeString(t, point.Attributes, "capability")
+		capabilities[capability] = [2]string{
+			attributeString(t, point.Attributes, "capability_namespace"),
+			attributeString(t, point.Attributes, "capability_value"),
+		}
+	}
+	want := map[string][2]string{
+		"provider/ibm":                   {"provider", "ibm"},
+		"gateway-version/v0.1.5-rhaiv.2": {"gateway-version", "v0.1.5-rhaiv.2"},
+	}
+	if !reflect.DeepEqual(capabilities, want) {
+		t.Fatalf("capability series = %v, want %v", capabilities, want)
+	}
+
+	for _, point := range collectInt64Gauge(t, reader, "hypershell.control_plane.info") {
+		if point.Value != 1 {
+			t.Fatalf("control plane info value = %d, want 1", point.Value)
+		}
+		assertAttribute(t, point.Attributes, "managed_cluster", "hyp2-spoke1")
+		image = attributeString(t, point.Attributes, "gateway_image")
+	}
+	if image != "quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2" {
+		t.Fatalf("gateway_image = %q", image)
+	}
+}
+
+// Verifies: OBS-CPL-09.02
+func TestRegisterClusterIdentityInfoWithoutClusterName(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	unregister, err := RegisterClusterIdentityInfo("", []string{"provider/ibm"}, "image:tag")
+	if err != nil {
+		t.Fatalf("RegisterClusterIdentityInfo() returned an error: %v", err)
+	}
+	t.Cleanup(func() { _ = unregister() })
+
+	if points := collectInt64Gauge(t, reader, "hypershell.managed_cluster.capability.info"); len(points) != 0 {
+		t.Fatalf("capability info points = %d, want 0 without a cluster name", len(points))
+	}
+}
+
+func collectInt64Gauge(t *testing.T, reader *sdkmetric.ManualReader, name string) []metricdata.DataPoint[int64] {
+	t.Helper()
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, got := range scope.Metrics {
+			if got.Name != name {
+				continue
+			}
+			gauge, ok := got.Data.(metricdata.Gauge[int64])
+			if !ok {
+				t.Fatalf("%s data type = %T, want int64 gauge", name, got.Data)
+			}
+			return gauge.DataPoints
+		}
+	}
+	return nil
+}
+
+func attributeString(t *testing.T, set attribute.Set, key string) string {
+	t.Helper()
+	v, ok := set.Value(attribute.Key(key))
+	if !ok {
+		t.Fatalf("missing attribute %q on %v", key, set)
+	}
+	return v.AsString()
+}
+
+func assertAttribute(t *testing.T, set attribute.Set, key, want string) {
+	t.Helper()
+	if got := attributeString(t, set, key); got != want {
+		t.Fatalf("attribute %q = %q, want %q", key, got, want)
 	}
 }

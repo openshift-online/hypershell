@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,24 @@ type Promotion struct {
 	// currently-deployed ones plus previously-deployed history cards). 0 disables
 	// history entirely.
 	historyLimit int
+	// identities reads what each control plane reports about itself (capabilities,
+	// default gateway image). nil means the annotation is the only capability
+	// source; WithClusterIdentities wires Prometheus in.
+	identities ClusterIdentityResolver
+}
+
+// ClusterIdentityResolver returns the self-reported identity of every control
+// plane, keyed by the namespace it runs in (OBS-CPL-09). A namespace can map to
+// more than one identity when the same namespace name exists on several physical
+// clusters; ClusterIdentity.Cluster tells them apart.
+type ClusterIdentityResolver interface {
+	ClusterIdentities(ctx context.Context) (map[string][]ClusterIdentity, error)
+}
+
+// WithClusterIdentities sets the source of control-plane-reported identities.
+func (p *Promotion) WithClusterIdentities(r ClusterIdentityResolver) *Promotion {
+	p.identities = r
+	return p
 }
 
 // ReleaseHistory lists the most recent DISTINCT release bundles the fleet has
@@ -177,11 +196,16 @@ type Environment struct {
 	Env         string `json:"env,omitempty"`
 	Cluster     string `json:"cluster,omitempty"`
 	// Capabilities are the instance's self-declared capability labels
-	// (namespace/value, see PLAT-CLUS-06), assembled from the already-resolved Argo
-	// Application delivery labels (no new query, no api-server call) and surfaced
-	// for the map card and node drawer (FLT-CAP-01). Omitted when empty.
+	// (namespace/value, see PLAT-CLUS-06). The control plane's own capability info
+	// metric (OBS-CPL-09) wins; the Argo Application's delivery capabilities
+	// annotation is the fallback while a cluster does not report the metric
+	// (FLT-CAP-01). Surfaced for the map card and node drawer. Omitted when empty.
 	Capabilities []string `json:"capabilities,omitempty"`
-	ConsoleURL   string   `json:"consoleUrl,omitempty"`
+	// GatewayImage is the default OpenShell gateway image the instance's control
+	// plane provisions, read from its control-plane info metric (OBS-CPL-09).
+	// Omitted when the control plane does not report it (FLT-CAP-07).
+	GatewayImage string `json:"gatewayImage,omitempty"`
+	ConsoleURL   string `json:"consoleUrl,omitempty"`
 	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
 	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
 	// stays authoritative for the host (no hostname pattern is baked in here).
@@ -203,6 +227,16 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 
 	prByBranch := p.pullRequestsByBranch(ctx)
 	argoByKey := p.argoByInstance(ctx)
+	// Best-effort: a Prometheus failure leaves every card on its annotation
+	// fallback rather than failing the promotion payload. Logged, not swallowed.
+	var identities map[string][]ClusterIdentity
+	var idErr error
+	if p.identities != nil {
+		identities, idErr = p.identities.ClusterIdentities(ctx)
+	}
+	if idErr != nil {
+		slog.WarnContext(ctx, "cluster identity metrics unavailable; using capability annotations", "error", idErr.Error())
+	}
 
 	payload := PromotionPayload{
 		Environments: map[string]Environment{},
@@ -267,6 +301,12 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Env = a.env
 			env.Cluster = a.cluster
 			env.Capabilities = a.capabilities
+			if id, ok := identityFor(identities, a.workloadNamespace, a.cluster); ok {
+				if len(id.Capabilities) > 0 {
+					env.Capabilities = id.Capabilities
+				}
+				env.GatewayImage = id.GatewayImage
+			}
 			if activeHydrated != "" && a.cluster != "" && a.workloadNamespace != "" {
 				env.Verification = &VerificationTarget{Revision: activeHydrated, Cluster: a.cluster, Namespace: a.workloadNamespace}
 			}
@@ -451,11 +491,10 @@ type argoInfo struct {
 }
 
 // capabilitiesAnnotation is the single, comma-joined capability set the delivery
-// (gitops) repo mirrors onto each managed-cluster Application. It is the
-// authoritative source for capability chips: it is generated from each unit's
-// registered capability set and drift-checked in the gitops repo, so the BFF reads
-// it rather than a parallel per-namespace label vocabulary that nothing populates.
-// Values are "namespace/value" strings.
+// (gitops) repo mirrors onto each managed-cluster Application. It is the FALLBACK
+// capability source: the control plane's own capability info metric (OBS-CPL-09)
+// wins when the cluster reports it, and the annotation covers clusters that do not
+// export telemetry yet. Values are "namespace/value" strings.
 const capabilitiesAnnotation = deliveryLabelPrefix + "capabilities"
 
 // capabilityNamespaces is the allow-list of recognized, PUBLIC product-level
@@ -490,6 +529,15 @@ func capabilitiesFromAnnotation(ann map[string]string) []string {
 	if raw == "" {
 		return nil
 	}
+	return normalizeCapabilities(strings.Split(raw, ","))
+}
+
+// normalizeCapabilities applies the capability rules shared by every source (the
+// delivery annotation and the control plane's capability info metric): trim, drop
+// empty, malformed, duplicate, or unrecognized-namespace entries, and order by
+// capabilityNamespaces (authored order kept within a namespace). Returns nil when
+// nothing survives.
+func normalizeCapabilities(entries []string) []string {
 	allowed := make(map[string]bool, len(capabilityNamespaces))
 	for _, ns := range capabilityNamespaces {
 		allowed[ns] = true
@@ -498,7 +546,7 @@ func capabilitiesFromAnnotation(ann map[string]string) []string {
 	// order the annotation happened to be authored in.
 	byNS := map[string][]string{}
 	seen := map[string]bool{}
-	for _, part := range strings.Split(raw, ",") {
+	for _, part := range entries {
 		capability := strings.TrimSpace(part)
 		if capability == "" || seen[capability] {
 			continue

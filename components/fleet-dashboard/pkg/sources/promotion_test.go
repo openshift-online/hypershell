@@ -550,3 +550,111 @@ func TestCapabilitiesFromAnnotation(t *testing.T) {
 		})
 	}
 }
+
+type fakeIdentities struct {
+	ids map[string][]ClusterIdentity
+	err error
+}
+
+func (f fakeIdentities) ClusterIdentities(context.Context) (map[string][]ClusterIdentity, error) {
+	return f.ids, f.err
+}
+
+// identityFixture builds a strategy with two envs. Both Applications carry the
+// capabilities annotation; alpha deploys into workload-a, beta into workload-b.
+func identityFixture(t *testing.T) (*Promotion, *config.Config) {
+	t.Helper()
+	psGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "promotionstrategies"}
+	ctpGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "changetransferpolicies"}
+	appGVR := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+	ps := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "promoter.argoproj.io/v1alpha1",
+		"kind":       "PromotionStrategy",
+		"metadata":   map[string]any{"name": "hypershell", "namespace": "promoter-ns"},
+		"status": map[string]any{"environments": []any{
+			map[string]any{"branch": "env/alpha"},
+			map[string]any{"branch": "env/beta"},
+		}},
+	}}
+	app := func(key, ns string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "argoproj.io/v1alpha1",
+			"kind":       "Application",
+			"metadata": map[string]any{
+				"name":        "promoter-ns-" + key,
+				"namespace":   "promoter-ns",
+				"labels":      map[string]any{deliveryLabelPrefix + "cluster": "cluster-a"},
+				"annotations": map[string]any{capabilitiesAnnotation: "provider/aws"},
+			},
+			"spec": map[string]any{"destination": map[string]any{"namespace": ns}},
+		}}
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		psGVR:  "PromotionStrategyList",
+		ctpGVR: "ChangeTransferPolicyList",
+		appGVR: "ApplicationList",
+	}, ps, app("alpha", "workload-a"), app("beta", "workload-b"))
+	c := &config.Config{
+		PromoterNamespace:     "promoter-ns",
+		PromotionStrategyName: "hypershell",
+		PromoterGroup:         "promoter.argoproj.io",
+		PromoterVersion:       "v1alpha1",
+		ArgoGroup:             "argoproj.io",
+		ArgoVersion:           "v1alpha1",
+	}
+	return NewPromotion(c, dyn, nil, nil, nil, nil), c
+}
+
+// Verifies: FLT-CAP-01.04
+// Verifies: FLT-CAP-01.05
+func TestPromotionCapabilitiesPreferMetric(t *testing.T) {
+	p, _ := identityFixture(t)
+	p.WithClusterIdentities(fakeIdentities{ids: map[string][]ClusterIdentity{
+		"workload-a": {{Cluster: "cluster-a", Capabilities: []string{"provider/ibm", "gateway-version/v9"}, GatewayImage: "quay.io/x/gw:v9"}},
+	}})
+	got, err := p.Promotion(context.Background())
+	if err != nil {
+		t.Fatalf("Promotion: %v", err)
+	}
+	envs := got.(PromotionPayload).Environments
+
+	alpha := envs["alpha"]
+	if want := []string{"provider/ibm", "gateway-version/v9"}; !equalStrings(alpha.Capabilities, want) {
+		t.Errorf("alpha capabilities = %v, want metric set %v", alpha.Capabilities, want)
+	}
+	if alpha.GatewayImage != "quay.io/x/gw:v9" {
+		t.Errorf("alpha gatewayImage = %q", alpha.GatewayImage)
+	}
+	beta := envs["beta"]
+	if want := []string{"provider/aws"}; !equalStrings(beta.Capabilities, want) {
+		t.Errorf("beta capabilities = %v, want annotation fallback %v", beta.Capabilities, want)
+	}
+	if beta.GatewayImage != "" {
+		t.Errorf("beta gatewayImage = %q, want empty", beta.GatewayImage)
+	}
+}
+
+// Verifies: FLT-CAP-01.05
+func TestPromotionCapabilitiesFallbackOnMetricError(t *testing.T) {
+	p, _ := identityFixture(t)
+	p.WithClusterIdentities(fakeIdentities{err: context.DeadlineExceeded})
+	got, err := p.Promotion(context.Background())
+	if err != nil {
+		t.Fatalf("a metrics failure must not fail the promotion payload: %v", err)
+	}
+	if caps := got.(PromotionPayload).Environments["alpha"].Capabilities; !equalStrings(caps, []string{"provider/aws"}) {
+		t.Errorf("alpha capabilities = %v, want annotation fallback", caps)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

@@ -76,7 +76,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 6 |
+| `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -97,7 +97,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 8 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 9 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -128,7 +128,7 @@ or group is added here before any requirement uses it.
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 4 |
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
-| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 17 |
+| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
 | `OSG-TLS` | `platform/openshell-gateway-tls.spec.md` | 5 |

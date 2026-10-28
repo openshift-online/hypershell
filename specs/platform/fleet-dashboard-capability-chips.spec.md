@@ -4,7 +4,8 @@
 **Status:** Active
 **Applies to:** `packages/fleet-dashboard-ui` promotion domain, map model, wire
 adapter, and map presentation (card + node drawer); `components/fleet-dashboard`
-BFF promotion source (delivery capabilities-annotation sourcing).
+BFF promotion and Prometheus sources (control-plane info metrics, with the
+delivery capabilities annotation as fallback).
 **Tracks:** [HYPERSHELL-437](https://redhat.atlassian.net/browse/HYPERSHELL-437)
 
 ## Purpose
@@ -29,9 +30,12 @@ This specification makes the following behavior contracts:
 3. The node drawer SHALL gain a **Capabilities** section listing the cluster's
    full self-declared capability set.
 4. The `capabilities` set SHALL be carried end to end as an optional field on the
-   promotion environment, sourced by the BFF from the delivery
-   `delivery.hypershell.app/capabilities` annotation already present on the
-   resolved Argo `Application`, so the BFF stays low-privilege.
+   promotion environment. The BFF SHALL source it from the cluster control
+   plane's own capability info metric (`OBS-CPL-09`) and fall back to the
+   delivery `delivery.hypershell.app/capabilities` annotation already present on
+   the resolved Argo `Application`. Both sources keep the BFF low-privilege.
+5. The node drawer SHALL show the default OpenShell gateway image the cluster's
+   control plane provisions, read from its control-plane info metric.
 
 Capabilities are **opaque data**: the UI SHALL NOT bake in a closed vocabulary.
 An unknown namespace or value SHALL still render. The capability chips and the
@@ -50,6 +54,9 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
   **presentation** layer (the SVG card), not in the layout geometry; the layout
   contributes only the card width and height constants. This spec does not relax
   `FLT-MAP-06`.
+- `OBS-CPL-09` defines the control-plane info metrics this spec reads:
+  `hypershell_managed_cluster_capability_info` (one series per capability) and
+  `hypershell_control_plane_info` (the default gateway image).
 - `FLT-SYNC-01`/`FLT-SYNC-03` establish the low-privilege BFF sourcing pattern
   (read from the Argo CD `Application` objects already resolved per instance; no
   new Kubernetes query or cluster credential) and the end-to-end threading
@@ -57,18 +64,31 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
 
 ## Requirements
 
-### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the delivery annotation
+### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the control plane
 
 The promotion environment SHALL carry an optional `capabilities` set of
 `namespace/value` strings, threaded unchanged through the wire adapter, the
 promotion domain, and the map node, mirroring how `provider` is carried today.
-The set SHALL be sourced from the single, comma-joined
-`delivery.hypershell.app/capabilities` annotation on the Argo CD `Application` by
-the fleet-dashboard BFF promotion source, using data the BFF already resolves per
-instance; the BFF SHALL NOT authenticate to the api-server and SHALL NOT
-introduce any new Kubernetes query, list, watch, or cluster credential to obtain
-it. Entries SHALL be validated against the recognized capability namespaces
-(`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
+
+The fleet-dashboard BFF SHALL source the set in this order:
+
+1. The cluster control plane's `hypershell_managed_cluster_capability_info`
+   series (`OBS-CPL-09`), read from the Prometheus the BFF already queries. A
+   series belongs to an environment when its `k8s_namespace_name` label equals
+   the namespace the environment's Argo CD `Application` deploys into. When
+   that namespace is reported by more than one physical cluster, the series
+   whose `cluster` label equals the Application's
+   `delivery.hypershell.app/cluster` label SHALL win; with no such match the
+   metric SHALL be ignored for that environment rather than guessed.
+2. The single, comma-joined `delivery.hypershell.app/capabilities` annotation
+   on the Argo CD `Application`, when the control plane reports no
+   capabilities or Prometheus is unavailable.
+
+A Prometheus failure SHALL NOT fail the promotion payload; it SHALL be logged
+and every environment SHALL use the annotation. The BFF SHALL NOT authenticate
+to the api-server and SHALL NOT introduce any new Kubernetes query, list,
+watch, or cluster credential to obtain capabilities. Entries from either source SHALL be validated against the recognized capability
+namespaces (`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
 SHALL be dropped rather than rendered. The field SHALL be optional at every hop:
 a node with no capability annotation SHALL carry an empty set, not an error, so
 existing test factories and payloads that omit it stay valid.
@@ -92,8 +112,30 @@ existing test factories and payloads that omit it stay valid.
 
 - GIVEN the fleet-dashboard BFF promotion source resolving each instance's Argo CD `Application`
 - WHEN it emits the `capabilities` field for a promotion environment
-- THEN the value SHALL be read from the `delivery.hypershell.app/capabilities` annotation on the already-resolved object
+- THEN the value SHALL be read from the Prometheus the BFF already queries, or from the `delivery.hypershell.app/capabilities` annotation on the already-resolved object
 - AND the BFF SHALL NOT open a new Kubernetes query, watch, or cluster credential, and SHALL NOT call the api-server, to obtain capabilities
+
+#### Scenario: FLT-CAP-01.04 -- Control-plane capabilities win over the annotation
+
+- GIVEN an environment whose Application deploys into namespace `inst-spoke` and carries the annotation `provider/aws`
+- AND Prometheus has `hypershell_managed_cluster_capability_info` series for `k8s_namespace_name="inst-spoke"` with capabilities `provider/ibm` and `network/public`
+- WHEN the BFF builds the promotion payload
+- THEN the environment's capabilities SHALL be `["provider/ibm", "network/public"]`
+- AND an entry whose namespace is not recognized SHALL be dropped, as for the annotation
+
+#### Scenario: FLT-CAP-01.05 -- Annotation is the fallback
+
+- GIVEN an environment whose control plane reports no capability series, or a Prometheus query that fails
+- WHEN the BFF builds the promotion payload
+- THEN the environment's capabilities SHALL be parsed from its delivery annotation
+- AND the promotion payload SHALL still be returned
+
+#### Scenario: FLT-CAP-01.06 -- A shared namespace name resolves by cluster
+
+- GIVEN two physical clusters that both report series for `k8s_namespace_name="inst-hub"`
+- WHEN the BFF matches an environment whose Application deploys into `inst-hub` with `delivery.hypershell.app/cluster` equal to one of them
+- THEN the series from that cluster SHALL be used
+- AND when the Application's cluster matches neither, the metric SHALL be ignored and the annotation used
 
 ### Requirement: FLT-CAP-02 -- Capability string helpers
 
@@ -258,3 +300,27 @@ capabilities. The section title SHALL be a localized message.
 - GIVEN a selected node whose cluster declares no capabilities
 - WHEN the drawer's Details tab is shown
 - THEN the Capabilities section SHALL NOT be rendered
+
+### Requirement: FLT-CAP-07 -- Default gateway image in the node drawer
+
+The promotion environment SHALL carry an optional `gatewayImage` string: the
+`gateway_image` label of the cluster control plane's
+`hypershell_control_plane_info` series (`OBS-CPL-09`), matched to the
+environment by the same namespace and cluster rule as `FLT-CAP-01`. When one
+control plane briefly reports two images (an old pod's series during a rollout),
+the BFF SHALL pick one deterministically. The node drawer's Details tab SHALL
+show it as a "Default gateway" row, truncated in the middle so the tag stays
+visible. The row SHALL be omitted when no image is reported. The row label SHALL
+be a localized message.
+
+#### Scenario: FLT-CAP-07.01 -- Reported image is shown
+
+- GIVEN a selected node whose control plane reports `gateway_image="quay.io/example/gateway:v0.1.5"`
+- WHEN the drawer's Details tab is shown
+- THEN a "Default gateway" row SHALL show `quay.io/example/gateway:v0.1.5`
+
+#### Scenario: FLT-CAP-07.02 -- No image omits the row
+
+- GIVEN a selected node whose control plane reports no `hypershell_control_plane_info` series
+- WHEN the drawer's Details tab is shown
+- THEN the "Default gateway" row SHALL NOT be rendered

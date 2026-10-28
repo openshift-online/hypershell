@@ -133,6 +133,26 @@ describe("mapPromotion", () => {
     expect(data.environments.x?.capabilities).toEqual(["runtime/kata"]);
   });
 
+  it("carries the default gateway image, null when absent or empty", () => {
+    // FLT-CAP-07.01 / 07.02
+    const data = mapPromotion({
+      order: ["img", "none", "blank"],
+      environments: {
+        img: {
+          active: { version: "v1" },
+          gatewayImage: "quay.io/example/gateway:v0.1.5",
+        },
+        none: { active: { version: "v1" } },
+        blank: { active: { version: "v1" }, gatewayImage: "" },
+      },
+    });
+    expect(data.environments.img?.gatewayImage).toBe(
+      "quay.io/example/gateway:v0.1.5",
+    );
+    expect(data.environments.none?.gatewayImage).toBeNull();
+    expect(data.environments.blank?.gatewayImage).toBeNull();
+  });
+
   it("prefers the bundle digest over the gitops SHA for release identity", () => {
     const data = mapPromotion({
       order: ["delta"],

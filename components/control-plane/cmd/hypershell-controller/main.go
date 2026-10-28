@@ -134,6 +134,12 @@ func main() {
 	}
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
+	// The console image has no built-in default. Fail here with a clear message
+	// instead of logging a console warning for every gateway later.
+	if err := gateway.ValidateConsoleImage(); err != nil {
+		log.Fatalf("console image: %v", err)
+	}
+
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
 	log.Printf("INFO hypershell-controller starting")
 	log.Printf("INFO build %s", buildInfo())
@@ -160,6 +166,16 @@ func main() {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
+	unregisterIdentityInfo, identityErr := cpotel.RegisterClusterIdentityInfo(
+		cfg.ManagedClusterName,
+		cfg.ManagedClusterCapabilities,
+		gateway.StaticImageDefaults{}.DefaultGatewayImage(),
+	)
+	if identityErr != nil {
+		log.Printf("WARN cluster identity info metrics unavailable: %v", identityErr)
+	} else {
+		defer func() { _ = unregisterIdentityInfo() }()
+	}
 
 	// Every RPC, including the long-lived watch streams, carries the control
 	// plane's OIDC bearer token; the API server does not exempt watch streams

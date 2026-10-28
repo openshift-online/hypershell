@@ -82,7 +82,9 @@ func run(logger *slog.Logger) error {
 		history = lr
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler, history)
+	// Capabilities and the default gateway image come from each control plane's
+	// own info metrics first, with the Argo annotation as fallback (FLT-CAP-01).
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler, history).WithClusterIdentities(prom)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)

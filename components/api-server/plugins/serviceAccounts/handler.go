@@ -24,6 +24,11 @@ type createRequest struct {
 	ExpiresAt      *time.Time `json:"expires_at"`
 }
 
+type updateRoleRequest struct {
+	Role        string  `json:"role"`
+	Description *string `json:"description"`
+}
+
 func (h *handler) Create(w http.ResponseWriter, r *http.Request) {
 	var request createRequest
 	if err := decodeStrictJSON(r, &request); err != nil {
@@ -73,6 +78,25 @@ func (h *handler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *handler) Revoke(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	account, complete, problem := h.service.Revoke(r.Context(), vars["gateway_id"], vars["service_account_id"], rbac.GetUserIDFromContext(r.Context()))
+	if problem != nil {
+		writeProblem(w, problem)
+		return
+	}
+	status := http.StatusAccepted
+	if complete {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, presentItem(account))
+}
+
+func (h *handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
+	var request updateRoleRequest
+	if err := decodeStrictJSON(r, &request); err != nil {
+		writeProblem(w, validationProblem("The request body is not valid JSON or contains an unknown field"))
+		return
+	}
+	vars := mux.Vars(r)
+	account, complete, problem := h.service.UpdateRole(r.Context(), vars["gateway_id"], vars["service_account_id"], rbac.GetUserIDFromContext(r.Context()), RoleUpdateInput(request))
 	if problem != nil {
 		writeProblem(w, problem)
 		return

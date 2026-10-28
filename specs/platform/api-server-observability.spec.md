@@ -259,6 +259,21 @@ Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors
 - THEN the record SHALL be written to standard error only
 - AND no OTLP log exporter SHALL be created
 
+### Requirement: API-OBS-10 -- Advisory Lock Metrics
+
+The rh-trex-ai framework records every PostgreSQL advisory lock in two Prometheus metrics: `advisory_lock_count` (a counter) and `advisory_lock_duration` (a histogram in seconds). Both carry the labels `type` and `status`. The framework does not register them. The `serve` command SHALL register both with the default Prometheus registry before the servers start, so the metrics server exposes them on `/metrics`. Registration SHALL NOT panic. If the framework has already registered the metrics, the `serve` command SHALL treat that as success.
+
+These metrics feed the advisory-lock row of the fleet PostgreSQL dashboard in hypershell-gitops.
+
+**Verification:** A unit test registers the metrics twice, records one lock, and confirms both metric families are in the default registry.
+
+#### Scenario: API-OBS-10.01 -- Advisory lock metrics are exposed
+
+- GIVEN the API server runs `serve`
+- WHEN the framework takes an advisory lock
+- THEN `/metrics` SHALL include `advisory_lock_count` and `advisory_lock_duration` series for that lock type and status
+- AND registering the metrics a second time SHALL NOT fail or panic
+
 ## Design Decisions
 
 | Decision | Rationale |

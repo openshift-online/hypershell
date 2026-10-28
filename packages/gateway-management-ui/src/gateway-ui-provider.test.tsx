@@ -27,6 +27,7 @@ const gatewayOperations = {
   removeGateway: vi.fn(),
   renameGateway: vi.fn(),
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
 };
 
 const navigate = vi.fn();

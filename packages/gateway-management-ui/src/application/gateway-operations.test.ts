@@ -84,6 +84,7 @@ function setup() {
     renameGateway,
     revokeGatewayAccess: vi.fn().mockResolvedValue(undefined),
     revokeOpenShellGatewayServiceAccount: vi.fn(),
+    updateOpenShellGatewayServiceAccountRole: vi.fn(),
     searchGatewayDirectory: vi.fn().mockResolvedValue([]),
   };
   const operations = createGatewayOperations({
@@ -202,6 +203,15 @@ describe("gateway application operations", () => {
         operations.revokeOpenShellGatewayServiceAccount(
           "gateway-1",
           "account-1",
+        ),
+    ],
+    [
+      "update-service-account-role",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.updateOpenShellGatewayServiceAccountRole(
+          "gateway-1",
+          "account-1",
+          { role: "openshell-admin" },
         ),
     ],
     [

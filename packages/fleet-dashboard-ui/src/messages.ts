@@ -223,6 +223,12 @@ export const messages = defineMessages({
       "{total} total · {running} running · {provisioning} provisioning · {failed} failed",
     description: "Breakdown of an instance's gateway counts by phase.",
   },
+  detailGatewayImage: {
+    id: "fleet.map.detail.gatewayImage",
+    defaultMessage: "Default gateway",
+    description:
+      "Detail label for the default OpenShell gateway image the cluster's control plane provisions.",
+  },
   detailLinks: {
     id: "fleet.map.detail.links",
     defaultMessage: "Links",
