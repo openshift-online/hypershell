@@ -119,6 +119,11 @@ type Config struct {
 	// a single query_range past the Loki timeout. The default (150) is well below
 	// the measured single-CPU cliff; the source clamps a client-supplied limit to a
 	// server-side maximum so a client cannot re-introduce the timeout.
+	// E2ELogTimeMargin is the ingestion-delay and clock-skew margin added around a
+	// selected step's lifecycle window when the logs endpoint is scoped to one step
+	// (E2E-LOG-25): the suite event timestamps and the Loki ingestion timestamps are
+	// not identical, so a step's history query widens its bounded time range by this
+	// margin rather than compiling the slack in.
 	E2ELokiURL        string
 	E2ELokiTenants    []string
 	E2ELokiTokenFile  string
@@ -127,6 +132,7 @@ type Config struct {
 	E2EHistoryWindow  time.Duration
 	E2ERecentRunLimit int
 	E2ELogPageSize    int
+	E2ELogTimeMargin  time.Duration
 
 	// Refresh intervals (§5.1)
 	RefreshFleet     time.Duration
@@ -265,6 +271,7 @@ func Load() (*Config, error) {
 		E2EHistoryWindow:  envDuration("FD_E2E_HISTORY_WINDOW", 168*time.Hour),
 		E2ERecentRunLimit: envInt("FD_E2E_RECENT_RUN_LIMIT", 20),
 		E2ELogPageSize:    envInt("FD_E2E_LOG_PAGE_SIZE", 150),
+		E2ELogTimeMargin:  envDuration("FD_E2E_LOG_TIME_MARGIN", 5*time.Minute),
 		RefreshE2E:        envDuration("FD_REFRESH_E2E", 30*time.Second),
 	}
 
