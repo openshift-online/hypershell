@@ -81,7 +81,18 @@ Else:
   PR, many commits; see "Pull request and commit model" in
   `../../execute-sdlc/SKILL.md`). Ensure the PR body & title reflect the current
   state of the PR.
-- Remove label `agent/review-code-rejected` from `$GITHUB_ISSUE_URL` if present.
-- Write label `agent/reviewable-code` to `$GITHUB_ISSUE_URL`.
+- Advance the phase on `$GITHUB_ISSUE_URL`:
+  - Write label `agent/reviewable-code`.
+  - Remove the prior PHASE labels this transition supersedes, if present:
+    `agent/review-spec-approved` (the first code pass) and
+    `agent/review-code-rejected` (a re-implementation after code review).
+    Removing a label that is already absent is a no-op.
+
+**Protected labels (never remove).** The human gate `agent/review-spec-blocked`
+and the role markers are NOT phase labels and MUST NOT be removed by this step,
+even while normalizing phase state: `agent/review-spec-blocked` (human spec gate),
+`agent/allowed` (authorization gate), `agent/scope/*` (scope selector), and
+`agent/execution-record` (canonical-link marker). This step removes ONLY the prior
+phase labels named above - it is not a license to remove everything but one label.
 
 _Note: If a label does not exist, create it._

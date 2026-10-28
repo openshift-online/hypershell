@@ -68,6 +68,16 @@ opposite verdict label if present:
 - Verdict `agent/review-spec-approved`: remove `agent/review-spec-rejected`.
 - Verdict `agent/review-spec-rejected`: remove `agent/review-spec-approved`.
 
+**Protected labels (never remove).** `agent/review-spec-blocked` is NOT a phase
+label - it is an OPTIONAL human gate a person applies to force a human spec
+sign-off before any code is written. NEVER remove it in this step, including on an
+approved verdict; the orchestrator holds the record at that gate until a human
+signs off, so clearing it here would silently destroy the human's intent. The role
+markers are likewise NOT phase labels and MUST NOT be removed here: `agent/allowed`
+(authorization gate), `agent/scope/*` (scope selector), and `agent/execution-record`
+(canonical-link marker). This step mutates ONLY the phase and verdict labels named
+in this step - it is not a license to remove everything but one label.
+
 Do NOT place any `agent/*` phase label on `$GITHUB_PR_URL`. The issue is the only
 holder of phase state:
 - The next agent starts from the issue label and finds the pull request through

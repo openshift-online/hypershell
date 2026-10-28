@@ -396,10 +396,20 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 
   # Normalize to a single phase label (idempotent, self-correcting). The invoked
   # skill applies the OUTPUT phase label for this transition. Remove EVERY other
-  # phase label (including `$CURRENT_PHASE` and any stale label) so exactly one
+  # PHASE label (including `$CURRENT_PHASE` and any stale label) so exactly one
   # phase label remains on the record. This keeps the state single-valued whether
   # the funnel runs end-to-end or is re-entered, and removes the whole class of
   # stale-label bugs. Removing a label that is already absent is a no-op.
+  #
+  # "PHASE label" here means ONLY the phase-machine labels enumerated above:
+  # `agent/workable`, `agent/reviewable-spec`, `agent/review-spec-approved`,
+  # `agent/review-spec-rejected`, `agent/reviewable-code`,
+  # `agent/review-code-rejected`, and the terminal `agent/review-code-approved`.
+  # It EXCLUDES the human gate `agent/review-spec-blocked` (NOT a phase label - see
+  # the gate description above; removing it would destroy a human's spec sign-off
+  # intent) and the role markers `agent/allowed`, `agent/scope/*`, and
+  # `agent/execution-record`. NEVER remove any of those here. "Remove every other
+  # phase label" is NOT a license to remove everything but one label.
 
   # Keep Jira converged with the new phase: derived status, artifact remote links,
   # and an attributed phase-narrative comment. Idempotent and dry-run aware.
