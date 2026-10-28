@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,8 @@ var (
 	watchReconnects            metric.Int64Counter
 	reconcileOutcomes          metric.Int64Counter
 	reconcileFailed            metric.Int64Counter
+	capabilityInfo             metric.Int64ObservableGauge
+	controlPlaneInfo           metric.Int64ObservableGauge
 )
 
 // Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
@@ -247,7 +250,61 @@ func registerMetrics() error {
 		metric.WithUnit("{failure}"),
 		metric.WithDescription("Count of reconciliation attempts that reached a non-recoverable state"),
 	)
+	if err != nil {
+		return err
+	}
+
+	// The info gauges carry no unit: an annotation unit adds nothing, and the
+	// Prometheus exporter turns the unit "1" into a _ratio suffix.
+	capabilityInfo, err = meter.Int64ObservableGauge(
+		"hypershell.managed_cluster.capability.info",
+		metric.WithDescription("Self-declared capability of this managed cluster; one series per capability, always 1"),
+	)
+	if err != nil {
+		return err
+	}
+
+	controlPlaneInfo, err = meter.Int64ObservableGauge(
+		"hypershell.control_plane.info",
+		metric.WithDescription("Default gateway image this control plane provisions; always 1"),
+	)
 	return err
+}
+
+// RegisterClusterIdentityInfo exports this control plane's managed-cluster name,
+// its configured capability set, and its default gateway image as always-1 info
+// gauges (OBS-CPL-09). The values come from deployment configuration, so a
+// GitOps override of the capability list cannot hide the image the control plane
+// actually deploys. The returned function removes the callback.
+func RegisterClusterIdentityInfo(clusterName string, capabilities []string, gatewayImage string) (func() error, error) {
+	if capabilityInfo == nil || controlPlaneInfo == nil || clusterName == "" {
+		return func() error { return nil }, nil
+	}
+	caps := append([]string(nil), capabilities...)
+	registration, err := otel.Meter(TracerName).RegisterCallback(
+		func(_ context.Context, observer metric.Observer) error {
+			for _, capability := range caps {
+				namespace, value, _ := strings.Cut(capability, "/")
+				observer.ObserveInt64(capabilityInfo, 1, metric.WithAttributes(
+					attribute.String("managed_cluster", clusterName),
+					attribute.String("capability", capability),
+					attribute.String("capability_namespace", namespace),
+					attribute.String("capability_value", value),
+				))
+			}
+			observer.ObserveInt64(controlPlaneInfo, 1, metric.WithAttributes(
+				attribute.String("managed_cluster", clusterName),
+				attribute.String("gateway_image", gatewayImage),
+			))
+			return nil
+		},
+		capabilityInfo,
+		controlPlaneInfo,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register cluster identity info callback: %w", err)
+	}
+	return registration.Unregister, nil
 }
 
 // RegisterReconcileQueueDepth registers one callback for a reconcile queue.
