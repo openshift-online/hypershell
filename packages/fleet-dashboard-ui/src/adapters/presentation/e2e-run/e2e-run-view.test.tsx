@@ -984,8 +984,9 @@ describe("log pagination and degraded log pane", () => {
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
-    // Run-wide scope on open: stepId is null.
-    await screen.findByText("run-wide-line");
+    // Run-wide scope on open: the line renders with its step-id prefix, so match the
+    // message substring.
+    await screen.findByText(/run-wide-line/);
     expect(getE2eRunLogs).toHaveBeenLastCalledWith(
       "tenant-1/ns/run-1",
       null,
