@@ -104,7 +104,9 @@ minimum: `FD_E2E_LOKI_URL` (the internal Loki base URL, for example
 `FD_E2E_HISTORY_WINDOW` (lookback, default `168h`), `FD_E2E_RECENT_RUN_LIMIT`
 (default `20`), and `FD_E2E_LOG_PAGE_SIZE` (the raw-log history page size, default
 `150`, bounded by a server-side maximum so a client cannot re-introduce the
-all-at-once timeout; see E2E-LOG-19). The deployment configuration carries the actual fleet identities;
+all-at-once timeout; see E2E-LOG-19), and `FD_E2E_LOG_TIME_MARGIN` (the ingestion
+delay and clock skew margin added around a selected step's lifecycle window; see
+E2E-LOG-25). The deployment configuration carries the actual fleet identities;
 the binary SHALL carry none. Changing an endpoint, tenant allowlist, window, or
 limit SHALL NOT require a code change.
 
@@ -387,7 +389,10 @@ visible loading indicator, and preserve the operator's scroll position when olde
 lines are prepended, without a "Load more" button. The view SHALL offer
 follow/pause, bounded rendering of long logs,
 a choice between a selected step's logs and the whole run's logs, and retained
-history after the Pod is deleted. New runs, steps, and log lines SHALL arrive live.
+history after the Pod is deleted. A selected step's logs SHALL be fetched scoped to
+that step (E2E-LOG-23), not derived by filtering a run-wide buffer at render time,
+and a failed or empty selected-step view SHALL present an explicit retry or empty
+state rather than an indefinite loading indicator (E2E-LOG-26). New runs, steps, and log lines SHALL arrive live.
 A run's explicit failed/unknown state SHALL be preserved even when the Argo
 Application health is Healthy (E2E-LOG-09).
 
@@ -532,7 +537,13 @@ buffers, cancellation, and expired authorization. They SHALL also exercise raw-l
 pagination: a multi-page walk that terminates when `hasMore` is false, a page
 boundary where entries share a nanosecond timestamp proving none are dropped or
 duplicated, the `limit` clamp, and run detail that still returns steps when the
-raw-log query errors (non-fatal logs, E2E-LOG-20). UI tests SHALL cover event
+raw-log query errors (non-fatal logs, E2E-LOG-20). They SHALL also exercise the
+selected-step scope: a step-scoped page that filters in Loki before the limit so an
+early step's lines are returned without first reading a run-wide page (E2E-LOG-23,
+E2E-LOG-24), parsing and filtering against wrapped ViaQ events, malformed records,
+and unrelated events, a lifecycle-bounded time range for a completed step and the
+documented fallback when lifecycle timing is missing (E2E-LOG-25), and a stable
+lower bound across a step's pages. UI tests SHALL cover event
 reduction and ordering, duplicate and reconnect behavior, parallel steps, the
 skipped-versus-not-run distinction, missing terminal records, malformed messages,
 output escaping, auth/session expiry, recent attempts, exact-SHA correlation, live
@@ -540,7 +551,15 @@ steps and logs, reconnect state, failure, and retained history. UI tests SHALL a
 cover infinite scroll: the older-page load firing from the scroll observer rather
 than a click, the loading indicator while a page is in flight, preserved scroll
 position on prepend, stopping at `hasMoreOlder` false, and merging live-streamed
-lines without duplicating the history-to-live seam.
+lines without duplicating the history-to-live seam. UI tests SHALL also cover the
+selected-step scope and retry behavior: a step-scoped buffer/cursor/error state keyed
+to `(run id, step id)`, rapid run/step switching that aborts obsolete requests and
+ignores late older-page results so no scope contaminates another (E2E-LOG-23), a
+rejected or timed-out older-page request that stops observer-driven fetching and
+exposes a Retry action that recovers, a stale response that is actionable rather than
+silently stopping, a completed step with no logs settling into an empty state, and
+the distinct loading, empty, end-of-history, locally-limited-history, and
+failed-loading states (E2E-LOG-26).
 
 #### Scenario: E2E-LOG-17.01 -- BFF gap and reconnect are tested
 
@@ -554,11 +573,17 @@ lines without duplicating the history-to-live seam.
 - WHEN the domain reduces them
 - THEN the tests SHALL assert correct ordering, deduplication, step state, and the preserved failed/unknown states
 
+#### Scenario: E2E-LOG-17.03 -- Step scope and retry behavior are tested
+
+- GIVEN fixtures for an early step followed by a run-wide overflow, a rejected/stale older-page response, an empty completed step, and rapid run/step switching
+- WHEN the BFF serves step-scoped pages and the UI pages, fails, and switches scope
+- THEN the tests SHALL assert step-filtered pages read before the limit, lifecycle-bounded ranges with a documented fallback, stopped auto-fetch with a recovering Retry action, a settled empty state, and no cross-scope contamination
+
 ### Requirement: E2E-LOG-18 -- Documentation and GitOps Linkage
 
 The change SHALL document the config variables (`FD_E2E_LOKI_URL`,
 `FD_E2E_LOKI_TENANTS`, `FD_E2E_HISTORY_WINDOW`, `FD_E2E_RECENT_RUN_LIMIT`,
-`FD_E2E_LOG_PAGE_SIZE`), the
+`FD_E2E_LOG_PAGE_SIZE`, `FD_E2E_LOG_TIME_MARGIN`), the
 consumed event schema (`hypershell.e2e.v1`), the existing suite launch-command
 compatibility, and the retention and limits. The pull request SHALL link the
 hypershell-gitops logging/configuration integration. The feature SHALL NOT be
@@ -575,7 +600,8 @@ built and hypershell-gitops pins them.
 ### Requirement: E2E-LOG-19 -- Paginated Raw-Log History
 
 Raw-log history for one run SHALL be read through a dedicated, cursor-paged
-endpoint (`GET /api/e2e/logs?run=<id>&before=<ts>&limit=<n>`), never by a single
+endpoint (`GET /api/e2e/logs?run=<id>&before=<ts>&limit=<n>`, with an optional
+`step=<stepId>` that scopes the page to one step per E2E-LOG-23), never by a single
 all-at-once query over the whole run, so every request stays well below the Loki
 query timeout even on a single-CPU Loki. The run id rides a `run` query value
 rather than a path segment because a `ServeMux` trailing wildcard (the multi-segment
@@ -598,9 +624,18 @@ entries can share one nanosecond timestamp, the server SHALL de-duplicate across
 page boundary (for example by querying with a one-nanosecond inclusive overlap and
 de-duping on `(timestampNs, line)`, or by a stable per-entry `sequence`) so a page
 boundary neither drops nor duplicates an entry; it SHALL NOT assume unique
-timestamps. Paginated collection reads SHALL conform to the trust-and-performance
+timestamps. When a full page's oldest entries all share the cursor's nanosecond so
+the cursor cannot advance without looping, the server SHALL stop paging rather than
+return a looping cursor, AND SHALL report that stop as a distinct locally-limited
+boundary signal (for example `boundaryTruncated`), NOT as end-of-history, so the
+client can present the local limit rather than claim all history was read
+(E2E-LOG-26). Paginated collection reads SHALL conform to the trust-and-performance
 collection contract (`specs/standards/ui/trust-performance.spec.md`): one request
-per page, a bound that does not grow with the number of rendered lines.
+per page, a bound that does not grow with the number of rendered lines. When a
+`step` is supplied, the same cursor, overlap de-duplication, `hasMore`, and
+bounded-page contract SHALL apply to the selected step's pages (E2E-LOG-23), and the
+page SHALL be filtered in Loki before the limit (E2E-LOG-24) and bounded by the
+step's lifecycle window (E2E-LOG-25).
 
 #### Scenario: E2E-LOG-19.01 -- Newest page then older pages by cursor
 
@@ -626,6 +661,13 @@ per page, a bound that does not grow with the number of rendered lines.
 - GIVEN a run id whose tenant is not in the allowlist
 - WHEN a client requests `GET /api/e2e/logs?run=<id>`
 - THEN the BFF SHALL respond `ErrRunNotFound`, the same as the run-detail endpoint
+
+#### Scenario: E2E-LOG-19.05 -- More entries at one nanosecond than a page holds
+
+- GIVEN more log entries share a single nanosecond than fit in one page, reached across a page boundary
+- WHEN the client requests the older page whose oldest entries all share the cursor's nanosecond
+- THEN the server SHALL stop paging rather than return a cursor that cannot advance
+- AND it SHALL report the stop as a locally-limited boundary, distinct from end-of-history, so the pane shows the local limit rather than claiming all history was read
 
 ### Requirement: E2E-LOG-20 -- Run Detail Decoupled From Raw Logs
 
@@ -688,8 +730,9 @@ consistent with the snapshot-to-tail bridge (E2E-LOG-06).
 
 The log pane SHALL load older history by scroll position, not by a button: a
 sentinel at the top of the scroll container SHALL trigger the next older page when
-it enters view, guarded so only one page is in flight and stopping when no older
-page remains. While an older page is in flight, the pane SHALL render an accessible
+it enters view, guarded so only one page is in flight, stopping when no older
+page remains, and stopping while a history request is in an explicit failed state
+rather than re-firing against a still-visible sentinel (E2E-LOG-26). While an older page is in flight, the pane SHALL render an accessible
 loading indicator; when older lines are prepended, the pane SHALL preserve the
 operator's visual position so the viewport does not jump. For an in-progress run,
 live-appended lines SHALL keep the view pinned to the bottom while the operator is
@@ -722,6 +765,169 @@ with `glass-url-addressable-navigation.spec.md`.
 - GIVEN steps load but the raw-log history is unavailable
 - WHEN the panel renders
 - THEN it SHALL show the steps with an inline notice on the log pane only, not the full backend-unavailable message
+
+### Requirement: E2E-LOG-23 -- Selected-Step History Scope
+
+The raw-log history API SHALL accept an optional selected step so a run's history
+can be read scoped to one step. An optional `stepId` SHALL be threaded through the
+frontend `FleetApi` port (`getE2eRunLogs`), the HTTP adapter, the BFF logs handler
+(`GET /api/e2e/logs`, E2E-LOG-19), and the BFF log-source interface (`RunLogs`).
+When `stepId` is absent, the endpoint SHALL preserve the existing run-wide behavior
+(E2E-LOG-19) unchanged. The history scope SHALL be the pair `(run id, step id)`:
+the log buffer, pagination cursor, loading/error state, and request cancellation
+SHALL be tied to that scope, so the browser requests a step's logs directly instead
+of keeping a run-wide buffer and applying a render-time step filter. On a selection
+change (run or step), the view SHALL reset or restore the correct scoped state,
+abort obsolete in-flight requests, and ignore late results (including older-page
+results) so one step's history can never populate another step's view.
+
+#### Scenario: E2E-LOG-23.01 -- Step-scoped request returns only that step
+
+- GIVEN an early step followed by more than 3,000 lines from other steps
+- WHEN the view selects that step and requests its first page
+- THEN the first successful step-scoped request SHALL return that step's available logs
+- AND it SHALL NOT first download the intervening run-wide history
+
+#### Scenario: E2E-LOG-23.02 -- Run-wide behavior preserved when stepId is absent
+
+- GIVEN a logs request that carries no `stepId`
+- WHEN the endpoint serves the page
+- THEN it SHALL behave exactly as the run-wide raw-log history (E2E-LOG-19)
+
+#### Scenario: E2E-LOG-23.03 -- Rapid switching does not contaminate the view
+
+- GIVEN one or more step-scoped requests in flight
+- WHEN the operator rapidly switches the selected run or step
+- THEN the obsolete requests SHALL be aborted and any late results ignored
+- AND no earlier scope's results SHALL appear in the newly selected scope
+
+### Requirement: E2E-LOG-24 -- Step Filtering in Loki Before the Page Limit
+
+When a selected step is requested (E2E-LOG-23), the BFF SHALL build the Loki query
+to select the requested structured log events by schema/event type, run, namespace,
+and step before Loki applies the result limit, so a bounded page contains that
+step's lines rather than a run-wide page filtered in Go after the limit. Filtering a
+run-wide page in Go would keep the same pagination problem and SHALL NOT be the
+step-scoped path. The adapter SHALL parse the ViaQ envelope and the serialized
+structured event carried in `message` (E2E-LOG-07) and SHALL be validated against
+representative wrapped events, malformed records, and unrelated events. It SHALL
+preserve tenant authorization, the trusted stream selector, safe query escaping,
+and defensive Go-side validation (E2E-LOG-03, E2E-LOG-08). Older events with missing
+optional fields SHALL be handled by a documented, intentional rule rather than
+silently dropped. Run ids and step ids SHALL NOT be required to become
+high-cardinality Loki stream labels.
+
+#### Scenario: E2E-LOG-24.01 -- Filter is applied before the limit
+
+- GIVEN a run whose selected step's lines are older than a full page of later-step lines
+- WHEN the step page is queried
+- THEN the Loki query SHALL filter by run, namespace, and step before the result limit
+- AND the returned page SHALL contain the step's lines without first limiting a run-wide page
+
+#### Scenario: E2E-LOG-24.02 -- Wrapped, malformed, and unrelated events
+
+- GIVEN wrapped ViaQ events, malformed records, and events belonging to other steps
+- WHEN the step filter runs
+- THEN only the selected step's well-formed events SHALL be returned
+- AND a malformed record SHALL NOT drop the remaining well-formed records
+
+#### Scenario: E2E-LOG-24.03 -- No high-cardinality stream labels
+
+- GIVEN the step filter is constructed
+- WHEN the query is built
+- THEN it SHALL filter in the log pipeline or body, not require run or step ids to be stream labels
+
+### Requirement: E2E-LOG-25 -- Lifecycle-Bounded History Time Range
+
+Step-scoped history queries SHALL bound their Loki time range using known run and
+step lifecycle timing (step start and end times from the run detail, E2E-LOG-20)
+plus a small, documented margin for ingestion delay and clock skew. A running step
+MAY extend its upper bound to the current time; a completed step SHALL NOT search
+through unrelated later history. The lower bound SHALL stay stable across the step's
+history pages rather than moving the whole window backward with each cursor. The
+relationship between suite event timestamps and Loki timestamps SHALL be verified.
+When lifecycle timing is missing or incomplete, the query SHALL fall back by a
+documented rule that does not silently omit valid logs (for example, the configured
+history window). The ingestion/skew margin SHALL be configurable
+(`FD_E2E_LOG_TIME_MARGIN`), not compiled in (E2E-LOG-02).
+
+#### Scenario: E2E-LOG-25.01 -- Completed step bounded to its window
+
+- GIVEN a completed step with known start and end times
+- WHEN its history is queried
+- THEN the time range SHALL cover the step's window plus the configured margin
+- AND it SHALL NOT scan unrelated later history
+
+#### Scenario: E2E-LOG-25.02 -- Running step extends to now
+
+- GIVEN a step that is still running
+- WHEN its history is queried
+- THEN the upper bound MAY extend to the current time
+
+#### Scenario: E2E-LOG-25.03 -- Missing lifecycle timing falls back without omitting logs
+
+- GIVEN a step whose lifecycle timing is missing or incomplete
+- WHEN its history is queried
+- THEN the query SHALL use the documented fallback window
+- AND it SHALL NOT silently omit valid logs
+
+#### Scenario: E2E-LOG-25.04 -- Stable lower bound across pages
+
+- GIVEN the operator pages older through a step's history
+- WHEN successive pages are requested
+- THEN the lower bound SHALL stay fixed rather than moving backward per cursor
+
+### Requirement: E2E-LOG-26 -- Bounded History Retry and Explicit Error State
+
+Automatic history fetching SHALL NOT loop merely because an empty pane leaves the
+scroll sentinel visible. On a timeout, a rejected request, or a stale/unavailable
+history response, the view SHALL preserve already-loaded lines, present an explicit
+error with a Retry action, and stop observer-driven requests while in that error
+state. Any automatic retry policy SHALL be bounded. The log pane SHALL distinguish,
+as separate states: loading, empty (a completed step that emitted no logs settles
+into a clear empty state), end-of-history, locally limited history (distinct from
+actual end-of-history: either the in-memory buffer ceiling or a server-reported
+same-nanosecond page boundary the backend could not advance past, E2E-LOG-19), and
+failed loading. A locally-limited history SHALL NOT be rendered as end-of-history. A
+failed or empty selected-step view SHALL NOT keep the loading indicator active or
+keep issuing requests.
+
+This supersedes the earlier behavior in which a rejected older-page request silently
+preserved the cursor and `hasMoreOlder`, cleared the loading flag, and let the
+intersection observer re-issue the same request while the sentinel stayed visible,
+and in which a stale response stopped history loading without an actionable retry
+state.
+
+#### Scenario: E2E-LOG-26.01 -- Rejected request stops auto-fetch and offers retry
+
+- GIVEN an older-page request that is rejected or times out
+- WHEN the failure is handled
+- THEN loaded lines SHALL be preserved, an explicit Retry action SHALL be shown, and observer-driven fetching SHALL stop
+- AND the retry action SHALL be able to recover the load
+
+#### Scenario: E2E-LOG-26.02 -- Empty step settles into an empty state
+
+- GIVEN a completed step that emitted no logs
+- WHEN its history finishes loading
+- THEN the pane SHALL show a clear empty state, not a persistent loading indicator
+
+#### Scenario: E2E-LOG-26.03 -- Distinct pane states
+
+- GIVEN loading, empty, end-of-history, locally limited history, and failed loading
+- WHEN each occurs
+- THEN the pane SHALL present them as five distinct states
+
+#### Scenario: E2E-LOG-26.04 -- Stale response is actionable
+
+- GIVEN a stale or unavailable history response
+- WHEN it is handled
+- THEN the pane SHALL show an explicit retry state rather than silently stopping history loading
+
+#### Scenario: E2E-LOG-26.05 -- Same-nanosecond boundary renders as locally limited
+
+- GIVEN a page whose oldest entries all share the cursor's nanosecond so the backend reports a locally-limited boundary (E2E-LOG-19)
+- WHEN the pane renders that page
+- THEN it SHALL show the locally-limited history state, NOT end-of-history, and SHALL NOT keep requesting the same older page
 
 ## Non-Goals
 

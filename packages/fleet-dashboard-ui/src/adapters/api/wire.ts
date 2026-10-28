@@ -770,6 +770,7 @@ interface WireE2eLogPage {
   readonly entries?: readonly WireE2eLogLine[] | null;
   readonly nextCursor?: string;
   readonly hasMore?: boolean;
+  readonly boundaryTruncated?: boolean;
 }
 
 /** Coerce an optional number to a nullable number, keeping a genuine 0. */
@@ -928,6 +929,7 @@ export function mapE2eRunLogPage(raw: unknown): E2eLogPage {
     entries: (wire.entries ?? []).map(mapE2eLogLine),
     nextCursor: nullableString(wire.nextCursor),
     hasMore: wire.hasMore === true,
+    boundaryTruncated: wire.boundaryTruncated === true,
   };
 }
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_LOG_BUFFER,
+  type E2eLogPage,
   type E2eRunDetail,
   type E2eRunsData,
   type E2eRunSummary,
@@ -796,6 +797,14 @@ describe("log pagination and degraded log pane", () => {
     truncated: false,
   });
 
+  const logStepLine = (sequence: number, stepId: string, message: string) => ({
+    sequence,
+    timestamp: `t${String(sequence)}`,
+    stepId,
+    message,
+    truncated: false,
+  });
+
   // Verifies: E2E-LOG-22.01
   it("auto-loads older pages from the scroll observer (no Load more button) and stops at the end", async () => {
     const user = userEvent.setup();
@@ -841,10 +850,11 @@ describe("log pagination and degraded log pane", () => {
     expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
   });
 
-  // A stale older-page fetch terminates paging and keeps the loaded lines; the
-  // scroll anchor is cleared so follow is not frozen after a no-new-lines page.
-  // Verifies: E2E-LOG-22.01
-  it("stops paging and keeps loaded lines when an older page comes back stale", async () => {
+  // A stale older-page fetch stops automatic paging behind an explicit, recoverable
+  // Retry and keeps the loaded lines, rather than silently re-firing against the
+  // still-visible sentinel (E2E-LOG-26.04, superseding the old silent-stop behavior).
+  // Verifies: E2E-LOG-26.01, E2E-LOG-26.04
+  it("stops auto-paging and offers Retry when an older page comes back stale", async () => {
     const user = userEvent.setup();
     const getE2eRunLogs = vi
       .fn()
@@ -860,7 +870,14 @@ describe("log pagination and degraded log pane", () => {
         generatedAt: "2026-01-01T00:00:00Z",
         stale: true,
         error: "e2e log backend unavailable",
-      });
+      })
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(3), logLine(4)],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      );
     const { api } = makeApi(detail({ reportingComplete: false }), {
       getE2eRunLogs,
     });
@@ -880,16 +897,27 @@ describe("log pagination and degraded log pane", () => {
       expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
     });
 
-    // The already-loaded lines are kept, not blanked, and the panel still renders
-    // its steps (the whole-panel backend-unavailable state is not shown).
+    // The already-loaded lines are kept, the whole-panel error is not shown, and the
+    // explicit Retry action is exposed.
     expect(screen.getByText("m6")).toBeDefined();
     expect(
       screen.queryByText("Run details are unavailable right now."),
     ).toBeNull();
+    const retry = await screen.findByRole("button", { name: "Retry" });
+
+    // Auto-fetch is stopped: a further intersection does NOT re-issue the request.
+    scrollSentinelIntoView();
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+
+    // Retry recovers the older page.
+    await user.click(retry);
+    await screen.findByText("m4");
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(3);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
-  // Verifies: E2E-LOG-22.03, E2E-LOG-20
-  it("shows a log-pane-only degraded notice when logs fail but steps load", async () => {
+  // Verifies: E2E-LOG-26.01, E2E-LOG-26.04, E2E-LOG-20
+  it("shows an explicit failed state with Retry when the initial log load fails", async () => {
     const user = userEvent.setup();
     const staleLogs = {
       data: { entries: [], nextCursor: null, hasMore: false },
@@ -897,8 +925,14 @@ describe("log pagination and degraded log pane", () => {
       stale: true,
       error: "e2e log backend unavailable",
     };
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(staleLogs)
+      .mockResolvedValueOnce(
+        plane({ entries: [logLine(7)], nextCursor: null, hasMore: false }),
+      );
     const { api } = makeApi(detail({ reportingComplete: false }), {
-      getE2eRunLogs: vi.fn().mockResolvedValue(staleLogs),
+      getE2eRunLogs,
     });
     renderView(
       api,
@@ -907,16 +941,203 @@ describe("log pagination and degraded log pane", () => {
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
-    // The log-pane-only notice, NOT the whole-panel backend-unavailable message.
+    // The log-pane-only failed notice, NOT the whole-panel backend-unavailable message.
     expect(
-      await screen.findByText(
-        "Log history is unavailable right now. Steps are shown above.",
-      ),
+      await screen.findByText("Could not load log history."),
     ).toBeDefined();
     expect(
       screen.queryByText("Run details are unavailable right now."),
     ).toBeNull();
     // Steps still render.
     expect(screen.getByRole("tab", { name: "Progress" })).toBeDefined();
+
+    // Retry recovers the load.
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("m7");
+    expect(screen.queryByText("Could not load log history.")).toBeNull();
+  });
+
+  // The selected-step view requests that step's logs directly, scoped to
+  // (run id, step id), rather than filtering a run-wide buffer at render time
+  // (E2E-LOG-23.01).
+  // Verifies: E2E-LOG-23.01
+  it("requests the selected step's logs scoped to that step", async () => {
+    const user = userEvent.setup();
+    const runWidePage = plane({
+      entries: [logStepLine(1, "a", "run-wide-line")],
+      nextCursor: null,
+      hasMore: false,
+    });
+    const stepBPage = plane({
+      entries: [logStepLine(2, "b", "step-b-line")],
+      nextCursor: null,
+      hasMore: false,
+    });
+    // Call order: run-wide reader fetches on open, then the step reader fetches when
+    // step b is selected.
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(runWidePage)
+      .mockResolvedValueOnce(stepBPage);
+    const { api } = makeApi(detail(), { getE2eRunLogs });
+    renderView(api, enabled([summary()]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // Run-wide scope on open: the line renders with its step-id prefix, so match the
+    // message substring.
+    await screen.findByText(/run-wide-line/);
+    expect(getE2eRunLogs).toHaveBeenLastCalledWith(
+      "tenant-1/ns/run-1",
+      null,
+      null,
+      expect.anything(),
+    );
+
+    // Selecting step b re-requests scoped to that step.
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "Test" }),
+    );
+    await screen.findByText("step-b-line");
+    expect(getE2eRunLogs).toHaveBeenLastCalledWith(
+      "tenant-1/ns/run-1",
+      null,
+      "b",
+      expect.anything(),
+    );
+  });
+
+  // Rapid run/step switching aborts the obsolete request and ignores its late
+  // result, so no earlier scope's lines contaminate the newly selected scope
+  // (E2E-LOG-23.03).
+  // Verifies: E2E-LOG-23.03
+  it("ignores a late result from a previous scope when switching rapidly", async () => {
+    const user = userEvent.setup();
+    let resolveStepA!: (v: Plane<E2eLogPage>) => void;
+    const stepA = new Promise<Plane<E2eLogPage>>((resolve) => {
+      resolveStepA = resolve;
+    });
+    const emptyPage = plane({ entries: [], nextCursor: null, hasMore: false });
+    const stepBPage = plane({
+      entries: [logStepLine(2, "b", "step-b-line")],
+      nextCursor: null,
+      hasMore: false,
+    });
+    // Call order: run-wide on open, then step a (deferred), then step b.
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(emptyPage)
+      .mockReturnValueOnce(stepA)
+      .mockResolvedValueOnce(stepBPage);
+    const { api } = makeApi(detail(), { getE2eRunLogs });
+    renderView(api, enabled([summary()]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // Select step a (its request hangs), then rapidly switch to step b.
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "Build" }),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "Test" }),
+    );
+    await screen.findByText("step-b-line");
+
+    // Step a's response resolves late; it must be ignored (its request was aborted on
+    // the scope change), not merged into step b's view.
+    act(() => {
+      resolveStepA(
+        plane({
+          entries: [logStepLine(1, "a", "step-a-late")],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("step-a-late")).toBeNull();
+    });
+    expect(screen.getByText("step-b-line")).toBeDefined();
+  });
+
+  // A completed step that emitted no logs settles into a clear empty state rather
+  // than a persistent loading indicator (E2E-LOG-26.02).
+  // Verifies: E2E-LOG-26.02
+  it("settles a completed step with no logs into an empty state", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail(), {
+      getE2eRunLogs: vi
+        .fn()
+        .mockResolvedValue(
+          plane({ entries: [], nextCursor: null, hasMore: false }),
+        ),
+    });
+    renderView(api, enabled([summary()]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // Scope to a completed step that emitted no logs.
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "Build" }),
+    );
+
+    expect(await screen.findByText("No log output.")).toBeDefined();
+    // No stuck loading indicator and no failed/Retry state.
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  // An older page whose oldest entries all share the cursor's nanosecond is reported
+  // by the backend as a locally-limited boundary (boundaryTruncated), not end-of-
+  // history. The pane shows the locally-limited state and does not claim all history
+  // was read, nor keep re-requesting the same older page (E2E-LOG-26.05).
+  // Verifies: E2E-LOG-26.05
+  it("renders a same-nanosecond boundary as locally limited, not end-of-history", async () => {
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(5), logLine(6)],
+          nextCursor: "500",
+          hasMore: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(3), logLine(4)],
+          nextCursor: null,
+          hasMore: false,
+          boundaryTruncated: true,
+        }),
+      );
+    const user = userEvent.setup();
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs,
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // Newest page on open, then the older page that hits the same-nanosecond boundary.
+    await screen.findByText("m6");
+    scrollSentinelIntoView();
+    await screen.findByText("m4");
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+
+    // The locally-limited state is shown, NOT end-of-history.
+    expect(
+      screen.getByText("Showing the most recent log lines held in memory."),
+    ).toBeDefined();
+    expect(screen.queryByText("Beginning of log history.")).toBeNull();
+
+    // Auto-fetch stops: a further intersection does not re-request the boundary page.
+    scrollSentinelIntoView();
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
   });
 });
