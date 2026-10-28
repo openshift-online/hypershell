@@ -28,13 +28,13 @@ repository. Each has three pipeline files,
 
 | Component | Image definition | From-source ecosystems |
 |---|---|---|
-| `api-server` | `components/api-server/Dockerfile` | Go (gomod) |
-| `control-plane` | `components/control-plane/Dockerfile` | Go (gomod) |
-| `cli` | `components/cli/Dockerfile` | Go (gomod) |
-| `web-console` | `components/web-console/Dockerfile` | Node (npm/pnpm) |
-| `fleet-dashboard` | `components/fleet-dashboard/Dockerfile` | Go (gomod) + Node (npm/pnpm) |
-| `agent-runtime` | `components/agents/Containerfile.agent-runtime` | Go (gomod) + Python (pip) |
-| `agent-runtime-slim` | `components/agents/Containerfile.agent-runtime-slim` | Go (gomod) + Python (pip) |
+| `api-server` | `components/api-server/Dockerfile` | Go (gomod, `components/api-server`) |
+| `control-plane` | `components/control-plane/Dockerfile` | Go (gomod, `components/control-plane`) |
+| `cli` | `components/cli/Dockerfile` | Go (gomod, `components/cli`) |
+| `web-console` | `components/web-console/Dockerfile` | Node (pnpm, shared root workspace lockfile) |
+| `fleet-dashboard` | `components/fleet-dashboard/Dockerfile` | Go (gomod, `components/fleet-dashboard`) + Node (pnpm, shared root workspace lockfile) |
+| `agent-runtime` | `components/agents/Containerfile.agent-runtime` | Go (gomod, `hsctl` from `components/cli`); tool closure SHA-256-locked |
+| `agent-runtime-slim` | `components/agents/Containerfile.agent-runtime-slim` | Go (gomod, `hsctl` from `components/cli`); tool closure SHA-256-locked |
 | `fullsend-sandbox` | `components/agents/Containerfile.fullsend-sandbox` | None from source (self-contained UBI9 image; checksum-pinned downloads) |
 
 `fullsend-sandbox` is a HyperShell-owned, self-contained image built on Red Hat
@@ -44,6 +44,16 @@ security-hook binary from checksum-verified downloads. It therefore has no
 Hermeto-resolvable from-source ecosystem, and its dependency attribution and
 hermetic migration are addressed by Requirement CICD-ECC-02's checksum-pinned
 path rather than by a `gomod`/`npm`/`pip` prefetch.
+
+The two agent runtime images build one repository module from source through
+Hermeto, the `hsctl` CLI from `components/cli` (`gomod`), but they do not resolve
+Python or Node dependencies from a repository `pip` or `npm` manifest. Their tool
+closures are versioned, SHA-256-locked downloads assembled by
+`components/agents/install-tools.py`, consistent with
+[`agent-runtime-images.spec.md`](./agent-runtime-images.spec.md), which already
+requires downloaded tools to be SHA-256-locked and checksum-verified. Those
+downloads are attributed through Requirement CICD-ECC-02's checksum-pinned path,
+the same way `fullsend-sandbox` attributes its downloads.
 
 The Konflux build particulars of the two agent runtime images (staged builds,
 native multi-arch, Trusted Artifacts from clone and prefetch) are specified in
@@ -99,26 +109,40 @@ so the application-wide check does not regress.
 **Verification:** Inspection -- the `.tekton` pipeline parameters and the resulting
 image SBOM are reviewed against the component's from-source ecosystems.
 
-Each component image SHALL attribute every dependency in its SBOM. For a
-component that builds from one or more Hermeto-resolvable ecosystems (every
-component except `fullsend-sandbox`, per the Purpose table), the build SHALL
-resolve those dependencies through Hermeto, and all three pipeline files SHALL
-set:
+Each component image SHALL attribute every dependency in its SBOM. For every
+Hermeto-resolvable ecosystem a component builds from source (per the Purpose
+table: every component except `fullsend-sandbox` has at least a `gomod` ecosystem),
+the build SHALL resolve those dependencies through Hermeto. Every such component
+SHALL set, in all three pipeline files:
 
-- `hermetic: "true"` -- the build runs with network isolation and may use only
-  prefetched inputs.
 - `enable-package-registry-proxy: "true"` -- dependency prefetch uses the package
-  registry proxy.
+  registry proxy. This param is read by Conforma only on a results-producing
+  (Trusted Artifacts, `-oci-ta`) prefetch task, so the component's prefetch SHALL
+  run on that task variant.
 - `prefetch-input` -- a specification that covers every ecosystem that component
   builds from source (per the Purpose table), with one entry per module whose
   `path` points at the directory containing that module's manifest or lockfile in
   this monorepo. A single-ecosystem component MAY use one object; a
   multi-ecosystem component SHALL use one object per ecosystem.
 
-`prefetch-input` paths SHALL address the real module directories in this
-monorepo and SHALL NOT assume the repository root. Where a component builds from
-a pnpm lockfile, the prefetch configuration SHALL use the Hermeto handling that
-resolves pnpm (not an npm/yarn assumption), so Node dependencies are attributed.
+A component whose entire build has no remaining input that Hermeto cannot prefetch
+(for example the Go-only components, and the Node components once their pnpm
+bootstrap is prefetched) SHALL additionally set `hermetic: "true"` in all three
+pipeline files, so the build runs with network isolation and may use only
+prefetched inputs. A component that still pulls an input Hermeto cannot prefetch
+SHALL keep `hermetic: "false"` and attribute that input by its SHA-256 digest (see
+below), while still declaring the proxy and `prefetch-input` for its
+Hermeto-resolvable ecosystems.
+
+`prefetch-input` paths SHALL address the real module location for each ecosystem
+in this monorepo. A `gomod` entry SHALL point at that component's Go module
+directory (for example `components/fleet-dashboard`) and SHALL NOT assume the
+repository root. This repository builds every Node component from a single shared
+pnpm workspace lockfile at the repository root (`pnpm-lock.yaml` with
+`sharedWorkspaceLockfile: true`); an `npm`/pnpm entry SHALL therefore resolve that
+root workspace lockfile rather than assume a per-package lockfile, and SHALL use
+the Hermeto handling that resolves pnpm (not an npm/yarn assumption) so Node
+dependencies are attributed.
 
 Enabling `hermetic: "true"` SHALL be a complete migration, not a flag flip: any
 ad-hoc network fetch in that component's Dockerfile or Containerfile stages SHALL
@@ -130,15 +154,20 @@ or `ec validate`); an unverified flip that breaks the component build is not
 permitted, because a broken or stale image makes the application-wide check
 worse, not better.
 
-`fullsend-sandbox` has no Hermeto-resolvable from-source ecosystem: it assembles
-its toolchain and the `tirith` binary from checksum-pinned downloads. For such a
-component the build SHALL verify every downloaded input against its published
-SHA-256 digest so no input is unattributed or non-reproducible, and the image
-SHALL still satisfy Requirements CICD-ECC-03 through CICD-ECC-05. Vendoring those
-downloads so `fullsend-sandbox` can also build hermetically is a deferred goal of
-this specification; until it is done, `fullsend-sandbox` SHALL NOT set
-`hermetic: "true"`, because it cannot build without fetching its checksum-pinned
-inputs.
+Some components also pull inputs that Hermeto cannot prefetch. `fullsend-sandbox`
+has no Hermeto-resolvable from-source ecosystem at all: it assembles its toolchain
+and the `tirith` binary from checksum-pinned downloads. The `agent-runtime` and
+`agent-runtime-slim` images resolve their `gomod` ecosystem (the `hsctl` build)
+through Hermeto, but assemble their Python and Node tool closures from
+SHA-256-locked downloads through `components/agents/install-tools.py`. For every
+such input the build SHALL verify it against its published SHA-256 digest so no
+input is unattributed or non-reproducible, and the image SHALL still satisfy
+Requirements CICD-ECC-03 through CICD-ECC-05. A component whose build still fetches
+any such input over the network SHALL NOT set `hermetic: "true"`, because network
+isolation would break that fetch; vendoring those downloads into prefetch so the
+component can build hermetically is a deferred goal of this specification. This
+applies to `fullsend-sandbox` and to the agent runtime tool closures until their
+downloads are vendored.
 
 #### Scenario: CICD-ECC-02.01 -- Single-ecosystem Go component prefetches gomod
 
@@ -150,16 +179,16 @@ inputs.
 
 #### Scenario: CICD-ECC-02.02 -- Multi-ecosystem component prefetches every ecosystem
 
-- GIVEN a component that builds from more than one ecosystem (for example `fleet-dashboard` with gomod + npm, or `agent-runtime`/`agent-runtime-slim` with gomod + pip)
+- GIVEN a component that builds from more than one Hermeto-resolvable ecosystem (for example `fleet-dashboard` with a `gomod` module and a pnpm workspace)
 - WHEN its pipeline files are configured
-- THEN `prefetch-input` SHALL declare one entry per from-source ecosystem, each `path` pointing at that module's directory
+- THEN `prefetch-input` SHALL declare one entry per from-source ecosystem, the `gomod` entry pointing at that module's directory and the `npm`/pnpm entry resolving the shared root workspace lockfile
 - AND the built image SBOM SHALL attribute dependencies for every one of those ecosystems
 
 #### Scenario: CICD-ECC-02.03 -- pnpm dependencies are attributed
 
-- GIVEN a component whose Node build uses a pnpm lockfile (for example `web-console`)
+- GIVEN a Node component built from the repository's shared pnpm workspace lockfile (for example `web-console`)
 - WHEN its Node dependencies are prefetched
-- THEN the prefetch configuration SHALL resolve the pnpm lockfile
+- THEN the prefetch configuration SHALL resolve the root workspace `pnpm-lock.yaml` with pnpm handling
 - AND the built image SBOM SHALL attribute the Node dependencies
 
 #### Scenario: CICD-ECC-02.04 -- Hermetic build has no ad-hoc network fetch
@@ -176,6 +205,14 @@ inputs.
 - THEN every downloaded input SHALL be verified against its published SHA-256 digest
 - AND no input SHALL appear in the SBOM as unattributed or non-reproducible
 - AND the component SHALL NOT set `hermetic: "true"` until those downloads are vendored for a hermetic build
+
+#### Scenario: CICD-ECC-02.06 -- Agent runtime attributes gomod through Hermeto and tools by digest
+
+- GIVEN `agent-runtime` or `agent-runtime-slim`, which builds `hsctl` from `components/cli` and assembles its Python and Node tool closure from SHA-256-locked downloads
+- WHEN its image is built
+- THEN the `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at `components/cli`
+- AND every downloaded tool SHALL be verified against its published SHA-256 digest so no tool is unattributed or non-reproducible
+- AND the component SHALL NOT set `hermetic: "true"` until those tool downloads are vendored for a hermetic build
 
 ### Requirement: CICD-ECC-03 -- Valid, Trusted Build Attestation
 
