@@ -40,7 +40,7 @@ func TestOpenShiftCLICommandSharesCallerConfig(t *testing.T) {
 		"/home/runner",
 		1001,
 		1001,
-		"quay.io/opendatahub/odh-openshell-cli:v0.1.5-rhaiv.3",
+		"quay.io/opendatahub/odh-openshell-cli:v0.1.5-rhaiv.4",
 		"openshell-example-openshell",
 		false,
 		"status",
@@ -51,7 +51,7 @@ func TestOpenShiftCLICommandSharesCallerConfig(t *testing.T) {
 		"--user", "1001:1001",
 		"-e", "HOME=/home/cli",
 		"-v", "/home/runner/.config/openshell:/home/cli/.config/openshell:z",
-		"quay.io/opendatahub/odh-openshell-cli:v0.1.5-rhaiv.3",
+		"quay.io/opendatahub/odh-openshell-cli:v0.1.5-rhaiv.4",
 		"-g", "openshell-example-openshell", "status",
 	}
 	if !reflect.DeepEqual(got, want) {

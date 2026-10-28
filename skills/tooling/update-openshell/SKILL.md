@@ -471,6 +471,7 @@ does, the item is `needs-decision`:
 | Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |
 | PKI / TLS / ingress (Route, cert-manager, Gateway API) | HyperShell hand-rolls per-tenant PKI + ingress | `internal/gateway/` reconciler, ingress specs |
 | Auth (OIDC) | OIDC is the client auth mechanism (no client mTLS) | `ValidateOIDCConfig`, gateway OIDC config |
+| Gateway startup auth gate | Since v0.1.5-rhaiv.4 the gateway binary refuses to start (not just warn) when no auth mechanism is configured and `allow_unauthenticated_users` is not explicitly `true` | `ValidateRenderedGatewayConfig` (`rendered_config_test.go`'s "well-formed without oidc passes" case is now stale against the pinned gateway), `openshell-gateway.spec.md` Auth Section - see the 2026-10-28 Learnings entry |
 
 ## Verification
 
@@ -512,6 +513,66 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.5-rhaiv.4 (2026-10-28, v0.1.5-rhaiv.3 -> v0.1.5-rhaiv.4, no-arg scheduled run):**
+  Pins and chart updated (chart content is byte-identical to rhaiv.3 - this patch only
+  touched Rust source/docs, confirmed via `git diff --stat` after vendoring, so no RBAC
+  re-check was needed). All runnable Python policy checks
+  (`check_forbidden_terms`, `check_dependency_pins`, `check_ci_components`,
+  `check_deploy_orphans`, `sync_openshell_version` check mode, `check_spec_ids`,
+  `check_mergify_scopes`, and their underlying `test_check_*`/`test_sync_openshell_version`
+  unittests) pass run directly. `go build/vet/test`, `check-cli-drift`, and
+  `check-dependency-age` could not run - **same sandbox-limits gap as the rhaiv.3 and
+  rhaiv.2 runs** (no Go toolchain, no network beyond `github.com`). Only one `.go` file
+  changed (`tests/e2e/cli_test.go`, a string-literal image-tag bump), so this is a
+  recorded gap for CI/a human reviewer to close, not a blocker.
+  - **Step 0:** no `needs-decision` issue named a gateway version (#366 stale/superseded,
+    #760/#752 console-only, both still open and unresolved - quay.io is still unreachable
+    from this runtime so their digest blocker could not be cleared here either). Resolved
+    the gateway target directly from the tag list.
+  - **needs-decision (filed as #809, NOT mechanically fixed in this PR):** upstream
+    NVIDIA/OpenShell#4821 ("require authentication or explicit development opt-in"),
+    merged into this tag, changes the gateway binary to refuse to start - before binding
+    any port - when none of OIDC/mTLS/operator-auth/`gateway_jwt` is configured and
+    `allow_unauthenticated_users` is not explicitly `true`. Previously this only logged a
+    warning and served an implicit unauthenticated dev principal. Checked
+    `ValidateOIDCConfig` and `ValidateRenderedGatewayConfig`
+    (`components/control-plane/internal/gateway/validation.go`,
+    `rendered_config_test.go`) per the Auth contract-surface row: HyperShell's own
+    validator still accepts `allow_unauthenticated_users = false` with no OIDC section as
+    well-formed (`"well-formed without oidc passes"` test case), and the control plane
+    renders exactly that for a Gateway reconciled with Keycloak integration disabled (no
+    `hypershell-keycloak-admin` Secret - `cmd/hypershell-controller/main.go`) and no BYO
+    `oidc.issuer` (OIDC is optional per `data-model.spec.md`, and
+    `reconciler.go`'s `// Step 3: IdentityProviderReady` block is skipped entirely when
+    `opts.Keycloak == nil`). Such a gateway now crash-loops instead of starting insecurely.
+    This is a genuine product decision (fail fast at reconcile time vs. require OIDC at
+    creation vs. default `allow_unauthenticated_users = true` for back-compat), not a
+    mechanical fix, so it is filed as #809 rather than silently resolved either way.
+    Documented in `openshell-gateway.spec.md`'s Auth Section and added as a permanent row
+    in [Contract surfaces](#contract-surfaces-to-triage) above so every future bump
+    re-checks it even after #809 is resolved.
+  - **Other contract-surface changes, all additive/mechanical:** `proto/openshell.proto`,
+    `proto/sandbox.proto`, `proto/sandbox_protocol.proto`, `proto/compute_driver.proto`,
+    and `proto/isolation_backend.proto` all changed - confirmed via
+    `gh api repos/opendatahub-io/openshell/compare/v0.1.5-rhaiv.3...v0.1.5-rhaiv.4`. All
+    changes are additive (new `SuspendSandbox`/`ResumeSandbox` RPCs and
+    `SANDBOX_PHASE_SUSPENDING`/`SUSPENDED` enum values for the new sandbox suspend/resume
+    lifecycle feature; new `SupervisorMiddlewareBindingPolicy`/`SupervisorMiddlewareBinding`
+    enums and two new optional `SupervisorMiddlewareService` fields, both defaulting to the
+    old dynamic-discovery behavior) or internal to the driver<->isolation-backend protocol
+    (`ResumeBoundaryRequest.allow_cold_start_fallback` renamed to
+    `restart_if_restore_fails`, same field number/type, not exposed to HyperShell). Confirmed
+    HyperShell has no generated client against this proto
+    (`grep -rln "openshellv1\|sandboxv1" --include=*.go components/` found nothing - HyperShell
+    talks to the gateway through the `openshell` CLI, not a vendored gRPC SDK) and renders no
+    supervisor-middleware config (`grep -n middleware config.go` empty), so no code change is
+    required. Not adopted (sandbox suspend/resume is a new user-facing capability HyperShell
+    does not yet expose); worth a product look later but not urgent.
+  - **Footprint:** all pin occurrences bumped cleanly this time - no new footprint gap found
+    (the ROKS e2e third-grep fix from the rhaiv.3 run caught
+    `components/pr-test/e2e-openshell-roks.sh` correctly on the first pass).
+  - **Digests:** not resolved, same `quay.io` unreachability as every run since 2026-10-23.
 
 - **v0.1.5-rhaiv.3 (2026-10-27, v0.1.5-rhaiv.2 -> v0.1.5-rhaiv.3, no-arg scheduled run):**
   Clean mechanical bump. Pins and chart updated; the Python policy checks that make up
