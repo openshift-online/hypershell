@@ -65,7 +65,7 @@ patches:
               - name: controller
                 env:
                   - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
-                    value: "provider/ibm,network/public,gateway-version/v0.1.5-rhaiv.3"
+                    value: "provider/ibm,network/public"
                   - name: GATEWAY_INGRESS_MODE
                     value: route
                   - name: GATEWAY_API_BASE_DOMAIN

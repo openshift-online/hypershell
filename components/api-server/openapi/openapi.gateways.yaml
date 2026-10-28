@@ -324,21 +324,6 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
-            provisioning_version:
-              type: string
-              readOnly: true
-              description: >-
-                Gateway version the gateway's cluster advertises provisioning onto new
-                gateways, derived from that cluster's single-valued gateway-version
-                capability. Empty when the cluster advertises no provisioning version.
-            image_pinned:
-              type: boolean
-              readOnly: true
-              description: >-
-                Whether this gateway pins an explicit image and therefore need not track
-                its cluster's provisioning version. True suppresses the newer-version-available
-                drift indicator, because a pinned gateway may intentionally run a different
-                version from its cluster default.
             oidc:
               type: string
               readOnly: true

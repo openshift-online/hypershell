@@ -4692,19 +4692,6 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
-          provisioning_version:
-            description: "Gateway version the gateway's cluster advertises provisioning\
-              \ onto new gateways, derived from that cluster's single-valued gateway-version\
-              \ capability. Empty when the cluster advertises no provisioning version."
-            readOnly: true
-            type: string
-          image_pinned:
-            description: "Whether this gateway pins an explicit image and therefore\
-              \ need not track its cluster's provisioning version. True suppresses\
-              \ the newer-version-available drift indicator, because a pinned gateway\
-              \ may intentionally run a different version from its cluster default."
-            readOnly: true
-            type: boolean
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -4800,7 +4787,6 @@ components:
         server_dns_names:
         - server_dns_names
         - server_dns_names
-        image_pinned: true
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
         cluster_id: cluster_id
@@ -4817,7 +4803,6 @@ components:
         generation: 5
         image: image
         active_sandbox_count: 5
-        provisioning_version: provisioning_version
         provisioning_conditions:
         - condition_status: Pending
           type: type
@@ -4861,7 +4846,6 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
-          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -4878,7 +4862,6 @@ components:
           generation: 5
           image: image
           active_sandbox_count: 5
-          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -4903,7 +4886,6 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
-          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -4920,7 +4902,6 @@ components:
           generation: 5
           image: image
           active_sandbox_count: 5
-          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type

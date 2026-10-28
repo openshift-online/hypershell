@@ -30,7 +30,6 @@ export type {
   GatewayRecord,
   GatewaySortDirection,
   GatewaySortField,
-  GatewayVersionDrift,
   GatewayWorkflowRuntime,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -66,10 +65,7 @@ export {
   type GatewayProbePublisher,
 } from "./application/gateway-probes";
 export {
-  compareGatewayVersions,
   createGatewayOperations,
-  deriveGatewayVersionDrift,
-  parseGatewayVersion,
   type GatewayOperationDependencies,
 } from "./application/gateway-operations";
 export { normalizeGatewayPlacementClusterIds } from "./application/gateway-placement";

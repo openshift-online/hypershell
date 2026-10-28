@@ -36,8 +36,7 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
     "provider/aws",
     "network/vpn",
     "region/us-east-1",
-    "runtime/kata",
-    "gateway-version/v0.1.2-rhaiv.7"
+    "runtime/kata"
   ]
 }
 ```
@@ -47,16 +46,6 @@ plane SHALL source it from deployment configuration and SHALL send the complete
 set on initial registration and every heartbeat. A successful heartbeat SHALL
 replace the stored set atomically, so a GitOps configuration change converges
 without an API-server code change.
-
-The single-valued `gateway-version` namespace declares the gateway version this
-control plane provisions onto new gateways. The control plane does not parse it
-from a running image tag; the deploy-time overlay renders `gateway-version/<tag>`
-from the repository's `OPENSHELL_TAG`, the one value that names the version this
-checkout ships. It is the displayed provisioning version and never tracks a
-floating tag such as `latest`. See "Requirement: Self-Declared Capability
-Labels" for its relaxed value syntax and
-[`gateway-version-visibility.spec.md`](../web-console/gateway-version-visibility.spec.md)
-for how it is surfaced and used in placement.
 
 **Response (201 Created on first call, 200 OK on subsequent calls):**
 
@@ -113,7 +102,7 @@ Gitops configuration required for every control plane, the hub's co-located one 
 | Env var | Description |
 |---------|-------------|
 | `HYPERSHELL_MANAGED_CLUSTER_NAME` | Human-readable name, unique per control plane (e.g. `hyp0-mc1` for a remote spoke, `hyp0-hub` for the control plane co-located with hub `hyp0`; `local-kind` / `local-openshift` in the development overlays) |
-| `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` | Comma-separated capability labels supplied by GitOps, for example `provider/aws,network/vpn,region/us-east-1,runtime/kata,gateway-version/v0.1.2-rhaiv.7`. The `gateway-version/<tag>` label is rendered into the overlay from the repository's `OPENSHELL_TAG` at deploy time, so the advertised provisioning version matches the images the overlay deploys without any runtime image-tag parsing |
+| `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` | Comma-separated capability labels supplied by GitOps, for example `provider/aws,network/vpn,region/us-east-1,runtime/kata` |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | One OIDC client per control plane, holding `managed-cluster-registrar`; no new secret types |
 | `HYPERSHELL_API_SERVER_URL` | REST endpoint used for `/registration` (e.g. `https://api.hyp0.infra.hypershell.app`; the in-cluster `http://hypershell-api-server:8000` only where TLS is off) |
 | `HYPERSHELL_GRPC_SERVER_ADDR` | gRPC endpoint the watch streams dial. On a production hub every control plane, co-located or remote, dials the hub's external passthrough Route (e.g. `grpc.hyp0.infra.hypershell.app:443`) with TLS, because the hub's gRPC listener is TLS-only (`hub-grpc-tls.spec.md`). In development environments with gRPC TLS off, an in-cluster address (e.g. `hypershell-api-server:9000`) dialed with plaintext. The control plane selects the transport from this address -- see `control-plane.spec.md` ("gRPC Transport Security"). |
@@ -262,21 +251,11 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 A registered `ManagedCluster` SHALL expose a deduplicated set of capability
 labels. Each label SHALL use the form `<namespace>/<value>`. The namespace
 segment SHALL always use lowercase DNS-label syntax. The API SHALL recognize the
-namespaces `provider`, `network`, `region`, `runtime`, `environment`, and
-`gateway-version`; adding a value inside a recognized namespace SHALL be
+namespaces `provider`, `network`, `region`, `runtime`, and `environment`; adding a value inside a recognized namespace SHALL be
 configuration, not an API schema or server-code change. Unknown namespaces,
 malformed labels, duplicate labels, an empty set, and more than one label in the
-single-valued `provider`, `region`, `environment`, or `gateway-version`
-namespaces SHALL return 400.
-
-The value segment SHALL use lowercase DNS-label syntax in every namespace except
-`gateway-version`. Because a gateway version tag carries dots and a release
-suffix (for example `v0.1.2-rhaiv.7`), the `gateway-version` value segment SHALL
-instead accept a lowercase version string of alphanumerics, dots, and hyphens
-that both begins and ends with an alphanumeric (for example matching
-`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`). This relaxation SHALL apply only to the
-`gateway-version` value segment; every other namespace's value segment stays
-DNS-label strict, and the namespace segment stays DNS-label strict for all.
+single-valued `provider`, `region`, or `environment` namespaces SHALL return
+400. The value segment SHALL also use lowercase DNS-label syntax.
 
 The registering control plane SHALL be the only writer of `capabilities`.
 Generic ManagedCluster create and patch requests SHALL NOT assign or modify
@@ -290,13 +269,6 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 - WHEN its next registration heartbeat succeeds
 - THEN the ManagedCluster SHALL expose all three labels
 - AND selector-based placement SHALL use the replacement set
-
-#### Scenario: PLAT-CLUS-06.02 -- Gateway-version label accepts a dotted suffixed tag
-
-- GIVEN a control plane configured with `gateway-version/v0.1.2-rhaiv.7`
-- WHEN it registers
-- THEN the label SHALL be accepted and exposed unchanged
-- AND a second `gateway-version` label in the same request SHALL return 400
 
 #### Scenario: PLAT-CLUS-06.03 -- Capability input is rejected atomically
 
@@ -556,8 +528,6 @@ release promotion.
 | Record writes need `platform:admin`; a control plane may delete only its own | Records gate placement and registration for a whole cluster. `gateway:creator` is held by every signed-in user on the GitOps hubs, so it cannot authorize them; self-deregistration keeps the teardown path working without an admin token. |
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
 | Namespaced string capabilities with match-all selectors | Provider, network, runtime, and future dimensions remain independent and extensible without a provider-by-network schema matrix. |
-| Provisioning version is a single-valued `gateway-version` capability | A control plane provisions exactly one version at a time, so one value per spoke matches reality and rides the existing heartbeat, atomic replacement, and match-all placement with no new placement code. Its value segment is relaxed because a version tag is not a DNS label, while the namespace segment and every other namespace stay strict. |
-| `gateway-version` rendered from `OPENSHELL_TAG` at deploy time | `OPENSHELL_TAG` is the repository's single source of truth for the shipped version and already feeds the image env vars, so rendering the label from it keeps the advertised value identical to the deployed images with no runtime image-tag parsing and no coupling to a floating tag. |
 | Registration replaces the complete capability set | GitOps remains the source of truth, removed capabilities do not linger, and one heartbeat converges deployment configuration into placement state. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |

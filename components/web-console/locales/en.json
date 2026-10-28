@@ -2163,14 +2163,6 @@
     "defaultMessage": "Running version {version}",
     "description": "Accessible name for the running-version chip beside the gateway status indicator."
   },
-  "app.gateway.version.newerAvailable": {
-    "defaultMessage": "Newer version available",
-    "description": "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways."
-  },
-  "app.gateway.version.newerAvailable.tooltip": {
-    "defaultMessage": "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
-    "description": "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action."
-  },
   "app.gateway.version.placeholder": {
     "defaultMessage": "-",
     "description": "Placeholder shown for a gateway that has no observed running version yet."

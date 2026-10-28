@@ -178,7 +178,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
   const gatewayVersion = optionalString(gateway.gateway_version);
-  const provisioningVersion = optionalString(gateway.provisioning_version);
   const provisioningConditions = parseProvisioningConditions(
     gateway.provisioning_conditions,
   );
@@ -199,9 +198,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
-    ...(typeof gateway.image_pinned === "boolean"
-      ? { imagePinned: gateway.image_pinned }
-      : {}),
     name: gateway.name,
     namespace: gateway.namespace,
     ...(oidcAudience ? { oidcAudience } : {}),
@@ -209,7 +205,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
-    ...(provisioningVersion ? { provisioningVersion } : {}),
     status: gateway.status,
   };
 }

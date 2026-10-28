@@ -225,7 +225,6 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
 | `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
 | `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
-| `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
 | `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`openshell-gateway`, `openshell-supervisor`, `openshell-sandbox-runtime`) | Pin; grep after the bump |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
@@ -238,14 +237,10 @@ facts rather than the active pin:
 - the sentence in `specs/platform/openshell-gateway-credentials.spec.md` that says
   "Upstream OpenShell **v0.0.101 introduced** pluggable credential storage
   drivers" - this records *which* release added a feature and must not be bumped.
-- `gateway-version/<TAG>` examples and version strings in
-  `specs/web-console/gateway-version-visibility.spec.md`,
-  `specs/web-console/gateway-provision-placement.spec.md`,
-  `specs/platform/managed-cluster-registration.spec.md`, and the
-  `packages/` and `components/web-console/` test fixtures - these are
+- version strings in `specs/web-console/gateway-version-visibility.spec.md`
+  and the `packages/` and `components/web-console/` test fixtures - these are
   illustrative values, not pins.
-- the arbitrary tag strings in `scripts/test_sync_openshell_version.py` and
-  the capability fixtures in `components/api-server/plugins/` tests.
+- the arbitrary tag strings in `scripts/test_sync_openshell_version.py`.
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).

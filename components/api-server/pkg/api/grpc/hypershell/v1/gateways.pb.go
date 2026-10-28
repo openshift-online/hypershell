@@ -331,14 +331,6 @@ type Gateway struct {
 	GatewayVersion         *string                  `protobuf:"bytes,24,opt,name=gateway_version,json=gatewayVersion,proto3,oneof" json:"gateway_version,omitempty"`
 	Generation             int64                    `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
 	ObservedGeneration     *int64                   `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	// provisioning_version is the gateway version the gateway's cluster advertises
-	// provisioning onto new gateways (that cluster's single-valued gateway-version
-	// capability). It is read-only and derived at read time from cluster_id, never
-	// stored on the Gateway row. See gateway-version-visibility.spec.md.
-	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
-	// image_pinned reports whether this gateway pins an explicit image and so need
-	// not track its cluster's provisioning version. Read-only, derived from image.
-	ImagePinned *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
 	// repository_id is the control-plane import ownership mark: the Repository that
 	// owns this Gateway through the declarative .hypershell import. Null for gateways
 	// created directly through the REST API or hsctl apply. Read-only; set server-side
@@ -539,20 +531,6 @@ func (x *Gateway) GetObservedGeneration() int64 {
 		return *x.ObservedGeneration
 	}
 	return 0
-}
-
-func (x *Gateway) GetProvisioningVersion() string {
-	if x != nil && x.ProvisioningVersion != nil {
-		return *x.ProvisioningVersion
-	}
-	return ""
-}
-
-func (x *Gateway) GetImagePinned() bool {
-	if x != nil && x.ImagePinned != nil {
-		return *x.ImagePinned
-	}
-	return false
 }
 
 func (x *Gateway) GetRepositoryId() string {
@@ -1947,7 +1925,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
 	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
-	"\x12LocalKindPlacement\"\xc9\v\n" +
+	"\x12LocalKindPlacement\"\xbf\n" +
+	"\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1975,12 +1954,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x1a \x01(\x03R\n" +
 	"generation\x124\n" +
-	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x126\n" +
-	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
-	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
-	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01\x12*\n" +
-	"\x0eworkspace_mode\x18\x1f \x01(\tH\x12R\rworkspaceMode\x88\x01\x01\x12,\n" +
-	"\x0fdedicated_route\x18  \x01(\bH\x13R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x1e \x01(\tH\x0fR\frepositoryId\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_mode\x18\x1f \x01(\tH\x10R\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1995,9 +1972,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_active_sandbox_countB\x12\n" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
-	"\x14_observed_generationB\x17\n" +
-	"\x15_provisioning_versionB\x0f\n" +
-	"\r_image_pinnedB\x10\n" +
+	"\x14_observed_generationB\x10\n" +
 	"\x0e_repository_idB\x11\n" +
 	"\x0f_workspace_modeB\x12\n" +
 	"\x10_dedicated_route\"\x9e\x06\n" +

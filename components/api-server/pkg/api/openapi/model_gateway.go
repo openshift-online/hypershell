@@ -54,10 +54,6 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
-	// Gateway version the gateway's cluster advertises provisioning onto new gateways, derived from that cluster's single-valued gateway-version capability. Empty when the cluster advertises no provisioning version.
-	ProvisioningVersion *string `json:"provisioning_version,omitempty"`
-	// Whether this gateway pins an explicit image and therefore need not track its cluster's provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default.
-	ImagePinned *bool `json:"image_pinned,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
@@ -692,70 +688,6 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
-// GetProvisioningVersion returns the ProvisioningVersion field value if set, zero value otherwise.
-func (o *Gateway) GetProvisioningVersion() string {
-	if o == nil || IsNil(o.ProvisioningVersion) {
-		var ret string
-		return ret
-	}
-	return *o.ProvisioningVersion
-}
-
-// GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetProvisioningVersionOk() (*string, bool) {
-	if o == nil || IsNil(o.ProvisioningVersion) {
-		return nil, false
-	}
-	return o.ProvisioningVersion, true
-}
-
-// HasProvisioningVersion returns a boolean if a field has been set.
-func (o *Gateway) HasProvisioningVersion() bool {
-	if o != nil && !IsNil(o.ProvisioningVersion) {
-		return true
-	}
-
-	return false
-}
-
-// SetProvisioningVersion gets a reference to the given string and assigns it to the ProvisioningVersion field.
-func (o *Gateway) SetProvisioningVersion(v string) {
-	o.ProvisioningVersion = &v
-}
-
-// GetImagePinned returns the ImagePinned field value if set, zero value otherwise.
-func (o *Gateway) GetImagePinned() bool {
-	if o == nil || IsNil(o.ImagePinned) {
-		var ret bool
-		return ret
-	}
-	return *o.ImagePinned
-}
-
-// GetImagePinnedOk returns a tuple with the ImagePinned field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetImagePinnedOk() (*bool, bool) {
-	if o == nil || IsNil(o.ImagePinned) {
-		return nil, false
-	}
-	return o.ImagePinned, true
-}
-
-// HasImagePinned returns a boolean if a field has been set.
-func (o *Gateway) HasImagePinned() bool {
-	if o != nil && !IsNil(o.ImagePinned) {
-		return true
-	}
-
-	return false
-}
-
-// SetImagePinned gets a reference to the given bool and assigns it to the ImagePinned field.
-func (o *Gateway) SetImagePinned(v bool) {
-	o.ImagePinned = &v
-}
-
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -1232,12 +1164,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
-	}
-	if !IsNil(o.ProvisioningVersion) {
-		toSerialize["provisioning_version"] = o.ProvisioningVersion
-	}
-	if !IsNil(o.ImagePinned) {
-		toSerialize["image_pinned"] = o.ImagePinned
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
