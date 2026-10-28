@@ -411,7 +411,7 @@ Pod readiness SHALL use `100 * sum(kube_pod_status_ready{condition="true"}) / co
 
 The operational overview SHALL include the admin-only `certificate-health` widget from the approved `Parity/Dashboards/Operational` story. The BFF SHALL expose `GET /api/metrics/certificate-health` and return `valid_certificates`, `total_certificates`, `expired_certificates`, `status_unavailable`, and nullable `soonest_days_to_expiry` fields derived from the OBS-CPL-10 certificate gauges.
 
-The widget SHALL show Valid certificates as `x / y`, Days to expiry (soonest), Expired certificates, and Status unavailable. `total_certificates` SHALL equal valid plus expired plus unavailable certificates. This route SHALL require `platform:admin` when OIDC is enabled. If no certificate can be evaluated, the widget SHALL show the localized unavailable state. A missing or unreadable certificate SHALL contribute to status unavailable and SHALL NOT be treated as valid or expired.
+The widget SHALL show Valid certificates as `x / y`, Days to expiry (soonest), Expired certificates, and Status unavailable. `total_certificates` SHALL equal valid plus expired plus unavailable certificates. Per OBS-CPL-10, `soonest_days_to_expiry` SHALL be the minimum of the replica-deduplicated per-cluster minimums and SHALL be unavailable when no valid finite sample exists; it SHALL NOT be their sum. This route SHALL require `platform:admin` when OIDC is enabled. If no certificate can be evaluated, the widget SHALL show the localized unavailable state. A missing or unreadable certificate SHALL contribute to status unavailable and SHALL NOT be treated as valid or expired.
 
 #### Scenario: WEB-OPS-34.01 -- Certificate parse failures remain explicit
 
@@ -420,6 +420,13 @@ The widget SHALL show Valid certificates as `x / y`, Days to expiry (soonest), E
 - THEN the valid count SHALL be one
 - AND status unavailable SHALL be one
 - AND the parse failure SHALL NOT increase the expired count
+
+#### Scenario: WEB-OPS-34.02 -- Fleet shows the soonest certificate expiry
+
+- GIVEN replica-deduplicated cluster minima of 20 days and 5 days
+- WHEN certificate health is returned
+- THEN Days to expiry (soonest) SHALL show 5 days
+- AND it SHALL NOT show 25 days
 
 ---
 

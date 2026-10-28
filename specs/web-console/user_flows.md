@@ -597,7 +597,7 @@ flowchart LR
 | Reconciliation failures, retries, and lag | Admin | Previous 24-hour counts and P50 lag with hourly trends |
 | Stale resource status | Admin | Current raw stale-resource count with its hourly trend |
 | OIDC client sync | Admin | Accuracy, synced and expected client counts, and Keycloak connection status; empty or unknown denominators remain Unknown |
-| State accuracy | Admin | Accuracy, observed matching desired, and stale resources; zero or unavailable denominators remain Unknown |
+| State accuracy | Admin | Accuracy for the identical non-deleted Gateway watch population used by the total and stale gauges; zero, incomplete, unavailable, or inconsistent populations remain Unknown |
 | Reliability summary | Admin | Shows all approved API, reconciliation, OIDC sync, and state-accuracy values with meaningful trend direction in one place |
 | Add widgets and reset layout | Admin | Supports the same personal dashboard layout behavior as the operational dashboard |
 

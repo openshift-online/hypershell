@@ -395,9 +395,9 @@ The `oidc-client-sync` widget SHALL show Accuracy, Synced clients as `x / y`, Ex
 
 ### Requirement: REL-DASH-16 -- State Accuracy
 
-The control-plane reconciliation response SHALL include independently optional `reconciliation_resources_total`, `state_accuracy_percent`, and `observed_matching_desired` fields per OBS-CRM-04. State accuracy SHALL equal `100 * (1 - stale / total)`, and observed matching desired SHALL equal `total - stale`.
+The control-plane reconciliation response SHALL include independently optional `reconciliation_resources_total`, `state_accuracy_percent`, and `observed_matching_desired` fields per OBS-CRM-04. The total and stale values SHALL represent the identical population of non-deleted Gateways currently tracked by the control-plane Gateway watch. State accuracy SHALL equal `100 * (1 - stale / total)`, and observed matching desired SHALL equal `total - stale` only when `0 <= stale <= total` and `total > 0`.
 
-The `state-accuracy` widget SHALL show Accuracy, Observed matching desired as `x / y`, and Stale resources. When the denominator is zero or unavailable, Accuracy and Observed matching desired SHALL show Unknown. The existing `stale-resource-status-count` widget SHALL remain in the dashboard and continue showing the raw count.
+The `state-accuracy` widget SHALL show Accuracy, Observed matching desired as `x / y`, and Stale resources. When the denominator is zero, unavailable, based on an incomplete seed, or inconsistent with the stale population, Accuracy and Observed matching desired SHALL show Unknown. The BFF SHALL NOT clamp an invalid value into the valid range. The existing `stale-resource-status-count` widget SHALL remain in the dashboard and continue showing the raw count.
 
 #### Scenario: REL-DASH-16.01 -- Zero denominator preserves stale count
 
@@ -405,6 +405,13 @@ The `state-accuracy` widget SHALL show Accuracy, Observed matching desired as `x
 - AND the stale-resource gauge is available
 - WHEN the reliability dashboard renders
 - THEN State accuracy SHALL show Unknown
+- AND the raw Stale resource status widget SHALL remain visible
+
+#### Scenario: REL-DASH-16.02 -- Population mismatch is unknown
+
+- GIVEN the stale-resource count exceeds the reconciliation-resource total
+- WHEN the reliability dashboard renders
+- THEN State accuracy and Observed matching desired SHALL show Unknown
 - AND the raw Stale resource status widget SHALL remain visible
 
 ## Non-Goals

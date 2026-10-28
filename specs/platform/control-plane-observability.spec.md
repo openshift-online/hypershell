@@ -325,13 +325,29 @@ The control plane SHALL export these low-cardinality OpenTelemetry gauges for da
 | `oidc.client.synced` | `oidc_client_synced` | Desired gateway OIDC clients present in Keycloak with matching managed state |
 | `oidc.client.expected` | `oidc_client_expected` | Desired gateway OIDC client count from the API-server resource model |
 | `oidc.client.keycloak_connected` | `oidc_client_keycloak_connected` | `1` when the Keycloak comparison completed, otherwise `0` |
-| `hypershell.reconciliation.resources.total` | `hypershell_reconciliation_resources_total` | Resources included in reconciliation state-accuracy evaluation |
+| `hypershell.reconciliation.resources.total` | `hypershell_reconciliation_resources_total` | Non-deleted Gateways in the same watch population as the stale-resource gauge, per OBS-CRM-01 |
 
 The sandbox-ready gauge SHALL use the same population and cluster scope as `gateway.sandbox.total`. Certificate gauges SHALL be derived from the gateway and console TLS secrets or routes that the control plane already reconciles. Missing data or a certificate parse failure SHALL increment unavailable; it SHALL NOT increment valid or expired. Certificate contents, private keys, subject names, and secret data SHALL NOT appear in metrics or logs.
 
+Fleet certificate counts SHALL deduplicate control-plane replicas with
+`max by (hypershell_cluster_id)` and then sum the per-cluster values. Fleet
+`soonest_days_to_expiry` SHALL instead deduplicate replicas and take the minimum
+across clusters:
+
+```promql
+min(
+  max by (hypershell_cluster_id) (
+    gateway_certificate_days_to_expiry_min
+  )
+)
+```
+
+The BFF SHALL omit `soonest_days_to_expiry` when no cluster has a valid finite
+sample. It SHALL NOT sum per-cluster minimums.
+
 OIDC gauges SHALL compare the desired gateway client set with the clients returned by the Keycloak Admin API using the existing configured admin credentials. A failed or indeterminate Keycloak request SHALL report disconnected or unknown through the connectivity gauge and SHALL NOT synthesize a 100-percent result from an empty expected-client set.
 
-Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attribute where cluster scope applies. Fleet PromQL SHALL deduplicate replicas with `max by (hypershell_cluster_id)` before summation. No gauge SHALL contain Gateway, sandbox, certificate, namespace, user, or client identifiers.
+Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attribute where cluster scope applies. Fleet PromQL SHALL deduplicate replicas with `max by (hypershell_cluster_id)` before applying the metric's fleet operation: summation for counts and minimum for `gateway_certificate_days_to_expiry_min`. No gauge SHALL contain Gateway, sandbox, certificate, namespace, user, or client identifiers.
 
 #### Scenario: OBS-CPL-10.01 -- Unreadable certificate is unavailable
 
@@ -353,6 +369,14 @@ Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attri
 - WHEN Prometheus aggregates fleet health
 - THEN replica observations SHALL be deduplicated by cluster identity
 - AND no resource identifier or secret-derived value SHALL appear as a label
+
+#### Scenario: OBS-CPL-10.04 -- Fleet expiry uses the soonest cluster value
+
+- GIVEN one cluster reports a minimum certificate expiry of 20 days
+- AND another cluster reports a minimum certificate expiry of 5 days
+- WHEN the BFF calculates fleet certificate health
+- THEN `soonest_days_to_expiry` SHALL be 5 days
+- AND it SHALL NOT sum the per-cluster minimums
 
 ### Requirement: OBS-CPL-08 -- Development Trace Export
 
