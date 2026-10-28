@@ -56,7 +56,7 @@ Fullsend" section for how a repo pairs the two projects.
 │       ├── kustomization.yaml
 │       ├── repository.yaml     # Repository (this repo) + credential reference
 │       ├── gateway.yaml        # Gateway (agents-gateway) placed by capability selector
-│       ├── sandbox-template.yaml # agent-runtime-slim + basic network policy
+│       ├── sandbox-template.yaml # agent-runtime-slim (basic network policy) + agent-runtime-slim-quay (adds read-only Quay tag API, update-openshell only)
 │       └── provider-specs.yaml # claude-inference, github-source-control
 └── agents/<name>/              # agent instances (overlays on base/platform)
     ├── agent.yaml              # AgentRuntime (selector) + SecretSources + ProviderBindings + InferenceRoute

@@ -1,0 +1,23 @@
+---
+# Read-only access to the public Quay tag API, so the update-openshell agent can
+# resolve image tags to manifest digests (OpenShell gateway, supervisor, sandbox
+# and the console dashboard). No credential: every repository it reads is public.
+#
+# Only python3 may use it. curl stays out of every profile (see
+# policies/base.yaml), and the sandbox image ships no skopeo or crane.
+# python3 is often a symlink to python3.<minor>, so both forms are listed.
+# The tag API returns the digest in its JSON body, so no image layer is ever
+# downloaded and the Quay CDN hosts are not needed.
+id: hypershell-quay-ro
+display_name: HyperShell Quay read-only
+description: Public Quay tag API for resolving image tags to manifest digests
+category: data
+endpoints:
+  - host: quay.io
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+binaries:
+  - "**/python3"
+  - "**/python3.*"

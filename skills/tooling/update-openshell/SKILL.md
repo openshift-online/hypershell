@@ -376,9 +376,12 @@ be investigated rather than retaining the old pin silently.
    R=repos/Gkrumbach07/openshell-dashboard
    REL=$(gh api "$R/releases" --jq '.[].tag_name' | grep -E "^v${LINE}\.[0-9]+$" | sort -V | tail -1)
    TAG=${REL#v}                                       # quay tags drop the v: v0.1.1 -> 0.1.1
-   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?specificTag=$TAG&onlyActiveTags=true" \
-     | jq -r '.tags[0].manifest_digest'
+   python3 scripts/quay_digest.py gkrumbach07/openshell-dashboard "$TAG"
    ```
+
+   The agent sandboxes reach `quay.io` only through `python3` (read-only, the
+   v1 tag API). `curl` and `skopeo` cannot reach it there, so always use
+   `scripts/quay_digest.py` or plain `python3` for Quay lookups.
 
    - **Pin a release, by digest.** Release images carry tags `X.Y.N` and `X.Y`.
      The `latest`, `sha-<commit>` and `pr-<N>` tags are unreleased `main` and
@@ -391,7 +394,7 @@ be investigated rather than retaining the old pin silently.
      not work.
    - **Identify the current pin.** The digest's tags, including tags that have
      since moved, come from the tag history (page through `has_additional`):
-     `curl -s ".../tag/?limit=100&page=<N>" | jq --arg d <DIGEST> '.tags[] | select(.manifest_digest==$d) | .name'`.
+     `python3 scripts/quay_digest.py --tags-for <DIGEST> gkrumbach07/openshell-dashboard`.
      Put the dashboard release notes from that version to the target
      (`gh api $R/releases --jq '.[] | .tag_name, .body'`) in the impact report.
    - **Check the env contract.** The control plane builds the console Deployment
@@ -610,12 +613,13 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
   1. **No outbound network except `gh`/`git` to `github.com`.** Direct `curl`/
      `WebFetch` to any other host (quay.io, registry.redhat.io, pypi.org, even
      GitHub Actions' own log-storage CDN) fails at TCP connect with "Permission
-     denied". This means the Quay tag API digest-lookup trick from earlier entries
-     does not work here - only GitHub-hosted metadata (tags, releases, commit
-     diffs via a scratch clone) is reachable. When digests are genuinely needed
-     (a console bump, or refreshing a real digest literal) and this gap is hit,
-     defer that specific item as `needs-decision` rather than fabricating or
-     reusing a stale digest; do not block the rest of the mechanical bump on it.
+     denied". **Partly fixed 2026-10-27 (#752):** both agent runtimes now allow
+     `python3` read-only access to `quay.io` (fullsend profile
+     `.fullsend/profiles/hypershell-quay-ro.yaml`; HyperShell template
+     `agent-runtime-slim-quay`). Resolve digests with `python3
+     scripts/quay_digest.py <namespace/repo> <tag>`. If that still fails, defer
+     the digest item as `needs-decision` rather than fabricating or reusing a
+     stale digest; do not block the rest of the mechanical bump on it.
   2. **`make` cannot run at all** (`make: /bin/sh: Operation not permitted` on
      every recipe, even `echo`). Do not depend on any `make` target in this
      runtime. Instead run the underlying commands directly: `git clone --depth 1
