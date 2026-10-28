@@ -114,6 +114,7 @@ func (s *E2ESuite) uiInstallCommandFromFixture(installerVersion string) string {
 // the commands the suite executes, driven by the live reconciled
 // gateway_version rather than a pinned constant (E2E-COV-05).
 func (s *E2ESuite) p2_11CLIUIParity(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	// gateway_version is written back asynchronously by the health reconciler once
 	// the live gateway reports its runtime version (api-server SetGatewayVersion),

@@ -23,6 +23,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	if s.driver.Name() != "kind" || envOrDefault("E2E_OIDC_GRANT", "password") != "password" {
 		t.Skip("secondary-user gateway access matrix requires the Kind password-grant environment")
 	}
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	gatewayID := s.primary.ID
 	access := s.admin.GatewayAccesses()
@@ -171,6 +172,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 
 // Verifies: OSG-SACC-04.01, OSG-SACC-18.01, OSG-SACC-18.02, OSG-SACC-18.03
 func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	expires := time.Now().UTC().Add(2 * time.Hour)
 	var created *sdktypes.OpenShellGatewayServiceAccountCreateResponse
