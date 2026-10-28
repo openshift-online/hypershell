@@ -562,18 +562,27 @@ flowchart LR
 | Page header | Refresh | Admin | Reloads metrics without resetting the layout |
 | Page header | Add widgets | Admin | Adds optional widgets to the current user's dashboard |
 | Page header | Reset to default | Admin | Restores the standard dashboard layout |
-| Platform adoption | Registered users | Admin | System-wide total with recent activity or trend when available |
-| Platform adoption | Gateway count and status | Admin | System-wide healthy, provisioning, degraded, and failed counts |
-| Platform adoption | Active sandboxes | Admin | System-wide current count with 24-hour and 7-day trends when available |
-| Hub cluster | CPU use | Admin | Current use, capacity, and 7-day trend for the selected hub cluster |
-| Hub cluster | Memory use | Admin | Current use, capacity, and 7-day trend for the selected hub cluster |
-| Hub cluster | Node status | Admin | Ready and not-ready nodes for the selected hub cluster |
-| Hub cluster | Pod use and status | Admin | Used capacity plus running, pending, failed, succeeded, and unknown pods |
-| Hub cluster | Gateway provisioning duration | Admin | Average, P50, and P95 provisioning time |
-| Hub cluster | Gateway provisioning reliability | Admin | 24-hour success rate, success and failure counts, and hourly trend |
-| Platform inventory | Managed cluster count | Admin | System-wide total and recently added clusters |
-| Platform inventory | Cloud providers | Admin | System-wide managed cluster distribution by provider |
-| Platform inventory | Regions | Admin | System-wide managed cluster distribution by region and provider |
+| Overview | Resource summary | Admin | Gateway, sandbox, and managed-cluster totals with unavailable values shown explicitly |
+| Overview | Gateway status | Admin | System-wide healthy, provisioning, degraded, and failed counts |
+| Overview | Sandbox status | Admin | Current sandbox status counts |
+| Overview | Active sandboxes | Admin | System-wide current count with 24-hour and 7-day trends when available |
+| Overview | Provisioning snapshot | Admin | Compact current provisioning summary; detailed duration and reliability trends remain on the Provisioning dashboard |
+| Overview | Gateway releases | Admin | Current gateway release distribution |
+| Overview | Attention required | Admin | Current operational conditions that need administrator attention |
+| Overview | Pod and sandbox readiness | Admin | Pod readiness, sandbox readiness, and unready-resource count; missing sources remain unavailable |
+| Overview | Certificate health | Admin | Valid and total certificates, soonest expiry, expired count, and unavailable status |
+
+### Page: Provisioning dashboard
+
+| Field or widget | Who sees it | Notes |
+| --- | --- | --- |
+| Last refreshed and Refresh | Admin | Shows the last successful refresh and reloads metrics without resetting the layout |
+| Historical range | Admin | Selects Last 7 days or Last 30 days for supported trend charts |
+| System summary | Admin | Managed-cluster, node, pod, gateway, memory, and CPU totals |
+| Memory and CPU | Admin | Current hub-cluster utilization with daily trends for the selected range |
+| Nodes and Pods | Admin | Current readiness and status counts without historical trends |
+| Provision time | Admin | Average, P50, P95, 7-day P99, 5-minute target, warning when P99 exceeds target, and daily P99 trend; P99 is unavailable for Last 30 days |
+| Provision reliability | Admin | Current success and failure counts with daily success-rate trend |
 
 ### Page: Reliability dashboard
 
@@ -584,7 +593,12 @@ flowchart LR
 | Request rate | Admin | Current API requests per second with a 24-hour trend |
 | 5xx error rate | Admin | Current server-error percentage with a 24-hour trend |
 | Median latency | Admin | Current median API latency with a 24-hour trend |
-| Reliability summary | Admin | Shows request rate, error rate, latency, and meaningful trend direction in one place |
+| API p95 latency | Admin | Current p95 latency in seconds, 0.500-second target, and 24-hour trend when available |
+| Reconciliation failures, retries, and lag | Admin | Previous 24-hour counts and P50 lag with hourly trends |
+| Stale resource status | Admin | Current raw stale-resource count with its hourly trend |
+| OIDC client sync | Admin | Accuracy, synced and expected client counts, and Keycloak connection status; empty or unknown denominators remain Unknown |
+| State accuracy | Admin | Accuracy, observed matching desired, and stale resources; zero or unavailable denominators remain Unknown |
+| Reliability summary | Admin | Shows all approved API, reconciliation, OIDC sync, and state-accuracy values with meaningful trend direction in one place |
 | Add widgets and reset layout | Admin | Supports the same personal dashboard layout behavior as the operational dashboard |
 
 ```mermaid
@@ -602,8 +616,9 @@ flowchart LR
     load --> available{"Metrics available?"}
     available -- No --> error["Show unavailable metrics and Refresh"]
     error --> load
-    available -- Yes --> review["Review gateways, sandboxes, clusters, and provisioning"]
-    review --> reliability["Review API reliability"]
+    available -- Yes --> review["Review gateways, sandboxes, readiness, and certificate health"]
+    review --> provisioning["Review cluster capacity and gateway provisioning"]
+    provisioning --> reliability["Review API and control-plane reliability"]
     reliability --> issue{"Issue found?"}
     issue -- No --> monitor["Continue monitoring"]
     monitor --> load

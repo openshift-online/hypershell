@@ -110,7 +110,7 @@ The BFF SHALL also evaluate Prometheus `query_range` for each of the four statis
 | Step | `3600s` (one sample per hour) |
 | End timestamp | Current time (UTC), Unix seconds |
 | Start timestamp | End minus `86400` seconds |
-| Instant PromQL at each step | Same shapes as OBS-REL-01 (5-minute rate / quantile window inside each sample). For hourly latency, when the rate-based quantile range fails or yields no finite samples, the BFF SHALL fall back to the cumulative histogram range query (same fallback as instant P50). |
+| Instant PromQL at each step | Same shapes as OBS-REL-01 (5-minute rate / quantile window inside each sample). For hourly P50 latency, when the rate-based quantile range fails or yields no finite samples, the BFF SHALL fall back to the cumulative histogram range query (same fallback as instant P50). Hourly P95 latency SHALL use only the rate-based 5-minute window and SHALL omit invalid points instead of using cumulative fallback. |
 
 Each series SHALL map to an array of `{ hour, value }` entries:
 
@@ -154,6 +154,14 @@ When instant queries fail, the BFF SHALL respond with HTTP `502` per OBS-REL-06.
 - GIVEN a range sample at Unix time corresponding to UTC `2026-09-15T14:37:00`
 - WHEN the BFF maps the sample into an hourly array
 - THEN the entry SHALL use `hour: "2026-09-15T14:00"`
+
+#### Scenario: OBS-REL-02.04 -- Invalid hourly p95 has no cumulative fallback
+
+- GIVEN the hourly p95 rate-based range returns no finite sample for an hour
+- AND the cumulative histogram contains older observations
+- WHEN the BFF maps `hourly_latency_p95_seconds`
+- THEN the BFF SHALL omit that hour from the p95 series
+- AND it SHALL NOT derive the p95 point from the cumulative histogram
 
 ---
 
