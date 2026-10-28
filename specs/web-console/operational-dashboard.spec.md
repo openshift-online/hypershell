@@ -1,18 +1,18 @@
 # Operational Dashboard
 
 **Status:** Active
-**Version:** 0.3.0
+**Version:** 0.4.0
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF, `packages/gateway-management-ui` (display-status aggregation), `components/sdk-typescript` (gateway list client)
 
 ## Purpose
 
-Provide a widgetized operational dashboard in the HyperShell web console where users can assess the health of resources they are authorized to operate. The dashboard composes summary and detail widgets in a customizable grid layout. Live data is loaded through a narrow application port (`DashboardControlPlane`) implemented by the web-console host; a widget whose source is unavailable renders a localized unavailable state rather than disappearing. The approved overview design is represented by the shell-free `Parity/Dashboards/Operational` Storybook story in `specs/web-console/mockups/dashboards/operational-dashboard.parity.stories.tsx`.
+Provide a widgetized operational dashboard in the HyperShell web console where users can assess the health of resources they are authorized to operate. The dashboard composes summary and detail widgets in a customizable grid layout. Live data is loaded through a narrow application port (`DashboardControlPlane`) implemented by the web-console host; a widget whose source is unavailable renders a localized unavailable state rather than disappearing. The approved overview design is represented by the shell-free `Parity/Dashboards/Operational` Storybook story in `specs/web-console/mockups/dashboards/operational-dashboard.parity.stories.tsx`; its approved source visual is GitHub issue #808 and pull request #816.
 
 This specification covers the reusable `operational-dashboard-ui` package, the host adapter that loads operational metrics from BFF Prometheus proxy routes and HyperShell REST where noted below, access-scoped dashboard data, SPA and BFF route surfaces, layout persistence, and the widget catalog. Platform inventory metrics (managed clusters and managed databases) are defined in `platform/platform-inventory.spec.md`. Prometheus gateway phase counts (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`) are defined in `platform/gateway-metrics-dashboard.spec.md` and consumed by this dashboard for `provisioned-gateways` and `gateway-status`. Gateway provision duration and provision outcomes are defined in `platform/gateway-provision-time.spec.md` and `platform/gateway-provision-outcomes.spec.md`. Gateway release adoption (`gateway-releases`, REST gateway-list aggregation grouped by observed `gateway_version`) is defined in `platform/gateway-release-distribution.spec.md` (WEB-OPS-25). The embeddable `GatewayMetricsDashboard` component remains a separate surface.
 
 The sibling **reliability dashboard** (`/dashboard/reliability`) lives in the same package and is specified in `web-console/reliability-dashboard.spec.md`. API request rate, 5xx error rate, and median latency are defined in `platform/api-reliability-metrics.spec.md` and SHALL NOT appear on this operational overview. Both dashboards share PatternFly secondary horizontal navigation; the reliability dashboard's existing `platform:admin` access gate remains unchanged.
 
-The current overview is intentionally limited to seven widgets: Resource summary, Gateway status, Sandbox status, Active sandboxes, Provisioning snapshot, Gateway releases, and Attention required. The standalone Provisioning dashboard is specified in `web-console/provisioning-dashboard.spec.md`.
+The current overview contains nine widgets: Resource summary, Gateway status, Sandbox status, Active sandboxes, Provisioning snapshot, Gateway releases, Attention required, Pod and sandbox readiness, and Certificate health. The standalone Provisioning dashboard is specified in `web-console/provisioning-dashboard.spec.md`.
 
 **Data-source direction:** Aggregate operational dashboard widgets SHALL prefer Prometheus-backed BFF routes over direct HyperShell REST list pagination. The API server exposes fleet-wide gauges from database state on its `/metrics` scrape; the BFF queries Prometheus and returns JSON to the browser adapter. HyperShell REST List APIs remain authoritative for resource collection pages (for example, the gateway table) and for metrics explicitly defined on REST list aggregation (for example, `gateway-releases`) but are not the preferred source for dashboard totals otherwise.
 
@@ -106,7 +106,7 @@ The SPA route module for `/dashboard/reliability` SHALL retain the existing `Req
 
 When OIDC is enabled, the BFF SHALL enforce the same authenticated-access requirement for browser navigations to `/dashboard`, `/dashboard/reliability`, and for `/` on hosts whose hostname starts with `dashboard.`. Users without dashboard resource access SHALL receive the localized access-denied state. Reliability-route details are also specified in REL-OBS-GMD-04 / REL-OBS-GMD-05.
 
-When OIDC is enabled, the BFF SHALL enforce authentication and resource authorization on every `GET /api/metrics/*` route consumed by the operational or reliability dashboard host adapters (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `gateway-provision-outcomes`, `platform-inventory`, `registered-users` per WEB-OPS-08, and `api-reliability` per OBS-REL-03). The BFF SHALL apply the signed-in user's resource scope before returning metrics. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. Authenticated callers without access to any resource represented by a route SHALL receive HTTP `403` or an empty authorized-scope response according to the route contract. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
+When OIDC is enabled, the BFF SHALL enforce authentication and resource authorization on every `GET /api/metrics/*` route consumed by the operational or reliability dashboard host adapters (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `gateway-provision-outcomes`, `resource-readiness`, `certificate-health`, `platform-inventory`, `registered-users` per WEB-OPS-08, and `api-reliability` per OBS-REL-03). The BFF SHALL apply the signed-in user's resource scope before returning metrics. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. Authenticated callers without access to any resource represented by a route SHALL receive HTTP `403` or an empty authorized-scope response according to the route contract. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
 
 #### Scenario: WEB-OPS-04.01 -- User without dashboard resource access is turned away from /dashboard
 
@@ -338,7 +338,8 @@ Display buckets SHALL NOT be confused with raw lifecycle `phase` values. Mapping
 The host adapter SHALL provide the connected metrics documented in
 `packages/operational-dashboard-ui/DATA_SOURCES.md`. The operational overview
 SHALL use `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`,
-`provision-reliability`, and `gateway-releases` across its seven widgets.
+`provision-reliability`, `gateway-releases`, `pod-and-sandbox-readiness`, and
+`certificate-health` across its nine widgets.
 
 When a connected metric is missing because its source failed (WEB-OPS-19), the
 affected widget SHALL render the localized "Metric unavailable" state instead
@@ -387,6 +388,38 @@ When the signed-in user has `platform:admin`, the widget title SHALL display an 
 - GIVEN one or more authorized resources need attention
 - WHEN the operational overview renders
 - THEN the Resources needing attention row SHALL show a red danger icon
+
+---
+
+### Requirement: WEB-OPS-33 -- Pod and Sandbox Readiness
+
+The operational overview SHALL include the admin-only `pod-and-sandbox-readiness` widget from the approved `Parity/Dashboards/Operational` story. The BFF SHALL expose `GET /api/metrics/resource-readiness` and return independently optional `pod_readiness_percent`, `sandbox_readiness_percent`, and `unready_resources` fields.
+
+Pod readiness SHALL use `100 * sum(kube_pod_status_ready{condition="true"}) / count(kube_pod_info)`. Sandbox readiness SHALL use `100 * sum(gateway_sandbox_ready) / sum(gateway_sandbox_total)` after replica deduplication by `hypershell.cluster_id`. A missing source or zero denominator SHALL make only that field unavailable; the BFF and UI SHALL NOT substitute `0` or `100`.
+
+`unready_resources` SHALL equal the sum of known unready pods and known unready sandboxes. If either contributing total or ready count is unavailable, `unready_resources` SHALL be unavailable rather than a partial total. This route SHALL require `platform:admin` when OIDC is enabled.
+
+#### Scenario: WEB-OPS-33.01 -- One readiness source is unavailable
+
+- GIVEN pod readiness is available and the sandbox denominator is missing
+- WHEN the readiness widget renders
+- THEN Pod readiness SHALL show its measured percentage
+- AND Sandbox readiness SHALL show the localized unavailable value
+- AND the dashboard SHALL preserve unrelated loaded metrics
+
+### Requirement: WEB-OPS-34 -- Certificate Health
+
+The operational overview SHALL include the admin-only `certificate-health` widget from the approved `Parity/Dashboards/Operational` story. The BFF SHALL expose `GET /api/metrics/certificate-health` and return `valid_certificates`, `total_certificates`, `expired_certificates`, `status_unavailable`, and nullable `soonest_days_to_expiry` fields derived from the OBS-CPL-10 certificate gauges.
+
+The widget SHALL show Valid certificates as `x / y`, Days to expiry (soonest), Expired certificates, and Status unavailable. `total_certificates` SHALL equal valid plus expired plus unavailable certificates. This route SHALL require `platform:admin` when OIDC is enabled. If no certificate can be evaluated, the widget SHALL show the localized unavailable state. A missing or unreadable certificate SHALL contribute to status unavailable and SHALL NOT be treated as valid or expired.
+
+#### Scenario: WEB-OPS-34.01 -- Certificate parse failures remain explicit
+
+- GIVEN one certificate is valid and another certificate cannot be parsed
+- WHEN certificate health is returned
+- THEN the valid count SHALL be one
+- AND status unavailable SHALL be one
+- AND the parse failure SHALL NOT increase the expired count
 
 ---
 
@@ -510,6 +543,8 @@ The host `DashboardControlPlane` adapter SHALL load operational metrics from ind
 | BFF `GET /api/metrics/cluster-nodes`                                                                                                                                                                            | `nodes`                                                                                                          |
 | BFF `GET /api/metrics/platform-inventory` (`platform-inventory`)                                                                                                                                                | `managed-clusters`                                                                                               |
 | HyperShell API gateway list grouped by observed `gateway_version` (`gateway-release-distribution`)                                                                                                              | `gateway-releases`                                                                                               |
+| BFF `GET /api/metrics/resource-readiness`                                                                                                                                                                      | `pod-and-sandbox-readiness`                                                                                      |
+| BFF `GET /api/metrics/certificate-health`                                                                                                                                                                      | `certificate-health`                                                                                            |
 
 The adapter SHALL fetch these sources concurrently. When a source fails (network error, non-success HTTP status, inconsistent pagination, or other adapter validation error for that source), the adapter SHALL:
 
@@ -581,8 +616,10 @@ The default overview layout template (`defaultDashboardLayoutTemplate`) SHALL pl
 | `provisioning-snapshot` | `provisioning-snapshot#1` | Column 2, row 2             |
 | `gateway-releases`      | `gateway-releases#1`      | Column 3, row 2             |
 | `attention-required`    | `attention-required#1`    | Columns 0-1, row 3          |
+| `pod-and-sandbox-readiness` | `pod-and-sandbox-readiness#1` | Column 2, row 3       |
+| `certificate-health`    | `certificate-health#1`    | Column 3, row 3             |
 
-On `sm`, the seven overview widgets SHALL stack in the table order above. The dashboard SHALL retain widgetized-dashboard drag, resize, remove, add-widget, reset, and sanitized local persistence behavior at every supported breakpoint.
+On `sm`, the nine overview widgets SHALL stack in the table order above. The dashboard SHALL retain widgetized-dashboard drag, resize, remove, add-widget, reset, and sanitized local persistence behavior at every supported breakpoint.
 
 The dashboard SHALL place the manual refresh control and relative update label together beside the secondary navigation. The range selector and reset/add-widget controls SHALL appear above the grid, with reset and add-widget controls aligned to the right when space permits. The update label SHALL use `Updated under 1 minute ago`, `Updated 1 minute ago`, or `Updated X minutes ago` based on elapsed time since the last successful refresh.
 
@@ -601,10 +638,10 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: WEB-OPS-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v47`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v48`.
 
 Each incompatible default-layout change SHALL bump the storage key. The current
-`v47` key represents the seven-widget overview and its current widget heights.
+`v48` key represents the nine-widget overview and its current widget heights.
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
@@ -821,7 +858,7 @@ The widget SHALL load from the independent `gateway-release-distribution` metric
 - The widget SHALL NOT render a trend sparkline
 - When `releaseDistribution` is present but every bucket count is zero, the chart area SHALL render nothing while the widget shell remains
 
-The default position and height SHALL follow the seven-widget layout in
+The default position and height SHALL follow the nine-widget layout in
 WEB-OPS-10. The standalone `provisioned-sandboxes` widget SHALL remain retired;
 the overview SHALL present sandbox totals through Resource summary, Sandbox
 status, Active sandboxes, and Attention required.

@@ -1,14 +1,16 @@
 # Reliability Dashboard
 
 **Status:** Active
-**Version:** 0.4.0
+**Version:** 0.5.0
 **Created:** 2026-09-23
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF
-**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286)
+**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455)
 
 ## Purpose
 
 Provide a **widgetized reliability dashboard** in the HyperShell web console where administrators can assess API and control-plane reliability at a glance. This specification includes control-plane reconciliation health alongside the existing API reliability metrics.
+
+The approved visual is the shell-free `Parity/Dashboards/Reliability` Storybook story in `specs/web-console/mockups/dashboards/reliability-dashboard.parity.stories.tsx`, sourced from GitHub issue #808 and pull request #816.
 
 The reliability dashboard lives in the same reusable package as the operational dashboard (`@openshift-online/hypershell-operational-dashboard-ui`) to share hexagonal ports, widgetized-dashboard infrastructure, localization patterns, and presentation helpers - while remaining a **separate route and layout** so reliability metrics do not clutter the operational overview.
 
@@ -67,7 +69,7 @@ The reliability dashboard SHALL follow the narrow hexagonal UI boundary defined 
 
 ### Requirement: REL-DASH-03 -- Host Composition
 
-The web console host SHALL extend dashboard composition so `ReliabilityDashboardPage` receives a control-plane adapter that implements `getReliabilityMetrics` by calling BFF `GET /api/metrics/api-reliability` and `GET /api/metrics/control-plane-reconciliation` (OBS-REL-03 / OBS-REL-04 and REL-DASH-12 / REL-DASH-13).
+The web console host SHALL extend dashboard composition so `ReliabilityDashboardPage` receives a control-plane adapter that implements `getReliabilityMetrics` by calling BFF `GET /api/metrics/api-reliability`, `GET /api/metrics/control-plane-reconciliation`, and `GET /api/metrics/oidc-client-sync` (OBS-REL-03 / OBS-REL-04 and REL-DASH-12 through REL-DASH-16).
 
 #### Scenario: REL-DASH-03.01 -- Production host uses the API adapter for reliability
 
@@ -83,7 +85,7 @@ Access to the reliability dashboard SHALL use the **same** dashboard-admin gate 
 
 The SPA route module for `/dashboard/reliability` SHALL wrap `ReliabilityDashboardPage` in `RequireDashboardAdmin` with the same empty-state behavior as `/dashboard`.
 
-When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard/reliability` and for `GET /api/metrics/api-reliability`. Authenticated non-admins SHALL receive HTTP `403` on the metrics route. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), page and metrics routes SHALL remain open, matching operational dashboard behavior.
+When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard/reliability` and for `GET /api/metrics/api-reliability`, `GET /api/metrics/control-plane-reconciliation`, and `GET /api/metrics/oidc-client-sync`. Authenticated non-admins SHALL receive HTTP `403` on these metrics routes. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), page and metrics routes SHALL remain open, matching operational dashboard behavior.
 
 #### Scenario: REL-DASH-04.01 -- Non-admin is turned away from /dashboard/reliability
 
@@ -180,14 +182,17 @@ PatternFly Tabs SHALL NOT be used as the primary cross-dashboard switcher. Tabs 
 
 ### Requirement: REL-DASH-07 -- Connected Metrics and Widgets
 
-Version 1 SHALL connect the following metrics from the `api-reliability` and `control-plane-reconciliation` BFF sources (OBS-REL-04 / REL-DASH-12):
+The dashboard SHALL connect the following metrics from the `api-reliability`, `control-plane-reconciliation`, and `oidc-client-sync` BFF sources (OBS-REL-04 / REL-DASH-12):
 
 | Widget type                   | Metric ID                                                                                                                                                 | Presentation                                                                                                                                                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reliability-summary`         | API metrics plus `reconciliation-failures`, `reconciliation-retries`, `reconciliation-successes`, `reconciliation-lag`, and `stale-resource-status-count` | Two-column summary card listing all eight current values. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show an up/down trend indicator. |
+| `reliability-summary`         | Four API metrics plus reconciliation metrics, `oidc-client-sync`, and `state-accuracy` | Two-column summary card listing all eleven approved current values. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show an up/down trend indicator. |
 | `api-request-rate`            | `api-request-rate`                                                                                                                                        | Current rate plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                              |
 | `api-error-rate`              | `api-error-rate`                                                                                                                                          | Current 5xx error percent plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                 |
 | `api-latency`                 | `api-latency`                                                                                                                                             | Current median latency plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points                                                                                                                    |
+| `api-p95-latency`             | `api-p95-latency`                                                                                                                                         | Current p95 latency in seconds, target `0.500 sec`, plus 24-hour hourly trend when available                                                                                                                               |
+| `oidc-client-sync`            | `oidc-client-sync`                                                                                                                                        | Accuracy, synced/expected clients, expected clients, and Keycloak status summary                                                                                                                                           |
+| `state-accuracy`              | `state-accuracy`                                                                                                                                          | Accuracy, observed-matching-desired, and stale-resource summary while preserving the raw stale widget                                                                                                                      |
 | `reconciliation-failures`     | `reconciliation-failures`                                                                                                                                 | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                     |
 | `reconciliation-retries`      | `reconciliation-retries`                                                                                                                                  | Previous 24-hour count plus 24-hour hourly trend graph                                                                                                                                                                     |
 | `reconciliation-lag`          | `reconciliation-lag`                                                                                                                                      | Current P50 lag plus 24-hour hourly trend graph                                                                                                                                                                            |
@@ -210,11 +215,11 @@ Widgets without a connected metric SHALL remain on the grid and render the local
 
 Trend graphs SHALL reuse the shared sparkline presentation used by the operational dashboard where practical (`TrendSparklineChart` or equivalent). Units on tooltips and summary rows SHALL use `requests/sec`, `%`, and `sec`.
 
-#### Scenario: REL-DASH-07.01 -- Summary lists all eight current values
+#### Scenario: REL-DASH-07.01 -- Summary lists all eleven current values
 
-- GIVEN the three API metrics and the five reconciliation metrics are present
+- GIVEN the four API metrics, five reconciliation metrics, OIDC client sync, and state accuracy are present
 - WHEN the `reliability-summary` widget renders
-- THEN it SHALL show all eight current values with their units
+- THEN it SHALL show all eleven current values with their units
 
 #### Scenario: REL-DASH-07.02 -- Summary shows trend arrows when hourly change meets threshold
 
@@ -251,14 +256,17 @@ The default layout SHALL include:
 | `api-request-rate`            | Trend graph tile                       |
 | `api-error-rate`              | Trend graph tile                       |
 | `api-latency`                 | Trend graph tile                       |
+| `api-p95-latency`             | Trend graph tile                       |
+| `oidc-client-sync`            | Summary-list tile                      |
+| `state-accuracy`              | Summary-list tile                      |
 | `reconciliation-failures`     | Trend graph tile                       |
 | `reconciliation-retries`      | Trend graph tile                       |
 | `reconciliation-lag`          | Trend graph tile                       |
 | `stale-resource-status-count` | Trend graph tile                       |
 
-Exact column coordinates MAY be chosen during implementation; the default SHALL place the summary above the seven trend widgets so all eight are visible without opening the drawer.
+Exact column coordinates SHALL follow the approved `Parity/Dashboards/Reliability` story. The default SHALL place all approved metrics without requiring the widget drawer.
 
-Users SHALL be able to add widgets from the drawer, drag to rearrange, remove widgets, and reset to the reliability default template. Layout persistence SHALL use the separate `localStorage` key `hypershell.reliability-dashboard.layout.v2` so customizing this dashboard does not rewrite the operational dashboard.
+Users SHALL be able to add widgets from the drawer, drag to rearrange, remove widgets, and reset to the reliability default template. Layout persistence SHALL use the separate `localStorage` key `hypershell.reliability-dashboard.layout.v3` so the approved widget additions invalidate incompatible saved layouts without rewriting the operational dashboard.
 
 The dashboard body SHALL include the shared navigation row with manual refresh
 and last-refreshed status, followed by a body toolbar with reset-to-default and
@@ -368,6 +376,36 @@ version 1 SHALL NOT add a dedicated widget for successes.
 The dashboard SHALL show a 24-hour hourly trend graph when the corresponding historical array contains at least two valid points. The dashboard SHALL omit the graph when the current value is unavailable or the historical array contains fewer than two points.
 
 The dashboard SHALL NOT display zero as a substitute for an unavailable current value. When current reconciliation lag is unavailable, the lag metric and its trend graph SHALL be omitted while the other reconciliation metrics remain visible.
+
+### Requirement: REL-DASH-15 -- OIDC Client Sync Accuracy
+
+The BFF SHALL expose admin-only `GET /api/metrics/oidc-client-sync` and return independently nullable `accuracy_percent`, `synced_clients`, `expected_clients`, and `keycloak_status` (`connected`, `disconnected`, or `unknown`) fields derived from OBS-CPL-10 gauges.
+
+Accuracy SHALL equal `100 * sum(oidc_client_synced) / sum(oidc_client_expected)` after replica deduplication. When the expected-client count is zero or unavailable, or Keycloak status cannot be determined, accuracy SHALL be unknown. The BFF and widget SHALL NOT report 100 percent from an empty denominator.
+
+The `oidc-client-sync` widget SHALL show Accuracy, Synced clients as `x / y`, Expected clients, and Keycloak status. It SHALL use the approved admin-only reliability layout and localized labels.
+
+#### Scenario: REL-DASH-15.01 -- Keycloak is unavailable
+
+- GIVEN the desired client set exists and the Keycloak comparison cannot complete
+- WHEN the reliability dashboard loads
+- THEN Keycloak status SHALL show Disconnected or Unknown
+- AND Accuracy SHALL show Unknown
+- AND sibling reliability metrics SHALL remain available
+
+### Requirement: REL-DASH-16 -- State Accuracy
+
+The control-plane reconciliation response SHALL include independently optional `reconciliation_resources_total`, `state_accuracy_percent`, and `observed_matching_desired` fields per OBS-CRM-04. State accuracy SHALL equal `100 * (1 - stale / total)`, and observed matching desired SHALL equal `total - stale`.
+
+The `state-accuracy` widget SHALL show Accuracy, Observed matching desired as `x / y`, and Stale resources. When the denominator is zero or unavailable, Accuracy and Observed matching desired SHALL show Unknown. The existing `stale-resource-status-count` widget SHALL remain in the dashboard and continue showing the raw count.
+
+#### Scenario: REL-DASH-16.01 -- Zero denominator preserves stale count
+
+- GIVEN the reconciliation resource denominator is zero
+- AND the stale-resource gauge is available
+- WHEN the reliability dashboard renders
+- THEN State accuracy SHALL show Unknown
+- AND the raw Stale resource status widget SHALL remain visible
 
 ## Non-Goals
 

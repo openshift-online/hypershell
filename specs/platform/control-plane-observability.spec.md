@@ -311,6 +311,49 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - THEN `watch.reconnects` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
 
+### Requirement: OBS-CPL-10 -- Dashboard Health Gauges
+
+The control plane SHALL export these low-cardinality OpenTelemetry gauges for dashboard health calculations:
+
+| OTel instrument | Prometheus series | Meaning |
+| --- | --- | --- |
+| `gateway.sandbox.ready` | `gateway_sandbox_ready` | Provisioned sandboxes whose Kubernetes Ready condition is true |
+| `gateway.certificate.valid` | `gateway_certificate_valid` | Evaluated gateway and console TLS certificates that are currently valid |
+| `gateway.certificate.expired` | `gateway_certificate_expired` | Evaluated certificates whose `notAfter` is in the past |
+| `gateway.certificate.unavailable` | `gateway_certificate_unavailable` | Missing or unreadable certificate status |
+| `gateway.certificate.days_to_expiry_min` | `gateway_certificate_days_to_expiry_min` | Minimum whole or fractional days to expiry among valid evaluated certificates |
+| `oidc.client.synced` | `oidc_client_synced` | Desired gateway OIDC clients present in Keycloak with matching managed state |
+| `oidc.client.expected` | `oidc_client_expected` | Desired gateway OIDC client count from the API-server resource model |
+| `oidc.client.keycloak_connected` | `oidc_client_keycloak_connected` | `1` when the Keycloak comparison completed, otherwise `0` |
+| `hypershell.reconciliation.resources.total` | `hypershell_reconciliation_resources_total` | Resources included in reconciliation state-accuracy evaluation |
+
+The sandbox-ready gauge SHALL use the same population and cluster scope as `gateway.sandbox.total`. Certificate gauges SHALL be derived from the gateway and console TLS secrets or routes that the control plane already reconciles. Missing data or a certificate parse failure SHALL increment unavailable; it SHALL NOT increment valid or expired. Certificate contents, private keys, subject names, and secret data SHALL NOT appear in metrics or logs.
+
+OIDC gauges SHALL compare the desired gateway client set with the clients returned by the Keycloak Admin API using the existing configured admin credentials. A failed or indeterminate Keycloak request SHALL report disconnected or unknown through the connectivity gauge and SHALL NOT synthesize a 100-percent result from an empty expected-client set.
+
+Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attribute where cluster scope applies. Fleet PromQL SHALL deduplicate replicas with `max by (hypershell_cluster_id)` before summation. No gauge SHALL contain Gateway, sandbox, certificate, namespace, user, or client identifiers.
+
+#### Scenario: OBS-CPL-10.01 -- Unreadable certificate is unavailable
+
+- GIVEN a TLS secret is missing certificate data or its certificate cannot be parsed
+- WHEN certificate health gauges are refreshed
+- THEN `gateway.certificate.unavailable` SHALL include that certificate
+- AND valid and expired counts SHALL NOT include it
+
+#### Scenario: OBS-CPL-10.02 -- Empty OIDC denominator is unknown
+
+- GIVEN the expected OIDC client count is zero or cannot be determined
+- WHEN OIDC sync accuracy is calculated
+- THEN the dashboard contract SHALL report accuracy as unknown
+- AND it SHALL NOT report 100 percent
+
+#### Scenario: OBS-CPL-10.03 -- Gauge labels remain bounded
+
+- GIVEN health gauges are exported from multiple control-plane replicas
+- WHEN Prometheus aggregates fleet health
+- THEN replica observations SHALL be deduplicated by cluster identity
+- AND no resource identifier or secret-derived value SHALL appear as a label
+
 ### Requirement: OBS-CPL-08 -- Development Trace Export
 
 When local development tracing is enabled (`KIND_JAEGER=true`), the control plane Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317` and `OTEL_METRICS_EXPORTER` set to `none`, so a developer can view the control plane reconcile spans alongside the API server and web console spans in Jaeger. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the control plane to that endpoint.

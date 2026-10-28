@@ -3,8 +3,8 @@
 **Status:** Draft
 **Version:** 0.2.0
 **Created:** 2026-09-23
-**Updated:** 2026-09-28
-**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286)
+**Updated:** 2026-10-28
+**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455)
 
 ## Purpose
 
@@ -25,6 +25,7 @@ The control plane SHALL expose the following fleet-wide Prometheus metrics:
 | `hypershell_reconciliation_retries_total` | Counter | Reconciliation retries | count |
 | `hypershell_reconciliation_lag_seconds` | Histogram | Time from reconciliation eligibility to completion | seconds |
 | `hypershell_stale_resource_status_count` | Gauge | Resources whose observed status is stale | count |
+| `hypershell_reconciliation_resources_total` | Gauge | Resources included in reconciliation accuracy | count |
 
 The control plane SHALL expose the metrics through its Prometheus scrape
 endpoint. The dashboard SHALL NOT read reconciliation data from a database.
@@ -38,6 +39,7 @@ IDs, customer IDs, names, or other unbounded-cardinality labels.
 The failure and retry counters MAY include a bounded reconciliation-kind label.
 The lag histogram MAY include a bounded reconciliation-kind label. The stale
 resource gauge MAY include a bounded resource-kind label.
+The reconciliation-resource denominator gauge MAY include only the same bounded resource-kind and `hypershell.cluster_id` dimensions. Replicated control-plane observations SHALL be deduplicated with `max by (hypershell_cluster_id)` before fleet summation.
 
 ### Requirement: OBS-CRM-03 -- Historical Query Contract
 
@@ -51,6 +53,8 @@ The BFF SHALL calculate:
 - median lag from `histogram_quantile(0.50, ...)` over the histogram buckets when
   a valid sample exists; and
 - stale resource status count from the gauge value.
+
+The BFF SHALL also calculate state accuracy as `100 * (1 - stale / total)` and observed-matching-desired as `total - stale`. When `total` is absent, zero, or non-finite, all derived state-accuracy fields SHALL be unavailable rather than `0` or `100`.
 
 The BFF SHALL use the same aggregation dimensions for instant and range
 queries. The BFF SHALL omit a historical series when Prometheus returns an
@@ -67,11 +71,13 @@ the other current values. Failure of one historical query SHALL omit only that
 historical array while preserving successful current values and sibling
 historical arrays.
 
+The response SHALL include independently optional `reconciliation_resources_total`, `state_accuracy_percent`, and `observed_matching_desired` fields. A missing or zero denominator SHALL omit those fields while preserving the existing raw stale-resource count.
+
 ### Requirement: OBS-CRM-05 -- Verification
 
 Tests SHALL verify metric registration, histogram bucket export, bounded label
-sets, PromQL aggregation, 24-hour range parameters, response mapping, and
-failure behavior.
+sets, PromQL aggregation, 24-hour range parameters, state-accuracy calculation,
+zero and missing denominator behavior, response mapping, and failure behavior.
 
 ### Requirement: OBS-CRM-06 -- Reconciliation Outcome Taxonomy
 
