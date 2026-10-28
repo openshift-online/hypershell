@@ -33,12 +33,12 @@ func identityPromServer(t *testing.T, replies map[string]string) *Prometheus {
 // Verifies: FLT-CAP-01.04
 func TestClusterIdentitiesGroupsByNamespace(t *testing.T) {
 	p := identityPromServer(t, map[string]string{
-		capabilityInfoMetric: `{"metric":{"k8s_namespace_name":"hyp2-spoke1","cluster":"ibm-a","capability":"network/public"},"value":[1,"1"]},` +
-			`{"metric":{"k8s_namespace_name":"hyp2-spoke1","cluster":"ibm-a","capability":"provider/ibm"},"value":[1,"1"]},` +
-			`{"metric":{"k8s_namespace_name":"hyp2-spoke1","cluster":"ibm-a","capability":"bogus/x"},"value":[1,"1"]},` +
+		capabilityInfoMetric: `{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"network/public"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"provider/ibm"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"bogus/x"},"value":[1,"1"]},` +
 			`{"metric":{"cluster":"ibm-a","capability":"provider/ibm"},"value":[1,"1"]}`,
-		controlPlaneInfoMetric: `{"metric":{"k8s_namespace_name":"hyp2-spoke1","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v2"},"value":[1,"1"]},` +
-			`{"metric":{"k8s_namespace_name":"hyp2-spoke1","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v1"},"value":[1,"1"]}`,
+		controlPlaneInfoMetric: `{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v2"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v1"},"value":[1,"1"]}`,
 	})
 	got, err := p.ClusterIdentities(context.Background())
 	if err != nil {
@@ -48,7 +48,7 @@ func TestClusterIdentitiesGroupsByNamespace(t *testing.T) {
 		// Normalized like the annotation: unknown namespace dropped, provider first.
 		// A series with no namespace label is ignored. Of two images, the sorted
 		// first is chosen.
-		"hyp2-spoke1": {{Cluster: "ibm-a", Capabilities: []string{"provider/ibm", "network/public"}, GatewayImage: "quay.io/x/gw:v1"}},
+		"inst-spoke": {{Cluster: "ibm-a", Capabilities: []string{"provider/ibm", "network/public"}, GatewayImage: "quay.io/x/gw:v1"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ClusterIdentities = %+v, want %+v", got, want)
@@ -57,13 +57,13 @@ func TestClusterIdentitiesGroupsByNamespace(t *testing.T) {
 
 func TestClusterIdentitiesPartialAndTotalFailure(t *testing.T) {
 	p := identityPromServer(t, map[string]string{
-		controlPlaneInfoMetric: `{"metric":{"k8s_namespace_name":"hyp0","gateway_image":"img"},"value":[1,"1"]}`,
+		controlPlaneInfoMetric: `{"metric":{"k8s_namespace_name":"inst-hub","gateway_image":"img"},"value":[1,"1"]}`,
 	})
 	got, err := p.ClusterIdentities(context.Background())
 	if err != nil {
 		t.Fatalf("one failing query must not fail the call: %v", err)
 	}
-	if len(got["hyp0"]) != 1 || got["hyp0"][0].GatewayImage != "img" || got["hyp0"][0].Capabilities != nil {
+	if len(got["inst-hub"]) != 1 || got["inst-hub"][0].GatewayImage != "img" || got["inst-hub"][0].Capabilities != nil {
 		t.Fatalf("partial result = %+v", got)
 	}
 

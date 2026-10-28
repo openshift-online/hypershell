@@ -117,8 +117,8 @@ existing test factories and payloads that omit it stay valid.
 
 #### Scenario: FLT-CAP-01.04 -- Control-plane capabilities win over the annotation
 
-- GIVEN an environment whose Application deploys into namespace `hyp2-spoke1` and carries the annotation `provider/aws`
-- AND Prometheus has `hypershell_managed_cluster_capability_info` series for `k8s_namespace_name="hyp2-spoke1"` with capabilities `provider/ibm` and `network/public`
+- GIVEN an environment whose Application deploys into namespace `inst-spoke` and carries the annotation `provider/aws`
+- AND Prometheus has `hypershell_managed_cluster_capability_info` series for `k8s_namespace_name="inst-spoke"` with capabilities `provider/ibm` and `network/public`
 - WHEN the BFF builds the promotion payload
 - THEN the environment's capabilities SHALL be `["provider/ibm", "network/public"]`
 - AND an entry whose namespace is not recognized SHALL be dropped, as for the annotation
@@ -132,8 +132,8 @@ existing test factories and payloads that omit it stay valid.
 
 #### Scenario: FLT-CAP-01.06 -- A shared namespace name resolves by cluster
 
-- GIVEN two physical clusters that both report series for `k8s_namespace_name="hyp0"`
-- WHEN the BFF matches an environment whose Application deploys into `hyp0` with `delivery.hypershell.app/cluster` equal to one of them
+- GIVEN two physical clusters that both report series for `k8s_namespace_name="inst-hub"`
+- WHEN the BFF matches an environment whose Application deploys into `inst-hub` with `delivery.hypershell.app/cluster` equal to one of them
 - THEN the series from that cluster SHALL be used
 - AND when the Application's cluster matches neither, the metric SHALL be ignored and the annotation used
 
