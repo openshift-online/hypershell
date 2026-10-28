@@ -537,6 +537,124 @@ export function ActiveSandboxesCard({
   );
 }
 
+function ReadinessValue({ value }: Readonly<{ value: string | undefined }>) {
+  return value === undefined ? (
+    <FormattedMessage {...messages.unknown} />
+  ) : (
+    <FormattedMessage
+      {...messages.utilizationLabel}
+      values={{ unit: "%", value }}
+    />
+  );
+}
+
+export function ResourceReadinessCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const readiness = metric.resourceReadiness;
+  const intl = useIntl();
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.resourceReadinessHelp} />}
+    >
+      <DashboardSummaryList
+        ariaLabel={intl.formatMessage(messages.resourceReadinessAriaLabel)}
+        items={[
+          {
+            key: "pods",
+            label: <FormattedMessage {...messages.podReadiness} />,
+            value: <ReadinessValue value={readiness?.podReadinessPercent} />,
+          },
+          {
+            key: "sandboxes",
+            label: <FormattedMessage {...messages.sandboxReadiness} />,
+            value: (
+              <ReadinessValue value={readiness?.sandboxReadinessPercent} />
+            ),
+          },
+          {
+            key: "unready",
+            label: <FormattedMessage {...messages.unreadyResources} />,
+            indicator:
+              readiness?.unreadyResources === undefined ||
+              Number(readiness.unreadyResources) <= 0
+                ? undefined
+                : {
+                    content: <ExclamationCircleIcon />,
+                    tone: "warning",
+                  },
+            value: readiness?.unreadyResources ?? (
+              <FormattedMessage {...messages.unknown} />
+            ),
+          },
+        ]}
+      />
+    </WidgetContent>
+  );
+}
+
+export function CertificateHealthCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const health = metric.certificateHealth;
+  const intl = useIntl();
+
+  if (!health) {
+    return <DashboardMetricUnavailable />;
+  }
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.certificateHealthHelp} />}
+    >
+      <DashboardSummaryList
+        ariaLabel={intl.formatMessage(messages.certificateHealthAriaLabel)}
+        items={[
+          {
+            key: "valid",
+            label: <FormattedMessage {...messages.validCertificates} />,
+            value: `${health.validCertificates} / ${health.totalCertificates}`,
+          },
+          {
+            key: "expiry",
+            label: <FormattedMessage {...messages.soonestCertificateExpiry} />,
+            indicator:
+              health.soonestDaysToExpiry === undefined ||
+              Number(health.soonestDaysToExpiry) > 30
+                ? undefined
+                : {
+                    content: <ExclamationCircleIcon />,
+                    tone: "warning",
+                  },
+            value:
+              health.soonestDaysToExpiry === undefined ? (
+                <FormattedMessage {...messages.unknown} />
+              ) : (
+                <FormattedMessage
+                  {...messages.daysValue}
+                  values={{ value: health.soonestDaysToExpiry }}
+                />
+              ),
+          },
+          {
+            key: "expired",
+            label: <FormattedMessage {...messages.expiredCertificates} />,
+            value: health.expiredCertificates,
+          },
+          {
+            key: "unavailable",
+            label: (
+              <FormattedMessage {...messages.certificateStatusUnavailable} />
+            ),
+            value: health.statusUnavailable,
+          },
+        ]}
+      />
+    </WidgetContent>
+  );
+}
+
 export function ProvisioningSnapshotCard({
   metrics,
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {

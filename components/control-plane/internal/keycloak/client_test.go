@@ -103,6 +103,58 @@ func TestClientConcurrentTokenSnapshots(t *testing.T) {
 	}
 }
 
+func TestGatewayClientSyncedChecksManagedState(t *testing.T) {
+	missingUserRole := false
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]keycloakClient{{
+			ID:                        testGatewayUUID,
+			ClientID:                  testGatewayClientID,
+			Enabled:                   true,
+			PublicClient:              true,
+			StandardFlowEnabled:       true,
+			DirectAccessGrantsEnabled: true,
+			Attributes: map[string]string{
+				"pkce.code.challenge.method":      "S256",
+				deviceAuthorizationGrantAttribute: "true",
+			},
+		}})
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients/%s/roles", testRealm, testGatewayUUID), func(w http.ResponseWriter, _ *http.Request) {
+		roles := []keycloakRole{{Name: "openshell-admin"}}
+		if !missingUserRole {
+			roles = append(roles, keycloakRole{Name: "openshell-user"})
+		}
+		_ = json.NewEncoder(w).Encode(roles)
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", testRealm, testGatewayUUID), func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]string{
+			{"id": "mapper-aud", "name": "audience"},
+			{"id": "mapper-sub", "name": "sub"},
+			{"id": "mapper-roles", "name": "client-roles"},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, testAdminSecret)
+	client.token = "test-token"
+	client.tokenExpiry = time.Now().Add(time.Hour)
+
+	synced, err := client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil || !synced {
+		t.Fatalf("GatewayClientSynced() = %v, %v; want true, nil", synced, err)
+	}
+	missingUserRole = true
+	synced, err = client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil {
+		t.Fatalf("GatewayClientSynced() drift error = %v", err)
+	}
+	if synced {
+		t.Fatal("GatewayClientSynced() = true with a missing managed role")
+	}
+}
+
 // fakeKeycloak records the mappers and scope-mapping grants the client sends.
 type fakeKeycloak struct {
 	mappers     []capturedMapper

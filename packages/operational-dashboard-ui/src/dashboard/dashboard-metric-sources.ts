@@ -25,18 +25,27 @@ export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   "cluster-cpu": ["cpu"],
   "cluster-pods": ["pods"],
   "cluster-nodes": ["nodes"],
+  "resource-readiness": ["pod-and-sandbox-readiness"],
+  "certificate-health": ["certificate-health"],
 };
 
 export const RELIABILITY_METRIC_SOURCE_METRIC_IDS: Readonly<
   Record<ReliabilityMetricSourceId, readonly string[]>
 > = {
-  "api-reliability": ["api-request-rate", "api-error-rate", "api-latency"],
+  "api-reliability": [
+    "api-request-rate",
+    "api-error-rate",
+    "api-latency",
+    "api-p95-latency",
+  ],
+  "oidc-client-sync": ["oidc-client-sync"],
   "control-plane-reconciliation": [
     "reconciliation-failures",
     "reconciliation-retries",
     "reconciliation-successes",
     "reconciliation-lag",
     "stale-resource-status-count",
+    "state-accuracy",
   ],
 };
 

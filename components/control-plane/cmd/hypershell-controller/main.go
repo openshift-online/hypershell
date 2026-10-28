@@ -603,7 +603,7 @@ func main() {
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
-				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace, kcClient,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")

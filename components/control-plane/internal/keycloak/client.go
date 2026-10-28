@@ -64,10 +64,14 @@ func (c *Client) Realm() string {
 }
 
 type keycloakClient struct {
-	ID         string            `json:"id,omitempty"`
-	ClientID   string            `json:"clientId"`
-	Enabled    bool              `json:"enabled"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	ID                        string            `json:"id,omitempty"`
+	ClientID                  string            `json:"clientId"`
+	Enabled                   bool              `json:"enabled"`
+	PublicClient              bool              `json:"publicClient"`
+	StandardFlowEnabled       bool              `json:"standardFlowEnabled"`
+	DirectAccessGrantsEnabled bool              `json:"directAccessGrantsEnabled"`
+	FullScopeAllowed          bool              `json:"fullScopeAllowed"`
+	Attributes                map[string]string `json:"attributes,omitempty"`
 }
 
 type keycloakRole struct {
@@ -1145,6 +1149,49 @@ func (c *Client) ConsoleClientExists(ctx context.Context, consoleClientID string
 		return false, err
 	}
 	return clientUUID != "", nil
+}
+
+// GatewayClientSynced reports whether the desired gateway OIDC client is
+// present and still has the control plane's managed settings, roles, and
+// protocol mappers. Client representations and identifiers never enter metric
+// labels or values.
+func (c *Client) GatewayClientSynced(ctx context.Context, clientID string) (bool, error) {
+	client, err := c.getClient(ctx, clientID)
+	if err != nil {
+		return false, fmt.Errorf("look up gateway client: %w", err)
+	}
+	if client == nil {
+		return false, nil
+	}
+	if !client.Enabled || !client.PublicClient || !client.StandardFlowEnabled ||
+		!client.DirectAccessGrantsEnabled || client.FullScopeAllowed ||
+		client.Attributes["pkce.code.challenge.method"] != "S256" ||
+		client.Attributes[deviceAuthorizationGrantAttribute] != "true" {
+		return false, nil
+	}
+	roles, err := c.listClientRoles(ctx, client.ID)
+	if err != nil {
+		return false, fmt.Errorf("inspect gateway client roles: %w", err)
+	}
+	roleNames := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		roleNames[role.Name] = struct{}{}
+	}
+	for _, name := range []string{"openshell-admin", "openshell-user"} {
+		if _, ok := roleNames[name]; !ok {
+			return false, nil
+		}
+	}
+	mappers, err := c.listClientProtocolMappers(ctx, client.ID)
+	if err != nil {
+		return false, fmt.Errorf("inspect gateway client protocol mappers: %w", err)
+	}
+	for _, name := range []string{"audience", "sub", "client-roles"} {
+		if _, ok := mappers[name]; !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (c *Client) createConsoleClient(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) (string, error) {

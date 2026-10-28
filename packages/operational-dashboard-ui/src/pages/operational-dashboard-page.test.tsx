@@ -65,7 +65,7 @@ describe("OperationalDashboardPage", () => {
       document.querySelectorAll(".hypershell-dashboard-widget--system"),
     );
 
-    expect(systemWidgets).toHaveLength(7);
+    expect(systemWidgets).toHaveLength(9);
     expect(
       systemWidgets.every((widget) =>
         widget.getAttribute("aria-label")?.endsWith("System"),

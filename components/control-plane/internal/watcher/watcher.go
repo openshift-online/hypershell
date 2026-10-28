@@ -274,6 +274,11 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 					return
 				}
 				heartbeat()
+				cpotel.UpdateGatewayPopulation(ctx, clusterID, cpotel.GatewayPopulationState{
+					ResourceID:         event.ResourceId,
+					Generation:         event.Gateway.GetGeneration(),
+					ObservedGeneration: event.Gateway.ObservedGeneration,
+				}, toEventType(event.Type) == EventDeleted)
 				rq.enqueue(Event[*pb.Gateway]{
 					Type:       toEventType(event.Type),
 					ResourceID: event.ResourceId,
@@ -421,6 +426,15 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 	if err != nil {
 		return err
 	}
+	population := make([]cpotel.GatewayPopulationState, 0, len(inventory))
+	for id, gw := range inventory {
+		population = append(population, cpotel.GatewayPopulationState{
+			ResourceID:         id,
+			Generation:         gw.GetGeneration(),
+			ObservedGeneration: gw.ObservedGeneration,
+		})
+	}
+	cpotel.ReplaceGatewayPopulation(ctx, clusterID, population)
 	var forced int
 	for _, gw := range inventory {
 		if enqueueSeed(sink, gw) {

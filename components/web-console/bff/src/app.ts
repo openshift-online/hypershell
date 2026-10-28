@@ -32,6 +32,9 @@ import { queryApiReliability } from "./metrics-api-reliability.js";
 import { queryAdoptionMetrics } from "./metrics-adoption.js";
 import { queryAuthorizedGatewayMetrics } from "./authorized-gateway-metrics.js";
 import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
+import { queryResourceReadiness } from "./metrics-resource-readiness.js";
+import { queryCertificateHealth } from "./metrics-certificate-health.js";
+import { queryOidcClientSync } from "./metrics-oidc-client-sync.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
 import {
   queryHomepagePlatformOverview,
@@ -1072,6 +1075,51 @@ export async function buildApp(
         return { error: "Metrics unavailable", statusCode: 502 };
       }
     },
+  );
+
+  app.get(
+    "/api/metrics/resource-readiness",
+    { preHandler: requireDashboardMetricsAccess },
+    async () =>
+      queryResourceReadiness(
+        {
+          url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+          tokenFile: config.clusterPrometheusTokenFile,
+          caFile: config.clusterPrometheusCaFile,
+        },
+        config.prometheusQueryTimeoutMs,
+        config.prometheusUrl,
+      ),
+  );
+
+  app.get(
+    "/api/metrics/certificate-health",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryCertificateHealth(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "certificate health metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/oidc-client-sync",
+    { preHandler: requireDashboardMetricsAccess },
+    async () =>
+      queryOidcClientSync(
+        config.prometheusUrl,
+        config.prometheusQueryTimeoutMs,
+      ),
   );
 
   app.all("/api/*", async (request, reply) => {

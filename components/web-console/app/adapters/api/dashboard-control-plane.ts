@@ -78,8 +78,25 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+  p99_seconds?: number;
+  target_seconds?: number;
+  daily_p99?: { date: string; p99_seconds: number }[];
   daily_p50?: { date: string; p50_seconds: number }[];
   daily_p95?: { date: string; p95_seconds: number }[];
+}
+
+interface ResourceReadinessResponse {
+  pod_readiness_percent?: number;
+  sandbox_readiness_percent?: number;
+  unready_resources?: number;
+}
+
+interface CertificateHealthResponse {
+  valid_certificates: number;
+  total_certificates: number;
+  expired_certificates: number;
+  status_unavailable: number;
+  soonest_days_to_expiry: number | null;
 }
 
 interface GatewayProvisionHourlySuccessRate {
@@ -488,6 +505,10 @@ async function fetchGatewayProvisionDurationMetric(
       label: point.date,
       value: point.p95_seconds,
     }));
+    const p99Trend = (body.daily_p99 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p99_seconds,
+    }));
 
     return {
       id: "provision-time",
@@ -495,8 +516,15 @@ async function fetchGatewayProvisionDurationMetric(
         mean,
         p50,
         p95,
+        ...(body.p99_seconds === undefined
+          ? {}
+          : { p99: formatProvisionSeconds(body.p99_seconds) }),
+        ...(body.target_seconds === undefined
+          ? {}
+          : { target: formatProvisionSeconds(body.target_seconds) }),
         ...(p50Trend.length >= 2 ? { p50Trend: { points: p50Trend } } : {}),
         ...(p95Trend.length >= 2 ? { p95Trend: { points: p95Trend } } : {}),
+        ...(p99Trend.length >= 2 ? { p99Trend: { points: p99Trend } } : {}),
       },
       unit: "sec",
       value: mean,
@@ -504,6 +532,82 @@ async function fetchGatewayProvisionDurationMetric(
   } catch {
     return undefined;
   }
+}
+
+async function fetchResourceReadinessMetric(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/resource-readiness", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch resource readiness metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as ResourceReadinessResponse;
+  return [
+    {
+      id: "pod-and-sandbox-readiness",
+      resourceReadiness: {
+        ...(isFiniteNumber(body.pod_readiness_percent)
+          ? { podReadinessPercent: body.pod_readiness_percent.toFixed(1) }
+          : {}),
+        ...(isFiniteNumber(body.sandbox_readiness_percent)
+          ? {
+              sandboxReadinessPercent:
+                body.sandbox_readiness_percent.toFixed(1),
+            }
+          : {}),
+        ...(isFiniteNumber(body.unready_resources)
+          ? { unreadyResources: String(Math.round(body.unready_resources)) }
+          : {}),
+      },
+      value: isFiniteNumber(body.unready_resources)
+        ? String(Math.round(body.unready_resources))
+        : "NaN",
+    },
+  ];
+}
+
+async function fetchCertificateHealthMetric(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/certificate-health", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch certificate health metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as CertificateHealthResponse;
+  const required = [
+    body.valid_certificates,
+    body.total_certificates,
+    body.expired_certificates,
+    body.status_unavailable,
+  ];
+  if (required.some((value) => !isFiniteNumber(value))) {
+    throw new Error("Certificate health response is missing required fields");
+  }
+  return [
+    {
+      certificateHealth: {
+        expiredCertificates: String(Math.round(body.expired_certificates)),
+        ...(isFiniteNumber(body.soonest_days_to_expiry)
+          ? { soonestDaysToExpiry: body.soonest_days_to_expiry.toFixed(1) }
+          : {}),
+        statusUnavailable: String(Math.round(body.status_unavailable)),
+        totalCertificates: String(Math.round(body.total_certificates)),
+        validCertificates: String(Math.round(body.valid_certificates)),
+      },
+      id: "certificate-health",
+      value: String(Math.round(body.valid_certificates)),
+    },
+  ];
 }
 
 function gatewayDisplayCountsToMetric(
@@ -706,7 +810,9 @@ interface ApiReliabilityResponse {
   hourly_error_rate_percent?: ApiReliabilityHourlyPoint[];
   hourly_latency_p50_seconds?: ApiReliabilityHourlyPoint[];
   hourly_request_rate?: ApiReliabilityHourlyPoint[];
+  hourly_latency_p95_seconds?: ApiReliabilityHourlyPoint[];
   latency_p50_seconds: number;
+  latency_p95_seconds?: number;
   request_rate: number;
 }
 
@@ -728,6 +834,16 @@ interface ControlPlaneReconciliationResponse {
   hourly_reconciliation_successes_count?: ControlPlaneReconciliationPoint[];
   hourly_reconciliation_lag_p50_seconds?: ControlPlaneReconciliationPoint[];
   hourly_stale_resource_status_count?: ControlPlaneReconciliationPoint[];
+  reconciliation_resources_total?: number;
+  state_accuracy_percent?: number;
+  observed_matching_desired?: number;
+}
+
+interface OidcClientSyncResponse {
+  accuracy_percent: number | null;
+  synced_clients: number | null;
+  expected_clients: number | null;
+  keycloak_status: string;
 }
 
 function mapHourlyTrend(
@@ -765,6 +881,7 @@ function mapApiReliabilityResponse(
   const requestRateTrend = mapHourlyTrend(body.hourly_request_rate);
   const errorRateTrend = mapHourlyTrend(body.hourly_error_rate_percent);
   const latencyTrend = mapHourlyTrend(body.hourly_latency_p50_seconds);
+  const p95LatencyTrend = mapHourlyTrend(body.hourly_latency_p95_seconds);
 
   return [
     {
@@ -784,6 +901,59 @@ function mapApiReliabilityResponse(
       unit: "sec",
       value: body.latency_p50_seconds.toFixed(3),
       ...(latencyTrend ? { hourlyTrend: latencyTrend } : {}),
+    },
+    ...(isFiniteNumber(body.latency_p95_seconds)
+      ? [
+          {
+            id: "api-p95-latency",
+            unit: "sec",
+            value: body.latency_p95_seconds.toFixed(3),
+            ...(p95LatencyTrend ? { hourlyTrend: p95LatencyTrend } : {}),
+          },
+        ]
+      : []),
+  ];
+}
+
+async function fetchOidcClientSyncMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/oidc-client-sync", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch OIDC client sync metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as OidcClientSyncResponse;
+  if (
+    body.keycloak_status !== "connected" &&
+    body.keycloak_status !== "disconnected" &&
+    body.keycloak_status !== "unknown"
+  ) {
+    throw new Error("OIDC client sync response has an invalid Keycloak status");
+  }
+  return [
+    {
+      id: "oidc-client-sync",
+      oidcClientSync: {
+        ...(isFiniteNumber(body.accuracy_percent)
+          ? { accuracyPercent: body.accuracy_percent.toFixed(1) }
+          : {}),
+        ...(isFiniteNumber(body.expected_clients)
+          ? { expectedClients: String(Math.round(body.expected_clients)) }
+          : {}),
+        keycloakStatus: body.keycloak_status,
+        ...(isFiniteNumber(body.synced_clients)
+          ? { syncedClients: String(Math.round(body.synced_clients)) }
+          : {}),
+      },
+      unit: "%",
+      value: isFiniteNumber(body.accuracy_percent)
+        ? body.accuracy_percent.toFixed(1)
+        : "NaN",
     },
   ];
 }
@@ -870,6 +1040,40 @@ export function mapControlPlaneReconciliationResponse(
       value: String(Math.round(body.stale_resource_status_count)),
       ...(staleTrend ? { hourlyTrend: staleTrend } : {}),
     },
+    ...(isFiniteNumber(body.state_accuracy_percent) ||
+    isFiniteNumber(body.reconciliation_resources_total)
+      ? [
+          {
+            id: "state-accuracy",
+            stateAccuracy: {
+              ...(isFiniteNumber(body.state_accuracy_percent)
+                ? { accuracyPercent: body.state_accuracy_percent.toFixed(1) }
+                : {}),
+              ...(isFiniteNumber(body.observed_matching_desired)
+                ? {
+                    observedMatchingDesired: String(
+                      Math.round(body.observed_matching_desired),
+                    ),
+                  }
+                : {}),
+              staleResources: String(
+                Math.round(body.stale_resource_status_count),
+              ),
+              ...(isFiniteNumber(body.reconciliation_resources_total)
+                ? {
+                    totalResources: String(
+                      Math.round(body.reconciliation_resources_total),
+                    ),
+                  }
+                : {}),
+            },
+            unit: "%",
+            value: isFiniteNumber(body.state_accuracy_percent)
+              ? body.state_accuracy_percent.toFixed(1)
+              : "NaN",
+          },
+        ]
+      : []),
   ];
   return metrics;
 }
@@ -1115,6 +1319,14 @@ const metricSources: readonly MetricSourceDefinition[] = [
     id: "cluster-nodes",
     fetch: async (context) => [await fetchClusterNodesMetric(context.signal)],
   },
+  {
+    id: "resource-readiness",
+    fetch: async (context) => fetchResourceReadinessMetric(context),
+  },
+  {
+    id: "certificate-health",
+    fetch: async (context) => fetchCertificateHealthMetric(context),
+  },
 ];
 
 export function createDashboardControlPlaneAdapter(
@@ -1185,14 +1397,21 @@ export function createDashboardControlPlaneAdapter(
         const results = await Promise.allSettled([
           fetchApiReliabilityMetrics(context),
           fetchControlPlaneReconciliationMetrics(context),
+          fetchOidcClientSyncMetrics(context),
         ]);
         const metrics: OperationalMetric[] = [];
         const failedSources: (
-          "api-reliability" | "control-plane-reconciliation"
+          | "api-reliability"
+          | "control-plane-reconciliation"
+          | "oidc-client-sync"
         )[] = [];
         for (const [index, result] of results.entries()) {
           const source =
-            index === 0 ? "api-reliability" : "control-plane-reconciliation";
+            index === 0
+              ? "api-reliability"
+              : index === 1
+                ? "control-plane-reconciliation"
+                : "oidc-client-sync";
           if (result.status === "fulfilled") metrics.push(...result.value);
           else if (isAbortError(result.reason)) throw result.reason;
           else failedSources.push(source);
@@ -1213,7 +1432,11 @@ export function createDashboardControlPlaneAdapter(
         // mergeReliabilityDashboardMetrics can keep stale widgets on
         // refresh and the page can show the partial-load warning.
         return {
-          failedSources: ["api-reliability", "control-plane-reconciliation"],
+          failedSources: [
+            "api-reliability",
+            "control-plane-reconciliation",
+            "oidc-client-sync",
+          ],
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         };

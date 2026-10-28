@@ -13,6 +13,8 @@ export const GATEWAY_RELEASES_WIDGET_HEIGHT = 4;
 export const ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT =
   GATEWAY_RELEASES_WIDGET_HEIGHT;
 export const ATTENTION_REQUIRED_WIDGET_HEIGHT = RESOURCE_SUMMARY_WIDGET_HEIGHT;
+export const READINESS_WIDGET_HEIGHT = RESOURCE_SUMMARY_WIDGET_HEIGHT;
+export const CERTIFICATE_HEALTH_WIDGET_HEIGHT = RESOURCE_SUMMARY_WIDGET_HEIGHT;
 
 // Compatibility exports used by the sibling reliability dashboard and tests.
 export const TITLE_WIDGET_HEIGHT = 1;
@@ -37,6 +39,8 @@ const WIDGET_TITLE_MESSAGES: Record<string, MessageDescriptor> = {
   "provisioning-snapshot": messages.provisioningSnapshotWidget,
   "resource-summary": messages.resourceSummaryWidget,
   "sandbox-status": messages.sandboxStatusWidget,
+  "pod-and-sandbox-readiness": messages.podAndSandboxReadinessWidget,
+  "certificate-health": messages.certificateHealthWidget,
 };
 
 const desktopLayout = [
@@ -101,6 +105,24 @@ const desktopLayout = [
     w: 2,
     widgetType: "attention-required",
     x: 0,
+    y: 7.5,
+  },
+  {
+    h: READINESS_WIDGET_HEIGHT,
+    i: "pod-and-sandbox-readiness#1",
+    title: "Pod and sandbox readiness",
+    w: 1,
+    widgetType: "pod-and-sandbox-readiness",
+    x: 2,
+    y: 7.5,
+  },
+  {
+    h: CERTIFICATE_HEALTH_WIDGET_HEIGHT,
+    i: "certificate-health#1",
+    title: "Certificate health",
+    w: 1,
+    widgetType: "certificate-health",
+    x: 3,
     y: 7.5,
   },
 ] as const;

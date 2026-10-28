@@ -236,7 +236,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
-	cpotel.SetResourceStatusStale(ctx, r.clusterID, "Gateway", event.ResourceID, false)
+	if event.Type != watcher.EventDeleted {
+		observedGeneration := gw.ObservedGeneration
+		cpotel.SetResourceStatusStale(
+			ctx,
+			r.clusterID,
+			"Gateway",
+			event.ResourceID,
+			observedGeneration == nil || *observedGeneration < gw.GetGeneration(),
+		)
+	}
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
