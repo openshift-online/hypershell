@@ -171,7 +171,8 @@ $ARGUMENTS
 
 The **authoritative** release coordinates live in `OPENSHELL_VERSION`.
 Edit that file first, vendor the selected chart, and run
-`make sync-openshell-version` to update the deployment pins and console constant.
+`make sync-openshell-version` to update the deployment pins, including the
+`HYPERSHELL_CONSOLE_IMAGE` console pin.
 The workload-image entry `OPENSHELL_SANDBOX_IMAGE` is derived from the vendored
 chart's `sandbox.image` values and is used only for e2e requests and Kind preload.
 It is not a control-plane environment variable or a compiled Go default.
@@ -211,7 +212,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 |------|----------------|-------|
 | `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`, `OPENSHELL_SANDBOX_IMAGE` | Edit release coordinates first; vendoring derives the workload image from the selected chart, independent of `OPENSHELL_TAG` |
 | `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
-| `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest + comment tag) | Must agree with `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change |
+| `deploy/base/platform-resources/controller.yaml` | `HYPERSHELL_CONSOLE_IMAGE` env var (digest) and the release named in the comment above it | `make sync-openshell-version` stamps it from `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change. The control plane has no built-in console image |
 | `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE` env vars | Generated pins; run `make sync-openshell-version` |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
@@ -422,10 +423,9 @@ be investigated rather than retaining the old pin silently.
      | python3 -c "import sys,json; [print(t['name'],t.get('manifest_digest','')) for t in json.load(sys.stdin)['tags']]"
    ```
 
-   When updating, set both files - they must agree:
-   - `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`
-   - `defaultConsoleImage` in `components/control-plane/internal/gateway/config.go`
-     (also update the `sha-XXXXXXX` tag name in the comment on the line above)
+   When updating, set `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and run
+   `make sync-openshell-version`. It stamps `HYPERSHELL_CONSOLE_IMAGE` in
+   `deploy/base/platform-resources/controller.yaml`. Also update the release named in the comment above that env var.
 
    Symptom of a stale console image after a proto-breaking bump: the Sandboxes
    tab shows an infinite loading spinner that never resolves, with no error in the
@@ -631,8 +631,9 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
     responses - the sandbox list UI showed an infinite loading spinner with no
     error. Updated to `sha-71335e5` (built 2026-09-23,
     `sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927`).
-    Both `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and `defaultConsoleImage`
-    in `config.go` must be updated together and must agree. See Step 3b.
+    The console pin now lives only in `OPENSHELL_CONSOLE_DIGEST`;
+    `make sync-openshell-version` stamps it into `HYPERSHELL_CONSOLE_IMAGE` in
+    `deploy/base/platform-resources/controller.yaml`. See Step 3b.
   - **`appArmorProfile` in Kind.** v0.1.2 chart sets
     `securityContext.appArmorProfile: type: RuntimeDefault` on pods. Kind does not
     support AppArmor, so pods fail to schedule. Suppressed via a Helm values

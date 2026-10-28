@@ -54,9 +54,10 @@ patches:
                   - name: GATEWAY_RESOURCES
                     value: '{"requests":{"cpu":"50m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}'
                   # The console dashboard and oauth2-proxy sidecar images are
-                  # public registry images; the control plane's ImageDefaults
-                  # already point at them (dashboard pinned by digest on quay),
-                  # so Kind pulls them at pod start (imagePullPolicy IfNotPresent)
+                  # public registry images. The base controller sets
+                  # HYPERSHELL_CONSOLE_IMAGE (dashboard pinned by digest on quay)
+                  # and the control plane defaults the oauth2-proxy image, so
+                  # Kind pulls them at pod start (imagePullPolicy IfNotPresent)
                   # with no overlay override or pre-load needed. Override
                   # HYPERSHELL_CONSOLE_IMAGE / HYPERSHELL_OAUTH2_PROXY_IMAGE only
                   # to test a different build.

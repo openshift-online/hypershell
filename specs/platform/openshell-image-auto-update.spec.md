@@ -25,7 +25,9 @@ merge only on green - preventing both silent drift and unvalidated upgrades.
 - Internal registry mirrors (e.g. `deploy/ibm/kustomization.yaml`) - these are
   cluster-local copies updated by the mirror process, not by Renovate.
 - Go source constants for non-OpenShell images (`defaultOAuth2ProxyImage`,
-  etc.) - separate concern. (`defaultConsoleImage` is synced by
+  etc.) - separate concern. (The console image has no Go constant: the
+  `HYPERSHELL_CONSOLE_IMAGE` env var in
+  `deploy/base/platform-resources/controller.yaml` is synced by
   `sync_openshell_version.py` via `OPENSHELL_CONSOLE_IMAGE` /
   `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`.)
 - Database-backed image defaults (future; tracked by existing TODO in

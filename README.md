@@ -177,6 +177,7 @@ Or apply a kustomize patch via `deploy/openshift/kustomization.yaml` with your s
 | `GATEWAY_IMAGE` | *(none)* | **✓ required** | Container image for tenant gateways (pinned by digest; no fallback). Set in `deploy/base/platform-resources/controller.yaml` |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(none)* | **✓ required** | Container image for gateway supervisors (pinned by digest; no fallback). Set in `deploy/base/platform-resources/controller.yaml` |
 | `GATEWAY_SANDBOX_RUNTIME_IMAGE` | *(none)* | | Sandbox runtime image, pinned to the same OpenShell build as `GATEWAY_SUPERVISOR_IMAGE` (they speak a versioned boundary protocol). Unset falls back to the chart default, a moving upstream tag that can skew from the supervisor and leave sandboxes in `Provisioning`. Set in `deploy/base/platform-resources/controller.yaml` |
+| `HYPERSHELL_CONSOLE_IMAGE` | *(none)* | **✓ required** | OpenShell dashboard image for the per-gateway console, pinned by digest (no fallback; the controller refuses to start without it). Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | ✓ | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | ✓ | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
