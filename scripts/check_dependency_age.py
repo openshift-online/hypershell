@@ -8,6 +8,7 @@ https://github.com/jsell-rh/rh-trex-ai/blob/main/scripts/check-dependency-age.py
 import argparse
 import concurrent.futures
 import datetime as dt
+import gzip
 import json
 import os
 import re
@@ -60,11 +61,15 @@ def fetch_json(url):
 
 
 def _fetch_body(url):
+    # Ask for a compressed response. A full npm packument can be over 10 MB
+    # uncompressed but about 1.5 MB gzipped, which keeps a slow CI runner
+    # inside the --max-time limit.
     if shutil.which("curl"):
         result = subprocess.run(
             [
                 "curl",
                 "-fsSL",
+                "--compressed",
                 "--proto",
                 "=https",
                 "--tlsv1.2",
@@ -85,9 +90,14 @@ def _fetch_body(url):
             stderr=subprocess.PIPE,
         )
         return result.stdout
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "Accept-Encoding": "gzip"}
+    )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read().decode("utf-8")
+        body = response.read()
+        if response.headers.get("Content-Encoding", "").lower() == "gzip":
+            body = gzip.decompress(body)
+        return body.decode("utf-8")
 
 
 def repository_files(root, pattern):
