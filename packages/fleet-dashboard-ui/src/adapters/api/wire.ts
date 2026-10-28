@@ -108,10 +108,14 @@ interface WirePromotionEnvironment {
   readonly provider?: string;
   readonly env?: string;
   readonly cluster?: string;
-  // Self-declared capability labels (`namespace/value`), sourced by the BFF from
-  // the instance's Argo delivery labels. Absent/null on servers that predate the
-  // field; treated as an empty set.
+  // Self-declared capability labels (`namespace/value`). The BFF prefers the
+  // control plane's capability metric and falls back to the Argo delivery
+  // annotation. Absent/null on servers that predate the field; treated as an
+  // empty set.
   readonly capabilities?: readonly string[] | null;
+  // Default gateway image the control plane provisions, from its info metric.
+  // Absent when the control plane does not report it (FLT-CAP-07).
+  readonly gatewayImage?: string;
   readonly argoHealth?: string;
   readonly argoSync?: string;
   // Argo CD sync-operation retry count. Omitted by the BFF when no operation
@@ -178,6 +182,7 @@ function mapEnvironment(
     capabilities: (env.capabilities ?? []).filter(
       (c): c is string => typeof c === "string" && c !== "",
     ),
+    gatewayImage: nullableString(env.gatewayImage),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
     // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.

@@ -85,11 +85,17 @@ export interface PromotionEnvironment {
   readonly cluster: string | null;
   /**
    * Self-declared capability labels (`namespace/value` strings, see PLAT-CLUS-06),
-   * sourced from the instance's Argo delivery labels exactly like `provider`.
-   * Optional and opaque: absent/omitted means an empty set, and the UI bakes in no
-   * capability vocabulary (FLT-CAP-01).
+   * reported by the cluster's control plane, or its Argo delivery annotation when
+   * the control plane does not report them. Optional and opaque: absent/omitted
+   * means an empty set, and the UI bakes in no capability vocabulary (FLT-CAP-01).
    */
   readonly capabilities?: readonly string[];
+  /**
+   * Default OpenShell gateway image the cluster's control plane provisions, as
+   * reported by that control plane. Optional; null/absent when not reported
+   * (FLT-CAP-07).
+   */
+  readonly gatewayImage?: string | null;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
   /**

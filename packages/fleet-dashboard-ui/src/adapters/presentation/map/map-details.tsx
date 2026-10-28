@@ -698,6 +698,11 @@ function NodeFields({
       >
         {node.role ?? <FormattedMessage {...messages.valueNone} />}
       </Row>
+      {node.gatewayImage ? (
+        <Row term={<FormattedMessage {...messages.detailGatewayImage} />}>
+          <Truncate content={node.gatewayImage} position="middle" />
+        </Row>
+      ) : null}
       <Row
         term={
           <TermWithInfo
