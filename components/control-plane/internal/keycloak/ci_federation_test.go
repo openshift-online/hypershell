@@ -13,11 +13,10 @@ import (
 )
 
 const (
-	testIdpAlias       = "github-actions"
-	testFederationID   = "ci-federation"
-	testWorkspace      = "gh-acme"
-	testWorkspaceGrpID = "group-gh-acme-uuid"
-	testGatewayRoleID  = "role-openshell-user-uuid"
+	testIdpAlias      = "github-actions"
+	testFederationID  = "ci-federation"
+	testWorkspace     = "gh-acme"
+	testGatewayRoleID = "role-openshell-user-uuid"
 )
 
 // fakeCIKeycloak is a stateful httptest fake of the Keycloak admin REST surface
@@ -32,7 +31,8 @@ type fakeCIKeycloak struct {
 	idpMappers map[string]idpMapper
 	nextID     int
 
-	groupExists bool
+	// groups maps group name -> group id, as Keycloak would after create.
+	groups map[string]string
 
 	// gatewayClientExists controls whether the gateway clientId resolves.
 	gatewayClientExists bool
@@ -41,8 +41,9 @@ type fakeCIKeycloak struct {
 	// roleExists controls whether the role resolves on the gateway client.
 	roleExists bool
 
-	// groupRoleMappings records POSTed {groupID}->roles.
-	groupRoleMappings [][]keycloakRole
+	// groupRoleMappings records POSTed role bindings keyed by group id, so a test
+	// can assert which group a role landed on (cross-trust isolation).
+	groupRoleMappings map[string][][]keycloakRole
 
 	requests []string // method+path trail, for ordering assertions
 }
@@ -52,9 +53,11 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 	state := &fakeCIKeycloak{
 		idpExists:           true,
 		idpMappers:          map[string]idpMapper{},
+		groups:              map[string]string{},
 		gatewayClientExists: true,
 		gatewayAttrs:        map[string]string{},
 		roleExists:          true,
+		groupRoleMappings:   map[string][][]keycloakRole{},
 	}
 
 	mux := http.NewServeMux()
@@ -129,7 +132,8 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 		}
 	})
 
-	// Groups collection (GET search, POST create).
+	// Groups collection (GET search, POST create). Group ids are tracked by name
+	// so a test can observe which per-trust group a role is bound to.
 	groupsBase := fmt.Sprintf("/admin/realms/%s/groups", testRealm)
 	mux.HandleFunc(groupsBase, func(w http.ResponseWriter, r *http.Request) {
 		state.mu.Lock()
@@ -138,14 +142,18 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 		case http.MethodGet:
 			state.requests = append(state.requests, "GET groups")
 			w.Header().Set("Content-Type", "application/json")
-			if state.groupExists && r.URL.Query().Get("search") == testWorkspace {
-				_ = json.NewEncoder(w).Encode([]keycloakGroup{{ID: testWorkspaceGrpID, Name: testWorkspace}})
+			search := r.URL.Query().Get("search")
+			if id, ok := state.groups[search]; ok {
+				_ = json.NewEncoder(w).Encode([]keycloakGroup{{ID: id, Name: search}})
 				return
 			}
 			_ = json.NewEncoder(w).Encode([]keycloakGroup{})
 		case http.MethodPost:
 			state.requests = append(state.requests, "POST groups")
-			state.groupExists = true
+			var g keycloakGroup
+			_ = json.NewDecoder(r.Body).Decode(&g)
+			state.nextID++
+			state.groups[g.Name] = fmt.Sprintf("group-%d", state.nextID)
 			w.WriteHeader(http.StatusCreated)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -203,19 +211,26 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 		}
 	})
 
-	// Group role-mappings onto the gateway client.
-	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/groups/%s/role-mappings/clients/%s", testRealm, testWorkspaceGrpID, testGatewayUUID), func(w http.ResponseWriter, r *http.Request) {
+	// Group role-mappings onto the gateway client. Registered as a prefix handler
+	// so any per-trust group id is accepted; the group id is parsed from the path
+	// and the binding recorded against it (cross-trust isolation assertions).
+	groupsPrefix := groupsBase + "/"
+	mux.HandleFunc(groupsPrefix, func(w http.ResponseWriter, r *http.Request) {
 		state.mu.Lock()
 		defer state.mu.Unlock()
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		rest := strings.TrimPrefix(r.URL.Path, groupsPrefix)
+		marker := "/role-mappings/clients/"
+		idx := strings.Index(rest, marker)
+		if idx < 0 || r.Method != http.MethodPost {
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		groupID := rest[:idx]
 		state.requests = append(state.requests, "POST group role-mapping")
 		body, _ := io.ReadAll(r.Body)
 		var roles []keycloakRole
 		_ = json.Unmarshal(body, &roles)
-		state.groupRoleMappings = append(state.groupRoleMappings, roles)
+		state.groupRoleMappings[groupID] = append(state.groupRoleMappings[groupID], roles)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -260,8 +275,14 @@ func TestEnsureCIFederation_CreatesAllArtifacts(t *testing.T) {
 	if mapper.IdentityProviderMapper != advancedGroupIdpMapper {
 		t.Errorf("mapper type = %q, want %q", mapper.IdentityProviderMapper, advancedGroupIdpMapper)
 	}
-	if got, want := mapper.Config["group"], "/"+testWorkspace; got != want {
-		t.Errorf("mapper group = %q, want %q", got, want)
+	// The mapper lands the identity in this trust's OWN per-trust group, not the
+	// shared per-owner workspace label.
+	wantGroup := "/" + githubSpec().GroupName()
+	if got := mapper.Config["group"]; got != wantGroup {
+		t.Errorf("mapper group = %q, want per-trust group %q", got, wantGroup)
+	}
+	if mapper.Config["group"] == "/"+testWorkspace {
+		t.Errorf("mapper must not target the shared per-owner group %q", testWorkspace)
 	}
 	var claims []map[string]string
 	if err := json.Unmarshal([]byte(mapper.Config["claims"]), &claims); err != nil {
@@ -270,10 +291,14 @@ func TestEnsureCIFederation_CreatesAllArtifacts(t *testing.T) {
 	assertClaim(t, claims, "repository", "acme/app")
 	assertClaim(t, claims, "repository_owner", "acme")
 
-	// (c) gateway role bound onto the workspace group.
-	if len(state.groupRoleMappings) != 1 || len(state.groupRoleMappings[0]) != 1 ||
-		state.groupRoleMappings[0][0].Name != "openshell-user" {
-		t.Errorf("group role mappings = %v, want one openshell-user binding", state.groupRoleMappings)
+	// (c) gateway role bound onto exactly one per-trust group.
+	if len(state.groupRoleMappings) != 1 {
+		t.Fatalf("role bound to %d groups, want exactly one per-trust group; got %v", len(state.groupRoleMappings), state.groupRoleMappings)
+	}
+	for _, bindings := range state.groupRoleMappings {
+		if len(bindings) != 1 || len(bindings[0]) != 1 || bindings[0][0].Name != "openshell-user" {
+			t.Errorf("group role bindings = %v, want one openshell-user binding", bindings)
+		}
 	}
 
 	// (b) gateway client opted in as a token-exchange audience.
@@ -438,10 +463,10 @@ func TestDeleteCIFederation_RemovesSubjectMapper(t *testing.T) {
 	if _, ok := state.idpMappers["citrust-trust-123"]; ok {
 		t.Error("subject mapper should be removed on delete")
 	}
-	// The shared workspace group binding is deliberately preserved for sibling
-	// trusts; the mapper removal is the authoritative revocation.
+	// The per-trust group binding is left in place (inert without the mapper); the
+	// mapper removal is the authoritative revocation.
 	if len(state.groupRoleMappings) == 0 {
-		t.Error("workspace group binding should survive a single trust delete")
+		t.Error("per-trust group binding should survive the mapper delete")
 	}
 }
 
@@ -451,6 +476,179 @@ func TestDeleteCIFederation_MissingMapperIsNoOp(t *testing.T) {
 
 	if err := client.DeleteCIFederation(t.Context(), githubSpec()); err != nil {
 		t.Fatalf("DeleteCIFederation on absent mapper should be a no-op, got %v", err)
+	}
+}
+
+// TestEnsureCIFederation_SameOwnerDifferentReposDoNotCrossInherit is the
+// regression lock for finding 1: two CITrusts under the same owner but for
+// different repositories with different roles must each land their role on their
+// OWN per-trust group, so the lower-privileged repo never inherits the sibling's
+// higher role.
+func TestEnsureCIFederation_SameOwnerDifferentReposDoNotCrossInherit(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	specUser := githubSpec()
+	specUser.TrustID = "trust-user"
+	specUser.Subject = CISubjectPredicate{Repository: "acme/low", RepositoryOwner: "acme"}
+	specUser.Role = "openshell-user"
+
+	specAdmin := githubSpec()
+	specAdmin.TrustID = "trust-admin"
+	specAdmin.Subject = CISubjectPredicate{Repository: "acme/high", RepositoryOwner: "acme"}
+	specAdmin.Role = "openshell-admin"
+
+	for _, s := range []CIFederationSpec{specUser, specAdmin} {
+		if err := client.EnsureCIFederation(t.Context(), s); err != nil {
+			t.Fatalf("EnsureCIFederation(%s): %v", s.TrustID, err)
+		}
+	}
+
+	// Each trust owns a distinct group.
+	if specUser.GroupName() == specAdmin.GroupName() {
+		t.Fatalf("both trusts share group %q; per-trust isolation lost", specUser.GroupName())
+	}
+
+	assertOnlyRole := func(spec CIFederationSpec, wantRole string) {
+		t.Helper()
+		groupID, ok := state.groups[spec.GroupName()]
+		if !ok {
+			t.Fatalf("group %q never created", spec.GroupName())
+		}
+		bindings := state.groupRoleMappings[groupID]
+		for _, roles := range bindings {
+			for _, role := range roles {
+				if role.Name != wantRole {
+					t.Errorf("group %q carries role %q, want only %q (cross-repo inheritance)", spec.GroupName(), role.Name, wantRole)
+				}
+			}
+		}
+		if len(bindings) == 0 {
+			t.Errorf("group %q got no role binding", spec.GroupName())
+		}
+	}
+	assertOnlyRole(specUser, "openshell-user")
+	assertOnlyRole(specAdmin, "openshell-admin")
+
+	// Each per-trust mapper admits only its own repository.
+	assertRepoClaim := func(trustID, repo string) {
+		t.Helper()
+		var claims []map[string]string
+		_ = json.Unmarshal([]byte(state.idpMappers["citrust-"+trustID].Config["claims"]), &claims)
+		assertClaim(t, claims, "repository", repo)
+	}
+	assertRepoClaim("trust-user", "acme/low")
+	assertRepoClaim("trust-admin", "acme/high")
+}
+
+// TestGroupName_PerTrustAndPerGateway locks the structural isolation invariant:
+// the Keycloak group is a function of the trust id, so distinct trusts (distinct
+// repos, or the same repo on a different gateway - each is a separate CITrust with
+// its own id) never share a group, and the role grant cannot leak across repos or
+// gateways.
+func TestGroupName_PerTrustAndPerGateway(t *testing.T) {
+	base := githubSpec()
+
+	sameOwnerRepoA := base
+	sameOwnerRepoA.TrustID = "trust-a"
+	sameOwnerRepoB := base
+	sameOwnerRepoB.TrustID = "trust-b"
+	if sameOwnerRepoA.GroupName() == sameOwnerRepoB.GroupName() {
+		t.Errorf("distinct trusts share a group: %q", sameOwnerRepoA.GroupName())
+	}
+
+	// Same repository/owner, but a second gateway is modeled as a second CITrust
+	// with its own id; the groups must still differ so a role on gateway A's
+	// client never binds onto a group gateway B's trust also uses.
+	gatewayA := base
+	gatewayA.TrustID = "trust-gw-a"
+	gatewayA.GatewayClientID = "prod-gw-a"
+	gatewayB := base
+	gatewayB.TrustID = "trust-gw-b"
+	gatewayB.GatewayClientID = "prod-gw-b"
+	if gatewayA.GroupName() == gatewayB.GroupName() {
+		t.Errorf("cross-gateway trusts share a group: %q", gatewayA.GroupName())
+	}
+}
+
+// TestEnsureCIFederation_RejectsIdentityClaimlessSubject locks finding 2: a
+// github/forgejo trust constrained only by ref or environment (no repository or
+// owner) is rejected, and likewise a gitlab trust without project_path.
+func TestEnsureCIFederation_RejectsIdentityClaimlessSubject(t *testing.T) {
+	cases := []struct {
+		name  string
+		forge string
+		subj  CISubjectPredicate
+	}{
+		{"github ref only", "github", CISubjectPredicate{Ref: "refs/heads/main"}},
+		{"github environment only", "github", CISubjectPredicate{Environment: "production"}},
+		{"forgejo ref only", "forgejo", CISubjectPredicate{Ref: "refs/heads/main"}},
+		{"gitlab ref only", "gitlab", CISubjectPredicate{Ref: "refs/heads/main"}},
+		{"gitlab environment only", "gitlab", CISubjectPredicate{Environment: "production"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, state := newFakeCIKeycloak(t)
+			client := ciTestClient(server)
+			spec := githubSpec()
+			spec.Forge = tc.forge
+			spec.Subject = tc.subj
+			if err := client.EnsureCIFederation(t.Context(), spec); err == nil {
+				t.Fatal("expected a trust without a repository/owner (or project_path) identity claim to be rejected")
+			}
+			if len(state.idpMappers) != 0 {
+				t.Errorf("no mapper should be created for a rejected trust; got %v", state.idpMappers)
+			}
+		})
+	}
+}
+
+// TestEnsureCIFederation_GitLabRefProtectedIncluded locks finding 3: a GitLab
+// trust with RefProtected set carries the ref_protected claim.
+func TestEnsureCIFederation_GitLabRefProtectedIncluded(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	spec := githubSpec()
+	spec.Forge = "gitlab"
+	spec.Subject = CISubjectPredicate{ProjectPath: "acme/app", RefProtected: true}
+	if err := client.EnsureCIFederation(t.Context(), spec); err != nil {
+		t.Fatalf("EnsureCIFederation: %v", err)
+	}
+	var claims []map[string]string
+	_ = json.Unmarshal([]byte(state.idpMappers["citrust-trust-123"].Config["claims"]), &claims)
+	assertClaim(t, claims, "ref_protected", "true")
+}
+
+// TestEnsureCIFederation_MissingRoleIsRetryable locks finding 5: when the gateway
+// client exists but its role 404s (provisioning race), the error is a retryable
+// ClientNotFoundError, not a terminal failure.
+func TestEnsureCIFederation_MissingRoleIsRetryable(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	state.roleExists = false
+	client := ciTestClient(server)
+
+	err := client.EnsureCIFederation(t.Context(), githubSpec())
+	if err == nil {
+		t.Fatal("expected an error when the gateway client role is not provisioned")
+	}
+	var notFound *ClientNotFoundError
+	if !errors.As(err, &notFound) {
+		t.Errorf("error = %v, want a ClientNotFoundError so the caller retries", err)
+	}
+}
+
+// TestDeleteCIFederation_EmptyIdPAliasIsNoOp locks finding 4: a delete with no
+// resolvable idp_alias (the CIProvider is already gone) is a tolerant no-op, not
+// a hard error that would wedge the delete given WatchCITrusts does not resync.
+func TestDeleteCIFederation_EmptyIdPAliasIsNoOp(t *testing.T) {
+	server, _ := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	spec := githubSpec()
+	spec.IdpAlias = ""
+	if err := client.DeleteCIFederation(t.Context(), spec); err != nil {
+		t.Fatalf("delete with empty idp_alias should be a no-op, got %v", err)
 	}
 }
 

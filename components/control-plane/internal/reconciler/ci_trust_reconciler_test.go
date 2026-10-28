@@ -291,6 +291,65 @@ func TestCITrustHandle_NilKeycloakSkips(t *testing.T) {
 	}
 }
 
+// TestCITrustUpsert_CrossGatewayAndCrossRepoIsolation proves the end-to-end
+// wiring preserves per-trust isolation (finding 1): two CITrusts under the same
+// owner - one for a different repo, one on a different gateway - each resolve to a
+// distinct Keycloak group, so neither can inherit the other's role. The shared
+// per-owner workspace label is reported in status for legibility, but it is never
+// the group the role binds to.
+func TestCITrustUpsert_CrossGatewayAndCrossRepoIsolation(t *testing.T) {
+	ensure := func(t *testing.T, trustID, repo, gatewayID, gatewayName, cluster, role string) keycloak.CIFederationSpec {
+		t.Helper()
+		kc := &fakeCIKeycloak{}
+		gw := &fakeGatewaySvc{gateway: &pb.Gateway{
+			Metadata:  &pb.ObjectReference{Id: gatewayID},
+			Name:      gatewayName,
+			ClusterId: cluster,
+		}}
+		r := newCITrustTestReconciler(kc, githubProvider(), gw, &fakeCITrustSvc{})
+		trust := &pb.CITrust{
+			Metadata:          &pb.ObjectReference{Id: trustID},
+			CiProviderId:      "prov-1",
+			GatewayId:         gatewayID,
+			SubjectRepository: strptr(repo),
+			Role:              role,
+		}
+		if err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{
+			Type:       watcher.EventCreated,
+			ResourceID: trustID,
+			Resource:   trust,
+		}); err != nil {
+			t.Fatalf("Handle(%s): %v", trustID, err)
+		}
+		if len(kc.ensured) != 1 {
+			t.Fatalf("ensure calls for %s = %d, want 1", trustID, len(kc.ensured))
+		}
+		return kc.ensured[0]
+	}
+
+	// Same owner, different repositories, same gateway.
+	low := ensure(t, "trust-low", "acme/low", "gw-1", "prod", testClusterID, "openshell-user")
+	high := ensure(t, "trust-high", "acme/high", "gw-1", "prod", testClusterID, "openshell-admin")
+	// Same owner and repository, but a different gateway (distinct CITrust).
+	gwA := ensure(t, "trust-gw-a", "acme/app", "gw-a", "edge-a", testClusterID, "openshell-user")
+	gwB := ensure(t, "trust-gw-b", "acme/app", "gw-b", "edge-b", testClusterID, "openshell-user")
+
+	// All share the per-owner workspace label (informational).
+	for _, s := range []keycloak.CIFederationSpec{low, high, gwA, gwB} {
+		if s.Workspace != "gh-acme" {
+			t.Errorf("workspace label = %q, want gh-acme", s.Workspace)
+		}
+	}
+	// But every trust binds its role onto a distinct group.
+	groups := map[string]string{}
+	for _, s := range []keycloak.CIFederationSpec{low, high, gwA, gwB} {
+		if prev, dup := groups[s.GroupName()]; dup {
+			t.Errorf("trust %s and %s share group %q; isolation lost", prev, s.TrustID, s.GroupName())
+		}
+		groups[s.GroupName()] = s.TrustID
+	}
+}
+
 func TestDeriveWorkspace(t *testing.T) {
 	cases := []struct {
 		forge, repo, project, want string

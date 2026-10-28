@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -21,23 +22,29 @@ import (
 //
 // A CITrust is realized as three artifacts:
 //
-//  (a) a per-trust scoped claim-to-workspace IdP mapper on the (platform
+//  (a) a per-trust scoped claim-to-group IdP mapper on the (platform
 //      provisioned, adopted) CIProvider IdP. It admits only brokered tokens
 //      whose claims match the compiled subject predicate (repository /
 //      repository_owner, plus project_path / environment / ref / ref_protected
-//      when the subject sets them) and lands the matched identity in the derived
-//      workspace group. This is the trust boundary (PLAT-CITR-04): audience
-//      pinning alone is insufficient because any repository can mint a token
-//      carrying the pinned audience, so the repository/owner claim match is the
-//      real gate. A token that does not match lands in no workspace group, holds
-//      no role, and is rejected default-deny.
+//      when the subject sets them) and lands the matched identity in the trust's
+//      OWN per-trust group (not a shared per-owner group). This is the trust
+//      boundary (PLAT-CITR-04): audience pinning alone is insufficient because
+//      any repository can mint a token carrying the pinned audience, so the
+//      repository/owner claim match is the real gate. A token that does not
+//      match lands in no group, holds no role, and is rejected default-deny.
 //
 //  (b) a token-exchange authorization enabling the public (keyless) federation
 //      client to exchange a brokered token from the IdP onto the gateway client
 //      (the exchange audience) via external-to-internal v2.
 //
-//  (c) a gateway RBAC binding mapping the gateway client role onto the derived
-//      workspace group, so a matched identity is workspace-scoped on the gateway.
+//  (c) a gateway RBAC binding mapping the gateway client role onto the trust's
+//      OWN per-trust group, so a matched identity holds exactly the role its own
+//      CITrust grants on its own gateway. The group is keyed on the CITrust id,
+//      which uniquely identifies one (repository, gateway, role) tuple, so no two
+//      distinct trusts ever aggregate their roles onto a shared group: a
+//      low-privilege repo cannot inherit a sibling repo's higher role, and a role
+//      granted for one gateway never leaks onto another gateway's client
+//      (cross-repo / cross-gateway privilege-escalation boundary).
 //
 // LIVE-VERIFY: the exact v2 admin-REST shape for (a) the per-repo subject
 // constraint and (b) the per-requester external-to-internal authorization is
@@ -90,12 +97,28 @@ type CIFederationSpec struct {
 	// GatewayClientID is the gateway's Keycloak client ({name}-{id}); the
 	// exchange audience.
 	GatewayClientID string
-	// Workspace is the derived forge-namespaced workspace, e.g. "gh-acme".
+	// Workspace is the derived forge-namespaced workspace label, e.g. "gh-acme".
+	// It is informational only (reported in CITrust status and the workflow
+	// hint); it is NOT the Keycloak group the role is bound to. The role grant is
+	// isolated to a per-trust group (see GroupName) so sibling trusts under the
+	// same owner never aggregate their roles.
 	Workspace string
-	// Role is the gateway client role bound to the workspace.
+	// Role is the gateway client role bound to this trust's per-trust group.
 	Role string
 	// Subject is the compiled claim predicate.
 	Subject CISubjectPredicate
+}
+
+// GroupName is the Keycloak group a matched identity lands in and the group the
+// gateway role is bound to. It is keyed on the CITrust id, which uniquely
+// identifies one (repository, gateway, role) tuple, so each trust's role grant
+// is isolated to its own subject and its own gateway. A shared per-owner group
+// would let a low-privilege repo inherit a sibling repo's higher role and leak
+// roles across gateways; keying on the trust id closes that boundary. The
+// Workspace label prefixes the name only for legibility in the Keycloak admin
+// UI; it never widens the scope.
+func (s CIFederationSpec) GroupName() string {
+	return fmt.Sprintf("%s-citrust-%s", s.Workspace, s.TrustID)
 }
 
 type idpMapper struct {
@@ -161,16 +184,21 @@ func (c *Client) EnsureCIFederation(ctx context.Context, spec CIFederationSpec) 
 
 // DeleteCIFederation revokes a CITrust. It removes the per-trust subject mapper
 // (a), which is the authoritative revocation: the deleted subject can no longer
-// land in the workspace group, so it holds no role and is rejected default-deny
-// (the CITrust-delete-revokes-exchange requirement). The workspace group and its gateway role binding (c) and
-// the gateway client's exchange opt-in (b) are shared, per-owner / per-gateway
-// infrastructure and are deliberately NOT torn down here: a sibling CITrust for
-// another repository under the same owner, or another trust on the same gateway,
-// still needs them, and they grant nothing on their own without a matching
-// subject mapper.
+// land in the trust's group, so it holds no role and is rejected default-deny
+// (the CITrust-delete-revokes-exchange requirement). The per-trust group and its
+// role binding (c) and the gateway client's exchange opt-in (b) are left in
+// place: the empty group grants nothing without a matching subject mapper, and
+// the exchange opt-in is shared by every trust on the gateway client.
+//
+// Tolerant delete: an empty idp_alias or trust id means there is nothing this
+// reconciler can resolve to revoke (e.g. the CIProvider was already torn down, so
+// its adopted alias is unknowable), and an already-gone mapper is a no-op. Since
+// the WatchCITrusts stream does not resync deletes, a hard error here would wedge
+// the delete forever, so these are treated as already-revoked rather than failed.
 func (c *Client) DeleteCIFederation(ctx context.Context, spec CIFederationSpec) error {
 	if spec.IdpAlias == "" || spec.TrustID == "" {
-		return fmt.Errorf("CI federation delete requires idp_alias and trust id")
+		log.Printf("INFO keycloak: CI federation delete for trust %q has no idp_alias to resolve; nothing to revoke", spec.TrustID)
+		return nil
 	}
 	if err := c.deleteCITrustIdpMapper(ctx, spec.IdpAlias, spec.TrustID); err != nil {
 		return fmt.Errorf("delete CI trust subject mapper: %w", err)
@@ -194,6 +222,21 @@ func (s CIFederationSpec) validate() error {
 	if len(subjectClaims(s.Forge, s.Subject)) == 0 {
 		return fmt.Errorf("CI federation requires at least one subject claim constraint (the trust boundary); refusing to authorize an unconstrained exchange")
 	}
+	// The identity claim (repository/owner for github/forgejo, project_path for
+	// gitlab) is the real trust boundary: a trust constrained only by ref or
+	// environment would admit ANY repository building that ref. Require it
+	// explicitly so a ref/environment-only subject is rejected, not quietly
+	// widened to every repo.
+	switch s.Forge {
+	case "gitlab":
+		if s.Subject.ProjectPath == "" {
+			return fmt.Errorf("gitlab CI federation requires a project_path subject (the trust boundary); a ref/environment-only trust is refused")
+		}
+	default: // github, forgejo
+		if s.Subject.Repository == "" && s.Subject.RepositoryOwner == "" {
+			return fmt.Errorf("%s CI federation requires a repository or repository_owner subject (the trust boundary); a ref/environment-only trust is refused", s.Forge)
+		}
+	}
 	return nil
 }
 
@@ -213,6 +256,9 @@ func subjectClaims(forge string, s CISubjectPredicate) []map[string]string {
 		add("project_path", s.ProjectPath)
 		add("ref", s.Ref)
 		add("environment", s.Environment)
+		if s.RefProtected {
+			add("ref_protected", "true")
+		}
 	default: // github, forgejo
 		add("repository", s.Repository)
 		add("repository_owner", s.RepositoryOwner)
@@ -240,8 +286,11 @@ func (c *Client) ensureCITrustIdpMapper(ctx context.Context, spec CIFederationSp
 		Config: map[string]string{
 			"claims":                 string(claims),
 			"are.claim.values.regex": "false",
-			"group":                  "/" + spec.Workspace,
-			"syncMode":               "FORCE",
+			// Land the matched identity in this trust's OWN per-trust group, not a
+			// shared per-owner workspace group, so the role binding (c) cannot leak
+			// across sibling repos or gateways.
+			"group":    "/" + spec.GroupName(),
+			"syncMode": "FORCE",
 		},
 	}
 
@@ -326,22 +375,28 @@ func (c *Client) identityProviderExists(ctx context.Context, idpAlias string) (b
 	}
 }
 
-// ensureWorkspaceRoleBinding realizes artifact (c): the derived workspace group
-// exists and carries the gateway client role. Idempotent: an existing group and
-// an already-present role mapping are no-ops. gatewayUUID is the already-resolved
-// Keycloak UUID of the gateway client.
+// ensureWorkspaceRoleBinding realizes artifact (c): the trust's OWN per-trust
+// group exists and carries the gateway client role. Idempotent: an existing
+// group and an already-present role mapping are no-ops. The group is keyed on the
+// CITrust id (GroupName), so the role is granted only to the identity this
+// trust's mapper admits, on this trust's gateway - never aggregated onto a shared
+// per-owner group. gatewayUUID is the already-resolved Keycloak UUID of the
+// gateway client.
 func (c *Client) ensureWorkspaceRoleBinding(ctx context.Context, spec CIFederationSpec, gatewayUUID string) error {
-	groupID, err := c.ensureGroup(ctx, spec.Workspace)
+	group := spec.GroupName()
+	groupID, err := c.ensureGroup(ctx, group)
 	if err != nil {
 		return err
 	}
 
-	roleUUID, err := c.getClientRoleUUID(ctx, gatewayUUID, spec.Role)
+	roleUUID, err := c.getFederationClientRoleUUID(ctx, gatewayUUID, spec.GatewayClientID, spec.Role)
 	if err != nil {
 		return fmt.Errorf("resolve role %q on gateway client %q: %w", spec.Role, spec.GatewayClientID, err)
 	}
 	if roleUUID == "" {
-		return fmt.Errorf("role %q not found on gateway client %q", spec.Role, spec.GatewayClientID)
+		// A 200 with no id means the role record is not usable yet (provisioning
+		// race); surface the retryable not-found path rather than a terminal error.
+		return &ClientNotFoundError{ClientID: spec.GatewayClientID}
 	}
 
 	roles := []keycloakRole{{ID: roleUUID, Name: spec.Role}}
@@ -351,10 +406,38 @@ func (c *Client) ensureWorkspaceRoleBinding(ctx context.Context, spec CIFederati
 	path := fmt.Sprintf("/admin/realms/%s/groups/%s/role-mappings/clients/%s",
 		c.realm, url.PathEscape(groupID), url.PathEscape(gatewayUUID))
 	if _, err := c.doRequest(ctx, http.MethodPost, path, body); err != nil {
-		return fmt.Errorf("bind role %q to workspace group %q on gateway client %q: %w",
-			spec.Role, spec.Workspace, spec.GatewayClientID, err)
+		return fmt.Errorf("bind role %q to per-trust group %q on gateway client %q: %w",
+			spec.Role, group, spec.GatewayClientID, err)
 	}
 	return nil
+}
+
+// getFederationClientRoleUUID resolves a gateway client role UUID, mapping a 404
+// to the retryable ClientNotFoundError path. The client can exist before its
+// roles are provisioned (a reconcile race), and doRequest collapses every status
+// >= 400 - including 404 - into a generic error, which would surface the race as
+// a terminal "reconcile keycloak federation" failure. Inspecting the raw status
+// here lets the caller reschedule via errors.As(*ClientNotFoundError).
+func (c *Client) getFederationClientRoleUUID(ctx context.Context, clientUUID, clientID, roleName string) (string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/roles/%s",
+		c.realm, url.PathEscape(clientUUID), url.PathEscape(roleName))
+	resp, err := c.doRequestRaw(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", &ClientNotFoundError{ClientID: clientID}
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("get role %q on client %s returned %d: %s", roleName, clientID, resp.StatusCode, string(respBody))
+	}
+	var role keycloakRole
+	if err := json.Unmarshal(respBody, &role); err != nil {
+		return "", fmt.Errorf("parse role %q: %w", roleName, err)
+	}
+	return role.ID, nil
 }
 
 // ensureGroup returns the id of a top-level realm group with the given name,
