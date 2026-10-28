@@ -80,6 +80,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewayPopulations.Lock()
 	gatewayPopulations.byCluster = make(map[string]map[string]bool)
 	gatewayPopulations.seeded = make(map[string]bool)
+	gatewayPopulations.seeding = make(map[string]bool)
+	gatewayPopulations.pending = make(map[string]map[string]*bool)
 	gatewayPopulations.Unlock()
 	watchReconnects = nil
 	reconcileOutcomes = nil
@@ -484,6 +486,37 @@ func TestGatewayPopulationSnapshotUpdateAndDelete(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing population metrics: %v", want)
+	}
+}
+
+func TestGatewayPopulationSeedPreservesConcurrentWatchEvents(t *testing.T) {
+	_ = testMetricsReader(t)
+	observedCurrent := int64(2)
+	observedStale := int64(1)
+
+	BeginGatewayPopulationSeed("cluster-a")
+	UpdateGatewayPopulation(t.Context(), "cluster-a", GatewayPopulationState{
+		ResourceID: "deleted-during-list", Generation: 2, ObservedGeneration: &observedCurrent,
+	}, true)
+	UpdateGatewayPopulation(t.Context(), "cluster-a", GatewayPopulationState{
+		ResourceID: "created-during-list", Generation: 2, ObservedGeneration: &observedCurrent,
+	}, false)
+	ReplaceGatewayPopulation(t.Context(), "cluster-a", []GatewayPopulationState{
+		{ResourceID: "deleted-during-list", Generation: 2, ObservedGeneration: &observedCurrent},
+		{ResourceID: "stale", Generation: 2, ObservedGeneration: &observedStale},
+	})
+
+	gatewayPopulations.Lock()
+	defer gatewayPopulations.Unlock()
+	population := gatewayPopulations.byCluster["cluster-a"]
+	if _, exists := population["deleted-during-list"]; exists {
+		t.Fatal("seed snapshot resurrected a gateway deleted by the concurrent watch")
+	}
+	if stale, exists := population["created-during-list"]; !exists || stale {
+		t.Fatalf("concurrent create = (%v, %v), want present and current", exists, stale)
+	}
+	if stale, exists := population["stale"]; !exists || !stale {
+		t.Fatalf("snapshot stale gateway = (%v, %v), want present and stale", exists, stale)
 	}
 }
 

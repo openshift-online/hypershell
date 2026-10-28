@@ -8,7 +8,7 @@ export const sandboxReadyPromql =
 export const sandboxReadySourceAvailablePromql =
   "min(max by (hypershell_cluster_id) (gateway_sandbox_ready_source_available))";
 export const sandboxTotalPromql =
-  "sum(max by (hypershell_cluster_id) (gateway_sandbox_total))";
+  "sum(max by (hypershell_cluster_id, namespace) (gateway_sandbox_total))";
 
 export interface ResourceReadinessMetrics {
   pod_readiness_percent?: number;

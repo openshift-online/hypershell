@@ -251,6 +251,11 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 		// aware coalescing in the queue ensures a live event and its seed
 		// counterpart converge to the newest state regardless of arrival order.
 
+		// Begin the metric seed transaction before the receiver goroutine starts.
+		// This closes the scheduler window where a live event could update the
+		// population immediately before seedGateways began and then be overwritten
+		// by its LIST snapshot.
+		cpotel.BeginGatewayPopulationSeed(clusterID)
 		streamErr := make(chan error, 1)
 		go func() {
 			defer close(streamErr)
@@ -422,6 +427,12 @@ var _ gatewaySeedSink = (*reconcileQueue[*pb.Gateway])(nil)
 // synthesizing a delete here. Absence is only trusted after a successful list:
 // any page error aborts before pruning.
 func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gatewaySeedSink, clusterID string) error {
+	seedCompleted := false
+	defer func() {
+		if !seedCompleted {
+			cpotel.CancelGatewayPopulationSeed(clusterID)
+		}
+	}()
 	inventory, err := listGatewaysStable(ctx, client, clusterID)
 	if err != nil {
 		return err
@@ -435,6 +446,7 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 		})
 	}
 	cpotel.ReplaceGatewayPopulation(ctx, clusterID, population)
+	seedCompleted = true
 	var forced int
 	for _, gw := range inventory {
 		if enqueueSeed(sink, gw) {
@@ -481,7 +493,13 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 		// event to correct a stale payload. Enqueuing the current state keeps the
 		// reconcile driving the right desired state (and version-aware coalescing
 		// discards it as a no-op if the tracked payload is already newer).
-		enqueueSeed(sink, resp.GetGateway())
+		current := resp.GetGateway()
+		enqueueSeed(sink, current)
+		cpotel.UpdateGatewayPopulation(ctx, clusterID, cpotel.GatewayPopulationState{
+			ResourceID:         id,
+			Generation:         current.GetGeneration(),
+			ObservedGeneration: current.ObservedGeneration,
+		}, false)
 	}
 
 	log.Printf("INFO seeded %d gateway(s) into reconcile queue on watch (re)connect (%d forced past the phase gate for recovery, %d absent retries pruned)", seeded, forced, pruned)

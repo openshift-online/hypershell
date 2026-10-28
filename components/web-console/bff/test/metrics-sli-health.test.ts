@@ -64,6 +64,9 @@ describe("SLI health metric queries", () => {
   });
 
   it("maps readiness independently and computes unready resources only from complete sources", async () => {
+    expect(sandboxTotalPromql).toContain(
+      "max by (hypershell_cluster_id, namespace)",
+    );
     const stub = await startStub(
       new Map([
         [podReadyPromql, "8"],

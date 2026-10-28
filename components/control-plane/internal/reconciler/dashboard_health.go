@@ -28,7 +28,15 @@ const consoleCertificateRouteName = "openshell-console"
 var managedCertificateSecretNames = map[string]struct{}{
 	"openshell-server-tls":           {},
 	"openshell-client-tls":           {},
+	"openshell-server-external-tls":  {},
 	"openshell-gateway-external-tls": {},
+}
+
+var expectedCertificateSecretNames = []string{
+	"openshell-server-tls",
+	"openshell-client-tls",
+	"openshell-server-external-tls",
+	"openshell-gateway-external-tls",
 }
 
 type oidcClientInspector interface {
@@ -70,8 +78,8 @@ func evaluateCertificateHealth(materials [][]byte, now time.Time) certificateHea
 	return result
 }
 
-func readySandboxCount(pods []*corev1.Pod, sandboxes []*unstructured.Unstructured, eligible map[string]struct{}) int {
-	provisioned := make(map[string]struct{}, len(sandboxes))
+func readySandboxCount(sandboxes []*unstructured.Unstructured, eligible map[string]struct{}) int {
+	ready := 0
 	for _, sandbox := range sandboxes {
 		if sandbox == nil {
 			continue
@@ -79,35 +87,25 @@ func readySandboxCount(pods []*corev1.Pod, sandboxes []*unstructured.Unstructure
 		if _, ok := eligible[sandbox.GetNamespace()]; !ok {
 			continue
 		}
-		provisioned[sandbox.GetNamespace()+"\x00"+sandbox.GetName()] = struct{}{}
-	}
-	ready := make(map[string]struct{})
-	for _, pod := range pods {
-		if pod == nil {
+		conditions, found, err := unstructured.NestedSlice(sandbox.Object, "status", "conditions")
+		if err != nil || !found {
 			continue
 		}
-		var sandboxName string
-		for _, owner := range pod.OwnerReferences {
-			if owner.Kind == "Sandbox" {
-				sandboxName = owner.Name
-				break
+		for _, raw := range conditions {
+			condition, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
 			}
-		}
-		key := pod.Namespace + "\x00" + sandboxName
-		if sandboxName == "" {
-			continue
-		}
-		if _, ok := provisioned[key]; !ok {
-			continue
-		}
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-				ready[key] = struct{}{}
+			conditionType, _, _ := unstructured.NestedString(condition, "type")
+			conditionStatus, _, _ := unstructured.NestedString(condition, "status")
+			observedGeneration, hasObservedGeneration, _ := unstructured.NestedInt64(condition, "observedGeneration")
+			if conditionType == "Ready" && conditionStatus == "True" && hasObservedGeneration && observedGeneration == sandbox.GetGeneration() {
+				ready++
 				break
 			}
 		}
 	}
-	return len(ready)
+	return ready
 }
 
 func desiredOIDCClientIDs(gateways []*pb.Gateway) []string {
@@ -157,21 +155,7 @@ func (r *SandboxAttentionReconciler) listCertificateMaterials(ctx context.Contex
 func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.Unstructured, eligible map[string]struct{}) [][]byte {
 	materials := make([][]byte, 0)
 	seen := make(map[[sha256.Size]byte]struct{})
-	appendMaterial := func(material []byte) {
-		// Each missing expected value is an independent unavailable certificate.
-		// Only non-empty material can safely identify the same logical certificate
-		// represented by both a Secret and an OpenShift Route.
-		if len(bytes.TrimSpace(material)) == 0 {
-			materials = append(materials, nil)
-			return
-		}
-		identity := certificateMaterialIdentity(material)
-		if _, exists := seen[identity]; exists {
-			return
-		}
-		seen[identity] = struct{}{}
-		materials = append(materials, material)
-	}
+	secretMaterials := make(map[string][]byte)
 
 	for i := range secrets {
 		secret := &secrets[i]
@@ -184,7 +168,19 @@ func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.U
 		if _, managed := managedCertificateSecretNames[secret.Name]; !managed {
 			continue
 		}
-		appendMaterial(secret.Data[corev1.TLSCertKey])
+		secretMaterials[secret.Namespace+"\x00"+secret.Name] = secret.Data[corev1.TLSCertKey]
+	}
+	for namespace := range eligible {
+		for _, name := range expectedCertificateSecretNames {
+			// A missing expected Secret is an unavailable certificate, not an
+			// absent observation. Each namespace/name identity is counted even
+			// when two expected Secrets contain the same leaf certificate.
+			material := secretMaterials[namespace+"\x00"+name]
+			materials = append(materials, material)
+			if len(bytes.TrimSpace(material)) > 0 {
+				seen[certificateMaterialIdentity(material)] = struct{}{}
+			}
+		}
 	}
 	for i := range routes {
 		route := &routes[i]
@@ -199,7 +195,15 @@ func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.U
 			continue
 		}
 		certificate, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "certificate")
-		appendMaterial([]byte(certificate))
+		material := []byte(certificate)
+		if len(bytes.TrimSpace(material)) > 0 {
+			identity := certificateMaterialIdentity(material)
+			if _, exists := seen[identity]; exists {
+				continue
+			}
+			seen[identity] = struct{}{}
+		}
+		materials = append(materials, material)
 	}
 	return materials
 }

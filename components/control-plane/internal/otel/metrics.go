@@ -87,7 +87,14 @@ var gatewayPopulations = struct {
 	sync.Mutex
 	byCluster map[string]map[string]bool
 	seeded    map[string]bool
-}{byCluster: make(map[string]map[string]bool), seeded: make(map[string]bool)}
+	seeding   map[string]bool
+	pending   map[string]map[string]*bool
+}{
+	byCluster: make(map[string]map[string]bool),
+	seeded:    make(map[string]bool),
+	seeding:   make(map[string]bool),
+	pending:   make(map[string]map[string]*bool),
+}
 
 func registerMetrics() error {
 	meter := otel.Meter(TracerName)
@@ -664,9 +671,32 @@ func SetResourceStatusStale(ctx context.Context, clusterID, kind, resourceID str
 	gatewayPopulations.Unlock()
 }
 
+// BeginGatewayPopulationSeed starts an authoritative seed transaction. Watch
+// events received while the LIST is in flight are retained and overlaid on the
+// eventual snapshot so the snapshot cannot roll the population backward.
+func BeginGatewayPopulationSeed(clusterID string) {
+	cluster := AttentionClusterID(clusterID)
+	gatewayPopulations.Lock()
+	gatewayPopulations.seeding[cluster] = true
+	gatewayPopulations.pending[cluster] = make(map[string]*bool)
+	gatewayPopulations.Unlock()
+}
+
+// CancelGatewayPopulationSeed ends a failed seed transaction. Live events were
+// already applied to the current population by UpdateGatewayPopulation, so only
+// the pending overlay needs to be discarded.
+func CancelGatewayPopulationSeed(clusterID string) {
+	cluster := AttentionClusterID(clusterID)
+	gatewayPopulations.Lock()
+	gatewayPopulations.seeding[cluster] = false
+	delete(gatewayPopulations.pending, cluster)
+	gatewayPopulations.Unlock()
+}
+
 // ReplaceGatewayPopulation atomically publishes the authoritative Gateway seed
-// after a successful watch (re)connect. No observation is emitted before the
-// seed completes.
+// after a successful watch (re)connect. Events received after the seed began
+// are overlaid before publication, so a LIST snapshot cannot overwrite a newer
+// update or resurrect a resource deleted by the live watch.
 func ReplaceGatewayPopulation(ctx context.Context, clusterID string, states []GatewayPopulationState) {
 	cluster := AttentionClusterID(clusterID)
 	population := make(map[string]bool, len(states))
@@ -681,8 +711,17 @@ func ReplaceGatewayPopulation(ctx context.Context, clusterID string, states []Ga
 		population[state.ResourceID] = observed < state.Generation
 	}
 	gatewayPopulations.Lock()
+	for resourceID, stale := range gatewayPopulations.pending[cluster] {
+		if stale == nil {
+			delete(population, resourceID)
+			continue
+		}
+		population[resourceID] = *stale
+	}
 	gatewayPopulations.byCluster[cluster] = population
 	gatewayPopulations.seeded[cluster] = true
+	gatewayPopulations.seeding[cluster] = false
+	delete(gatewayPopulations.pending, cluster)
 	recordGatewayPopulationLocked(ctx, cluster, population)
 	gatewayPopulations.Unlock()
 }
@@ -708,6 +747,19 @@ func UpdateGatewayPopulation(ctx context.Context, clusterID string, state Gatewa
 			observed = *state.ObservedGeneration
 		}
 		population[state.ResourceID] = observed < state.Generation
+	}
+	if gatewayPopulations.seeding[cluster] {
+		pending := gatewayPopulations.pending[cluster]
+		if pending == nil {
+			pending = make(map[string]*bool)
+			gatewayPopulations.pending[cluster] = pending
+		}
+		if deleted {
+			pending[state.ResourceID] = nil
+		} else {
+			value := population[state.ResourceID]
+			pending[state.ResourceID] = &value
+		}
 	}
 	if gatewayPopulations.seeded[cluster] {
 		recordGatewayPopulationLocked(ctx, cluster, population)

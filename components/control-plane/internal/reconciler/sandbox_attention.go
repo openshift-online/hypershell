@@ -161,7 +161,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	observations := gateway.BuildAttentionObservations(pods, gateway.IndexSandboxes(sandboxes), eligible)
 	r.recordUsage(ctx, eligible, sandboxes, observations, crListFailed)
 	if !crListFailed && r.publishReadiness != nil {
-		r.publishReadiness(ctx, readySandboxCount(pods, sandboxes, eligible))
+		r.publishReadiness(ctx, readySandboxCount(sandboxes, eligible))
 	} else if crListFailed && r.publishReadinessUnavailable != nil {
 		r.publishReadinessUnavailable(ctx)
 	}

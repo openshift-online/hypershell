@@ -41,6 +41,7 @@ func TestSelectCertificateMaterialsUsesManagedIdentitiesAndDeduplicates(t *testi
 	unrelated := testCertificatePEM(t, now.Add(30*24*time.Hour))
 	secrets := []corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: managed}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: external}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: external}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "unrelated-workload-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "other"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
@@ -57,26 +58,33 @@ func TestSelectCertificateMaterialsUsesManagedIdentitiesAndDeduplicates(t *testi
 	}
 
 	materials := selectCertificateMaterials(secrets, routes, map[string]struct{}{"openshell-one": {}})
-	if len(materials) != 2 {
-		t.Fatalf("materials = %d, want two managed unique certificates", len(materials))
+	if len(materials) != 4 {
+		t.Fatalf("materials = %d, want three expected Secret identities plus one missing expected certificate", len(materials))
 	}
 	health := evaluateCertificateHealth(materials, now)
-	if health.Valid != 2 || health.Expired != 0 || health.Unavailable != 0 {
-		t.Fatalf("health = %+v, want exactly two valid managed certificates", health)
+	if health.Valid != 3 || health.Expired != 0 || health.Unavailable != 1 {
+		t.Fatalf("health = %+v, want three valid expected Secrets and one unavailable expected certificate", health)
 	}
 }
 
-func TestReadySandboxCountUsesProvisionedReadyPopulation(t *testing.T) {
+func TestReadySandboxCountUsesCurrentSandboxReadyCondition(t *testing.T) {
 	eligible := map[string]struct{}{"openshell-one": {}}
-	sandboxes := []*unstructured.Unstructured{{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "ready", "namespace": "openshell-one"}}}, {Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "pending", "namespace": "openshell-one"}}}}
-	pod := func(name string, ready bool) *corev1.Pod {
-		status := corev1.ConditionFalse
-		if ready {
-			status = corev1.ConditionTrue
-		}
-		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name + "-pod", Namespace: "openshell-one", OwnerReferences: []metav1.OwnerReference{{Kind: "Sandbox", Name: name}}}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: status}}}}
+	sandbox := func(name, namespace, status string, generation, observedGeneration int64) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": name, "namespace": namespace, "generation": generation},
+			"status": map[string]interface{}{"conditions": []interface{}{map[string]interface{}{
+				"type": "Ready", "status": status, "observedGeneration": observedGeneration,
+			}}},
+		}}
 	}
-	if got := readySandboxCount([]*corev1.Pod{pod("ready", true), pod("pending", false)}, sandboxes, eligible); got != 1 {
+	sandboxes := []*unstructured.Unstructured{
+		sandbox("ready", "openshell-one", "True", 2, 2),
+		sandbox("stale", "openshell-one", "True", 2, 1),
+		sandbox("false", "openshell-one", "False", 2, 2),
+		sandbox("outside", "other", "True", 2, 2),
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "missing", "namespace": "openshell-one", "generation": int64(2)}}},
+	}
+	if got := readySandboxCount(sandboxes, eligible); got != 1 {
 		t.Fatalf("ready count = %d, want 1", got)
 	}
 }
