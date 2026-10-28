@@ -15,36 +15,38 @@ import (
 )
 
 var (
-	reconcileDuration                 metric.Int64Histogram
-	reconcileQueueDepth               metric.Int64ObservableGauge
-	reconcileQueueWaitDuration        metric.Float64Histogram
-	gatewayProvisionDuration          metric.Float64Histogram
-	gatewayProvisionOutcomes          metric.Int64Counter
-	gatewaySandboxOrphaned            metric.Int64Gauge
-	gatewaySandboxExpiring            metric.Int64Gauge
-	gatewaySandboxIdle                metric.Int64Gauge
-	gatewayVaultUnreachable           metric.Int64Counter
-	gatewaySandboxTotal               metric.Int64Gauge
-	gatewaySandboxReady               metric.Int64Gauge
-	gatewaySandboxLifetime            metric.Float64Histogram
-	gatewayCertificateValid           metric.Int64Gauge
-	gatewayCertificateExpired         metric.Int64Gauge
-	gatewayCertificateUnavailable     metric.Int64Gauge
-	gatewayCertificateDaysToExpiryMin metric.Float64Gauge
-	oidcClientSynced                  metric.Int64Gauge
-	oidcClientExpected                metric.Int64Gauge
-	oidcClientKeycloakConnected       metric.Int64Gauge
-	reconcileErrors                   metric.Int64Counter
-	reconciliationFailures            metric.Int64Counter
-	reconciliationRetries             metric.Int64Counter
-	reconciliationLag                 metric.Float64Histogram
-	staleResourceStatusCount          metric.Int64Gauge
-	reconciliationResourcesTotal      metric.Int64Gauge
-	watchReconnects                   metric.Int64Counter
-	reconcileOutcomes                 metric.Int64Counter
-	reconcileFailed                   metric.Int64Counter
-	capabilityInfo                    metric.Int64ObservableGauge
-	controlPlaneInfo                  metric.Int64ObservableGauge
+	reconcileDuration                  metric.Int64Histogram
+	reconcileQueueDepth                metric.Int64ObservableGauge
+	reconcileQueueWaitDuration         metric.Float64Histogram
+	gatewayProvisionDuration           metric.Float64Histogram
+	gatewayProvisionOutcomes           metric.Int64Counter
+	gatewaySandboxOrphaned             metric.Int64Gauge
+	gatewaySandboxExpiring             metric.Int64Gauge
+	gatewaySandboxIdle                 metric.Int64Gauge
+	gatewayVaultUnreachable            metric.Int64Counter
+	gatewaySandboxTotal                metric.Int64Gauge
+	gatewaySandboxReady                metric.Int64Gauge
+	gatewaySandboxReadySourceAvailable metric.Int64Gauge
+	gatewaySandboxLifetime             metric.Float64Histogram
+	gatewayCertificateValid            metric.Int64Gauge
+	gatewayCertificateExpired          metric.Int64Gauge
+	gatewayCertificateUnavailable      metric.Int64Gauge
+	gatewayCertificateDaysToExpiryMin  metric.Float64Gauge
+	gatewayCertificateSourceAvailable  metric.Int64Gauge
+	oidcClientSynced                   metric.Int64Gauge
+	oidcClientExpected                 metric.Int64Gauge
+	oidcClientKeycloakConnected        metric.Int64Gauge
+	reconcileErrors                    metric.Int64Counter
+	reconciliationFailures             metric.Int64Counter
+	reconciliationRetries              metric.Int64Counter
+	reconciliationLag                  metric.Float64Histogram
+	staleResourceStatusCount           metric.Int64Gauge
+	reconciliationResourcesTotal       metric.Int64Gauge
+	watchReconnects                    metric.Int64Counter
+	reconcileOutcomes                  metric.Int64Counter
+	reconcileFailed                    metric.Int64Counter
+	capabilityInfo                     metric.Int64ObservableGauge
+	controlPlaneInfo                   metric.Int64ObservableGauge
 )
 
 // Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
@@ -189,6 +191,13 @@ func registerMetrics() error {
 	if err != nil {
 		return err
 	}
+	gatewaySandboxReadySourceAvailable, err = meter.Int64Gauge(
+		"gateway.sandbox.ready.source.available",
+		metric.WithDescription("Whether the sandbox readiness source completed successfully"),
+	)
+	if err != nil {
+		return err
+	}
 
 	gatewayCertificateValid, err = meter.Int64Gauge("gateway.certificate.valid", metric.WithUnit("{certificate}"), metric.WithDescription("Evaluated gateway and console TLS certificates that are currently valid"))
 	if err != nil {
@@ -203,6 +212,10 @@ func registerMetrics() error {
 		return err
 	}
 	gatewayCertificateDaysToExpiryMin, err = meter.Float64Gauge("gateway.certificate.days_to_expiry_min", metric.WithUnit("d"), metric.WithDescription("Minimum days to expiry among valid evaluated gateway and console certificates"))
+	if err != nil {
+		return err
+	}
+	gatewayCertificateSourceAvailable, err = meter.Int64Gauge("gateway.certificate.source.available", metric.WithDescription("Whether the gateway and console certificate source completed successfully"))
 	if err != nil {
 		return err
 	}
@@ -490,6 +503,18 @@ func RecordSandboxReady(ctx context.Context, clusterID string, count int) {
 		return
 	}
 	gatewaySandboxReady.Record(ctx, int64(max(0, count)), clusterMetricAttributes(clusterID))
+	if gatewaySandboxReadySourceAvailable != nil {
+		gatewaySandboxReadySourceAvailable.Record(ctx, 1, clusterMetricAttributes(clusterID))
+	}
+}
+
+// RecordSandboxReadyUnavailable marks the cluster-local readiness observation
+// unavailable so an earlier successful gauge cannot be presented as current.
+func RecordSandboxReadyUnavailable(ctx context.Context, clusterID string) {
+	attrs := clusterMetricAttributes(clusterID)
+	if gatewaySandboxReadySourceAvailable != nil {
+		gatewaySandboxReadySourceAvailable.Record(ctx, 0, attrs)
+	}
 }
 
 // RecordCertificateHealth exports one complete cluster-local certificate
@@ -498,6 +523,9 @@ func RecordSandboxReady(ctx context.Context, clusterID string, count int) {
 // currently valid.
 func RecordCertificateHealth(ctx context.Context, clusterID string, valid, expired, unavailable int, daysToExpiryMin *float64) {
 	attrs := clusterMetricAttributes(clusterID)
+	if gatewayCertificateSourceAvailable != nil {
+		gatewayCertificateSourceAvailable.Record(ctx, 1, attrs)
+	}
 	if gatewayCertificateValid != nil {
 		gatewayCertificateValid.Record(ctx, int64(max(0, valid)), attrs)
 	}
@@ -513,6 +541,15 @@ func RecordCertificateHealth(ctx context.Context, clusterID string, valid, expir
 			value = *daysToExpiryMin
 		}
 		gatewayCertificateDaysToExpiryMin.Record(ctx, value, attrs)
+	}
+}
+
+// RecordCertificateHealthUnavailable marks the cluster-local certificate
+// observation unavailable so earlier valid counts cannot remain authoritative.
+func RecordCertificateHealthUnavailable(ctx context.Context, clusterID string) {
+	attrs := clusterMetricAttributes(clusterID)
+	if gatewayCertificateSourceAvailable != nil {
+		gatewayCertificateSourceAvailable.Record(ctx, 0, attrs)
 	}
 }
 

@@ -34,6 +34,38 @@ func TestEvaluateCertificateHealth(t *testing.T) {
 	}
 }
 
+func TestSelectCertificateMaterialsUsesManagedIdentitiesAndDeduplicates(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	managed := testCertificatePEM(t, now.Add(5*24*time.Hour))
+	external := testCertificatePEM(t, now.Add(20*24*time.Hour))
+	unrelated := testCertificatePEM(t, now.Add(30*24*time.Hour))
+	secrets := []corev1.Secret{
+		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: managed}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: external}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "unrelated-workload-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "other"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
+	}
+	route := func(name string, certificate []byte) unstructured.Unstructured {
+		return unstructured.Unstructured{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": name, "namespace": "openshell-one"},
+			"spec":     map[string]interface{}{"tls": map[string]interface{}{"termination": "edge", "certificate": string(certificate)}},
+		}}
+	}
+	routes := []unstructured.Unstructured{
+		route(consoleCertificateRouteName, managed), // Same logical certificate as the Secret.
+		route("unrelated-route", unrelated),
+	}
+
+	materials := selectCertificateMaterials(secrets, routes, map[string]struct{}{"openshell-one": {}})
+	if len(materials) != 2 {
+		t.Fatalf("materials = %d, want two managed unique certificates", len(materials))
+	}
+	health := evaluateCertificateHealth(materials, now)
+	if health.Valid != 2 || health.Expired != 0 || health.Unavailable != 0 {
+		t.Fatalf("health = %+v, want exactly two valid managed certificates", health)
+	}
+}
+
 func TestReadySandboxCountUsesProvisionedReadyPopulation(t *testing.T) {
 	eligible := map[string]struct{}{"openshell-one": {}}
 	sandboxes := []*unstructured.Unstructured{{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "ready", "namespace": "openshell-one"}}}, {Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "pending", "namespace": "openshell-one"}}}}

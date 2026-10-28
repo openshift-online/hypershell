@@ -1,7 +1,9 @@
 package reconciler
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -20,6 +22,14 @@ import (
 )
 
 var routeGVR = schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+
+const consoleCertificateRouteName = "openshell-console"
+
+var managedCertificateSecretNames = map[string]struct{}{
+	"openshell-server-tls":           {},
+	"openshell-client-tls":           {},
+	"openshell-gateway-external-tls": {},
+}
 
 type oidcClientInspector interface {
 	GatewayClientSynced(ctx context.Context, clientID string) (bool, error)
@@ -132,29 +142,56 @@ func (r *SandboxAttentionReconciler) listCertificateMaterials(ctx context.Contex
 	if err != nil {
 		return nil, fmt.Errorf("list TLS secrets: %w", err)
 	}
+	routes, err := r.dynamicClient.Resource(routeGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// Kubernetes clusters without OpenShift Routes legitimately do not expose
+		// this API; their certificate population is secret-backed only.
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return selectCertificateMaterials(secrets.Items, nil, eligible), nil
+		}
+		return nil, fmt.Errorf("list console Routes: %w", err)
+	}
+	return selectCertificateMaterials(secrets.Items, routes.Items, eligible), nil
+}
+
+func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.Unstructured, eligible map[string]struct{}) [][]byte {
 	materials := make([][]byte, 0)
-	for i := range secrets.Items {
-		secret := &secrets.Items[i]
+	seen := make(map[[sha256.Size]byte]struct{})
+	appendMaterial := func(material []byte) {
+		// Each missing expected value is an independent unavailable certificate.
+		// Only non-empty material can safely identify the same logical certificate
+		// represented by both a Secret and an OpenShift Route.
+		if len(bytes.TrimSpace(material)) == 0 {
+			materials = append(materials, nil)
+			return
+		}
+		identity := certificateMaterialIdentity(material)
+		if _, exists := seen[identity]; exists {
+			return
+		}
+		seen[identity] = struct{}{}
+		materials = append(materials, material)
+	}
+
+	for i := range secrets {
+		secret := &secrets[i]
 		if secret.Type != corev1.SecretTypeTLS {
 			continue
 		}
 		if _, ok := eligible[secret.Namespace]; !ok {
 			continue
 		}
-		materials = append(materials, secret.Data[corev1.TLSCertKey])
-	}
-	routes, err := r.dynamicClient.Resource(routeGVR).Namespace("").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		// Kubernetes clusters without OpenShift Routes legitimately do not expose
-		// this API; their certificate population is secret-backed only.
-		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return materials, nil
+		if _, managed := managedCertificateSecretNames[secret.Name]; !managed {
+			continue
 		}
-		return nil, fmt.Errorf("list console Routes: %w", err)
+		appendMaterial(secret.Data[corev1.TLSCertKey])
 	}
-	for i := range routes.Items {
-		route := &routes.Items[i]
+	for i := range routes {
+		route := &routes[i]
 		if _, ok := eligible[route.GetNamespace()]; !ok {
+			continue
+		}
+		if route.GetName() != consoleCertificateRouteName {
 			continue
 		}
 		termination, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination")
@@ -162,7 +199,14 @@ func (r *SandboxAttentionReconciler) listCertificateMaterials(ctx context.Contex
 			continue
 		}
 		certificate, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "certificate")
-		materials = append(materials, []byte(certificate))
+		appendMaterial([]byte(certificate))
 	}
-	return materials, nil
+	return materials
+}
+
+func certificateMaterialIdentity(material []byte) [sha256.Size]byte {
+	if block, _ := pem.Decode(material); block != nil && block.Type == "CERTIFICATE" {
+		return sha256.Sum256(block.Bytes)
+	}
+	return sha256.Sum256(bytes.TrimSpace(material))
 }

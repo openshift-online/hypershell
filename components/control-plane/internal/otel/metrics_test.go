@@ -26,11 +26,13 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousGatewaySandboxIdle := gatewaySandboxIdle
 	previousGatewaySandboxTotal := gatewaySandboxTotal
 	previousGatewaySandboxReady := gatewaySandboxReady
+	previousGatewaySandboxReadySourceAvailable := gatewaySandboxReadySourceAvailable
 	previousGatewaySandboxLifetime := gatewaySandboxLifetime
 	previousGatewayCertificateValid := gatewayCertificateValid
 	previousGatewayCertificateExpired := gatewayCertificateExpired
 	previousGatewayCertificateUnavailable := gatewayCertificateUnavailable
 	previousGatewayCertificateDaysToExpiryMin := gatewayCertificateDaysToExpiryMin
+	previousGatewayCertificateSourceAvailable := gatewayCertificateSourceAvailable
 	previousOIDCClientSynced := oidcClientSynced
 	previousOIDCClientExpected := oidcClientExpected
 	previousOIDCClientKeycloakConnected := oidcClientKeycloakConnected
@@ -59,11 +61,13 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewaySandboxIdle = nil
 	gatewaySandboxTotal = nil
 	gatewaySandboxReady = nil
+	gatewaySandboxReadySourceAvailable = nil
 	gatewaySandboxLifetime = nil
 	gatewayCertificateValid = nil
 	gatewayCertificateExpired = nil
 	gatewayCertificateUnavailable = nil
 	gatewayCertificateDaysToExpiryMin = nil
+	gatewayCertificateSourceAvailable = nil
 	oidcClientSynced = nil
 	oidcClientExpected = nil
 	oidcClientKeycloakConnected = nil
@@ -94,11 +98,13 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		gatewaySandboxIdle = previousGatewaySandboxIdle
 		gatewaySandboxTotal = previousGatewaySandboxTotal
 		gatewaySandboxReady = previousGatewaySandboxReady
+		gatewaySandboxReadySourceAvailable = previousGatewaySandboxReadySourceAvailable
 		gatewaySandboxLifetime = previousGatewaySandboxLifetime
 		gatewayCertificateValid = previousGatewayCertificateValid
 		gatewayCertificateExpired = previousGatewayCertificateExpired
 		gatewayCertificateUnavailable = previousGatewayCertificateUnavailable
 		gatewayCertificateDaysToExpiryMin = previousGatewayCertificateDaysToExpiryMin
+		gatewayCertificateSourceAvailable = previousGatewayCertificateSourceAvailable
 		oidcClientSynced = previousOIDCClientSynced
 		oidcClientExpected = previousOIDCClientExpected
 		oidcClientKeycloakConnected = previousOIDCClientKeycloakConnected
@@ -364,13 +370,15 @@ func TestRecordDashboardHealthGauges(t *testing.T) {
 	RecordOIDCClientHealth(t.Context(), "cluster-a", 4, 5, true)
 
 	wantInt := map[string]int64{
-		"gateway.sandbox.ready":           3,
-		"gateway.certificate.valid":       7,
-		"gateway.certificate.expired":     1,
-		"gateway.certificate.unavailable": 2,
-		"oidc.client.synced":              4,
-		"oidc.client.expected":            5,
-		"oidc.client.keycloak_connected":  1,
+		"gateway.sandbox.ready":                  3,
+		"gateway.sandbox.ready.source.available": 1,
+		"gateway.certificate.valid":              7,
+		"gateway.certificate.expired":            1,
+		"gateway.certificate.unavailable":        2,
+		"gateway.certificate.source.available":   1,
+		"oidc.client.synced":                     4,
+		"oidc.client.expected":                   5,
+		"oidc.client.keycloak_connected":         1,
 	}
 	var collected metricdata.ResourceMetrics
 	if err := reader.Collect(t.Context(), &collected); err != nil {
@@ -398,6 +406,40 @@ func TestRecordDashboardHealthGauges(t *testing.T) {
 	}
 	if len(wantInt) != 0 {
 		t.Fatalf("missing metrics: %v", wantInt)
+	}
+}
+
+func TestDashboardHealthSourceAvailabilityClearsSuccessfulObservation(t *testing.T) {
+	reader := testMetricsReader(t)
+	minimum := 4.5
+	RecordSandboxReady(t.Context(), "cluster-a", 3)
+	RecordCertificateHealth(t.Context(), "cluster-a", 7, 0, 0, &minimum)
+	RecordSandboxReadyUnavailable(t.Context(), "cluster-a")
+	RecordCertificateHealthUnavailable(t.Context(), "cluster-a")
+
+	want := map[string]int64{
+		"gateway.sandbox.ready.source.available": 0,
+		"gateway.certificate.source.available":   0,
+	}
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			expected, ok := want[item.Name]
+			if !ok {
+				continue
+			}
+			gauge, ok := item.Data.(metricdata.Gauge[int64])
+			if !ok || len(gauge.DataPoints) != 1 || gauge.DataPoints[0].Value != expected {
+				t.Fatalf("%s = %#v, want %d", item.Name, item.Data, expected)
+			}
+			delete(want, item.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing availability metrics: %v", want)
 	}
 }
 

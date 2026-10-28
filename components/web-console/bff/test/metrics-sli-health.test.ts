@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  certificateSourceAvailablePromql,
   expiredCertificatesPromql,
   queryCertificateHealth,
   soonestCertificateExpiryPromql,
@@ -20,6 +21,7 @@ import {
   podTotalPromql,
   queryResourceReadiness,
   sandboxReadyPromql,
+  sandboxReadySourceAvailablePromql,
   sandboxTotalPromql,
 } from "../src/metrics-resource-readiness.js";
 
@@ -67,6 +69,7 @@ describe("SLI health metric queries", () => {
         [podReadyPromql, "8"],
         [podTotalPromql, "10"],
         [sandboxReadyPromql, "3"],
+        [sandboxReadySourceAvailablePromql, "1"],
         [sandboxTotalPromql, "4"],
       ]),
     );
@@ -87,6 +90,20 @@ describe("SLI health metric queries", () => {
     await expect(queryResourceReadiness(partial.url, 5_000)).resolves.toEqual({
       pod_readiness_percent: 80,
     });
+
+    const staleSandbox = await startStub(
+      new Map([
+        [podReadyPromql, "8"],
+        [podTotalPromql, "10"],
+        [sandboxReadyPromql, "4"],
+        [sandboxTotalPromql, "4"],
+        [sandboxReadySourceAvailablePromql, "0"],
+      ]),
+    );
+    servers.push(staleSandbox.server);
+    await expect(
+      queryResourceReadiness(staleSandbox.url, 5_000),
+    ).resolves.toEqual({ pod_readiness_percent: 80 });
   });
 
   it("uses the fleet minimum certificate expiry and preserves unavailable counts", async () => {
@@ -96,6 +113,7 @@ describe("SLI health metric queries", () => {
         [expiredCertificatesPromql, "1"],
         [unavailableCertificatesPromql, "2"],
         [soonestCertificateExpiryPromql, "5.5"],
+        [certificateSourceAvailablePromql, "1"],
       ]),
     );
     servers.push(stub.server);
@@ -107,6 +125,34 @@ describe("SLI health metric queries", () => {
       status_unavailable: 2,
       soonest_days_to_expiry: 5.5,
     });
+  });
+
+  it("rejects empty or stale certificate populations", async () => {
+    const empty = await startStub(
+      new Map([
+        [validCertificatesPromql, "0"],
+        [expiredCertificatesPromql, "0"],
+        [unavailableCertificatesPromql, "0"],
+        [certificateSourceAvailablePromql, "1"],
+      ]),
+    );
+    servers.push(empty.server);
+    await expect(queryCertificateHealth(empty.url, 5_000)).rejects.toThrow(
+      "Certificate health source is unavailable",
+    );
+
+    const stale = await startStub(
+      new Map([
+        [validCertificatesPromql, "7"],
+        [expiredCertificatesPromql, "0"],
+        [unavailableCertificatesPromql, "0"],
+        [certificateSourceAvailablePromql, "0"],
+      ]),
+    );
+    servers.push(stale.server);
+    await expect(queryCertificateHealth(stale.url, 5_000)).rejects.toThrow(
+      "Certificate health source is unavailable",
+    );
   });
 
   it("does not synthesize OIDC accuracy for empty or disconnected populations", async () => {

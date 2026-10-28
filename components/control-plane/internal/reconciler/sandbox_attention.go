@@ -39,19 +39,21 @@ type SandboxAttentionReconciler struct {
 	now           func() time.Time
 	oidcInspector oidcClientInspector
 
-	publish             func(ctx context.Context, counts gateway.AttentionCounts)
-	liveNamespaces      func(ctx context.Context) (map[string]struct{}, error)
-	listPods            func(ctx context.Context) ([]*corev1.Pod, error)
-	listSandboxes       func(ctx context.Context) ([]*unstructured.Unstructured, error)
-	listNamespaces      func(ctx context.Context) ([]*corev1.Namespace, error)
-	activeSandboxes     map[string]gateway.SandboxObservation
-	publishUsage        func(ctx context.Context, counts map[string]int)
-	recordLifetime      func(ctx context.Context, namespace string, lifetime time.Duration)
-	publishReadiness    func(ctx context.Context, ready int)
-	publishCertificates func(ctx context.Context, health certificateHealth)
-	publishOIDC         func(ctx context.Context, synced, expected int, connected bool)
-	listCertificates    func(ctx context.Context, eligible map[string]struct{}) ([][]byte, error)
-	listGateways        func(ctx context.Context) ([]*pb.Gateway, error)
+	publish                        func(ctx context.Context, counts gateway.AttentionCounts)
+	liveNamespaces                 func(ctx context.Context) (map[string]struct{}, error)
+	listPods                       func(ctx context.Context) ([]*corev1.Pod, error)
+	listSandboxes                  func(ctx context.Context) ([]*unstructured.Unstructured, error)
+	listNamespaces                 func(ctx context.Context) ([]*corev1.Namespace, error)
+	activeSandboxes                map[string]gateway.SandboxObservation
+	publishUsage                   func(ctx context.Context, counts map[string]int)
+	recordLifetime                 func(ctx context.Context, namespace string, lifetime time.Duration)
+	publishReadiness               func(ctx context.Context, ready int)
+	publishReadinessUnavailable    func(ctx context.Context)
+	publishCertificates            func(ctx context.Context, health certificateHealth)
+	publishCertificatesUnavailable func(ctx context.Context)
+	publishOIDC                    func(ctx context.Context, synced, expected int, connected bool)
+	listCertificates               func(ctx context.Context, eligible map[string]struct{}) ([][]byte, error)
+	listGateways                   func(ctx context.Context) ([]*pb.Gateway, error)
 }
 
 // NewSandboxAttentionReconciler builds a SandboxAttentionReconciler.
@@ -84,7 +86,9 @@ func NewSandboxAttentionReconciler(
 	r.publishUsage = r.exportUsage
 	r.recordLifetime = r.exportLifetime
 	r.publishReadiness = r.exportReadiness
+	r.publishReadinessUnavailable = r.exportReadinessUnavailable
 	r.publishCertificates = r.exportCertificates
+	r.publishCertificatesUnavailable = r.exportCertificatesUnavailable
 	r.publishOIDC = r.exportOIDC
 	r.listCertificates = r.listCertificateMaterials
 	r.listGateways = r.grpcGateways
@@ -123,6 +127,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN sandbox attention: list managed namespaces: %v", err)
+		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
 	}
@@ -137,6 +142,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN sandbox attention: list sandbox pods: %v", err)
+		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
 	}
@@ -156,11 +162,16 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	r.recordUsage(ctx, eligible, sandboxes, observations, crListFailed)
 	if !crListFailed && r.publishReadiness != nil {
 		r.publishReadiness(ctx, readySandboxCount(pods, sandboxes, eligible))
+	} else if crListFailed && r.publishReadinessUnavailable != nil {
+		r.publishReadinessUnavailable(ctx)
 	}
 	if r.listCertificates != nil && r.publishCertificates != nil {
 		materials, certErr := r.listCertificates(listCtx, eligible)
 		if certErr != nil {
 			log.Printf("WARN dashboard health: evaluate certificates: %v", certErr)
+			if r.publishCertificatesUnavailable != nil {
+				r.publishCertificatesUnavailable(ctx)
+			}
 		} else {
 			r.publishCertificates(ctx, evaluateCertificateHealth(materials, r.now().UTC()))
 		}
@@ -226,8 +237,25 @@ func (r *SandboxAttentionReconciler) exportReadiness(ctx context.Context, ready 
 	cpotel.RecordSandboxReady(ctx, r.clusterID, ready)
 }
 
+func (r *SandboxAttentionReconciler) exportReadinessUnavailable(ctx context.Context) {
+	cpotel.RecordSandboxReadyUnavailable(ctx, r.clusterID)
+}
+
+func (r *SandboxAttentionReconciler) publishDashboardHealthUnavailable(ctx context.Context) {
+	if r.publishReadinessUnavailable != nil {
+		r.publishReadinessUnavailable(ctx)
+	}
+	if r.publishCertificatesUnavailable != nil {
+		r.publishCertificatesUnavailable(ctx)
+	}
+}
+
 func (r *SandboxAttentionReconciler) exportCertificates(ctx context.Context, health certificateHealth) {
 	cpotel.RecordCertificateHealth(ctx, r.clusterID, health.Valid, health.Expired, health.Unavailable, health.DaysToExpiryMin)
+}
+
+func (r *SandboxAttentionReconciler) exportCertificatesUnavailable(ctx context.Context) {
+	cpotel.RecordCertificateHealthUnavailable(ctx, r.clusterID)
 }
 
 func (r *SandboxAttentionReconciler) exportOIDC(ctx context.Context, synced, expected int, connected bool) {

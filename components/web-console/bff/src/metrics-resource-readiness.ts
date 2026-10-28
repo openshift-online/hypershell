@@ -5,6 +5,8 @@ export const podReadyPromql = 'sum(kube_pod_status_ready{condition="true"})';
 export const podTotalPromql = "count(kube_pod_info)";
 export const sandboxReadyPromql =
   "sum(max by (hypershell_cluster_id) (gateway_sandbox_ready))";
+export const sandboxReadySourceAvailablePromql =
+  "min(max by (hypershell_cluster_id) (gateway_sandbox_ready_source_available))";
 export const sandboxTotalPromql =
   "sum(max by (hypershell_cluster_id) (gateway_sandbox_total))";
 
@@ -35,11 +37,18 @@ export async function queryResourceReadiness(
   timeoutMs: number,
   sandboxSource: MetricsSource = podSource,
 ): Promise<ResourceReadinessMetrics> {
-  const [podReady, podTotal, sandboxReady, sandboxTotal] = await Promise.all([
+  const [
+    podReady,
+    podTotal,
+    sandboxReady,
+    sandboxTotal,
+    sandboxSourceAvailable,
+  ] = await Promise.all([
     optionalNumber(podSource, podReadyPromql, timeoutMs),
     optionalNumber(podSource, podTotalPromql, timeoutMs),
     optionalNumber(sandboxSource, sandboxReadyPromql, timeoutMs),
     optionalNumber(sandboxSource, sandboxTotalPromql, timeoutMs),
+    optionalNumber(sandboxSource, sandboxReadySourceAvailablePromql, timeoutMs),
   ]);
 
   const validPods =
@@ -50,6 +59,7 @@ export async function queryResourceReadiness(
   const validSandboxes =
     sandboxReady !== undefined &&
     sandboxTotal !== undefined &&
+    sandboxSourceAvailable === 1 &&
     sandboxTotal > 0 &&
     sandboxReady <= sandboxTotal;
 

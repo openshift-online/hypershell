@@ -193,6 +193,7 @@ interface RegisteredUsersMockResponse {
 
 interface DashboardMetricsMockOptions {
   activeSandboxes?: number;
+  omitCertificateHealth?: boolean;
   omitProvisionDuration?: boolean;
   omitProvisionOutcomes?: boolean;
   platformInventory?: PlatformInventoryMetricsResponse;
@@ -319,6 +320,12 @@ function mockClusterMetricsResponses(
       });
     }
     if (url === "/api/metrics/certificate-health") {
+      if (options.omitCertificateHealth) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+        });
+      }
       return Promise.resolve({
         json: () =>
           Promise.resolve({
@@ -402,6 +409,12 @@ function resolveStandardPrometheusSupportRoutes(
     });
   }
   if (url === "/api/metrics/certificate-health") {
+    if (options.omitCertificateHealth) {
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+      });
+    }
     return Promise.resolve({
       json: () =>
         Promise.resolve({
@@ -821,6 +834,28 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     expect(
       metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("omits certificate health when the BFF reports no evaluable population", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      defaultGatewayPhaseCounts,
+      {
+        omitCertificateHealth: true,
+      },
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "certificate-health"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find(
+        (metric) => metric.id === "pod-and-sandbox-readiness",
+      ),
     ).toBeDefined();
   });
 
