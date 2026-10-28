@@ -94,6 +94,8 @@ export interface MapNode {
    * the drawer's Capabilities section (FLT-CAP-01).
    */
   readonly capabilities?: readonly string[];
+  /** Default gateway image the cluster's control plane provisions (FLT-CAP-07). */
+  readonly gatewayImage?: string | null;
   /** Stable identicon/identiname seed: the active digest, else the instance key. */
   readonly seed: string;
   readonly version: string | null;
@@ -501,6 +503,7 @@ function buildNode(
     provider,
     cluster: nonEmpty(env.cluster),
     capabilities,
+    gatewayImage: nonEmpty(env.gatewayImage ?? null),
     seed: nonEmpty(env.activeDigest) ?? env.name,
     version: env.activeRelease,
     digest: env.activeDigest,

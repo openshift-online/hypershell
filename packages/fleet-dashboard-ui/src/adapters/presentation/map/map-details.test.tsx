@@ -219,3 +219,50 @@ describe("MapDetails - gate sync attempts", () => {
     expect(screen.getByText("Sync attempts: 0")).toBeTruthy();
   });
 });
+
+function renderNodeOverview(gatewayImage: string | null): void {
+  const promotion: PromotionData = {
+    order: ["hi"],
+    environments: {
+      hi: env({ name: "hi", role: "hub", gatewayImage }),
+    },
+    releases: [],
+    releaseByDigest: {},
+    frontier: null,
+  };
+  const model = buildMapModel(promotion, emptyFleet);
+  render(
+    <IntlProvider locale="en" defaultLocale="en">
+      <RouterProvider
+        history={createMemoryHistory({ path: "/", search: "?node=hi" })}
+      >
+        <MapDetails
+          model={model}
+          releaseByDigest={{}}
+          selection={{ kind: "node", id: "hi" }}
+          onClose={noop}
+          onSelectBundle={noop}
+          onSelectNode={noop}
+        />
+      </RouterProvider>
+    </IntlProvider>,
+  );
+}
+
+describe("MapDetails - default gateway image", () => {
+  // Verifies: FLT-CAP-07.01
+  it("shows the image the control plane reports", () => {
+    renderNodeOverview("quay.io/example/gateway:v0.1.5");
+    expect(screen.getByText("Default gateway")).toBeTruthy();
+    // Truncate (middle) splits the text across spans, so match the row's text.
+    expect(document.body.textContent).toContain(
+      "quay.io/example/gateway:v0.1.5",
+    );
+  });
+
+  // Verifies: FLT-CAP-07.02
+  it("omits the row when no image is reported", () => {
+    renderNodeOverview(null);
+    expect(screen.queryByText("Default gateway")).toBeNull();
+  });
+});
