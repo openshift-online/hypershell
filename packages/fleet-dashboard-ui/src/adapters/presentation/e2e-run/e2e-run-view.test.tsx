@@ -1089,4 +1089,55 @@ describe("log pagination and degraded log pane", () => {
     // No stuck loading indicator and no failed/Retry state.
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
+
+  // An older page whose oldest entries all share the cursor's nanosecond is reported
+  // by the backend as a locally-limited boundary (boundaryTruncated), not end-of-
+  // history. The pane shows the locally-limited state and does not claim all history
+  // was read, nor keep re-requesting the same older page (E2E-LOG-26.05).
+  // Verifies: E2E-LOG-26.05
+  it("renders a same-nanosecond boundary as locally limited, not end-of-history", async () => {
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(5), logLine(6)],
+          nextCursor: "500",
+          hasMore: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        plane({
+          entries: [logLine(3), logLine(4)],
+          nextCursor: null,
+          hasMore: false,
+          boundaryTruncated: true,
+        }),
+      );
+    const user = userEvent.setup();
+    const { api } = makeApi(detail({ reportingComplete: false }), {
+      getE2eRunLogs,
+    });
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+    // Newest page on open, then the older page that hits the same-nanosecond boundary.
+    await screen.findByText("m6");
+    scrollSentinelIntoView();
+    await screen.findByText("m4");
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+
+    // The locally-limited state is shown, NOT end-of-history.
+    expect(
+      screen.getByText("Showing the most recent log lines held in memory."),
+    ).toBeDefined();
+    expect(screen.queryByText("Beginning of log history.")).toBeNull();
+
+    // Auto-fetch stops: a further intersection does not re-request the boundary page.
+    scrollSentinelIntoView();
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+  });
 });

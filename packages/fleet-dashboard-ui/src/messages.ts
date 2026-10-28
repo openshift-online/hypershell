@@ -483,13 +483,6 @@ export const messages = defineMessages({
     defaultMessage: "Selected step",
     description: "Log-scope toggle option showing the selected step's logs.",
   },
-  e2eLogsDegraded: {
-    id: "fleet.e2e.log.degraded",
-    defaultMessage:
-      "Log history is unavailable right now. Steps are shown above.",
-    description:
-      "Inline notice on the log pane only when raw logs cannot load but the run's steps did.",
-  },
   e2eLogsEmpty: {
     id: "fleet.e2e.log.empty",
     defaultMessage: "No log output.",

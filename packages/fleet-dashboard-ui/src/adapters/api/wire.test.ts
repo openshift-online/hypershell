@@ -607,6 +607,19 @@ describe("mapE2eRunLogPage", () => {
     expect(page.entries[1]?.truncated).toBe(true);
     expect(page.nextCursor).toBe("42");
     expect(page.hasMore).toBe(true);
+    expect(page.boundaryTruncated).toBe(false);
+  });
+
+  it("maps the locally-limited same-nanosecond boundary signal (E2E-LOG-26)", () => {
+    const page = mapE2eRunLogPage({
+      entries: [{ sequence: 1, timestamp: "t1", message: "a" }],
+      nextCursor: "",
+      hasMore: false,
+      boundaryTruncated: true,
+    });
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+    expect(page.boundaryTruncated).toBe(true);
   });
 
   it("defaults a stale/empty page to no entries, no cursor, no more", () => {
@@ -614,6 +627,7 @@ describe("mapE2eRunLogPage", () => {
     expect(page.entries).toEqual([]);
     expect(page.nextCursor).toBeNull();
     expect(page.hasMore).toBe(false);
+    expect(page.boundaryTruncated).toBe(false);
   });
 });
 

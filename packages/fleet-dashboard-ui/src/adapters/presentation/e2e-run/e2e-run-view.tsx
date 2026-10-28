@@ -430,9 +430,11 @@ function useRunLogs(
   // Reset the scoped buffer, pagination, and error state when the scope changes (or a
   // retry forces a reload), the React "adjust state when a prop changes" pattern
   // applied during render rather than in an effect, so a step change starts clean
-  // without the old step's lines flashing (E2E-LOG-23). An older-page retry does NOT
-  // bump reloadNonce, so it preserves the loaded lines.
-  const scopeKey = `${selectedStepId ?? ""}\u0000${String(reloadNonce)}`;
+  // without the old step's lines flashing (E2E-LOG-23). The run id is part of the
+  // scope key so switching runs while the step selection stays the same does not flash
+  // the previous run's lines before the refetch resolves (E2E-LOG-23). An older-page
+  // retry does NOT bump reloadNonce, so it preserves the loaded lines.
+  const scopeKey = `${id}\u0000${selectedStepId ?? ""}\u0000${String(reloadNonce)}`;
   const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
   if (renderedScopeKey !== scopeKey) {
     setRenderedScopeKey(scopeKey);
@@ -499,7 +501,12 @@ function useRunLogs(
         const more = plane.data.hasMore && !atCeiling;
         hasMoreRef.current = more;
         setHasMoreOlder(more);
-        setLocallyLimited(plane.data.hasMore && atCeiling);
+        // A same-nanosecond boundary the backend could not page past is a local limit,
+        // not end-of-history (E2E-LOG-26), the same as hitting the in-memory ceiling.
+        setLocallyLimited(
+          (plane.data.hasMore && atCeiling) ||
+            plane.data.boundaryTruncated === true,
+        );
         setLoadingInitial(false);
       })
       .catch(() => {
@@ -557,7 +564,13 @@ function useRunLogs(
         const more = plane.data.hasMore && cursorAdvanced && !atCeiling;
         hasMoreRef.current = more;
         setHasMoreOlder(more);
-        setLocallyLimited(plane.data.hasMore && cursorAdvanced && atCeiling);
+        // The in-memory buffer ceiling and a same-nanosecond page boundary the backend
+        // could not advance past are both locally-limited history, kept distinct from
+        // true end-of-history (E2E-LOG-26).
+        setLocallyLimited(
+          (plane.data.hasMore && cursorAdvanced && atCeiling) ||
+            plane.data.boundaryTruncated === true,
+        );
       })
       .catch(() => {
         if (controller?.signal.aborted || scopeRef.current !== scopeAtRequest) {

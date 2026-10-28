@@ -156,10 +156,18 @@ type E2ERunDetail struct {
 // (oldest first) for display; NextCursor is the oldest timestamp in the page (a
 // decimal nanosecond string) to request the immediately older page, and HasMore
 // reports that the page was full so an older page may exist.
+//
+// BoundaryTruncated reports the pathological case where a full page's oldest
+// entries all share the cursor's nanosecond, so the cursor cannot advance without
+// looping and the remaining entries at that nanosecond are locally unreachable.
+// It is NOT end-of-history: the client surfaces a locally-limited state distinct
+// from "all history was read" (E2E-LOG-19, E2E-LOG-26), rather than reporting the
+// history exhausted.
 type E2ELogPage struct {
-	Entries    []E2ELogLine `json:"entries"`
-	NextCursor string       `json:"nextCursor,omitempty"`
-	HasMore    bool         `json:"hasMore"`
+	Entries           []E2ELogLine `json:"entries"`
+	NextCursor        string       `json:"nextCursor,omitempty"`
+	HasMore           bool         `json:"hasMore"`
+	BoundaryTruncated bool         `json:"boundaryTruncated,omitempty"`
 }
 
 // E2EStep is one reduced step with its derived state and timing.
@@ -535,9 +543,13 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 		// Guard the pathological case where more than one page of entries share a
 		// single nanosecond: the next cursor would equal the current one and paging
 		// would never advance (E2E-LOG-19 "SHALL NOT assume unique timestamps"). Stop
-		// paging rather than hand the client a cursor that loops.
+		// paging rather than hand the client a cursor that loops, but report the stop
+		// as a locally-limited boundary, NOT end-of-history: more entries exist at this
+		// nanosecond than the page can carry, so the client must distinguish the local
+		// limit from "all history was read" (E2E-LOG-26).
 		if hasBefore && oldestNs == beforeNs {
 			page.HasMore = false
+			page.BoundaryTruncated = true
 		} else {
 			page.NextCursor = strconv.FormatInt(oldestNs, 10)
 		}

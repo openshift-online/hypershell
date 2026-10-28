@@ -658,6 +658,46 @@ func TestRunLogsTerminatesOnOverfullTimestamp(t *testing.T) {
 	}
 }
 
+// TestRunLogsOverfullTimestampReportsLocalLimit confirms that when more entries
+// share a single nanosecond than fit in one page, the older page that cannot
+// advance the cursor reports a locally-limited boundary (BoundaryTruncated) with
+// HasMore false and no looping cursor, NOT end-of-history. The client must then show
+// the local limit rather than claim all history was read (E2E-LOG-19.05/E2E-LOG-26).
+// Verifies: E2E-LOG-19.05
+func TestRunLogsOverfullTimestampReportsLocalLimit(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 200, "a"),
+	}}
+	e := testE2E(f)
+
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || first.NextCursor != "200" {
+		t.Fatalf("first page should page older at ts 200: %+v", first)
+	}
+	if first.BoundaryTruncated {
+		t.Fatalf("first page must not report a boundary truncation yet: %+v", first)
+	}
+
+	older, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", first.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if older.HasMore {
+		t.Fatalf("over-full-timestamp older page must not report more history: %+v", older)
+	}
+	if older.NextCursor != "" {
+		t.Fatalf("over-full-timestamp older page must not hand back a looping cursor: %q", older.NextCursor)
+	}
+	if !older.BoundaryTruncated {
+		t.Fatalf("over-full-timestamp older page must report a locally-limited boundary, not end-of-history: %+v", older)
+	}
+}
+
 // TestRunLogsLimitClamped confirms a client-supplied limit above the server
 // maximum is clamped rather than issuing an unbounded query (E2E-LOG-19.03).
 // Verifies: E2E-LOG-19.03

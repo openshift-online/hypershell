@@ -624,7 +624,12 @@ entries can share one nanosecond timestamp, the server SHALL de-duplicate across
 page boundary (for example by querying with a one-nanosecond inclusive overlap and
 de-duping on `(timestampNs, line)`, or by a stable per-entry `sequence`) so a page
 boundary neither drops nor duplicates an entry; it SHALL NOT assume unique
-timestamps. Paginated collection reads SHALL conform to the trust-and-performance
+timestamps. When a full page's oldest entries all share the cursor's nanosecond so
+the cursor cannot advance without looping, the server SHALL stop paging rather than
+return a looping cursor, AND SHALL report that stop as a distinct locally-limited
+boundary signal (for example `boundaryTruncated`), NOT as end-of-history, so the
+client can present the local limit rather than claim all history was read
+(E2E-LOG-26). Paginated collection reads SHALL conform to the trust-and-performance
 collection contract (`specs/standards/ui/trust-performance.spec.md`): one request
 per page, a bound that does not grow with the number of rendered lines. When a
 `step` is supplied, the same cursor, overlap de-duplication, `hasMore`, and
@@ -656,6 +661,13 @@ step's lifecycle window (E2E-LOG-25).
 - GIVEN a run id whose tenant is not in the allowlist
 - WHEN a client requests `GET /api/e2e/logs?run=<id>`
 - THEN the BFF SHALL respond `ErrRunNotFound`, the same as the run-detail endpoint
+
+#### Scenario: E2E-LOG-19.05 -- More entries at one nanosecond than a page holds
+
+- GIVEN more log entries share a single nanosecond than fit in one page, reached across a page boundary
+- WHEN the client requests the older page whose oldest entries all share the cursor's nanosecond
+- THEN the server SHALL stop paging rather than return a cursor that cannot advance
+- AND it SHALL report the stop as a locally-limited boundary, distinct from end-of-history, so the pane shows the local limit rather than claiming all history was read
 
 ### Requirement: E2E-LOG-20 -- Run Detail Decoupled From Raw Logs
 
@@ -873,10 +885,12 @@ history response, the view SHALL preserve already-loaded lines, present an expli
 error with a Retry action, and stop observer-driven requests while in that error
 state. Any automatic retry policy SHALL be bounded. The log pane SHALL distinguish,
 as separate states: loading, empty (a completed step that emitted no logs settles
-into a clear empty state), end-of-history, locally limited history (the in-memory
-buffer ceiling, distinct from actual end-of-history), and failed loading. A failed
-or empty selected-step view SHALL NOT keep the loading indicator active or keep
-issuing requests.
+into a clear empty state), end-of-history, locally limited history (distinct from
+actual end-of-history: either the in-memory buffer ceiling or a server-reported
+same-nanosecond page boundary the backend could not advance past, E2E-LOG-19), and
+failed loading. A locally-limited history SHALL NOT be rendered as end-of-history. A
+failed or empty selected-step view SHALL NOT keep the loading indicator active or
+keep issuing requests.
 
 This supersedes the earlier behavior in which a rejected older-page request silently
 preserved the cursor and `hasMoreOlder`, cleared the loading flag, and let the
@@ -908,6 +922,12 @@ state.
 - GIVEN a stale or unavailable history response
 - WHEN it is handled
 - THEN the pane SHALL show an explicit retry state rather than silently stopping history loading
+
+#### Scenario: E2E-LOG-26.05 -- Same-nanosecond boundary renders as locally limited
+
+- GIVEN a page whose oldest entries all share the cursor's nanosecond so the backend reports a locally-limited boundary (E2E-LOG-19)
+- WHEN the pane renders that page
+- THEN it SHALL show the locally-limited history state, NOT end-of-history, and SHALL NOT keep requesting the same older page
 
 ## Non-Goals
 
