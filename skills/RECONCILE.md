@@ -178,6 +178,22 @@ merge-queue builds themselves can only be confirmed on the first `main` build af
 merge (push pipelines do not run pre-merge), which matches how the proven
 `agent-runtime` TA push pipelines were landed.
 
+**Review follow-up (2026-10-28, code-review rejection, PR #779):** addressed the two
+blocking findings from the maintainer code review. (1) The PR body auto-closed the
+tracking issue (`Closes #776`) while only the `api-server` pilot of eight components
+is conformant; changed to `Part of #776` so merging this increment does not close
+the issue before the acceptance criteria are met. (2) The Trusted-Artifacts
+conversion builds `api-server` as a native multi-arch (`linux/amd64` + `linux/arm64`)
+image index (`ALWAYS_BUILD_INDEX: "true"`), where `main` shipped amd64 only. This is
+intended, not a template side effect: the `api-server` Dockerfile on `main` already
+carries per-arch base images and a `BUILDARCH`/`TARGETARCH` split and documents "Bump
+amd64 and arm64 together", matching the agent-runtime trio's native multi-arch layout.
+Recorded the decision in CICD-ECC-02 (new paragraph + Scenario CICD-ECC-02.07): Go
+components whose Dockerfile carries per-arch base images build the multi-arch index;
+components whose Dockerfile does not stay single-arch until they add them. No pipeline
+mechanics changed, so the green `hypershell-api-server-main-on-pull-request` build is
+preserved.
+
 **Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
 also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
 cross-compile loop" and therefore safe. The live Konflux build disproved that:

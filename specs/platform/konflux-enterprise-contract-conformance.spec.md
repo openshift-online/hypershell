@@ -156,6 +156,22 @@ or `ec validate`); an unverified flip that breaks the component build is not
 permitted, because a broken or stale image makes the application-wide check
 worse, not better.
 
+Converting a component to the Trusted Artifacts (`-oci-ta`) task variants that the
+proxy-attributed prefetch above requires also builds that component as a native
+multi-architecture image index. A Go component whose Dockerfile already carries
+per-architecture base images and a `BUILDARCH`/`TARGETARCH` toolchain split (for
+example `components/api-server/Dockerfile`, which documents "Bump amd64 and arm64
+together") SHALL build both `linux/amd64` and `linux/arm64` natively and publish
+their combined image index (`ALWAYS_BUILD_INDEX: "true"`), matching the native
+multi-arch layout the agent runtime image trio already uses
+([`agent-runtime-images.spec.md`](./agent-runtime-images.spec.md)). The second
+architecture is an intended standardization on that shared layout, recorded here
+so the change is traceable; it is not a side effect of copying a template.
+Conforma conformance (Requirement CICD-ECC-01) does not by itself require the
+second architecture, so a component whose Dockerfile does not yet carry
+per-architecture base images SHALL stay single-architecture until it does, rather
+than add an architecture it cannot build natively.
+
 Some components also pull inputs that Hermeto cannot prefetch. `fullsend-sandbox`
 has no Hermeto-resolvable from-source ecosystem at all: it assembles its toolchain
 and the `tirith` binary from checksum-pinned downloads. The `agent-runtime` and
@@ -215,6 +231,14 @@ downloads are vendored.
 - THEN the `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at `components/cli`
 - AND every downloaded tool SHALL be verified against its published SHA-256 digest so no tool is unattributed or non-reproducible
 - AND the component SHALL NOT set `hermetic: "true"` until those tool downloads are vendored for a hermetic build
+
+#### Scenario: CICD-ECC-02.07 -- Trusted Artifacts Go component builds a native multi-arch index
+
+- GIVEN a Go component converted to the Trusted Artifacts task variants whose Dockerfile already carries per-architecture base images and a `BUILDARCH`/`TARGETARCH` split (for example `api-server`)
+- WHEN its image is built
+- THEN the pipeline SHALL build `linux/amd64` and `linux/arm64` natively and publish their combined image index with `ALWAYS_BUILD_INDEX: "true"`
+- AND the multi-architecture index SHALL be the intended, recorded build layout, consistent with the agent runtime image trio, not an unrecorded side effect
+- AND a component whose Dockerfile lacks per-architecture base images SHALL remain single-architecture until it adds them
 
 ### Requirement: CICD-ECC-03 -- Valid, Trusted Build Attestation
 
