@@ -111,7 +111,9 @@ image SBOM are reviewed against the component's from-source ecosystems.
 
 Each component image SHALL attribute every dependency in its SBOM. For every
 Hermeto-resolvable ecosystem a component builds from source (per the Purpose
-table: every component except `fullsend-sandbox` has at least a `gomod` ecosystem),
+table: every component that builds Go from source has a `gomod` ecosystem,
+`web-console` is the Node-only exception with a pnpm ecosystem, and
+`fullsend-sandbox` has no from-source ecosystem),
 the build SHALL resolve those dependencies through Hermeto. Every such component
 SHALL set, in all three pipeline files:
 
