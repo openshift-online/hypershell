@@ -34,18 +34,20 @@ func init() {
 
 // openshiftDriver implements E2EInfraDriver against an OpenShift cluster: hosts are
 // discovered from Routes (route.openshift.io), the OIDC issuer from the Keycloak
-// Route in ${OPENSHIFT_NAMESPACE}-keycloak, and TLS uses the system roots (ROSA
-// Routes serve valid certs), so there is no CA injection or host rewrite as on
-// Kind. Bring-up (make openshift-up) is owned by openshift-development.spec.md;
-// this is the driver the suite calls after that environment exists.
+// Route (see discoverKeycloakHost for how its namespace is resolved), and TLS uses
+// the system roots (ROSA Routes serve valid certs), so there is no CA injection or
+// host rewrite as on Kind. Bring-up (make openshift-up) is owned by
+// openshift-development.spec.md; this is the driver the suite calls after that
+// environment exists.
 type openshiftDriver struct {
 	clients *harness.Clients
 	dyn     dynamic.Interface
 
-	platformNS string
-	keycloakNS string
-	oidcIssuer string
-	frontendID string
+	platformNS    string
+	keycloakNS    string
+	keycloakRoute string
+	oidcIssuer    string
+	frontendID    string
 
 	kcAdminUser     string
 	kcAdminPassword string
@@ -74,7 +76,7 @@ func newOpenShiftDriver(clients *harness.Clients) (*openshiftDriver, error) {
 		clients:         clients,
 		dyn:             dyn,
 		platformNS:      platformNS,
-		keycloakNS:      platformNS + "-keycloak",
+		keycloakRoute:   envOr("E2E_OPENSHIFT_KEYCLOAK_ROUTE", "keycloak"),
 		frontendID:      envOr("E2E_OIDC_CLIENT_ID", "hypershell-frontend"),
 		kcAdminUser:     envOr("E2E_KC_ADMIN_USER", "admin"),
 		kcAdminPassword: envOr("E2E_KC_ADMIN_PASSWORD", "admin"),
@@ -85,9 +87,9 @@ func newOpenShiftDriver(clients *harness.Clients) (*openshiftDriver, error) {
 	// Derive the OIDC issuer from the Keycloak Route, unless pinned.
 	issuer := os.Getenv("E2E_OIDC_ISSUER")
 	if issuer == "" {
-		host, err := d.routeHost(context.Background(), d.keycloakNS, "keycloak")
+		host, err := d.discoverKeycloakHost(context.Background())
 		if err != nil {
-			return nil, fmt.Errorf("discover Keycloak route in %s: %w", d.keycloakNS, err)
+			return nil, err
 		}
 		issuer = "https://" + host + "/realms/hypershell"
 		// Expose it so the suite's gateway OIDC config uses the same issuer.
@@ -95,6 +97,81 @@ func newOpenShiftDriver(clients *harness.Clients) (*openshiftDriver, error) {
 	}
 	d.oidcIssuer = issuer
 	return d, nil
+}
+
+// discoverKeycloakHost returns the spec.host of the Keycloak Route, resolving its
+// namespace in order of decreasing specificity so the suite works across different
+// deployment layouts without code changes:
+//
+//  1. E2E_OPENSHIFT_KEYCLOAK_NAMESPACE, when set, is authoritative: the Route must
+//     live there, and a miss is a hard error (a wrong override should fail loudly
+//     rather than silently resolve to some other cluster's Keycloak).
+//  2. the "<platform>-keycloak" convention the PR-environment deploys use.
+//  3. a cluster-wide search for a Route named keycloakRoute (default "keycloak"),
+//     so GitOps layouts that place it elsewhere (e.g. "keycloak-system") resolve
+//     with no configuration.
+//
+// (2) falls through to (3) on a miss. The resolved namespace is recorded on the
+// driver for diagnostics. E2E_OIDC_ISSUER short-circuits this entirely (handled by
+// the caller).
+func (d *openshiftDriver) discoverKeycloakHost(ctx context.Context) (string, error) {
+	route := d.keycloakRoute
+
+	if ns := os.Getenv("E2E_OPENSHIFT_KEYCLOAK_NAMESPACE"); ns != "" {
+		host, err := d.routeHost(ctx, ns, route)
+		if err != nil {
+			return "", fmt.Errorf("discover Keycloak route %s/%s (E2E_OPENSHIFT_KEYCLOAK_NAMESPACE): %w", ns, route, err)
+		}
+		d.keycloakNS = ns
+		return host, nil
+	}
+
+	conventional := d.platformNS + "-keycloak"
+	if host, err := d.routeHost(ctx, conventional, route); err == nil {
+		d.keycloakNS = conventional
+		return host, nil
+	}
+
+	ns, host, err := d.findRouteClusterWide(ctx, route)
+	if err != nil {
+		return "", fmt.Errorf("discover Keycloak route %q: not found in %s and %w; set E2E_OPENSHIFT_KEYCLOAK_NAMESPACE or E2E_OIDC_ISSUER", route, conventional, err)
+	}
+	d.keycloakNS = ns
+	return host, nil
+}
+
+// findRouteClusterWide returns the namespace and spec.host of the single Route
+// named `name` across all namespaces. It requires cluster-wide list access on
+// routes; it errors if none match, or if more than one does (so an ambiguous
+// fleet makes the caller pin E2E_OPENSHIFT_KEYCLOAK_NAMESPACE rather than guess).
+func (d *openshiftDriver) findRouteClusterWide(ctx context.Context, name string) (string, string, error) {
+	list, err := d.dyn.Resource(routeGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("list routes cluster-wide: %w", err)
+	}
+	var matches []*unstructured.Unstructured
+	for i := range list.Items {
+		if list.Items[i].GetName() == name {
+			matches = append(matches, &list.Items[i])
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", "", fmt.Errorf("no Route named %q in any namespace", name)
+	case 1:
+		obj := matches[0]
+		host, found, err := unstructured.NestedString(obj.Object, "spec", "host")
+		if err != nil || !found || host == "" {
+			return "", "", fmt.Errorf("route %s/%s has no spec.host", obj.GetNamespace(), name)
+		}
+		return obj.GetNamespace(), host, nil
+	default:
+		nss := make([]string, 0, len(matches))
+		for _, m := range matches {
+			nss = append(nss, m.GetNamespace())
+		}
+		return "", "", fmt.Errorf("found %d Routes named %q (namespaces: %s)", len(matches), name, strings.Join(nss, ", "))
+	}
 }
 
 func (d *openshiftDriver) Name() string              { return openshiftDriverName }

@@ -587,17 +587,21 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 }
 
 // longOnly runs a long-only sub-check of a short-tagged step as a named subtest.
-// Outside long mode the subtest is skipped rather than silently passed, so the
-// report shows which deep checks a short run did not exercise. A failure inside
-// fn fails the subtest and its parent step.
+// Outside long mode the sub-check is not registered at all (no subtest, no skip
+// line), keeping a short run's output focused on what it actually exercised; the
+// parent step's short-tagged assertions still run and report normally. A failure
+// inside fn fails the subtest and its parent step.
+//
+// This differs from a mode-gated top-level step (see step/parallelStep), which
+// SHALL t.Skip so the per-step pass/fail/skip report and the structured reporter
+// account for it (e2e-testing.spec.md, Three-Outcome Reporting). A longOnly check
+// is a sub-check within a step, not a reported step, so it carries no such record.
 func (s *E2ESuite) longOnly(check string, fn func(t *testing.T)) {
+	if !s.modeAllows(tagLong) {
+		return
+	}
 	s.Run(check, func() {
-		t := s.T()
-		if !s.modeAllows(tagLong) {
-			t.Skipf("%s is long-only; mode is %s", check, s.mode)
-			return
-		}
-		fn(t)
+		fn(s.T())
 	})
 }
 

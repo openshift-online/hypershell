@@ -136,6 +136,9 @@ func (d *failureDiagnostics) writePlatformPodLogs(ctx context.Context, w io.Writ
 
 func (d *failureDiagnostics) writeKeycloakLogs(ctx context.Context, w io.Writer) {
 	namespaces := []string{"keycloak"}
+	if ns := os.Getenv("E2E_OPENSHIFT_KEYCLOAK_NAMESPACE"); ns != "" {
+		namespaces = append(namespaces, ns)
+	}
 	if platform := d.platformNamespace(w); platform != "" {
 		namespaces = append(namespaces, platform, platform+"-keycloak")
 	}
