@@ -420,11 +420,29 @@ function useRunLogs(
   const [lines, setLines] = useState<readonly E2eLogLine[]>([]);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [loadingInitial, setLoadingInitial] = useState(true);
+  const [loadingInitial, setLoadingInitial] = useState(!inert);
   const [failed, setFailed] = useState(false);
   const [locallyLimited, setLocallyLimited] = useState(false);
-  // An explicit reload counter so retry() can re-run the scope load effect.
+  // An explicit reload counter so retry() can re-run the scope load for a failed
+  // initial load (E2E-LOG-26).
   const [reloadNonce, setReloadNonce] = useState(0);
+
+  // Reset the scoped buffer, pagination, and error state when the scope changes (or a
+  // retry forces a reload), the React "adjust state when a prop changes" pattern
+  // applied during render rather than in an effect, so a step change starts clean
+  // without the old step's lines flashing (E2E-LOG-23). An older-page retry does NOT
+  // bump reloadNonce, so it preserves the loaded lines.
+  const scopeKey = `${selectedStepId ?? ""}\u0000${String(reloadNonce)}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (renderedScopeKey !== scopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setLines([]);
+    setHasMoreOlder(false);
+    setLoadingOlder(false);
+    setLocallyLimited(false);
+    setFailed(false);
+    setLoadingInitial(!inert);
+  }
 
   // Refs the loaders read without re-creating themselves on every line change, and
   // to make scope-change guards synchronous (a late result for a previous scope is
@@ -445,8 +463,8 @@ function useRunLogs(
   }, [inert]);
 
   // Load the newest page for the current scope. Re-runs on a run or step change
-  // (E2E-LOG-23) and on an explicit retry of a failed initial load (E2E-LOG-26),
-  // resetting the scoped buffer, cursor, and error state each time.
+  // (E2E-LOG-23) and on a retry of a failed initial load (E2E-LOG-26). The scoped
+  // state was already reset during render; this resets the loader refs and fetches.
   useEffect(() => {
     scopeRef.current = selectedStepId;
     inFlight.current = false;
@@ -454,18 +472,11 @@ function useRunLogs(
     linesRef.current = [];
     failedRef.current = false;
     hasMoreRef.current = false;
-    setLines([]);
-    setHasMoreOlder(false);
-    setLoadingOlder(false);
-    setLocallyLimited(false);
-    setFailed(false);
     if (inert) {
       // Idle: no scope is selected for this instance, so it holds no buffer and does
-      // not fetch. It settles out of the loading state immediately.
-      setLoadingInitial(false);
+      // not fetch.
       return;
     }
-    setLoadingInitial(true);
     const controller = new AbortController();
     controllerRef.current = controller;
     api
