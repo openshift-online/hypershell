@@ -501,6 +501,30 @@ export const messages = defineMessages({
     description:
       "Accessible label for the spinner shown while an older page of log lines is being fetched by infinite scroll.",
   },
+  e2eLogsFailed: {
+    id: "fleet.e2e.log.failed",
+    defaultMessage: "Could not load log history.",
+    description:
+      "Shown when a log-history request failed or returned stale; paired with a Retry action instead of a stuck loading indicator (E2E-LOG-26).",
+  },
+  e2eLogsRetry: {
+    id: "fleet.e2e.log.retry",
+    defaultMessage: "Retry",
+    description:
+      "Label for the action that re-attempts a failed log-history request (E2E-LOG-26).",
+  },
+  e2eLogsEndOfHistory: {
+    id: "fleet.e2e.log.endOfHistory",
+    defaultMessage: "Beginning of log history.",
+    description:
+      "Shown at the top of the log pane when all available history for the scope has been loaded (E2E-LOG-26).",
+  },
+  e2eLogsLimited: {
+    id: "fleet.e2e.log.limited",
+    defaultMessage: "Showing the most recent log lines held in memory.",
+    description:
+      "Shown when the in-memory buffer ceiling is reached, distinct from the true end of history (E2E-LOG-26).",
+  },
   e2eLogsTruncated: {
     id: "fleet.e2e.log.truncated",
     defaultMessage: "Log output is truncated.",

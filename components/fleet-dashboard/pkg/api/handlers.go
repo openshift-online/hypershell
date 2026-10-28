@@ -21,7 +21,7 @@ import (
 // so handler tests can supply a fake (e2e-run-log-visibility.spec E2E-LOG-17).
 type E2ERunPlane interface {
 	RunDetail(ctx context.Context, id string) (*sources.E2ERunDetail, error)
-	RunLogs(ctx context.Context, id, before string, limit int) (*sources.E2ELogPage, error)
+	RunLogs(ctx context.Context, id, stepID, before string, limit int) (*sources.E2ELogPage, error)
 	Stream(w http.ResponseWriter, r *http.Request)
 }
 
@@ -136,9 +136,10 @@ func (h *Handlers) serveE2ERunDetail() http.HandlerFunc {
 
 // serveE2ERunLogs serves one bounded page of a run's raw-log history addressed by
 // its collision-free id (the "run" query value), with an optional `before`
-// nanosecond cursor and `limit` (clamped by the source), or 404 when the run's
-// tenant is not addressable. A failed query degrades to a stale-flagged snapshot
-// rather than blanking, like the detail endpoint (E2E-LOG-19/20).
+// nanosecond cursor, an optional `step` selected-step scope (E2E-LOG-23), and a
+// `limit` (clamped by the source), or 404 when the run's tenant is not
+// addressable. A failed query degrades to a stale-flagged snapshot rather than
+// blanking, like the detail endpoint (E2E-LOG-19/20).
 func (h *Handlers) serveE2ERunLogs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.E2E == nil {
@@ -148,6 +149,8 @@ func (h *Handlers) serveE2ERunLogs() http.HandlerFunc {
 		q := r.URL.Query()
 		id := q.Get("run")
 		before := q.Get("before")
+		// step scopes the page to one step (E2E-LOG-23); absent preserves run-wide.
+		step := q.Get("step")
 		limit := 0
 		if raw := q.Get("limit"); raw != "" {
 			// An unparseable limit falls back to the source default (limit stays 0),
@@ -156,7 +159,7 @@ func (h *Handlers) serveE2ERunLogs() http.HandlerFunc {
 				limit = n
 			}
 		}
-		page, err := h.E2E.RunLogs(r.Context(), id, before, limit)
+		page, err := h.E2E.RunLogs(r.Context(), id, step, before, limit)
 		if err != nil {
 			if errors.Is(err, sources.ErrRunNotFound) {
 				writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "run not found"})

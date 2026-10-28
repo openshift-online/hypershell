@@ -22,9 +22,11 @@ type fakeE2E struct {
 
 	logs    *sources.E2ELogPage
 	logsErr error
-	// gotBefore and gotLimit record the last RunLogs arguments so a test can assert
-	// the handler forwarded the before cursor and limit it parsed from the query.
+	// gotBefore, gotStep, and gotLimit record the last RunLogs arguments so a test can
+	// assert the handler forwarded the before cursor, selected step, and limit it
+	// parsed from the query.
 	gotBefore string
+	gotStep   string
 	gotLimit  int
 }
 
@@ -32,8 +34,9 @@ func (f *fakeE2E) RunDetail(context.Context, string) (*sources.E2ERunDetail, err
 	return f.detail, f.err
 }
 
-func (f *fakeE2E) RunLogs(_ context.Context, _, before string, limit int) (*sources.E2ELogPage, error) {
+func (f *fakeE2E) RunLogs(_ context.Context, _, stepID, before string, limit int) (*sources.E2ELogPage, error) {
 	f.gotBefore = before
+	f.gotStep = stepID
 	f.gotLimit = limit
 	return f.logs, f.logsErr
 }
@@ -209,12 +212,15 @@ func TestE2ERunLogsPage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1&before=100&limit=150", nil))
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1&before=100&limit=150&step=infra-verification", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	if fake.gotBefore != "100" {
 		t.Errorf("before = %q, want 100", fake.gotBefore)
+	}
+	if fake.gotStep != "infra-verification" {
+		t.Errorf("step = %q, want infra-verification", fake.gotStep)
 	}
 	if fake.gotLimit != 150 {
 		t.Errorf("limit = %d, want 150", fake.gotLimit)
@@ -229,6 +235,24 @@ func TestE2ERunLogsPage(t *testing.T) {
 	}
 	if hasMore, _ := data["hasMore"].(bool); !hasMore {
 		t.Error("hasMore should be true")
+	}
+}
+
+// TestE2ERunLogsRunWideWhenStepAbsent confirms the logs route forwards an empty
+// step scope when the request carries no step, preserving the run-wide history
+// behavior (E2E-LOG-23.02).
+func TestE2ERunLogsRunWideWhenStepAbsent(t *testing.T) {
+	fake := &fakeE2E{logs: &sources.E2ELogPage{}}
+	h := &Handlers{E2E: fake}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if fake.gotStep != "" {
+		t.Errorf("step = %q, want empty (run-wide) when no step query is supplied", fake.gotStep)
 	}
 }
 

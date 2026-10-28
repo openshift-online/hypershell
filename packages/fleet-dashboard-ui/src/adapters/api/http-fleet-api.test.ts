@@ -139,6 +139,43 @@ describe("createHttpFleetApi", () => {
       expect.anything(),
     );
   });
+
+  it("requests run-wide log history with no step when stepId is null (E2E-LOG-23)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    await api.getE2eRunLogs("tenant-1/ns/run-1", null, null);
+
+    const url = fetchImpl.mock.calls[0]?.[0] as string;
+    expect(url).toBe("/api/e2e/logs?run=tenant-1%2Fns%2Frun-1");
+    expect(url).not.toContain("step=");
+  });
+
+  it("scopes log history to the selected step via the step query (E2E-LOG-23/24)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    await api.getE2eRunLogs("tenant-1/ns/run-1", "900", "infra-verification");
+
+    const url = fetchImpl.mock.calls[0]?.[0] as string;
+    expect(url).toContain("run=tenant-1%2Fns%2Frun-1");
+    expect(url).toContain("before=900");
+    expect(url).toContain("step=infra-verification");
+  });
 });
 
 /** A controllable EventSource double for the SSE stream tests. */
