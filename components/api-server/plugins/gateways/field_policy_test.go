@@ -46,6 +46,8 @@ func TestEnforceGatewayFieldPolicyCreate(t *testing.T) {
 		wantField string // "" means accepted
 	}{
 		{"user with only name+cluster accepted", rbac.GatewayWriterUser, &Gateway{Name: "gw", ClusterId: "c1"}, ""},
+		{"user requesting dedicated_route is accepted by the field policy", rbac.GatewayWriterUser, &Gateway{Name: "gw", DedicatedRoute: boolPtr(true)}, ""},
+		{"import requesting dedicated_route passes the field policy (the funnel rejects it)", rbac.GatewayWriterImport, &Gateway{Name: "gw", DedicatedRoute: boolPtr(true)}, ""},
 		{"user with image rejected", rbac.GatewayWriterUser, &Gateway{Name: "gw", Image: &img}, "image"},
 		{"import with oidc rejected", rbac.GatewayWriterImport, &Gateway{Name: "gw", Oidc: &oidc}, "oidc"},
 		{"control-plane with image accepted", rbac.GatewayWriterControlPlane, &Gateway{Name: "gw", Image: &img}, ""},
@@ -61,24 +63,36 @@ func TestEnforceGatewayFieldPolicyCreate(t *testing.T) {
 func TestEnforceGatewayFieldPolicyUpdate(t *testing.T) {
 	imgA, imgB := "img:a", "img:b"
 	stored := &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA}
+	optedIn := &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(true)}
 
 	tests := []struct {
 		name      string
 		kind      rbac.GatewayWriterKind
+		stored    *Gateway // nil means the shared stored gateway (no dedicated_route)
 		incoming  *Gateway
 		wantField string
 	}{
-		{"user rename accepted", rbac.GatewayWriterUser, &Gateway{Name: "renamed", ClusterId: "c1", Image: &imgA}, ""},
-		{"user resend unchanged image is no-op", rbac.GatewayWriterUser, &Gateway{Name: "renamed", ClusterId: "c1", Image: &imgA}, ""},
-		{"user changing image rejected", rbac.GatewayWriterUser, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, "image"},
-		{"user changing cluster_id rejected", rbac.GatewayWriterUser, &Gateway{Name: "gw", ClusterId: "c2", Image: &imgA}, "cluster_id"},
-		{"user setting status rejected", rbac.GatewayWriterUser, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, Status: strPtr("Healthy")}, "status"},
-		{"import changing image rejected", rbac.GatewayWriterImport, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, "image"},
-		{"control-plane changing image accepted", rbac.GatewayWriterControlPlane, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, ""},
+		{"user rename accepted", rbac.GatewayWriterUser, nil, &Gateway{Name: "renamed", ClusterId: "c1", Image: &imgA}, ""},
+		{"user resend unchanged image is no-op", rbac.GatewayWriterUser, nil, &Gateway{Name: "renamed", ClusterId: "c1", Image: &imgA}, ""},
+		{"user changing image rejected", rbac.GatewayWriterUser, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, "image"},
+		{"user changing cluster_id rejected", rbac.GatewayWriterUser, nil, &Gateway{Name: "gw", ClusterId: "c2", Image: &imgA}, "cluster_id"},
+		{"user adding dedicated_route rejected", rbac.GatewayWriterUser, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(true)}, "dedicated_route"},
+		{"user explicit false is not a request", rbac.GatewayWriterUser, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(false)}, ""},
+		{"user resend unchanged dedicated_route is no-op", rbac.GatewayWriterUser, optedIn, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(true)}, ""},
+		{"user removing dedicated_route rejected", rbac.GatewayWriterUser, optedIn, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(false)}, "dedicated_route"},
+		{"user dropping dedicated_route rejected", rbac.GatewayWriterUser, optedIn, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA}, "dedicated_route"},
+		{"user setting status rejected", rbac.GatewayWriterUser, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, Status: strPtr("Healthy")}, "status"},
+		{"import changing image rejected", rbac.GatewayWriterImport, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, "image"},
+		{"import adding dedicated_route rejected", rbac.GatewayWriterImport, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgA, DedicatedRoute: boolPtr(true)}, "dedicated_route"},
+		{"control-plane changing image accepted", rbac.GatewayWriterControlPlane, nil, &Gateway{Name: "gw", ClusterId: "c1", Image: &imgB}, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := enforceGatewayFieldPolicyUpdate(tc.kind, stored, tc.incoming)
+			current := tc.stored
+			if current == nil {
+				current = stored
+			}
+			err := enforceGatewayFieldPolicyUpdate(tc.kind, current, tc.incoming)
 			assertFieldPolicy(t, err, tc.wantField)
 		})
 	}

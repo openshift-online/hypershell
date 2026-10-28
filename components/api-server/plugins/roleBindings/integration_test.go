@@ -530,3 +530,57 @@ func TestSyncJWTRoles_DefaultAndJWTRolesBothApplied(t *testing.T) {
 	Expect(roleNames[roles.RolePlatformAdmin]).To(BeTrue(), "expected JWT-carried platform:admin binding")
 	Expect(roleNames[roles.RoleGatewayCreator]).To(BeTrue(), "expected default gateway:creator binding alongside JWT roles")
 }
+
+// TestDedicatedRouteCreatorRoleIsKeycloakAssigned proves the new platform-wide
+// entitlement behaves like its siblings: it requires global scope, it cannot be
+// granted through the RoleBinding API (SyncJWTRoles would revoke a directly
+// created binding on the caller's next sign-in), and a JWT-carried realm role
+// produces the global binding the create path checks.
+func TestDedicatedRouteCreatorRoleIsKeycloakAssigned(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	routeRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayDedicatedRouteCreator)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in dedicated-route role must be seeded")
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+
+	// Gateway scope is rejected: the entitlement applies to the platform, not one
+	// gateway (the gateway it is used to create does not exist yet).
+	gatewayID := "gw-dedicated-route-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    routeRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// Direct assignment is rejected: the role is Keycloak-owned.
+	userID := "user-dedicated-route-direct"
+	_, err = rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: routeRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &userID,
+	})
+	Expect(err).To(HaveOccurred(), "a Keycloak-owned role must not be assignable through the API")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	// A JWT-carried realm role syncs the global binding the gateway create path
+	// reads, exactly as it does for platform:admin.
+	userService := users.Service(&environments.Environment().Services)
+	syncedUserID, userErr := userService.UpsertByUsername(context.Background(), "sync-dedicated-route", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedUserID, []string{roles.RoleGatewayDedicatedRouteCreator})).To(Succeed())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedUserID)
+	Expect(findErr).NotTo(HaveOccurred())
+	granted := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayDedicatedRouteCreator && b.Scope == roleBindings.ScopeGlobal {
+			granted = true
+		}
+	}
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleGatewayDedicatedRouteCreator)
+	Expect(rbac.CanRequestGatewayDedicatedRoute(bindings)).To(BeTrue())
+}

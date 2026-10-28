@@ -27,6 +27,7 @@ Name | Type | Description | Notes
 **ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly]
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
 **Route** | Pointer to **string** | JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation. | [optional] [readonly]
+**DedicatedRoute** | Pointer to **bool** | Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation. | [optional] [readonly]
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **WorkspaceMode** | Pointer to **string** | How the OpenShell Kubernetes driver maps workspaces to namespaces. \&quot;shared\&quot; places all sandboxes in the gateway namespace; \&quot;managed\&quot; auto-creates per-workspace namespaces; \&quot;operator\&quot; uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \&quot;managed\&quot; at create, and no caller can set or change it. Null (legacy gateways) keeps the chart&#39;s \&quot;shared\&quot; default. | [optional] [readonly]
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
@@ -616,6 +617,31 @@ SetRoute sets Route field to given value.
 `func (o *Gateway) HasRoute() bool`
 
 HasRoute returns a boolean if a field has been set.
+
+### GetDedicatedRoute
+
+`func (o *Gateway) GetDedicatedRoute() bool`
+
+GetDedicatedRoute returns the DedicatedRoute field if non-nil, zero value otherwise.
+
+### GetDedicatedRouteOk
+
+`func (o *Gateway) GetDedicatedRouteOk() (*bool, bool)`
+
+GetDedicatedRouteOk returns a tuple with the DedicatedRoute field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDedicatedRoute
+
+`func (o *Gateway) SetDedicatedRoute(v bool)`
+
+SetDedicatedRoute sets DedicatedRoute field to given value.
+
+### HasDedicatedRoute
+
+`func (o *Gateway) HasDedicatedRoute() bool`
+
+HasDedicatedRoute returns a boolean if a field has been set.
 
 ### GetCredentialDriver
 

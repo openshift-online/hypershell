@@ -30,12 +30,13 @@ type gatewayGRPCHandler struct {
 	brokerFunc      func() *pkgserver.EventBroker
 	clusters        RegisteredClusterLookup
 	clusterSubjects pkgrbac.RegisteredClusterResolver
+	dedicatedRoute  dedicatedRouteAuthorizer
 	placement       PlacementResolver
 	sandboxEvents   sandboxEvents.SandboxEventStore
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, placement ...PlacementResolver) pb.GatewayServiceServer {
-	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute}
 	if len(placement) > 0 {
 		h.placement = placement[0]
 	}
@@ -144,6 +145,16 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
+	// dedicated_route is a create-only, user-writable request flag, but only for a
+	// caller holding the platform-wide gateway:dedicated-route-creator entitlement
+	// (or platform:admin). The check is body-dependent, so it is enforced here at
+	// the create boundary rather than in the gRPC authorization interceptor, which
+	// sees the request but not the entitlement's role bindings. A privileged
+	// control-plane create (explicit route or not) bypasses it; an import create is
+	// rejected by the service funnel with its own message.
+	if svcErr := h.dedicatedRoute.authorizeCreate(ctx, req.DedicatedRoute); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
 	// cluster_id is optional: a gateway is either pinned to a cluster (cluster_id)
 	// or late-bound by a placement selector. Exactly one must be supplied. See
 	// data-model.spec.md, "Gateway Placement and Late Binding".
@@ -228,6 +239,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,
 		Route:          req.Route,
+		DedicatedRoute: req.DedicatedRoute,
 		WorkspaceMode:  req.WorkspaceMode,                // platform-managed; the service funnel defaults it to managed
 		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}

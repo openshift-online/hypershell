@@ -19,12 +19,14 @@ import (
 // checks if the GatewayCreateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &GatewayCreateRequest{}
 
-// GatewayCreateRequest A gateway is created with only its user-writable fields: a name, and exactly one of cluster_id (pinned) or placement (late-bound). Every other gateway field is platform-managed and control-plane-only; it is not part of the create contract and is rejected if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23). The web-console provision form submits the placement shape; the pinned shape is available to hsctl apply and the declarative .hypershell import.
+// GatewayCreateRequest A gateway is created with only its user-writable fields: a name, exactly one of cluster_id (pinned) or placement (late-bound), and the optional create-only dedicated_route request. Every other gateway field is platform-managed and control-plane-only; it is not part of the create contract and is rejected if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23). The web-console provision form submits the placement shape; the pinned shape is available to hsctl apply and the declarative .hypershell import. dedicated_route is rejected on update: it cannot be added, removed, or changed after creation.
 type GatewayCreateRequest struct {
 	Name string `json:"name"`
 	// Pin the gateway to this managed cluster. Mutually exclusive with placement.
-	ClusterId *string                        `json:"cluster_id,omitempty"`
-	Placement NullableGatewayPlacementIntent `json:"placement,omitempty"`
+	ClusterId *string `json:"cluster_id,omitempty"`
+	// Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided.
+	DedicatedRoute *bool                          `json:"dedicated_route,omitempty"`
+	Placement      NullableGatewayPlacementIntent `json:"placement,omitempty"`
 }
 
 type _GatewayCreateRequest GatewayCreateRequest
@@ -103,6 +105,38 @@ func (o *GatewayCreateRequest) SetClusterId(v string) {
 	o.ClusterId = &v
 }
 
+// GetDedicatedRoute returns the DedicatedRoute field value if set, zero value otherwise.
+func (o *GatewayCreateRequest) GetDedicatedRoute() bool {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		var ret bool
+		return ret
+	}
+	return *o.DedicatedRoute
+}
+
+// GetDedicatedRouteOk returns a tuple with the DedicatedRoute field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayCreateRequest) GetDedicatedRouteOk() (*bool, bool) {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		return nil, false
+	}
+	return o.DedicatedRoute, true
+}
+
+// HasDedicatedRoute returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasDedicatedRoute() bool {
+	if o != nil && !IsNil(o.DedicatedRoute) {
+		return true
+	}
+
+	return false
+}
+
+// SetDedicatedRoute gets a reference to the given bool and assigns it to the DedicatedRoute field.
+func (o *GatewayCreateRequest) SetDedicatedRoute(v bool) {
+	o.DedicatedRoute = &v
+}
+
 // GetPlacement returns the Placement field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent {
 	if o == nil || IsNil(o.Placement.Get()) {
@@ -159,6 +193,9 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	if !IsNil(o.ClusterId) {
 		toSerialize["cluster_id"] = o.ClusterId
+	}
+	if !IsNil(o.DedicatedRoute) {
+		toSerialize["dedicated_route"] = o.DedicatedRoute
 	}
 	if o.Placement.IsSet() {
 		toSerialize["placement"] = o.Placement.Get()

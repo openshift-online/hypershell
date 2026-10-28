@@ -14,7 +14,7 @@ import (
 // by the handler before persistence (PLAT-DATA-23). Every other gateway field is
 // platform-managed and set only by the control plane, so none is copied here.
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	return &Gateway{Name: gateway.Name}
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute}
 }
 
 // gatewayImagePinned reports whether the gateway pins an explicit image. A
@@ -60,6 +60,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		}(),
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
+		DedicatedRoute:     gateway.DedicatedRoute,
 		CredentialDriver:   gateway.CredentialDriver,
 		WorkspaceMode:      gateway.WorkspaceMode,
 		RepositoryId:       gateway.RepositoryId,

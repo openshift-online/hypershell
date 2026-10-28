@@ -24,20 +24,27 @@ type Gateway struct {
 	// an explicit ClusterId. The API server resolves it to a concrete ClusterId at
 	// create time and re-evaluates it for late binding. See data-model.spec.md,
 	// "Requirement: Gateway Placement and Late Binding".
-	Placement        *string `json:"placement" gorm:"type:jsonb"`
-	ExternalDns      *string `json:"external_dns"`
-	TlsMode          *string `json:"tls_mode"`
-	ServiceType      *string `json:"service_type"`
-	Status           *string `json:"status"`
-	Phase            *string `json:"phase"`
-	Image            *string `json:"image"`
-	SupervisorImage  *string `json:"supervisor_image"`
-	ServerDnsNames   *string `json:"server_dns_names" gorm:"type:jsonb"`
-	RouteAddress     *string `json:"route_address"`
-	ConsoleAddress   *string `json:"console_address"`
-	GatewayVersion   *string `json:"gateway_version"`
-	Oidc             *string `json:"oidc" gorm:"type:jsonb"`
-	Route            *string `json:"route" gorm:"type:jsonb"`
+	Placement       *string `json:"placement" gorm:"type:jsonb"`
+	ExternalDns     *string `json:"external_dns"`
+	TlsMode         *string `json:"tls_mode"`
+	ServiceType     *string `json:"service_type"`
+	Status          *string `json:"status"`
+	Phase           *string `json:"phase"`
+	Image           *string `json:"image"`
+	SupervisorImage *string `json:"supervisor_image"`
+	ServerDnsNames  *string `json:"server_dns_names" gorm:"type:jsonb"`
+	RouteAddress    *string `json:"route_address"`
+	ConsoleAddress  *string `json:"console_address"`
+	GatewayVersion  *string `json:"gateway_version"`
+	Oidc            *string `json:"oidc" gorm:"type:jsonb"`
+	Route           *string `json:"route" gorm:"type:jsonb"`
+	// DedicatedRoute records a create-time request for the dedicated per-gateway
+	// route and wildcard certificate path. User-writable at create only, and only
+	// for a caller holding the gateway:dedicated-route-creator entitlement
+	// (PLAT-DATA-23); the API server translates it into the platform-managed
+	// route.certificate opt-in the control plane keys on. NULL on gateways created
+	// without the request, which means "not requested" (same as false).
+	DedicatedRoute   *bool   `json:"dedicated_route"`
 	CredentialDriver *string `json:"credential_driver" gorm:"type:jsonb"`
 	// WorkspaceMode selects how the OpenShell Kubernetes driver maps workspaces
 	// to namespaces (shared/managed/operator). Platform-managed (PLAT-DATA-23):

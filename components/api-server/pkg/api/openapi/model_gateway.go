@@ -62,6 +62,8 @@ type Gateway struct {
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
 	Route *string `json:"route,omitempty"`
+	// Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation.
+	DedicatedRoute *bool `json:"dedicated_route,omitempty"`
 	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
 	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Null (legacy gateways) keeps the chart's \"shared\" default.
@@ -818,6 +820,38 @@ func (o *Gateway) SetRoute(v string) {
 	o.Route = &v
 }
 
+// GetDedicatedRoute returns the DedicatedRoute field value if set, zero value otherwise.
+func (o *Gateway) GetDedicatedRoute() bool {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		var ret bool
+		return ret
+	}
+	return *o.DedicatedRoute
+}
+
+// GetDedicatedRouteOk returns a tuple with the DedicatedRoute field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetDedicatedRouteOk() (*bool, bool) {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		return nil, false
+	}
+	return o.DedicatedRoute, true
+}
+
+// HasDedicatedRoute returns a boolean if a field has been set.
+func (o *Gateway) HasDedicatedRoute() bool {
+	if o != nil && !IsNil(o.DedicatedRoute) {
+		return true
+	}
+
+	return false
+}
+
+// SetDedicatedRoute gets a reference to the given bool and assigns it to the DedicatedRoute field.
+func (o *Gateway) SetDedicatedRoute(v bool) {
+	o.DedicatedRoute = &v
+}
+
 // GetCredentialDriver returns the CredentialDriver field value if set, zero value otherwise.
 func (o *Gateway) GetCredentialDriver() string {
 	if o == nil || IsNil(o.CredentialDriver) {
@@ -1210,6 +1244,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Route) {
 		toSerialize["route"] = o.Route
+	}
+	if !IsNil(o.DedicatedRoute) {
+		toSerialize["dedicated_route"] = o.DedicatedRoute
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver

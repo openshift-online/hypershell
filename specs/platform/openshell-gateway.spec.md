@@ -190,8 +190,9 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 #### Scenario: OSG-CORE-01.01 -- Create a Gateway via hsctl apply
 
 - GIVEN a kustomize overlay containing a `gateway.yaml` that declares only the
-  user-writable fields (`name` + placement, per
-  [`data-model.spec.md`](./data-model.spec.md), PLAT-DATA-23):
+  user-writable manifest fields (`name` + placement, per
+  [`data-model.spec.md`](./data-model.spec.md), PLAT-DATA-23; a direct create may also
+  carry the create-only `dedicated_route` request flag, PLAT-DATA-26):
   ```yaml
   kind: Gateway
   name: openshell-gateway
@@ -425,7 +426,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 #### Scenario: OSG-CORE-08.02 -- Gateway base with per-tenant patches
 
 - GIVEN a base gateway configuration in `examples/base/gateway.yaml` that declares only
-  user-writable fields (`name` + placement, per PLAT-DATA-23):
+  user-writable manifest fields (`name` + placement, per PLAT-DATA-23):
   ```yaml
   kind: Gateway
   name: openshell-gateway
@@ -947,6 +948,7 @@ Control Plane
 | `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
+| `dedicated_route` | No | `false` | Create-only user request for the dedicated per-gateway route and wildcard certificate: the API server translates it into the `route.certificate` opt-in at create ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26). Requires the `gateway:dedicated-route-creator` role (or `platform:admin`); readOnly after creation |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |
@@ -971,7 +973,11 @@ A user or `.hypershell` manifest declares ONLY `name` + placement; `image`, `oid
 `route`, `serverDnsNames`, and the other workload fields are control-plane-managed and
 appear on reads only, never in a manifest (see
 [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Field Ownership and
-Write Policy", PLAT-DATA-23).
+Write Policy", PLAT-DATA-23). A direct user create (REST, gRPC, or
+`hsctl create gateway --dedicated-route`) may additionally carry the create-only
+`dedicated_route` request flag, which the API server translates into the
+`route.certificate` opt-in (PLAT-DATA-26); the declarative `.hypershell` import may
+NOT request it.
 
 ```yaml
 kind: Gateway

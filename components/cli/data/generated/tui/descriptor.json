@@ -1543,6 +1543,12 @@
           "type": "string"
         },
         {
+          "property": "dedicated_route",
+          "label": "DEDICATED ROUTE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -3303,6 +3309,12 @@
           "type": "string"
         },
         {
+          "property": "dedicated_route",
+          "label": "DEDICATED ROUTE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -4309,6 +4321,12 @@
             "type": "string",
             "required": false,
             "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement."
+          },
+          {
+            "name": "dedicated_route",
+            "type": "boolean",
+            "required": false,
+            "description": "Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided."
           },
           {
             "name": "name",

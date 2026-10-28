@@ -68,6 +68,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     created_at: null,
     created_by: "",
     credential_driver: "",
+    dedicated_route: false,
     external_dns: "gateway.example.com",
     gateway_version: "",
     generation: 1,

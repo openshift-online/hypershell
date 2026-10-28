@@ -46,6 +46,7 @@ type gatewayHandler struct {
 	clusters           RegisteredClusterLookup
 	clusterVersions    ClusterProvisioningVersionLookup
 	enforceRBAC        bool
+	dedicatedRoute     dedicatedRouteAuthorizer
 	placement          PlacementResolver
 	availability       PlacementAvailabilityResolver
 	versionLogThrottle *logThrottle
@@ -227,6 +228,7 @@ func NewGatewayHandler(gateway GatewayService, generic services.GenericService, 
 		clusters:           clusters,
 		clusterVersions:    clusterVersions,
 		enforceRBAC:        enforceRBAC,
+		dedicatedRoute:     newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
 		placement:          placement,
 		availability:       availability,
 		versionLogThrottle: &logThrottle{interval: provisioningVersionLogInterval},
@@ -242,6 +244,13 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
+			// dedicated_route is a create-only, user-writable request flag, but only
+			// for a caller holding the platform-wide gateway:dedicated-route-creator
+			// entitlement (or platform:admin). The check is body-dependent, so it lives
+			// here rather than in the path authorization middleware.
+			if svcErr := h.dedicatedRoute.authorizeCreate(ctx, gatewayModel.DedicatedRoute); svcErr != nil {
+				return nil, svcErr
+			}
 			// cluster_id is optional: a gateway is either pinned to a cluster
 			// (cluster_id) or late-bound by a placement selector. Exactly one must be
 			// supplied. See data-model.spec.md, "Gateway Placement and Late Binding".
