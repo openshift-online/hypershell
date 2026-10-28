@@ -333,6 +333,37 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 - THEN the control plane Deployment SHALL NOT be given a collector endpoint
 - AND the control plane SHALL run without OTel instrumentation
 
+### Requirement: OBS-CPL-09 -- Cluster Identity Info Metrics
+
+When OTLP metrics are enabled (OBS-CPL-01), the control plane SHALL export two always-`1` observable gauges that describe its own managed cluster:
+
+| Metric | Attributes | Description |
+|--------|------------|-------------|
+| `hypershell.managed_cluster.capability.info` | `managed_cluster`, `capability`, `capability_namespace`, `capability_value` | One series per configured capability |
+| `hypershell.control_plane.info` | `managed_cluster`, `gateway_image` | One series naming the default gateway image |
+
+`managed_cluster` SHALL be `HYPERSHELL_MANAGED_CLUSTER_NAME`. The capability set SHALL be `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES`, the same set the control plane registers. `capability_namespace` and `capability_value` SHALL be the parts before and after the first `/`. `gateway_image` SHALL be the `GATEWAY_IMAGE` value exactly as configured, without parsing out a tag. The gauges SHALL carry no unit, so Prometheus shows them as `hypershell_managed_cluster_capability_info` and `hypershell_control_plane_info`. When the managed-cluster name is empty, the control plane SHALL NOT export either gauge.
+
+These values are bounded deployment configuration, not resource identifiers, so they satisfy OBS-CPL-06. A consumer SHALL deduplicate control-plane replicas with `max by` or `group by`, not `sum`.
+
+**Verification:** Start the control plane with a collector endpoint and a capability list; confirm Prometheus shows one capability series per entry and one control-plane series with the configured gateway image.
+
+#### Scenario: OBS-CPL-09.01 -- Capabilities and gateway image exported
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND the control plane is configured as managed cluster `hyp2-spoke1` with capabilities `provider/ibm,gateway-version/v0.1.5-rhaiv.2`
+- AND `GATEWAY_IMAGE` is `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2`
+- WHEN metrics are collected
+- THEN `hypershell.managed_cluster.capability.info` SHALL report `1` for each capability, labelled with `managed_cluster=hyp2-spoke1` and the capability's namespace and value
+- AND `hypershell.control_plane.info` SHALL report `1` with `gateway_image` set to the configured image
+
+#### Scenario: OBS-CPL-09.02 -- No identity metrics without a cluster name
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is empty
+- WHEN metrics are collected
+- THEN neither identity gauge SHALL be exported
+
 ## Design Decisions
 
 | Decision | Rationale |

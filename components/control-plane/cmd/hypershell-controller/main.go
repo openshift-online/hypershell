@@ -160,6 +160,16 @@ func main() {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
+	unregisterIdentityInfo, identityErr := cpotel.RegisterClusterIdentityInfo(
+		cfg.ManagedClusterName,
+		cfg.ManagedClusterCapabilities,
+		gateway.StaticImageDefaults{}.DefaultGatewayImage(),
+	)
+	if identityErr != nil {
+		log.Printf("WARN cluster identity info metrics unavailable: %v", identityErr)
+	} else {
+		defer func() { _ = unregisterIdentityInfo() }()
+	}
 
 	// Every RPC, including the long-lived watch streams, carries the control
 	// plane's OIDC bearer token; the API server does not exempt watch streams
