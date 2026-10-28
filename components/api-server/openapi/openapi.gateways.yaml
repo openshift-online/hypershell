@@ -352,6 +352,10 @@ components:
                 sub-key (an empty object) marks a gateway opted in to dedicated
                 per-gateway certificate provisioning; it is provision-time only
                 and cannot be added, removed, or changed after creation.
+            dedicated_route:
+              type: boolean
+              readOnly: true
+              description: Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation.
             credential_driver:
               type: string
               readOnly: true
@@ -425,13 +429,16 @@ components:
     GatewayCreateRequest:
       type: object
       description: >-
-        A gateway is created with only its user-writable fields: a name, and exactly
-        one of cluster_id (pinned) or placement (late-bound). Every other gateway field
-        is platform-managed and control-plane-only; it is not part of the create
-        contract and is rejected if supplied (data-model.spec.md "Requirement: Gateway
-        Field Ownership and Write Policy", PLAT-DATA-23). The web-console provision form
-        submits the placement shape; the pinned shape is available to hsctl apply and
-        the declarative .hypershell import.
+        A gateway is created with only its user-writable fields: a name, exactly
+        one of cluster_id (pinned) or placement (late-bound), and the optional
+        create-only dedicated_route request. Every other gateway field is
+        platform-managed and control-plane-only; it is not part of the create
+        contract and is rejected if supplied (data-model.spec.md "Requirement:
+        Gateway Field Ownership and Write Policy", PLAT-DATA-23). The web-console
+        provision form submits the placement shape; the pinned shape is available
+        to hsctl apply and the declarative .hypershell import. dedicated_route is
+        rejected on update: it cannot be added, removed, or changed after
+        creation.
       required:
         - name
       properties:
@@ -441,6 +448,12 @@ components:
           type: string
           description: >-
             Pin the gateway to this managed cluster. Mutually exclusive with placement.
+        dedicated_route:
+          type: boolean
+          description: >-
+            Create-only. Requires the gateway:dedicated-route-creator role and opts
+            the gateway in to a dedicated route and per-gateway wildcard certificate.
+            The platform manages how the dedicated route and certificate are provided.
         placement:
           description: >-
             Late-bind the gateway by capability-label selector. Mutually exclusive

@@ -11,7 +11,8 @@
 
 The HyperShell API server SHALL enforce authorization on all API endpoints (HTTP and
 gRPC) using a five-role model backed by Keycloak as the source of truth for platform-wide
-roles and a PostgreSQL-backed RoleBinding model for per-gateway grants.
+roles and a PostgreSQL-backed RoleBinding model for per-gateway grants, plus the
+create-time `gateway:dedicated-route-creator` entitlement (SEC-RBAC-20).
 
 Keycloak is the authority for identity and platform-wide role assignment. The API server
 middleware reads JWT claims, lazily provisions User and RoleBinding records, and evaluates
@@ -55,9 +56,10 @@ User {
 
 ### Role
 
-Built-in roles are seeded at migration time. Four roles are DB-backed; one additional
-role (`managed-cluster-registrar`) is seeded for discoverability but enforced via
-JWT-direct check (not a DB-backed RoleBinding).
+Built-in roles are seeded at migration time. Six roles are DB-backed (the per-gateway
+tier plus the JWT-synced platform-wide roles, `gateway:dedicated-route-creator` among
+them); one additional role (`managed-cluster-registrar`) is seeded for discoverability
+but enforced via JWT-direct check (not a DB-backed RoleBinding).
 
 ```
 Role {
@@ -112,6 +114,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Read/update the gateway (no delete); can grant/change/revoke `gateway:admin` and `gateway:viewer` only (not `gateway:owner`) |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
+| `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
 
 ### Permission Matrix
 
@@ -123,6 +126,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
+| `gateway:dedicated-route-creator` | none by itself (marker for `dedicated_route` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 
 `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
@@ -154,7 +158,7 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator` and `platform:admin` roles. A
+Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
 admin console or API.
 
@@ -233,8 +237,9 @@ the two requests can only ever queue behind it, never each hold a different row 
 while waiting on the other's -- so the guarantee holds even when both callers' directory
 profiles changed at the same moment.
 
-The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator` and
-`platform:admin`) from the JWT on every request, creating or removing bindings as
+The middleware SHALL also sync platform-wide RoleBindings (the JWT-synced platform-wide
+roles: `gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin`)
+from the JWT on every request, creating or removing bindings as
 needed to match the JWT claims.
 
 #### Scenario: SEC-RBAC-03.01 -- First-time user auto-provisioned
@@ -505,7 +510,10 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   "Per-Gateway Authorization" and "Platform Admin Global Access" for the request's
   gateway id. `GetGateway` without access returns `NOT_FOUND`; a denied write returns
   `PERMISSION_DENIED`.
-- `CreateGateway`: `gateway:creator`.
+- `CreateGateway`: `gateway:creator`. A request body that sets `dedicated_route`
+  additionally requires `gateway:dedicated-route-creator` or `platform:admin`
+  (SEC-RBAC-20); because that check is body-dependent it is enforced in the
+  `CreateGateway` handler, not in this interceptor.
 - `ListGateways` and `WatchGateways`: `platform:admin` only. The HTTP list is filtered
   to the caller's gateways; the gRPC list and watch are not, so no other role may use
   them.
@@ -666,11 +674,16 @@ field policy from that marker:
   internal reconcile write-back path).
 
 A `user` or `import` caller SHALL be allowed to write only the allowlist (`name` on
-update; `name` + exactly one of `placement`/`cluster_id` on create). Any other field
+update; `name` + exactly one of `placement`/`cluster_id` + the create-only
+`dedicated_route` request flag on create, PLAT-DATA-26). Any other field
 that differs from the stored value (update) or is set (create) SHALL be rejected,
 naming the field: `403 Forbidden` over REST, `PERMISSION_DENIED` over gRPC. Re-sending
 an unchanged value SHALL be a no-op. Only a `control-plane` (non-import) caller SHALL
 bypass the field policy and retain full write of platform-managed and observed fields.
+An `import` caller SHALL NOT set `dedicated_route`: the service funnel rejects an
+import create that requests it with its own entitlement-specific message (PLAT-DATA-26),
+and the create-boundary entitlement check itself is defined in "Requirement: Gateway
+Dedicated Route Creator Role" (SEC-RBAC-20).
 
 Enforcing the policy in the service funnel - not per handler - closes the
 whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
@@ -781,6 +794,101 @@ writes its own paths over gRPC and is unaffected by this rule.
 - GIVEN a request to `/api/hypershell/ext/<unknown-kind>`
 - WHEN the RBAC middleware evaluates it
 - THEN the request SHALL be denied even for a `gateway:creator` caller
+
+### Requirement: SEC-RBAC-20 -- Gateway Dedicated Route Creator Role
+
+A platform-wide role `gateway:dedicated-route-creator` SHALL gate the create-only
+`dedicated_route` request field (the dedicated per-gateway route and wildcard
+certificate path,
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) "Requirement:
+Gateway Dedicated Route Request Field", PLAT-DATA-26, and
+[`platform/openshell-gateway-routing.spec.md`](../platform/openshell-gateway-routing.spec.md)
+OSG-ROUT-12). The role exists because a dedicated per-gateway route and certificate
+is a rate-limited resource (one certificate order, one load balancer, and one
+wildcard DNS record per gateway), so the entitlement is deliberately separate from
+`gateway:creator` and is not granted to every creator.
+
+**Assignment (Keycloak-owned, JWT-synced).** The role SHALL be JWT-synced, like
+`gateway:creator` and `platform:admin`: assignment is owned by Keycloak (a realm
+role synced to a global-scope RoleBinding on sign-in), the RoleBinding API SHALL
+reject a direct assignment with 403 and a gateway-scoped binding with 400 (the role
+requires scope=global), and a binding whose role the JWT no longer carries SHALL be
+removed on the caller's next sign-in. The role record SHALL be seeded by migration
+with `built_in: true` (SEC-RBAC-15).
+
+**Grants nothing else.** Holding `gateway:dedicated-route-creator` SHALL grant
+nothing beyond the right to set `dedicated_route = true` on a gateway create. It
+does not create or own gateways (that still requires `gateway:creator`), confers no
+per-gateway access, no OpenShell mapping, and no ManagedCluster or ext-kind
+permissions: it is a marker/entitlement role checked only at the gateway create
+boundary. `platform:admin` SHALL also qualify to request `dedicated_route`.
+
+**Enforcement (body-dependent, at the create boundaries).** The entitlement SHALL
+be enforced in the REST gateway Create handler and the gRPC `CreateGateway` handler,
+NOT in the path authorization middleware: the request is carried in the body, which
+the middleware never sees. The handler SHALL resolve the caller's role bindings
+through the role-binding service lookup and fail closed: a missing caller identity,
+an unwired lookup, or bindings holding neither `gateway:dedicated-route-creator` nor
+`platform:admin` SHALL reject the create with 403 (`PermissionDenied` over gRPC)
+naming the role and the rate-limit rationale. A binding-lookup failure SHALL surface
+as a server error rather than an authorization denial, so a transient database
+problem does not tell the caller to request a role it may already hold. The check
+SHALL be a no-op exactly when request-level RBAC enforcement is off
+(`RBAC_ENFORCE=false`). A privileged control-plane write bypasses the check; a
+declarative-import create that sets the flag is rejected by the service funnel with
+its own message (PLAT-DATA-26), because a control-plane identity holds no user
+bindings.
+
+#### Scenario: SEC-RBAC-20.01 -- Entitled caller requests a dedicated route
+
+- GIVEN a caller holding `gateway:creator` and `gateway:dedicated-route-creator`
+  (both from Keycloak)
+- WHEN the caller creates a gateway with `dedicated_route = true` over REST or gRPC
+- THEN the create SHALL be accepted and the route opt-in applied (PLAT-DATA-26)
+
+#### Scenario: SEC-RBAC-20.02 -- Plain creator is rejected naming the role
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a gateway with `dedicated_route = true`
+- THEN the response SHALL be 403 Forbidden over REST and PermissionDenied over gRPC
+- AND the reason SHALL name `gateway:dedicated-route-creator` and state the
+  rate-limit rationale
+- AND no gateway SHALL be persisted
+- AND a create from the same caller that does not set the flag is unaffected
+
+#### Scenario: SEC-RBAC-20.03 -- platform:admin qualifies
+
+- GIVEN a caller holding `platform:admin` (and `gateway:creator`)
+- WHEN the caller creates a gateway with `dedicated_route = true`
+- THEN the create SHALL be accepted
+
+#### Scenario: SEC-RBAC-20.04 -- The role grants nothing else
+
+- GIVEN a caller holding only `gateway:dedicated-route-creator`
+- WHEN the caller attempts to create a gateway
+- THEN the create SHALL be rejected with 403 (creating gateways still requires
+  `gateway:creator`)
+- AND the caller SHALL hold no per-gateway access through the role
+
+#### Scenario: SEC-RBAC-20.05 -- Assignment is Keycloak-owned
+
+- GIVEN an attempt to create a `gateway:dedicated-route-creator` RoleBinding through
+  the RoleBinding API
+- WHEN the binding is global-scoped
+- THEN the create SHALL be rejected with 403 (the role can only be assigned via
+  Keycloak)
+- AND a gateway-scoped binding SHALL be rejected with 400 (the role requires
+  scope=global)
+- AND a JWT carrying the realm role SHALL sync the global binding the create path
+  checks
+
+#### Scenario: SEC-RBAC-20.06 -- The gate fails closed
+
+- GIVEN a create requesting `dedicated_route` from a user caller
+- WHEN the caller identity is missing or the binding lookup is unwired
+- THEN the create SHALL be rejected with the 403 entitlement rejection
+- WHEN the binding lookup itself fails
+- THEN the failure SHALL surface as a server error, not an authorization denial
 
 ### Requirement: SEC-RBAC-10 -- Error Response Opacity
 
@@ -898,6 +1006,13 @@ A separate migration SHALL seed the `managed-cluster-registrar` role record with
 `managed-cluster-registrar` is seeded for role discoverability (`GET /roles`) only. It is
 NOT added to `JWTSyncedRoles` and has no DB RoleBinding lifecycle; enforcement is
 JWT-direct in `isAuthorized`.
+
+A migration SHALL also seed the `gateway:dedicated-route-creator` role record with
+`built_in: true` ("Gateway Dedicated Route Creator", display name and description
+carrying the rate-limit rationale; see "Requirement: Gateway Dedicated Route
+Creator Role", SEC-RBAC-20). Unlike `managed-cluster-registrar`, it IS JWT-synced:
+its bindings are assigned via Keycloak and reconciled by `SyncJWTRoles` exactly like
+`gateway:creator` and `platform:admin`.
 
 These migrations SHALL run alongside the existing migrations that seed `gateway:creator`,
 `gateway:owner`, and `gateway:viewer` roles.
@@ -1018,6 +1133,7 @@ gRPC writes (`components/api-server/test/authz`).
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
 | `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. Operators who want strict isolation must also set `RBAC_DEFAULT_ROLES=` to disable the universal `gateway:creator` default. |
+| `gateway:dedicated-route-creator` separate from `gateway:creator` | A dedicated per-gateway route and certificate is a rate-limited resource (one certificate order, load balancer, and wildcard DNS record per gateway). A distinct platform-wide entitlement lets operators grant it narrowly instead of to every creator; it is a marker role checked at the create boundary and grants nothing else (SEC-RBAC-20). |
 | `managed-cluster-registrar` is JWT-direct, not DB-synced | The role is for specific service accounts, not users in general. There is no reason to maintain a DB binding for it. Checking from the live JWT claim in `isAuthorized` is sufficient, consistent with other JWT-direct roles, and avoids `JWTSyncedRoles` entanglement. |
 | Role assigned by admin, not auto-granted | Provides a human control point for fleet membership. A new spoke cannot join the fleet without an explicit Keycloak admin action. |
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |

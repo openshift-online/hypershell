@@ -34,6 +34,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		GatewayVersion:     d.GatewayVersion,
 		Oidc:               d.Oidc,
 		Route:              d.Route,
+		DedicatedRoute:     d.DedicatedRoute,
 		CredentialDriver:   d.CredentialDriver,
 		WorkspaceMode:      d.WorkspaceMode,
 		RepositoryId:       d.RepositoryId,

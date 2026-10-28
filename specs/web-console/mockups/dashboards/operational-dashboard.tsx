@@ -60,7 +60,7 @@ const operationalLayout: ExtendedTemplateConfig = {
       title: "Active sandboxes",
       w: 2,
       x: 0,
-      y: 5,
+      y: 3.5,
       widgetType: "active-sandboxes",
     },
     {
@@ -69,7 +69,7 @@ const operationalLayout: ExtendedTemplateConfig = {
       title: "Provisioning snapshot",
       w: 1,
       x: 2,
-      y: 5,
+      y: 3.5,
       widgetType: "provisioning-snapshot",
     },
     {
@@ -78,7 +78,7 @@ const operationalLayout: ExtendedTemplateConfig = {
       title: "Gateway releases",
       w: 1,
       x: 3,
-      y: 5,
+      y: 3.5,
       widgetType: "gateway-releases",
     },
     {
@@ -87,8 +87,26 @@ const operationalLayout: ExtendedTemplateConfig = {
       title: "Attention required",
       w: 2,
       x: 0,
-      y: 9,
+      y: 7.5,
       widgetType: "attention-required",
+    },
+    {
+      h: 5,
+      i: "pod-and-sandbox-readiness#1",
+      title: "Pod and sandbox readiness",
+      w: 1,
+      x: 2,
+      y: 7.5,
+      widgetType: "pod-and-sandbox-readiness",
+    },
+    {
+      h: 5,
+      i: "certificate-health#1",
+      title: "Certificate health",
+      w: 1,
+      x: 3,
+      y: 7.5,
+      widgetType: "certificate-health",
     },
   ],
   lg: [],
@@ -99,10 +117,11 @@ operationalLayout.lg = operationalLayout.xl;
 operationalLayout.md = operationalLayout.xl;
 operationalLayout.sm = operationalLayout.xl.map((item, index) => ({
   ...item,
-  h: 4,
   w: 1,
   x: 0,
-  y: index * 4,
+  y: operationalLayout.xl
+    .slice(0, index)
+    .reduce((sum, previous) => sum + previous.h, 0),
 }));
 
 export function OperationalDashboardPageSurface() {
@@ -270,6 +289,47 @@ export function OperationalDashboardPageSurface() {
                 { label: "Expiring sandboxes", value: "4" },
                 { label: "Idle or orphaned sandboxes", value: "4" },
               ]}
+            />
+          </DashboardWidget>
+          <DashboardWidget
+            adminOnly
+            title="Pod and sandbox readiness"
+            icon={<CheckCircleIcon />}
+            style={{ gridColumn: "3", gridRow: "3", order: 8 }}
+          >
+            <DashboardSummaryList
+              gap={8}
+              items={[
+                { label: "Pod readiness", value: "96.4%" },
+                { label: "Sandbox readiness", value: "92.9%" },
+                {
+                  indicator: "attention",
+                  label: "Unready resources",
+                  value: "3",
+                },
+              ]}
+              footnote="Readiness is the percentage of resources whose Kubernetes Ready condition is true, not a count of Running or Pending pods."
+            />
+          </DashboardWidget>
+          <DashboardWidget
+            adminOnly
+            title="Certificate health"
+            icon={<ExclamationCircleIcon />}
+            style={{ gridColumn: "4", gridRow: "3", order: 9 }}
+          >
+            <DashboardSummaryList
+              gap={8}
+              items={[
+                { label: "Valid certificates", value: "9 / 10" },
+                {
+                  indicator: "attention",
+                  label: "Days to expiry (soonest)",
+                  value: "18 days",
+                },
+                { label: "Expired certificates", value: "0" },
+                { label: "Status unavailable", value: "1" },
+              ]}
+              footnote="Certificate status is read from gateway and console TLS secrets; unreadable status shows Unavailable."
             />
           </DashboardWidget>
         </MockupWidgetizedLayout>

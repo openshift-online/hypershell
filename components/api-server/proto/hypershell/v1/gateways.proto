@@ -77,6 +77,9 @@ message Gateway {
   // gateways) keeps the chart's shared default. See openshell-gateway.spec.md,
   // "Gateway Workspace Mode".
   optional string workspace_mode = 31;
+  // dedicated_route records that the gateway requested the dedicated route and
+  // per-gateway wildcard certificate path at creation. Read-only after creation.
+  optional bool dedicated_route = 32;
 }
 
 message CreateGatewayRequest {
@@ -96,6 +99,8 @@ message CreateGatewayRequest {
   GatewayPlacementIntent placement = 18;
   // workspace_mode: shared, managed, or operator. Omitted defaults to managed.
   optional string workspace_mode = 19;
+  // dedicated_route requests the dedicated route and per-gateway wildcard certificate path.
+  optional bool dedicated_route = 20;
 }
 
 message CreateGatewayResponse {

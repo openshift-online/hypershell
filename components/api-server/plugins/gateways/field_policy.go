@@ -11,8 +11,9 @@ import (
 // Ownership and Write Policy", PLAT-DATA-23; security/rbac-enforcement.spec.md
 // "Requirement: Gateway Field Write Policy", SEC-RBAC-18).
 //
-// The Gateway resource exposes exactly ONE non-privileged-writable field after create
-// -- name -- plus placement at create. Every other field is owned by the control plane.
+// The Gateway resource exposes no non-privileged-writable field after create except
+// name, and at create only name plus the create-only inputs (placement, cluster_id,
+// dedicated_route). Every other field is owned by the control plane.
 // The policy is a single, authoritative, default-deny allowlist enforced in the gateway
 // service write funnel (Create / Replace), so REST, gRPC, and the declarative
 // .hypershell import are all covered at one chokepoint. Only a control-plane internal
@@ -27,7 +28,7 @@ type gatewayFieldClass int
 
 const (
 	// fieldUserWritable is writable by a user or import caller: name (create+update)
-	// and the create-only placement inputs (placement, cluster_id).
+	// and the create-only inputs (placement, cluster_id, dedicated_route).
 	fieldUserWritable gatewayFieldClass = iota
 	// fieldPlatformManaged is the control-plane-only desired workload spec.
 	fieldPlatformManaged
@@ -41,9 +42,10 @@ const (
 // in sync with the Gateway struct in model.go; the field-census test enforces that.
 var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	// User-writable allowlist.
-	"name":       fieldUserWritable,
-	"cluster_id": fieldUserWritable, // create-only (placement); control-plane-assigned on late-bind, not user-writable on update
-	"placement":  fieldUserWritable, // create-only
+	"name":            fieldUserWritable,
+	"cluster_id":      fieldUserWritable, // create-only (placement); control-plane-assigned on late-bind, not user-writable on update
+	"placement":       fieldUserWritable, // create-only
+	"dedicated_route": fieldUserWritable, // create-only
 
 	// Platform-managed (control-plane-only desired workload spec).
 	"external_dns":      fieldPlatformManaged,
@@ -159,6 +161,12 @@ func gatewayUpdateViolation(current, incoming *Gateway) string {
 		return "oidc"
 	case !jsonEq(current.Route, incoming.Route):
 		return "route"
+	case dedicatedRouteChanged(current.DedicatedRoute, incoming.DedicatedRoute):
+		// A changed dedicated_route is normally reported by the specific,
+		// actionable create-only rejection in Replace before this default-deny
+		// backstop runs; this case keeps the field non-writable if that check is
+		// ever reordered. nil vs false is not a change (both mean not requested).
+		return "dedicated_route"
 	case !jsonEq(current.CredentialDriver, incoming.CredentialDriver):
 		return "credential_driver"
 	case !strEq(current.WorkspaceMode, incoming.WorkspaceMode):

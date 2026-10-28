@@ -123,21 +123,28 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// Default-deny field policy: a user or import caller may create a gateway with only
+	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
+	// Only a control-plane internal write bypasses this. It runs before the
+	// dedicated_route translation below, so the route document the API server applies
+	// on the caller's behalf is never mistaken for a caller-supplied route.
+	kind := rbac.GatewayWriterKindFromContext(ctx)
+	if svcErr := enforceGatewayFieldPolicyCreate(kind, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// dedicated_route translation: reject an import request for it (imports may not
+	// opt a gateway in) and otherwise apply the platform-managed route opt-in
+	if svcErr := applyGatewayDedicatedRouteCreateRequest(kind, gateway); svcErr != nil {
+		return nil, svcErr
+	}
 	// The route.certificate opt-in is validated at the API boundary, not just
 	// during provisioning: an invalid shape would otherwise be accepted and only
 	// fail asynchronously in the control plane, with the actionable detail buried
 	// in controller logs rather than the user-visible condition message. The
 	// route field is control-plane-authored (PLAT-DATA-23), so this guards the
-	// privileged authoring path; it runs before the field policy so the author
-	// gets the specific shape error rather than a generic rejection.
+	// privileged authoring path, and running it after the default above means the
+	// server-applied dedicated-route route is validated by the same check.
 	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
-		return nil, svcErr
-	}
-
-	// Default-deny field policy: a user or import caller may create a gateway with only
-	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
-	// Only a control-plane internal write bypasses this.
-	if svcErr := enforceGatewayFieldPolicyCreate(rbac.GatewayWriterKindFromContext(ctx), gateway); svcErr != nil {
 		return nil, svcErr
 	}
 	// workspace_mode is platform-managed: the API server applies the managed
@@ -193,6 +200,14 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	// is a no-op for both checks).
 	if routeCertificateChanged(current.Route, gateway.Route) {
 		return nil, errors.Conflict("%s", routeCertificateImmutableReason)
+	}
+	// dedicated_route is create-only (the placement/cluster_id ownership class), so
+	// a request to add or remove it after creation is rejected for every writer
+	// class with delete-and-recreate guidance, checked before the field policy so
+	// the caller gets that specific reason rather than the generic rejection. An
+	// unchanged resend (including nil vs false) is a no-op.
+	if dedicatedRouteChanged(current.DedicatedRoute, gateway.DedicatedRoute) {
+		return nil, errors.Conflict("%s", dedicatedRouteImmutableReason)
 	}
 	// Shape is validated after the immutability check so an update that both
 	// alters the opt-in and carries an invalid shape reports the more

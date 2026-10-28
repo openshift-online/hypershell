@@ -3,6 +3,7 @@ package roles
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -169,6 +170,14 @@ var builtInRoleSeeds = []roleSeed{
 			"gateways": []string{"read"},
 		},
 	},
+	{
+		Name:        RoleGatewayDedicatedRouteCreator,
+		DisplayName: "Gateway Dedicated Route Creator",
+		Description: "Allows requesting a dedicated per-gateway route and certificate at gateway create; per-gateway certificates are a rate-limited resource.",
+		Permissions: map[string]interface{}{
+			"gateways": []string{"request_dedicated_route"},
+		},
+	},
 }
 
 func migrationAddPlatformAdminRole() *gormigrate.Migration {
@@ -308,6 +317,62 @@ func migrationAddGatewayAdminRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleGatewayAdmin).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddGatewayDedicatedRouteCreatorRole seeds the
+// gateway:dedicated-route-creator built-in role idempotently. It is a
+// platform-wide (global-scope) entitlement that gates
+// GatewayCreateRequest.dedicated_route; per-gateway certificates are a rate-limited
+// resource, so it is separate from gateway:creator. Like platform:admin and
+// gateway:creator it is JWT-synced (assigned through the identity provider), and no
+// existing binding is touched. Re-running is safe: an existing row short-circuits.
+func migrationAddGatewayDedicatedRouteCreatorRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026102812000002",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleGatewayDedicatedRouteCreator).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			// Only a missing row means "seed it"; a real lookup failure must not be
+			// swallowed into a duplicate-key create error.
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleGatewayDedicatedRouteCreator, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"gateways": []string{"request_dedicated_route"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleGatewayDedicatedRouteCreator, err)
+			}
+			permStr := string(permJSON)
+			displayName := "Gateway Dedicated Route Creator"
+			description := "Allows requesting a dedicated per-gateway route and certificate at gateway create; per-gateway certificates are a rate-limited resource."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleGatewayDedicatedRouteCreator,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleGatewayDedicatedRouteCreator).Delete(&Role{}).Error
 		},
 	}
 }

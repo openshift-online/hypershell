@@ -6,6 +6,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  |
 **ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
+**DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
 **Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
 
 ## Methods
@@ -71,6 +72,31 @@ SetClusterId sets ClusterId field to given value.
 `func (o *GatewayCreateRequest) HasClusterId() bool`
 
 HasClusterId returns a boolean if a field has been set.
+
+### GetDedicatedRoute
+
+`func (o *GatewayCreateRequest) GetDedicatedRoute() bool`
+
+GetDedicatedRoute returns the DedicatedRoute field if non-nil, zero value otherwise.
+
+### GetDedicatedRouteOk
+
+`func (o *GatewayCreateRequest) GetDedicatedRouteOk() (*bool, bool)`
+
+GetDedicatedRouteOk returns a tuple with the DedicatedRoute field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDedicatedRoute
+
+`func (o *GatewayCreateRequest) SetDedicatedRoute(v bool)`
+
+SetDedicatedRoute sets DedicatedRoute field to given value.
+
+### HasDedicatedRoute
+
+`func (o *GatewayCreateRequest) HasDedicatedRoute() bool`
+
+HasDedicatedRoute returns a boolean if a field has been set.
 
 ### GetPlacement
 

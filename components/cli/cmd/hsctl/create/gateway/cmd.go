@@ -16,9 +16,10 @@ import (
 )
 
 var args struct {
-	clusterId string
-	name      string
-	bodyFile  string
+	clusterId      string
+	dedicatedRoute bool
+	name           string
+	bodyFile       string
 }
 
 var Cmd = &cobra.Command{
@@ -26,7 +27,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hsctl create gateway --cluster-id <value> --name <value> \n" +
+		"  hsctl create gateway --cluster-id <value> --dedicated-route <value> --name <value> \n" +
 		"  hsctl create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -35,6 +36,7 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
+	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "dedicated_route value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 }
@@ -62,6 +64,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if args.clusterId != "" {
 			request["cluster_id"] = args.clusterId
+		}
+		if args.dedicatedRoute {
+			request["dedicated_route"] = args.dedicatedRoute
 		}
 		if args.name != "" {
 			request["name"] = args.name

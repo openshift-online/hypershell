@@ -24,9 +24,10 @@ func TestRoleListReturnsBuiltInRoles(t *testing.T) {
 	Expect(len(list.Items)).To(BeNumerically(">=", 3))
 
 	expectedRoles := map[string]bool{
-		"gateway:creator": false,
-		"gateway:owner":   false,
-		"gateway:viewer":  false,
+		"gateway:creator":                 false,
+		"gateway:owner":                   false,
+		"gateway:viewer":                  false,
+		"gateway:dedicated-route-creator": false,
 	}
 	for _, role := range list.Items {
 		if _, ok := expectedRoles[role.Name]; ok {

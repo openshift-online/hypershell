@@ -33,15 +33,27 @@ func (d *Role) BeforeCreate(tx *gorm.DB) error {
 }
 
 const (
-	RolePlatformAdmin           = "platform:admin"
-	RoleGatewayCreator          = "gateway:creator"
-	RoleGatewayOwner            = "gateway:owner"
-	RoleGatewayAdmin            = "gateway:admin"
-	RoleGatewayViewer           = "gateway:viewer"
-	RoleManagedClusterRegistrar = "managed-cluster-registrar"
+	RolePlatformAdmin  = "platform:admin"
+	RoleGatewayCreator = "gateway:creator"
+	// RoleGatewayDedicatedRouteCreator is the platform-wide entitlement to request
+	// a dedicated per-gateway route and wildcard certificate at gateway create
+	// (GatewayCreateRequest.dedicated_route). It is deliberately separate from
+	// gateway:creator because a dedicated route and per-gateway certificate is a
+	// rate-limited resource.
+	RoleGatewayDedicatedRouteCreator = "gateway:dedicated-route-creator"
+	RoleGatewayOwner                 = "gateway:owner"
+	RoleGatewayAdmin                 = "gateway:admin"
+	RoleGatewayViewer                = "gateway:viewer"
+	RoleManagedClusterRegistrar      = "managed-cluster-registrar"
 )
 
+// JWTSyncedRoles is the set of roles whose bindings are reconciled from the
+// caller's JWT realm roles by SyncJWTRoles. Role assignment for a synced role is
+// therefore owned by Keycloak, not by the RoleBinding API: SyncJWTRoles removes a
+// binding whose role the JWT no longer carries, so a directly created binding would
+// not survive the caller's next sign-in.
 var JWTSyncedRoles = map[string]bool{
-	RolePlatformAdmin:  true,
-	RoleGatewayCreator: true,
+	RolePlatformAdmin:                true,
+	RoleGatewayCreator:               true,
+	RoleGatewayDedicatedRouteCreator: true,
 }
