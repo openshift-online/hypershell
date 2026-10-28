@@ -153,9 +153,11 @@ describe("createHttpFleetApi", () => {
 
     await api.getE2eRunLogs("tenant-1/ns/run-1", null, null);
 
-    const url = fetchImpl.mock.calls[0]?.[0] as string;
-    expect(url).toBe("/api/e2e/logs?run=tenant-1%2Fns%2Frun-1");
-    expect(url).not.toContain("step=");
+    // No before cursor and no step: only the run value rides the query.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/e2e/logs?run=tenant-1%2Fns%2Frun-1",
+      expect.anything(),
+    );
   });
 
   it("scopes log history to the selected step via the step query (E2E-LOG-23/24)", async () => {
@@ -171,10 +173,11 @@ describe("createHttpFleetApi", () => {
 
     await api.getE2eRunLogs("tenant-1/ns/run-1", "900", "infra-verification");
 
-    const url = fetchImpl.mock.calls[0]?.[0] as string;
-    expect(url).toContain("run=tenant-1%2Fns%2Frun-1");
-    expect(url).toContain("before=900");
-    expect(url).toContain("step=infra-verification");
+    // run, before, and step ride the query in insertion order.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/e2e/logs?run=tenant-1%2Fns%2Frun-1&before=900&step=infra-verification",
+      expect.anything(),
+    );
   });
 });
 
