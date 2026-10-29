@@ -20,7 +20,7 @@ on temporary queue PRs as described below.
 
 Plan basis: [pricing](https://mergify.com/pricing),
 [queue modes](https://docs.mergify.com/merge-queue/queue-modes/), and
-[queue action](https://docs.mergify.com/workflow/actions/queue/), checked 2026-10-29.
+[native auto-merge](https://docs.mergify.com/merge-protections/auto-merge/), checked 2026-10-29.
 The Open Source plan differs from the Free private-team plan.
 
 ## Requirements
@@ -360,9 +360,11 @@ Existing deployment validation and optional E2E routing SHALL be preserved.
 
 ### Requirement: CICD-MRG-12 -- Automatic Queue Entry
 
-A `pull_request_rules` queue action SHALL automatically enqueue non-draft PRs to
-main with the approval label and both required CI gates successful, using the
-named queue rule. The same conditions SHALL be present on the queue rule so
+`merge_protections_settings.auto_merge_conditions` SHALL automatically enqueue
+non-draft PRs to main with the approval label and both required CI gates
+successful. Merge Protections and Merge Queue are enabled for this repository;
+Workflow Automation is disabled, so `pull_request_rules` SHALL NOT be used.
+With Merge Queue enabled, native auto-merge queues PRs rather than merging directly. The same conditions SHALL be present on the queue rule so
 manual commands cannot bypass them. Removing approval SHALL make the PR
 ineligible. No paid priorities, scheduling, batching, or two-step CI are needed.
 

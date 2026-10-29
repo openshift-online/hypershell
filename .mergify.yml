@@ -21,14 +21,12 @@ queue_rules:
 merge_queue:
   mode: serial
   max_parallel_checks: 10
-pull_request_rules:
-  - name: Automatically queue approved and validated pull requests
-    conditions:
-      - base = main
-      - label = agent/review-code-approved
-      - -draft
-      - check-success = Checks CI Gate
-      - check-success = Tests CI Gate
-    actions:
-      queue:
-        name: agent/review-code-approved
+# Native auto-queueing uses the already-enabled Merge Protections product.
+# Workflow Automation is disabled here; pull_request_rules would be ignored.
+merge_protections_settings:
+  auto_merge_conditions:
+    - base = main
+    - label = agent/review-code-approved
+    - -draft
+    - check-success = Checks CI Gate
+    - check-success = Tests CI Gate
