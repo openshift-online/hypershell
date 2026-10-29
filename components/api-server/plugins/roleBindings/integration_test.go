@@ -660,3 +660,78 @@ func TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin(t *testing.T) {
 	Expect(rbService.SyncJWTRoles(context.Background(), unsyncedID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
 	Expect(hasCIBinding(unsyncedID)).To(BeFalse(), "a JWT realm role must NOT grant ci-federation:admin (not JWT-synced)")
 }
+
+// TestCIFederationGrantorRole proves the narrow bootstrap grantor (SEC-RBAC-23):
+// a caller holding only ci-federation:grantor may create and delete a global
+// ci-federation:admin RoleBinding, confers no other granting power, and the
+// grantor role is itself Keycloak-owned (JWT-synced, not API-assignable).
+func TestCIFederationGrantorRole(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ciAdminRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred())
+	grantorRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationGrantor)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:grantor role must be seeded")
+
+	// A bootstrap identity gets ci-federation:grantor from its JWT (Keycloak-owned).
+	grantorID, err := userService.UpsertByUsername(context.Background(), "ci-fed-bootstrap", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), grantorID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	grantorCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, grantorID)
+
+	seederID, err := userService.UpsertByUsername(context.Background(), "ci-fed-seeder", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	// (1) grantor creates a global ci-federation:admin binding for the seeder.
+	created, createErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ciAdminRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &seederID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "ci-federation:grantor must be able to grant ci-federation:admin")
+
+	// (2) grantor may delete that binding too.
+	Expect(rbService.Delete(grantorCtx, created.ID)).To(BeNil())
+
+	// (3) confinement: grantor confers no gateway-granting power.
+	ownerRole, roleErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	Expect(roleErr).NotTo(HaveOccurred())
+	gwID := "gw-grantor-confine"
+	_, gwErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ownerRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gwID, UserID: &seederID,
+	})
+	Expect(gwErr).To(HaveOccurred(), "ci-federation:grantor must not authorize granting gateway roles")
+	Expect(gwErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// (4) the grantor role is Keycloak-owned: not API-assignable (403), gateway scope 400.
+	otherID, otherErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-target", nil, nil)
+	Expect(otherErr).NotTo(HaveOccurred())
+	_, directErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &otherID,
+	})
+	Expect(directErr).To(HaveOccurred(), "ci-federation:grantor must not be API-assignable (Keycloak-owned)")
+	Expect(directErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	gw2 := "gw-grantor-scope"
+	_, scopeErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gw2,
+	})
+	Expect(scopeErr).To(HaveOccurred())
+	Expect(scopeErr.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// A JWT carrying the grantor realm role syncs the global binding the grant path reads.
+	syncedID, syncErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-sync", nil, nil)
+	Expect(syncErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedID)
+	Expect(findErr).NotTo(HaveOccurred())
+	granted := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleCIFederationGrantor && b.Scope == roleBindings.ScopeGlobal {
+			granted = true
+		}
+	}
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationGrantor)
+}
