@@ -29,7 +29,6 @@ import {
   type GatewaySortField,
   type OpenShellGatewayServiceAccountListRequest,
 } from "../application/gateway-types";
-import { deriveGatewayVersionDrift } from "../application/gateway-operations";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
 import { type GatewayConnection } from "../gateways/gateway-connections";
@@ -629,9 +628,6 @@ export function GatewayPage({
   }
 
   const connection = toGatewayConnection(visibleGateway);
-  // Derive the newer-version-available verdict once in the application layer so
-  // the header consumes a single authoritative result (WEB-VER-03/WEB-VER-04).
-  const versionDrift = deriveGatewayVersionDrift(visibleGateway);
   // Anchor the console-ready deadline the detail header shows to when the UI
   // first observed this gateway awaiting its console, matching the polling clock
   // above rather than the gateway's createdAt.
@@ -652,7 +648,6 @@ export function GatewayPage({
         <GatewayDetailHeader
           consoleWaitStartedAt={consoleWaitStartedAt}
           gateway={connection}
-          versionDrift={versionDrift}
           onDeleted={() => {
             if (onDeleted) {
               void onDeleted(connection.name);

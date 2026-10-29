@@ -486,7 +486,7 @@ test("does not preserve removed administration routes", async ({ page }) => {
   }
 });
 
-// Verifies: WEB-UIEX-04.01, WEB-PLC-01.02, WEB-PLC-06.02
+// Verifies: WEB-UIEX-04.01, WEB-PLC-01.01, WEB-PLC-06.02
 test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {

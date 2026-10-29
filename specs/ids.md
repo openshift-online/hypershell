@@ -97,7 +97,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 9 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -138,7 +138,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 7 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
@@ -148,7 +148,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 14 |
+| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 16 |
 
 ### SDLC
 
@@ -163,7 +163,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 18 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 22 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
@@ -209,16 +209,16 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
-| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
+| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
-| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 11 |
+| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
 | `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
-| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 5 |
+| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
 ## Multi-Group Files
 

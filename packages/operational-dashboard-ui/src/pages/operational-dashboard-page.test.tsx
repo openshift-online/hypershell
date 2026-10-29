@@ -8,6 +8,7 @@ import type { OperationalDashboardMetrics } from "../application/dashboard-types
 import { DashboardUiProvider } from "../dashboard-ui-provider";
 import { mockOperationalDashboardMetrics } from "../fixtures/mock-operational-dashboard-metrics";
 import { messages } from "../messages";
+import { CertificateHealthCard } from "./dashboard-widget";
 import { OperationalDashboardPage } from "./operational-dashboard-page";
 
 const messageCatalog = Object.fromEntries(
@@ -58,6 +59,19 @@ function renderPage(isAdmin: boolean) {
 }
 
 describe("OperationalDashboardPage", () => {
+  it("renders certificate health unavailable when no population is mapped", () => {
+    render(
+      <IntlProvider locale="en" messages={messageCatalog}>
+        <CertificateHealthCard
+          metric={{ id: "certificate-health", value: "Unavailable" }}
+        />
+      </IntlProvider>,
+    );
+
+    expect(screen.getByText("Metric unavailable")).toBeTruthy();
+    expect(screen.queryByText("0 / 0")).toBeNull();
+  });
+
   it("marks every Overview widget as System data for admins", () => {
     renderPage(true);
 
@@ -65,7 +79,7 @@ describe("OperationalDashboardPage", () => {
       document.querySelectorAll(".hypershell-dashboard-widget--system"),
     );
 
-    expect(systemWidgets).toHaveLength(7);
+    expect(systemWidgets).toHaveLength(9);
     expect(
       systemWidgets.every((widget) =>
         widget.getAttribute("aria-label")?.endsWith("System"),

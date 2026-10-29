@@ -28,9 +28,9 @@ describe("capabilityValue", () => {
 describe("capabilityParts", () => {
   // FLT-CAP-02.02
   it("splits on the first slash only, keeping internal characters", () => {
-    expect(capabilityParts("gateway-version/v0.1.2-rhaiv.7")).toEqual({
-      namespace: "gateway-version",
-      value: "v0.1.2-rhaiv.7",
+    expect(capabilityParts("runtime/kata-qemu.v2")).toEqual({
+      namespace: "runtime",
+      value: "kata-qemu.v2",
     });
   });
 

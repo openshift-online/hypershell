@@ -2,12 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { GatewayProbe } from "./gateway-probes";
 import { gatewayProbeCatalog } from "./gateway-probes";
-import {
-  compareGatewayVersions,
-  createGatewayOperations,
-  deriveGatewayVersionDrift,
-  parseGatewayVersion,
-} from "./gateway-operations";
+import { createGatewayOperations } from "./gateway-operations";
 import {
   GatewayOperationError,
   type GatewayControlPlane,
@@ -385,112 +380,5 @@ describe("gateway application operations", () => {
         allowedConsumers.includes("trace"),
       ),
     ).toBe(true);
-  });
-});
-
-describe("deriveGatewayVersionDrift", () => {
-  it("fires for a tracking gateway strictly behind its spoke default (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.1-rhaiv.3",
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("behind");
-  });
-
-  it("never fires for a pinned-image gateway, even when behind (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.1-rhaiv.3",
-        imagePinned: true,
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("none");
-  });
-
-  it("does not fire for an up-to-date gateway (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.2-rhaiv.7",
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("none");
-  });
-
-  it("does not fire when the running version is newer than the spoke default", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.3-rhaiv.1",
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("none");
-  });
-
-  it("fires when only the release suffix is behind on an equal core (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.2-rhaiv.3",
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("behind");
-  });
-
-  it("does not fire when either version is missing (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({ provisioningVersion: "v0.1.2-rhaiv.7" }),
-    ).toBe("none");
-    expect(
-      deriveGatewayVersionDrift({ gatewayVersion: "v0.1.1-rhaiv.3" }),
-    ).toBe("none");
-    expect(deriveGatewayVersionDrift({})).toBe("none");
-  });
-
-  it("does not fire when either version is unparseable (WEB-VER-03)", () => {
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "latest",
-        provisioningVersion: "v0.1.2-rhaiv.7",
-      }),
-    ).toBe("none");
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.1-rhaiv.3",
-        provisioningVersion: "nightly-build",
-      }),
-    ).toBe("none");
-  });
-
-  it("compares dotted, suffixed version tags semantically, not as strings", () => {
-    // String comparison would place "v0.1.10" before "v0.1.9"; semantic
-    // comparison must not.
-    const older = parseGatewayVersion("v0.1.9-rhaiv.2");
-    const newer = parseGatewayVersion("v0.1.10-rhaiv.1");
-    if (!older || !newer) {
-      throw new Error("expected both versions to parse");
-    }
-    expect(compareGatewayVersions(older, newer)).toBeLessThan(0);
-    expect(
-      deriveGatewayVersionDrift({
-        gatewayVersion: "v0.1.9-rhaiv.2",
-        provisioningVersion: "v0.1.10-rhaiv.1",
-      }),
-    ).toBe("behind");
-  });
-
-  it("treats a suffixless tag as newer than an equal-core suffixed tag", () => {
-    const suffixed = parseGatewayVersion("v1.0.0-rhaiv.1");
-    const release = parseGatewayVersion("v1.0.0");
-    if (!suffixed || !release) {
-      throw new Error("expected both versions to parse");
-    }
-    expect(compareGatewayVersions(suffixed, release)).toBeLessThan(0);
-    expect(compareGatewayVersions(release, suffixed)).toBeGreaterThan(0);
-  });
-
-  it("rejects unparseable version strings", () => {
-    expect(parseGatewayVersion(undefined)).toBeUndefined();
-    expect(parseGatewayVersion("")).toBeUndefined();
-    expect(parseGatewayVersion("v1.2")).toBeUndefined();
-    expect(parseGatewayVersion("1.2.3.4")).toBeUndefined();
   });
 });

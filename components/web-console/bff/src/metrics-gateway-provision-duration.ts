@@ -3,6 +3,12 @@ import {
   namespaceSelector,
   type MetricsSource,
 } from "./metrics-source.js";
+import {
+  dailyRangeStepSeconds,
+  formatUtcCalendarDate,
+  queryPrometheusRangeScalarSamples,
+  utcCalendarRange,
+} from "./prometheus-range-query.js";
 
 export const gatewayProvisionDurationCountPromql =
   "gateway_provision_duration_seconds_count";
@@ -12,12 +18,25 @@ export const gatewayProvisionDurationP50Promql =
   "histogram_quantile(0.50, sum(gateway_provision_duration_seconds_bucket) by (le))";
 export const gatewayProvisionDurationP95Promql =
   "histogram_quantile(0.95, sum(gateway_provision_duration_seconds_bucket) by (le))";
+export const gatewayProvisionDurationP99SevenDayPromql =
+  "histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket[7d])))";
+export const gatewayProvisionDurationP99DailyPromql =
+  "histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket[1d])))";
+export const gatewayProvisionDurationTargetSeconds = 300;
+
+export interface GatewayProvisionDurationDailyP99 {
+  date: string;
+  p99_seconds: number;
+}
 
 export interface GatewayProvisionDurationSeconds {
   mean_seconds: number;
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+  p99_seconds: number | null;
+  target_seconds: number;
+  daily_p99: GatewayProvisionDurationDailyP99[] | null;
 }
 
 interface PrometheusQueryResponse {
@@ -121,10 +140,48 @@ export async function queryGatewayProvisionDuration(
     queryPrometheusInstantNumber(prometheusUrl, p95, timeoutMs),
   ]);
 
+  let p99Seconds: number | undefined;
+  let dailyP99: GatewayProvisionDurationDailyP99[] | undefined;
+  if (rangeDays === 7) {
+    p99Seconds = await queryPrometheusInstantNumber(
+      prometheusUrl,
+      namespace
+        ? `histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[7d])))`
+        : gatewayProvisionDurationP99SevenDayPromql,
+      timeoutMs,
+    ).catch(() => undefined);
+
+    try {
+      const { start, end } = utcCalendarRange(7);
+      const samples = await queryPrometheusRangeScalarSamples(
+        prometheusUrl,
+        namespace
+          ? `histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[1d])))`
+          : gatewayProvisionDurationP99DailyPromql,
+        start,
+        end,
+        String(dailyRangeStepSeconds),
+        timeoutMs,
+      );
+      const points = [...samples.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([timestamp, value]) => ({
+          date: formatUtcCalendarDate(timestamp),
+          p99_seconds: value,
+        }));
+      dailyP99 = points.length > 0 ? points : undefined;
+    } catch {
+      dailyP99 = undefined;
+    }
+  }
+
   return {
     mean_seconds,
     observation_count,
     p50_seconds,
     p95_seconds,
+    p99_seconds: p99Seconds ?? null,
+    target_seconds: gatewayProvisionDurationTargetSeconds,
+    daily_p99: dailyP99 ?? null,
   };
 }

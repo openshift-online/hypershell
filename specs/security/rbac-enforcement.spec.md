@@ -115,6 +115,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
+| `ci-federation:admin` | global | DB (RoleBinding API, platform:admin-granted) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API by a `platform:admin` (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 
 ### Permission Matrix
 
@@ -127,6 +128,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 | `gateway:dedicated-route-creator` | none by itself (marker for `dedicated_route` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
+| `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
 
 `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
@@ -160,7 +162,9 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
-admin console or API.
+admin console or API. (`ci-federation:admin` is the exception: it is granted
+through the RoleBinding API by a `platform:admin`, not from a Keycloak realm role;
+see SEC-RBAC-21.)
 
 The API server middleware SHALL extract roles from the JWT `realm_access.roles` claim
 (or an equivalent configurable claim path) and lazily create or update the corresponding
@@ -531,6 +535,13 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   import-write kinds among them (all except `RepositoryService`), declarative-import writes
   are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
   on the import-write path because the import never upserts `Repository` resources.
+- `CIProviderService` and `CITrustService`: authored over HTTP (`hsctl` and the SDKs),
+  like `AgentWorkspaceService`. A registered control-plane identity MAY READ them
+  (list/watch/get) to drive `CIProvider`/`CITrust` reconciliation; `platform:admin`
+  MAY also list, watch, and get them. All writes (create/update/delete) over gRPC
+  SHALL be denied for every caller: `CIProvider` is authored by a `ci-federation:admin`
+  over HTTP (SEC-RBAC-21) and `CITrust` by a gateway owner/admin over HTTP
+  (SEC-RBAC-22), and neither is on the declarative-import write path.
 - Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
@@ -651,6 +662,14 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - WHEN the import reconciler for `Repository` R1 attempts to update or delete it
 - THEN the write SHALL be refused
 
+#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds but no one writes them over gRPC
+
+- GIVEN a registered control-plane identity reconciling CI federation
+- WHEN it calls `WatchCITrusts`, `ListCIProviders`, or `GetCIProvider`
+- THEN the read SHALL be authorized
+- WHEN any caller (user or control plane) calls `CreateCIProvider`, `UpdateCITrust`, or `DeleteCITrust` over gRPC
+- THEN the request SHALL return PermissionDenied (these kinds are authored over HTTP)
+
 ### Requirement: SEC-RBAC-18 -- Gateway Field Write Policy
 
 The gateway write surface SHALL enforce a single, default-deny, field-level write
@@ -716,7 +735,8 @@ needs to author platform-managed fields SHALL do so as the control-plane identit
 
 The Extension API kinds served under `/api/hypershell/ext/` (`AgentRuntime`,
 `AgentWorkspace`, `WorkspaceMembership`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`) SHALL sit
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`, `CIProvider`,
+`CITrust`) SHALL sit
 behind the same authentication and authorization middleware as the `/v1`
 kinds. The framework's route builder mounts the `ext` prefix on a subrouter
 separate from `/v1`, so the RBAC middleware SHALL be registered on that
@@ -725,13 +745,31 @@ subrouter as well (`RegisterPrefixedRoutes("rbac", "ext", ...)`, exercised by
 identity presence only and SHALL NOT be treated as an authorization boundary
 for these routes.
 
+Every extension kind registered by a plugin with
+`RegisterPrefixedRoutes(_, "ext", ...)` SHALL be present in the RBAC
+allow-list (`extKinds`), so an ext path whose resource is not a known
+extension kind SHALL be denied (fail closed) rather than falling back to the
+`gateway:creator` default that unknown `/v1` resources receive. The allow-list
+and the set of ext-registering plugins SHALL be kept in sync: a plugin that
+registers an ext route but is absent from the allow-list is fail-closed for
+every caller including `platform:admin`, which is a latent outage, not a
+deliberate deny. `CIProvider` (`ci_providers`) and `CITrust` (`ci_trusts`)
+SHALL be in the allow-list; they are the kinds whose absence previously made
+every request to them return 403.
+
 At the middleware gate, every ext method (read and write) SHALL require
-`gateway:creator` or `platform:admin`: these kinds are authored over HTTP
+`gateway:creator` or `platform:admin` by default: these kinds are authored over HTTP
 (`hsctl` and the generated SDKs), which is the authoring posture the gRPC
-rules defer to ("these kinds are authored over HTTP", gRPC Authorization). An
-ext path whose resource is not a known extension kind SHALL be denied (fail
-closed) rather than falling back to the `gateway:creator` default that
-unknown `/v1` resources receive.
+rules defer to ("these kinds are authored over HTTP", gRPC Authorization). Two
+kinds use a different gate instead of the `gateway:creator` default:
+
+- `ci_providers` SHALL require the narrow `ci-federation:admin` role (or
+  `platform:admin`) for every method, NOT `gateway:creator`; a forge
+  registration is a platform operation, not a gateway-authoring one
+  (SEC-RBAC-21).
+- `ci_trusts` is a gateway-scoped tenancy kind authorized per referenced
+  gateway (SEC-RBAC-22); a bare `gateway:creator` with no binding on the
+  referenced gateway SHALL NOT author one.
 
 The gateway-scoped ext kinds SHALL additionally enforce per-resource tenancy
 in their handlers, because the creator gate alone cannot confine a creator to
@@ -748,6 +786,13 @@ their own gateways:
 - The `SecretSource` secret-store write SHALL happen only after the tenancy
   check passes; a rejected submission SHALL leave the store and the database
   unchanged.
+- `CITrust` create, update, and delete SHALL require `gateway:owner` or
+  `gateway:admin` on the referenced gateway, or `platform:admin`, through the
+  same `CanManageGatewayResources` check the other gateway-scoped kinds use.
+  The `gateway_id` SHALL be read from the request body on create and from the
+  stored record on update and delete, mirroring how `AgentRuntime` resolves and
+  enforces its gateway scope in-handler. The full tenancy contract and its
+  scenarios are in SEC-RBAC-22.
 
 The `SecretSource` `path` SHALL be derived server-side from the submission
 identity on every create, value-bearing and reference-only alike; a
@@ -890,6 +935,143 @@ bindings.
 - WHEN the binding lookup itself fails
 - THEN the failure SHALL surface as a server error, not an authorization denial
 
+### Requirement: SEC-RBAC-21 -- CI Federation Admin Role
+
+A platform-wide role `ci-federation:admin` SHALL authorize the `ci_providers`
+extension kind (`CIProvider`, PLAT-DATA-24: register, read, update, and delete a
+CI OIDC forge) and SHALL authorize nothing else. The role exists so the gitops
+CI-federation seeder can register forges with a least-privilege credential
+instead of `platform:admin`: forge registration is a narrow platform operation,
+and granting the seeder blanket platform administration to perform it would be
+over-broad.
+
+**Authorization.** At the ext middleware gate, every `ci_providers` method
+(create, read, update, delete) SHALL require `ci-federation:admin` or
+`platform:admin`. A caller holding neither SHALL be denied: a `ci_providers`
+collection request without the role SHALL be rejected with 403, and a request
+to a specific `ci_providers/{id}` MAY be masked as 404 per the not-found-masking
+convention (SEC-RBAC-10). `gateway:creator` alone SHALL NOT authorize
+`ci_providers`; the generic ext creator gate does not apply to this kind
+(SEC-RBAC-19).
+
+**Assignment (API-assignable, platform-admin-granted).** Unlike
+`gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin`, this
+role SHALL NOT be Keycloak-owned/JWT-synced: authorization over `ci_providers`
+is a decision HyperShell makes from its own RBAC, not one delegated to a Keycloak
+realm role. The role SHALL be assignable through the RoleBinding API as a
+global-scope binding, and only a caller holding `platform:admin` SHALL be
+permitted to grant it; a caller lacking `platform:admin` SHALL be rejected with
+403. A gateway-scoped binding SHALL be rejected with 400 (the role requires
+scope=global). Because the role is not JWT-synced, a JWT carrying a realm role of
+the same name SHALL NOT produce a binding, and an API-created binding SHALL NOT
+be revoked by the recipient's next sign-in. The role record SHALL be seeded by an
+additive, idempotent migration with `built_in: true`, mirroring how
+`gateway:admin` and `gateway:dedicated-route-creator` were added (SEC-RBAC-15);
+the seed SHALL be re-runnable without error and SHALL NOT alter existing
+bindings.
+
+**Grants nothing else.** Holding `ci-federation:admin` SHALL grant no gateway
+creation, no per-gateway access, no OpenShell mapping, no ManagedCluster
+authority, and no other ext-kind authority (it does not authorize `ci_trusts`,
+`agent_runtimes`, `secret_sources`, or any other kind). It is a marker
+entitlement checked only at the `ci_providers` ext gate. `platform:admin`
+remains owner-equivalent and also qualifies.
+
+#### Scenario: SEC-RBAC-21.01 -- CI federation admin registers a provider
+
+- GIVEN a caller (for example the gitops seeder service account) holding only `ci-federation:admin`
+- WHEN the caller creates, updates, reads, or deletes a `CIProvider`
+- THEN the request SHALL be authorized
+
+#### Scenario: SEC-RBAC-21.02 -- Caller without the role is denied
+
+- GIVEN a caller holding only `gateway:creator` (and no `ci-federation:admin` or `platform:admin`)
+- WHEN the caller creates a `CIProvider`
+- THEN the response SHALL be 403 Forbidden
+- AND a request to a specific `ci_providers/{id}` MAY be masked as 404
+
+#### Scenario: SEC-RBAC-21.03 -- The role grants nothing else
+
+- GIVEN a caller holding only `ci-federation:admin`
+- WHEN the caller attempts to create a `Gateway`, create a `CITrust`, or write any other ext kind
+- THEN every such request SHALL be denied (the role authorizes only `ci_providers`)
+
+#### Scenario: SEC-RBAC-21.04 -- platform:admin qualifies
+
+- GIVEN a caller holding `platform:admin` and no `ci-federation:admin`
+- WHEN the caller manages a `CIProvider`
+- THEN the request SHALL be authorized (owner-equivalent)
+
+#### Scenario: SEC-RBAC-21.05 -- Assignment is API-driven, platform-admin-gated
+
+- GIVEN an attempt to create a `ci-federation:admin` RoleBinding through the RoleBinding API
+- WHEN the binding is global-scoped AND the caller holds `platform:admin`
+- THEN the create SHALL succeed
+- AND WHEN the caller does not hold `platform:admin` THEN the create SHALL be rejected with 403
+- AND a gateway-scoped binding SHALL be rejected with 400 (the role requires scope=global)
+- AND the role SHALL NOT be JWT-synced: a JWT carrying the realm role SHALL NOT create a binding, and an API-created binding SHALL survive the recipient's next sign-in
+
+### Requirement: SEC-RBAC-22 -- CITrust Per-Gateway Tenancy
+
+The `ci_trusts` extension kind (`CITrust`, PLAT-DATA-25) SHALL be authorized per
+referenced gateway, reusing the existing per-gateway tenancy model rather than a
+new platform role. A `CITrust` declares that a repository's CI may federate onto
+a gateway the caller already controls, so the right to author one SHALL be the
+right to manage that gateway's resources.
+
+**Write authorization.** `CITrust` create, update, and delete SHALL require
+`gateway:owner` or `gateway:admin` on the referenced gateway, or `platform:admin`
+(owner-equivalent for management, GTW-ACC-08), through the shared
+`CanManageGatewayResources` check. The `gateway_id` SHALL be resolved from the
+request body on create and from the stored record on update and delete, so the
+enforced gateway is always the one the `CITrust` actually targets. This is the
+same resolution-and-enforcement pattern `agent_runtimes` and `secret_sources`
+use. The `role` a `CITrust` grants SHALL NOT exceed the caller's own rights on
+that gateway (PLAT-CITR-03 / PLAT-DATA-25.03).
+
+**Deny-by-default.** A caller with no `gateway:owner`, `gateway:admin`, or
+`platform:admin` authority over the referenced gateway SHALL be denied: an
+unbound caller, a `gateway:creator` with no binding on that gateway, and a
+`gateway:viewer` on that gateway SHALL all be rejected on write. A caller bound
+only to a different gateway SHALL NOT manage another gateway's trusts.
+
+**Reads.** A `gateway:owner`, `gateway:admin`, or `gateway:viewer` on the
+referenced gateway (or `platform:admin`) MAY read that gateway's `CITrust`
+records; a caller with no binding on the referenced gateway SHALL NOT, and a
+request to a specific `ci_trusts/{id}` MAY be masked as 404 per SEC-RBAC-10.
+
+#### Scenario: SEC-RBAC-22.01 -- Gateway owner creates a trust on their own gateway
+
+- GIVEN caller A holds `gateway:owner` on gw-1
+- WHEN caller A creates a `CITrust` referencing gw-1
+- THEN the request SHALL be authorized
+
+#### Scenario: SEC-RBAC-22.02 -- Gateway admin may manage trusts
+
+- GIVEN caller A holds `gateway:admin` on gw-1
+- WHEN caller A creates, updates, or deletes a `CITrust` referencing gw-1
+- THEN the request SHALL be authorized
+
+#### Scenario: SEC-RBAC-22.03 -- Viewer cannot write, deny-by-default holds
+
+- GIVEN caller V holds `gateway:viewer` on gw-1 and caller U holds no binding on gw-1
+- WHEN either creates, updates, or deletes a `CITrust` referencing gw-1
+- THEN the response SHALL be 403 Forbidden
+- AND no Keycloak mapping or RBAC binding SHALL be created
+
+#### Scenario: SEC-RBAC-22.04 -- Cross-gateway isolation
+
+- GIVEN caller A holds `gateway:owner` on gw-a and no binding on gw-b
+- WHEN caller A creates, updates, or deletes a `CITrust` referencing gw-b
+- THEN the response SHALL be 403 Forbidden (a specific-id request MAY be 404)
+
+#### Scenario: SEC-RBAC-22.05 -- Owner, admin, or viewer may read a gateway's trusts
+
+- GIVEN caller R holds `gateway:viewer` on gw-1
+- WHEN caller R reads the `CITrust` records for gw-1
+- THEN the read SHALL be authorized
+- AND a caller with no binding on gw-1 SHALL NOT read them
+
 ### Requirement: SEC-RBAC-10 -- Error Response Opacity
 
 For singleton resource endpoints (`GET /gateways/{id}`), the middleware SHALL return 404
@@ -1013,6 +1195,15 @@ carrying the rate-limit rationale; see "Requirement: Gateway Dedicated Route
 Creator Role", SEC-RBAC-20). Unlike `managed-cluster-registrar`, it IS JWT-synced:
 its bindings are assigned via Keycloak and reconciled by `SyncJWTRoles` exactly like
 `gateway:creator` and `platform:admin`.
+
+A migration SHALL also seed the `ci-federation:admin` role record with
+`built_in: true` ("CI Federation Administrator", a display name and description
+naming its scope as `ci_providers` registration only; see "Requirement: CI
+Federation Admin Role", SEC-RBAC-21). Like `gateway:dedicated-route-creator`, it
+IS JWT-synced: its bindings are assigned via Keycloak and reconciled by
+`SyncJWTRoles`. The migration SHALL be additive and idempotent, mirroring the
+`gateway:admin` seed: re-running it SHALL NOT error and SHALL NOT alter existing
+bindings.
 
 These migrations SHALL run alongside the existing migrations that seed `gateway:creator`,
 `gateway:owner`, and `gateway:viewer` roles.

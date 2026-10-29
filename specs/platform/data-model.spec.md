@@ -11,7 +11,7 @@ Gateways and clusters are **top-level resources**. There is no organizational gr
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
+- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
 - **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
@@ -21,8 +21,8 @@ Current model:
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
-- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-admin-scoped; referenced by many CITrusts; holds no secret.
-- **CITrust** - a gateway owner's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they own. The self-service, secret-less way to enable CI on a gateway.
+- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-wide; authorized by the narrow `ci-federation:admin` role (SEC-RBAC-21), not `platform:admin`; referenced by many CITrusts; holds no secret.
+- **CITrust** - a gateway owner or admin's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`). The self-service, secret-less way to enable CI on a gateway.
 
 ## Entity Relationship Diagram
 
@@ -1551,7 +1551,7 @@ gateway-side provisioning failure.
 
 ### Requirement: PLAT-DATA-24 -- CIProvider
 
-`CIProvider` SHALL be a standalone, top-level extension resource that registers a CI OIDC issuer (a continuous-integration system that mints workload OIDC tokens) so that `CITrust` records may federate those tokens into gateway-scoped OpenShell access. It is platform-admin-scoped: typically one record per forge or self-managed forge instance. It carries no tenant or gateway data and holds no secret.
+`CIProvider` SHALL be a standalone, top-level extension resource that registers a CI OIDC issuer (a continuous-integration system that mints workload OIDC tokens) so that `CITrust` records may federate those tokens into gateway-scoped OpenShell access. It is a platform-wide registration authorized by the narrow `ci-federation:admin` role (or `platform:admin`), not by `gateway:creator`; see `security/rbac-enforcement.spec.md` (SEC-RBAC-21). Typically one record per forge or self-managed forge instance. It carries no tenant or gateway data and holds no secret.
 
 `CIProvider.forge` SHALL be one of:
 - `github` - GitHub Actions OIDC (issuer `https://token.actions.githubusercontent.com`)
@@ -1589,7 +1589,7 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 
 ### Requirement: PLAT-DATA-25 -- CITrust
 
-A `CITrust` wires a `CIProvider` to a single `Gateway` the caller owns, declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret.
+A `CITrust` wires a `CIProvider` to a single `Gateway` the caller manages (`gateway:owner` or `gateway:admin`, or `platform:admin`), declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret. The per-gateway tenancy is authorized by the same `CanManageGatewayResources` check the other gateway-scoped ext kinds use; see `security/rbac-enforcement.spec.md` (SEC-RBAC-22).
 
 `CITrust` fields:
 
@@ -1597,7 +1597,7 @@ A `CITrust` wires a `CIProvider` to a single `Gateway` the caller owns, declarin
 |---|---|---|
 | `provider` | ref | The `CIProvider` whose issuer is trusted |
 | `subject` | object | A forge-discriminated claim matcher (see below). Only tokens whose claims match SHALL be accepted |
-| `gateway` | ref | The `Gateway` this CI may operate. The caller MUST own it (see security below) |
+| `gateway` | ref | The `Gateway` this CI may operate. The caller MUST be able to manage it (`gateway:owner` or `gateway:admin`, or `platform:admin`); see security below |
 | `role` | string | The gateway role granted to the federated session. It SHALL NOT exceed the caller's own rights on the gateway |
 
 `CITrust.subject` is discriminated by the referenced `CIProvider.forge`:
@@ -1623,9 +1623,9 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 - AND `status.workspace` SHALL be `gh-myorg`
 - AND `status.workflow_hint` SHALL contain a runnable CI snippet
 
-#### Scenario: PLAT-DATA-25.02 -- CITrust on a Non-Owned Gateway Rejected
+#### Scenario: PLAT-DATA-25.02 -- CITrust on an Unmanaged Gateway Rejected
 
-- GIVEN a `Gateway` the caller does NOT own
+- GIVEN a `Gateway` the caller can neither own nor administer (no `gateway:owner`, `gateway:admin`, or `platform:admin`)
 - WHEN the caller creates a `CITrust` referencing it
 - THEN the API server SHALL reject the request with 403
 

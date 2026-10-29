@@ -138,6 +138,9 @@ const mockGatewayProvisionDurationResponse = {
   observation_count: 2,
   p50_seconds: 288,
   p95_seconds: 726,
+  p99_seconds: null,
+  target_seconds: 300,
+  daily_p99: null,
 };
 
 const mockGatewayProvisionOutcomesResponse = {
@@ -193,6 +196,7 @@ interface RegisteredUsersMockResponse {
 
 interface DashboardMetricsMockOptions {
   activeSandboxes?: number;
+  omitCertificateHealth?: boolean;
   omitProvisionDuration?: boolean;
   omitProvisionOutcomes?: boolean;
   platformInventory?: PlatformInventoryMetricsResponse;
@@ -307,6 +311,36 @@ function mockClusterMetricsResponses(
         ok: true,
       });
     }
+    if (url === "/api/metrics/resource-readiness") {
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            pod_readiness_percent: 97.1,
+            sandbox_readiness_percent: 92.8,
+            unready_resources: 24,
+          }),
+        ok: true,
+      });
+    }
+    if (url === "/api/metrics/certificate-health") {
+      if (options.omitCertificateHealth) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+        });
+      }
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            expired_certificates: 0,
+            soonest_days_to_expiry: 28,
+            status_unavailable: 2,
+            total_certificates: 18,
+            valid_certificates: 16,
+          }),
+        ok: true,
+      });
+    }
     if (url === "/api/metrics/gateway-provision-duration") {
       if (options.omitProvisionDuration) {
         return Promise.resolve({
@@ -363,6 +397,36 @@ function resolveStandardPrometheusSupportRoutes(
   if (url === "/api/metrics/platform-inventory") {
     return Promise.resolve({
       json: () => Promise.resolve(platformInventory),
+      ok: true,
+    });
+  }
+  if (url === "/api/metrics/resource-readiness") {
+    return Promise.resolve({
+      json: () =>
+        Promise.resolve({
+          pod_readiness_percent: 97.1,
+          sandbox_readiness_percent: 92.8,
+          unready_resources: 24,
+        }),
+      ok: true,
+    });
+  }
+  if (url === "/api/metrics/certificate-health") {
+    if (options.omitCertificateHealth) {
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+      });
+    }
+    return Promise.resolve({
+      json: () =>
+        Promise.resolve({
+          expired_certificates: 0,
+          soonest_days_to_expiry: 28,
+          status_unavailable: 2,
+          total_certificates: 18,
+          valid_certificates: 16,
+        }),
       ok: true,
     });
   }
@@ -569,6 +633,7 @@ describe("createDashboardControlPlaneAdapter", () => {
         mean: "315.00",
         p50: "288.00",
         p95: "726.00",
+        target: "300.00",
       },
       unit: "sec",
       value: "315.00",
@@ -683,6 +748,7 @@ describe("createDashboardControlPlaneAdapter", () => {
         mean: "315.00",
         p50: "288.00",
         p95: "726.00",
+        target: "300.00",
       },
       unit: "sec",
       value: "315.00",
@@ -773,6 +839,28 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     expect(
       metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("omits certificate health when the BFF reports no evaluable population", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      defaultGatewayPhaseCounts,
+      {
+        omitCertificateHealth: true,
+      },
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "certificate-health"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find(
+        (metric) => metric.id === "pod-and-sandbox-readiness",
+      ),
     ).toBeDefined();
   });
 
@@ -1783,6 +1871,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       expect(metrics.failedSources).toEqual([
         "api-reliability",
         "control-plane-reconciliation",
+        "oidc-client-sync",
       ]);
       expect(metrics.metrics).toEqual([]);
       expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
@@ -1803,6 +1892,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       expect(metrics.failedSources).toEqual([
         "api-reliability",
         "control-plane-reconciliation",
+        "oidc-client-sync",
       ]);
       expect(metrics.metrics).toEqual([]);
       expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);

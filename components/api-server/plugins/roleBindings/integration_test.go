@@ -584,3 +584,79 @@ func TestDedicatedRouteCreatorRoleIsKeycloakAssigned(t *testing.T) {
 	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleGatewayDedicatedRouteCreator)
 	Expect(rbac.CanRequestGatewayDedicatedRoute(bindings)).To(BeTrue())
 }
+
+// TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin proves the
+// ci-federation:admin entitlement is granted by HyperShell's own RBAC rather than
+// delegated to Keycloak (SEC-RBAC-21): it is seeded built-in, it requires global
+// scope, it is assignable through the RoleBinding API but only by a platform:admin
+// caller, it is NOT JWT-synced (so a JWT carrying it grants nothing and an
+// API-created binding survives a later sign-in), and a non-admin caller is denied.
+func TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	ciRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:admin role must be seeded")
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	// Gateway scope is rejected: the entitlement is platform-wide (scope=global).
+	gatewayID := "gw-ci-federation-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    ciRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// A non-platform-admin caller cannot grant it: assignment is a platform-admin act.
+	targetUserID, targetErr := userService.UpsertByUsername(context.Background(), "ci-fed-target", nil, nil)
+	Expect(targetErr).NotTo(HaveOccurred())
+	nonAdminID, nonAdminErr := userService.UpsertByUsername(context.Background(), "ci-fed-nonadmin", nil, nil)
+	Expect(nonAdminErr).NotTo(HaveOccurred())
+	nonAdminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, nonAdminID)
+	_, err = rbService.Create(nonAdminCtx, &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &targetUserID,
+	})
+	Expect(err).To(HaveOccurred(), "a non-platform-admin caller must not be able to grant ci-federation:admin")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	// A platform:admin caller can grant it through the API (scope=global).
+	adminID, adminErr := userService.UpsertByUsername(context.Background(), "ci-fed-granter-admin", nil, nil)
+	Expect(adminErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), adminID, []string{roles.RolePlatformAdmin})).To(Succeed())
+	adminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, adminID)
+	created, createErr := rbService.Create(adminCtx, &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &targetUserID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "platform:admin must be able to grant ci-federation:admin via the API")
+	Expect(created.ID).NotTo(BeEmpty())
+
+	hasCIBinding := func(userID string) bool {
+		bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+		Expect(findErr).NotTo(HaveOccurred())
+		for _, b := range bindings {
+			if b.RoleName == roles.RoleCIFederationAdmin && b.Scope == roleBindings.ScopeGlobal {
+				return true
+			}
+		}
+		return false
+	}
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "the API-granted ci-federation:admin binding must exist")
+
+	// The role is not JWT-synced: a subsequent sign-in must NOT revoke the
+	// API-created binding, and a JWT carrying the realm role grants nothing.
+	Expect(rbService.SyncJWTRoles(context.Background(), targetUserID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "SyncJWTRoles must not revoke an API-created ci-federation:admin binding")
+
+	unsyncedID, unsyncedErr := userService.UpsertByUsername(context.Background(), "ci-fed-jwt-only", nil, nil)
+	Expect(unsyncedErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), unsyncedID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(unsyncedID)).To(BeFalse(), "a JWT realm role must NOT grant ci-federation:admin (not JWT-synced)")
+}

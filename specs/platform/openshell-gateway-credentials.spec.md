@@ -506,10 +506,13 @@ The gateway policy `openshell-gateway-provider` is **templated**: Vault substitu
 logging-in token's own ServiceAccount namespace into the path, so each gateway is scoped to
 its own mount. It SHALL grant the gateway identity exactly `create`, `read`, `update`, and
 `delete` on `openshell-gw/{{...service_account_namespace}}/data/openshell/provider-credentials/*`,
-and `read` on `openshell-gw/{{...service_account_namespace}}/metadata/openshell/provider-credentials/*`.
-It SHALL NOT grant `list` on either path, and SHALL NOT grant `delete` on the metadata path
-(a permanent destroy of all versions is not needed for operation; the data-path `delete` is a
-reversible KV v2 soft delete). Isolation therefore rests on two reinforcing layers: the
+and `read` and `delete` on `openshell-gw/{{...service_account_namespace}}/metadata/openshell/provider-credentials/*`.
+It SHALL NOT grant `list` on either path. It SHALL grant `delete` on the metadata path because the
+OpenShell runtime removes a KV v2 credential through the metadata endpoint (a permanent destroy of
+every version); without it, credential and sandbox deletion wedge in the gateway's reconcile sweep.
+The capability stays scoped to the gateway's **own** per-tenant mount, so it cannot reach another
+tenant's secrets and the gateway-to-gateway isolation boundary is unchanged. Isolation therefore
+rests on two reinforcing layers: the
 templated path ties a token to its own namespace's mount (a handle leaked from another tenant
 is unusable), and the no-`list` capability model means a gateway can reach a secret only by a
 handle it already holds, with the random per-provider UUID making the path unguessable. That
@@ -559,8 +562,8 @@ application layer were bypassed).
 
 - GIVEN the templated `openshell-gateway-provider` Vault policy
 - THEN it SHALL grant `create`, `read`, `update`, `delete` on `openshell-gw/{{...service_account_namespace}}/data/openshell/provider-credentials/*`
-- AND `read` on `openshell-gw/{{...service_account_namespace}}/metadata/openshell/provider-credentials/*`
-- AND it SHALL NOT grant `list` on either path, SHALL NOT grant `delete` on the metadata path, nor any capability outside the token's own per-tenant mount
+- AND `read` and `delete` on `openshell-gw/{{...service_account_namespace}}/metadata/openshell/provider-credentials/*` (the OpenShell runtime deletes KV v2 credentials via the metadata endpoint)
+- AND it SHALL NOT grant `list` on either path, nor any capability outside the token's own per-tenant mount
 
 #### Scenario: OSG-CRED-10.02 -- Provisioner identity cannot read secrets or rewrite isolation
 
@@ -589,8 +592,10 @@ application layer were bypassed).
 
 A provider credential's live-value lifecycle is owned by the OpenShell gateway runtime:
 the gateway deletes a credential's KV entry (by the handle it holds) when the provider or
-credential is removed during normal operation. The gateway's own policy grants the data-path
-`delete` (a reversible soft delete) needed for this.
+credential is removed during normal operation. The OpenShell runtime removes a KV v2 entry
+through its **metadata** endpoint (which destroys every version), so the gateway's own policy
+grants `delete` on both the data and the metadata path of its per-tenant mount for this; a
+gateway that lacked metadata `delete` would wedge sandbox and credential deletion.
 
 When a whole Vault-backed Gateway is deleted, the control plane removes the gateway's
 namespace, ServiceAccount and database, and **deletes the gateway's per-tenant KV mount**
@@ -712,7 +717,8 @@ into Vault with a synthetic identity:
 
 - **The templated capability-scoped policy** (for a token from a given namespace, a round-trip
   succeeds under its own `openshell-gw/<namespace>/data/openshell/provider-credentials/*`; `list`
-  is denied; metadata `delete` is denied; another tenant's mount is denied; and access revocation
+  is denied; metadata `delete` succeeds (the OpenShell runtime deletes KV v2 credentials via the
+  metadata endpoint); another tenant's mount is denied; and access revocation
   holds - removing the `openshell-gateway-provider` policy denies the gateway, after which the
   fixture restores it) is the GitOps Contract, authored in `hypershell-gitops`. The stand-in Vault
   fixture SHALL **self-verify** it once at setup, acting as a gateway identity (a `vault`-audience
@@ -738,7 +744,7 @@ into Vault with a synthetic identity:
   under the `openshell-gateway` role) and checks the policy against its own per-tenant mount
 - THEN a write/read round-trip under its own `openshell-gw/<namespace>/data/openshell/provider-credentials/*` SHALL succeed
 - AND a `list` on the `provider-credentials` folder SHALL be denied
-- AND a `delete` on the metadata path SHALL be denied
+- AND a `delete` on the metadata path SHALL succeed (the OpenShell runtime deletes KV v2 credentials via the metadata endpoint)
 - AND a read or write under another tenant's `openshell-gw/<other-namespace>/*` mount SHALL be denied
 - AND removing the `openshell-gateway-provider` policy SHALL deny the gateway identity (access
   revocation); the fixture SHALL then restore the policy so it is left usable
@@ -782,7 +788,7 @@ below mirrors it for convenience, and on any divergence the GitOps spec wins.
 | Vault role (control-plane provisioner) | `openshell-gateway-provisioner` |
 | Isolation | two independent layers: (1) role **namespace selectors** restrict *who may authenticate* (gateway role → namespaces labeled `hypershell.redhat.io/managed`; provisioner role → the control-plane namespace labeled `hypershell.redhat.io/control-plane`); (2) a **templated** ACL policy scopes each gateway's token to its own namespace's mount, with **no `list`**, so a handle leaked from another tenant is unusable. Isolation is per-tenant mount plus the per-cluster Vault boundary. Sandbox-to-sandbox isolation is enforced by the OpenShell gateway's workspace authorization, not by Vault. |
 | Namespace labels (selector inputs) | gateway namespaces carry `hypershell.redhat.io/managed=true` (control plane stamps it); the control-plane namespace carries `hypershell.redhat.io/control-plane=true` (control plane self-labels at startup). The Vault server SA holds read-only `get`/`list` on namespaces to evaluate the selectors. |
-| Policy capabilities (gateway) | templated `openshell-gateway-provider` grants the gateway identity `create`, `read`, `update`, `delete` on `openshell-gw/{{...service_account_namespace}}/data/openshell/provider-credentials/*` and `read` on the matching `metadata/` path; **no `list`**, **no metadata `delete`**, nothing outside the token's own mount |
+| Policy capabilities (gateway) | templated `openshell-gateway-provider` grants the gateway identity `create`, `read`, `update`, `delete` on `openshell-gw/{{...service_account_namespace}}/data/openshell/provider-credentials/*` and `read`, `delete` on the matching `metadata/` path (the OpenShell runtime deletes KV v2 credentials via the metadata endpoint); **no `list`**, nothing outside the token's own mount |
 | Policy capabilities (provisioner) | `openshell-gateway-provisioner` grants `create`, `read`, `update`, `delete` only on `sys/mounts/openshell-gw/*`; no `data/` capability, no policy or role write |
 | Gateway SA token | projected, `audience: vault`, `expirationSeconds: 3600`, mounted at `/var/run/secrets/vault/token` |
 | Serving-CA source | Secret `openshell-gateway-vault-tls` (key `ca.crt`) in namespace `openshell-vault` |

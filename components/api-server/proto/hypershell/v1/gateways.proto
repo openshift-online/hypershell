@@ -58,14 +58,6 @@ message Gateway {
   optional string gateway_version = 24;
   int64 generation = 26;
   optional int64 observed_generation = 27;
-  // provisioning_version is the gateway version the gateway's cluster advertises
-  // provisioning onto new gateways (that cluster's single-valued gateway-version
-  // capability). It is read-only and derived at read time from cluster_id, never
-  // stored on the Gateway row. See gateway-version-visibility.spec.md.
-  optional string provisioning_version = 28;
-  // image_pinned reports whether this gateway pins an explicit image and so need
-  // not track its cluster's provisioning version. Read-only, derived from image.
-  optional bool image_pinned = 29;
   // repository_id is the control-plane import ownership mark: the Repository that
   // owns this Gateway through the declarative .hypershell import. Null for gateways
   // created directly through the REST API or hsctl apply. Read-only; set server-side

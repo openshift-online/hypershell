@@ -7,7 +7,7 @@ toolchain go1.26.7
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/nwidger/jsoncolor v0.3.2
-	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261007150231-ff48c5631a19
+	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a

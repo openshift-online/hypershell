@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider and network choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL select the gateway version for the resolved cluster. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (WEB-PLC-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider and network choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway. When no eligible cluster matches, the backend SHALL NOT reject the create: the gateway is created unplaced and late-bound to a matching cluster when one appears (WEB-PLC-07), which lets a declarative Gateway that declares only a selector import before any matching cluster is connected.
 
 The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
@@ -16,26 +16,17 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 - `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
 - `{ mode: "local-kind" }`
 
-The provision form SHALL NOT submit a `gateway-version` label. The placement contract remains compatible with a managed selector that carries at most one `gateway-version/<tag>` label for non-form clients. The `local-kind` mode SHALL NOT carry a version selector.
-
-A managed-placement intent MAY also carry `excludedSelector`, a non-empty array of capability labels that a candidate cluster SHALL NOT advertise. The required selector and excluded selector SHALL both be validated, normalized, and persisted. The `local-kind` mode SHALL NOT carry a version or excluded selector. This negative selector is required for workflows such as homepage Quick create that must choose IBM Cloud public placement without Kata.
+A managed-placement intent MAY also carry `excludedSelector`, a non-empty array of capability labels that a candidate cluster SHALL NOT advertise. The required selector and excluded selector SHALL both be validated, normalized, and persisted. The `local-kind` mode SHALL NOT carry an excluded selector. This negative selector is required for workflows such as homepage Quick create that must choose IBM Cloud public placement without Kata.
 
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
-#### Scenario: WEB-PLC-01.01 -- Provision form omits the version label
+#### Scenario: WEB-PLC-01.01 -- Public AWS placement is submitted as intent
 
 - GIVEN the user enters a valid gateway name
 - AND selects Public and Amazon Web Services
 - WHEN the user submits the form
 - THEN the request SHALL contain `selector: ["network/public", "provider/aws"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
-
-#### Scenario: WEB-PLC-01.02 -- Version selector remains API-compatible
-
-- GIVEN a non-form client submits a valid managed-placement selector
-- AND that selector contains one `gateway-version/<tag>` label
-- WHEN the backend processes the request
-- THEN the backend SHALL accept the existing selector shape
 
 #### Scenario: WEB-PLC-01.03 -- Public IBM placement is submitted as intent
 
@@ -145,6 +136,8 @@ The form SHALL load placement availability automatically when it opens. The form
 
 A placement pair that becomes unavailable before submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a matching cluster appears (WEB-PLC-07). The form MAY surface the resulting awaiting-placement status so the user understands the Gateway is waiting for a matching cluster.
 
+The provision preview card SHALL render only after placement availability has loaded and the currently selected network/provider pair is available. It SHALL NOT render a default managed recommendation while availability is loading, when no managed placement is available, or for local-kind-only development.
+
 #### Scenario: WEB-PLC-04.01 -- AWS is unavailable for Public
 
 - GIVEN no eligible AWS cluster matches Public
@@ -245,7 +238,7 @@ The existing gateway-name validation and normalization rules SHALL remain unchan
 
 ### Requirement: WEB-PLC-07 -- Backend Placement Resolution
 
-The backend SHALL validate every required and excluded selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every required label and none of the excluded labels. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A required selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a required selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
+The backend SHALL validate every required and excluded selector label using the ManagedCluster capability vocabulary. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every required label and none of the excluded labels. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply.
 
 When one eligible cluster matches, the backend SHALL select that cluster. When multiple eligible clusters match, the backend SHALL select one at random. Each matching eligible cluster SHALL have an equal probability of selection.
 
@@ -317,43 +310,6 @@ The Gateway schema SHALL carry a persisted `placement` field. The placement sele
 - WHEN a gateway detail or list API is read
 - THEN the response SHALL expose the resolved cluster using the existing gateway placement representation
 
-### Requirement: WEB-PLC-11 -- Backend-Selected Provisioning Version
-
-The provision form SHALL NOT present an OpenShell version choice. The provision form's managed placement requests SHALL NOT include a `gateway-version` selector label. The backend SHALL select the gateway version from the capability advertised by the cluster on which the gateway is placed.
-
-The provision preview card SHALL render only after placement availability has
-loaded and the currently selected network/provider pair is available. It SHALL
-NOT render a default managed recommendation while availability is loading, when
-no managed placement is available, or for local-kind-only development. The card
-SHALL NOT infer, retain, or display an OpenShell version because the version is
-not known until the backend resolves placement.
-
-Users SHALL continue to see the exact running version after provisioning
-through the existing gateway list and detail views. This requirement does not
-change the gateway read model, version-visibility behavior, or the
-newer-version indicator.
-
-#### Scenario: WEB-PLC-11.01 -- Managed form omits version selection
-
-- GIVEN the user selects a network and provider with at least one eligible cluster
-- AND expands Advanced options
-- WHEN the user submits the form
-- THEN the selector SHALL NOT carry a `gateway-version` label
-- AND Advanced options SHALL contain only the Kata choice
-
-#### Scenario: WEB-PLC-11.02 -- Recommendation omits an unknown version
-
-- GIVEN the user selects a network and provider with at least one eligible cluster
-- WHEN the provision preview card renders
-- THEN the card SHALL NOT include an OpenShell version row
-
-#### Scenario: WEB-PLC-11.03 -- Backend selects the placed cluster version
-
-- GIVEN the backend resolves a managed placement to a connected cluster advertising `gateway-version/v0.1.2-rhaiv.7`
-- WHEN the backend provisions that gateway
-- THEN the gateway SHALL use the version selected by the backend for that cluster
-- AND the gateway list and detail views SHALL continue to expose the observed running version
-
 ### Requirement: WEB-PLC-10 -- Accessibility and Localization
 
 The internal-services, provider, Kata, availability, disabled-state,
@@ -381,3 +337,7 @@ placement without pointer input.
 - Capacity-aware cluster selection or placement scoring.
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.
+
+## Retired IDs
+
+- `WEB-PLC-11`: replaced by the preview-card rule in WEB-PLC-04

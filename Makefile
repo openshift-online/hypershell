@@ -157,7 +157,7 @@ help:
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
 	@echo "    check-deploy-orphans     Verify every deploy/base manifest is referenced by a kustomization"
-	@echo "    check-mergify-scopes     Verify the Mergify scope graph and tracked-file coverage"
+	@echo "    check-ci-impact-scopes     Verify the local CI impact graph and tracked-file coverage"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -297,18 +297,18 @@ traceability:
 check-cli-drift: generate-tui-check
 	scripts/generate-cli.sh --check
 
-.PHONY: test-mergify-scopes-policy
-test-mergify-scopes-policy:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_mergify_scopes.py
+.PHONY: test-ci-impact-scopes-policy
+test-ci-impact-scopes-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_ci_impact_scopes.py scripts/test_detect_components.py
 
-.PHONY: check-mergify-scopes
-# Mergify dependency-aware scope graph and tracked-file coverage audit
+.PHONY: check-ci-impact-scopes
+# Local CI dependency-aware scope graph and tracked-file coverage audit
 # (specs/platform/mergify-parallel-merge-queue.spec.md, CICD-MRG-03/08/09).
-check-mergify-scopes: test-mergify-scopes-policy
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_mergify_scopes.py
+check-ci-impact-scopes: test-ci-impact-scopes-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-mergify-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -668,14 +668,30 @@ generate-tui-check:
 # requirement in specs/platform/e2e-testing.spec.md). TearDownSuite collects
 # failure diagnostics before cleanup for both direct and matrix/promotion runs.
 E2E_GO_TIMEOUT ?= 35m
+# E2E_RUN targets a single phase or step in isolation (the primary gateway is
+# provisioned once in suite setup, so any phase or step is independently runnable).
+# A phase value (Phase-P0..Phase-P3) runs the whole phase; any other value is
+# treated as a step id nested under its phase. Examples:
+#   make e2e E2E_RUN=Phase-P2      # the whole P2 phase
+#   make e2e E2E_RUN=P2.5          # just the P2.5 step
+# Unset, the full TestE2E suite runs. Escape regex metacharacters as needed
+# (e.g. E2E_RUN='P2\.5' to avoid matching P2.50-style ids).
+E2E_RUN ?=
+ifeq ($(strip $(E2E_RUN)),)
+E2E_RUN_TARGET := TestE2E
+else ifeq ($(filter Phase-%,$(E2E_RUN)),$(E2E_RUN))
+E2E_RUN_TARGET := TestE2E/TestPhases/$(E2E_RUN)
+else
+E2E_RUN_TARGET := TestE2E/TestPhases/.*/$(E2E_RUN)
+endif
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E suite (go test TestE2E)"
+	@echo "==> Running E2E suite (go test -run $(E2E_RUN_TARGET))"
 	@echo ""
 	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
 		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
-		go -C tests/e2e test . -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
+		go -C tests/e2e test . -run '$(E2E_RUN_TARGET)' -failfast -v -timeout $(E2E_GO_TIMEOUT)
 
 # Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
 # registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.

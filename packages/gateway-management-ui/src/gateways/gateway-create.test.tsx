@@ -460,28 +460,4 @@ describe("GatewayCreatePage", () => {
     expect(screen.queryByRole("radio", { name: "Kind" })).toBeNull();
     expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
-
-  it("omits version selection and version labels from managed placement (WEB-PLC-11)", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await enterNameAndSelectPublic(user);
-    await user.click(screen.getByRole("button", { name: "Advanced options" }));
-
-    expect(
-      screen.queryByRole("combobox", { name: "OpenShell version" }),
-    ).toBeNull();
-    expect(screen.queryByText("Any version")).toBeNull();
-    expect(screen.queryByText(/^OpenShell version:/)).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-
-    await waitFor(() => {
-      expect(provisionGateway).toHaveBeenCalledWith({
-        name: "team-gateway",
-        placement: {
-          excludedSelector: ["runtime/kata"],
-          selector: ["network/public", "provider/ibm"],
-        },
-      });
-    });
-  });
 });

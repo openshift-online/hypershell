@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/gorilla/mux"
 
@@ -37,78 +35,17 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway            GatewayService
-	generic            services.GenericService
-	ownerBinding       OwnerBindingCreator
-	visibilityFilter   GatewayVisibilityFilter
-	ownerLookup        GatewayOwnerLookup
-	bindingLookup      rbac.RoleBindingLookup
-	clusters           RegisteredClusterLookup
-	clusterVersions    ClusterProvisioningVersionLookup
-	enforceRBAC        bool
-	dedicatedRoute     dedicatedRouteAuthorizer
-	placement          PlacementResolver
-	availability       PlacementAvailabilityResolver
-	versionLogThrottle *logThrottle
-}
-
-// provisioningVersionLogInterval throttles the provisioning-version lookup
-// failure log. The lookup runs on every gateway read, so an unthrottled warning
-// would flood the log on a persistent failure; throttling keeps a persistent
-// failure visible without the flood.
-const provisioningVersionLogInterval = time.Minute
-
-// logThrottle rate-limits a recurring log line to at most one emission per
-// interval. It is held by pointer on the handler so value copies of the handler
-// share the same throttle state (and so tests get an isolated instance rather
-// than package-global state).
-type logThrottle struct {
-	interval time.Duration
-	mu       sync.Mutex
-	last     time.Time
-}
-
-// allow reports whether a log line may be emitted now, recording the emission
-// time when it returns true. A nil throttle always allows (unthrottled).
-func (t *logThrottle) allow() bool {
-	if t == nil {
-		return true
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := time.Now()
-	if !t.last.IsZero() && now.Sub(t.last) < t.interval {
-		return false
-	}
-	t.last = now
-	return true
-}
-
-// provisioningVersions resolves the provisioning version advertised by each of
-// the given clusters. A nil lookup or a lookup error yields an empty map, so the
-// read-only version enrichment degrades to absent rather than failing the read
-// (consistent with owner-username enrichment). A lookup error is logged, at most
-// once per provisioningVersionLogInterval, so a persistent failure that silently
-// hides every gateway version is observable.
-func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []string) map[string]string {
-	if h.clusterVersions == nil || len(clusterIDs) == 0 {
-		return map[string]string{}
-	}
-	versions, svcErr := h.clusterVersions(ctx, clusterIDs)
-	if svcErr != nil {
-		h.logProvisioningVersionLookupFailure(ctx, svcErr)
-		return map[string]string{}
-	}
-	return versions
-}
-
-// logProvisioningVersionLookupFailure records a provisioning-version lookup
-// failure at most once per provisioningVersionLogInterval. It logs only the
-// error, which carries no secret material.
-func (h gatewayHandler) logProvisioningVersionLookupFailure(ctx context.Context, err error) {
-	if h.versionLogThrottle.allow() {
-		slog.WarnContext(ctx, "gateway provisioning-version enrichment failed; gateway versions degraded to absent", "error", err)
-	}
+	gateway          GatewayService
+	generic          services.GenericService
+	ownerBinding     OwnerBindingCreator
+	visibilityFilter GatewayVisibilityFilter
+	ownerLookup      GatewayOwnerLookup
+	bindingLookup    rbac.RoleBindingLookup
+	clusters         RegisteredClusterLookup
+	enforceRBAC      bool
+	dedicatedRoute   dedicatedRouteAuthorizer
+	placement        PlacementResolver
+	availability     PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -217,21 +154,19 @@ func applyAwaitingPlacement(model *Gateway) {
 	model.Status = &status
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, clusterVersions ClusterProvisioningVersionLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:            gateway,
-		generic:            generic,
-		ownerBinding:       ownerBinding,
-		visibilityFilter:   visibilityFilter,
-		ownerLookup:        ownerLookup,
-		bindingLookup:      bindingLookup,
-		clusters:           clusters,
-		clusterVersions:    clusterVersions,
-		enforceRBAC:        enforceRBAC,
-		dedicatedRoute:     newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
-		placement:          placement,
-		availability:       availability,
-		versionLogThrottle: &logThrottle{interval: provisioningVersionLogInterval},
+		gateway:          gateway,
+		generic:          generic,
+		ownerBinding:     ownerBinding,
+		visibilityFilter: visibilityFilter,
+		ownerLookup:      ownerLookup,
+		bindingLookup:    bindingLookup,
+		clusters:         clusters,
+		enforceRBAC:      enforceRBAC,
+		dedicatedRoute:   newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
+		placement:        placement,
+		availability:     availability,
 	}
 	return h
 }
@@ -287,8 +222,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 			// The creator just received a gateway:owner binding (or RBAC is off), so
 			// they can always delete and edit what they just created.
-			versions := h.provisioningVersions(ctx, []string{gatewayModel.ClusterId})
-			return PresentGateway(gatewayModel, "", true, true, versions[gatewayModel.ClusterId]), nil
+			return PresentGateway(gatewayModel, "", true, true), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -353,8 +287,7 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			bindings := h.callerBindings(ctx)
-			versions := h.provisioningVersions(ctx, []string{gatewayModel.ClusterId})
-			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID), versions[gatewayModel.ClusterId]), nil
+			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -416,18 +349,8 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			}
 
 			gatewayIDs := make([]string, len(gateways))
-			clusterIDs := make([]string, 0, len(gateways))
-			seenCluster := make(map[string]struct{}, len(gateways))
 			for i, gw := range gateways {
 				gatewayIDs[i] = gw.ID
-				if gw.ClusterId == "" {
-					continue
-				}
-				if _, seen := seenCluster[gw.ClusterId]; seen {
-					continue
-				}
-				seenCluster[gw.ClusterId] = struct{}{}
-				clusterIDs = append(clusterIDs, gw.ClusterId)
 			}
 			ownerUsernames := map[string]string{}
 			if h.ownerLookup != nil {
@@ -435,10 +358,9 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 					ownerUsernames = owners
 				}
 			}
-			versions := h.provisioningVersions(ctx, clusterIDs)
 			bindings := h.callerBindings(ctx)
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID), versions[gateway.ClusterId])
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID))
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -480,8 +402,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 			}
 
 			bindings := h.callerBindings(ctx)
-			versions := h.provisioningVersions(ctx, []string{gateway.ClusterId})
-			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID), versions[gateway.ClusterId]), nil
+			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
 		},
 	}
 

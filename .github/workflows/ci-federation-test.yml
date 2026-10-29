@@ -1,0 +1,94 @@
+# Manual end-to-end test for CI OIDC federation (keyless GitHub Actions -> a
+# HyperShell gateway token). Runs in THIS repo so the minted OIDC token carries
+# repository=openshift-online/hypershell, matching the test CITrust's
+# subject_repository. Prerequisites (see hypershell-gitops
+# clusters/hypc-ibm-00/2-configuration/22-ci-federation/CI-FEDERATION.md):
+#   1. CIProvider github-actions exists (admin, hsctl apply).
+#   2. A CITrust exists for subject_repository=openshift-online/hypershell on the
+#      target gateway with a role (user, hsctl apply).
+# This workflow performs only the exchange; it creates no resources.
+name: CI OIDC Federation Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      gateway_audience:
+        description: Keycloak client id of the target gateway (CITrust gateway_id's client)
+        required: true
+      keycloak_url:
+        description: Spoke Keycloak base URL
+        required: false
+        default: https://keycloak.hyp0.infra.hypershell.app
+      realm:
+        description: Keycloak realm
+        required: false
+        default: hypershell
+      fleet_audience:
+        description: Audience the OIDC token is minted for (CIProvider.audience)
+        required: false
+        default: openshell-fleet
+      requester_client:
+        description: Public keyless token-exchange requester client
+        required: false
+        default: ci-federation
+      idp_alias:
+        description: Forge IdP alias (CIProvider status_idp_alias)
+        required: false
+        default: github-actions
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  exchange:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub Actions OIDC token
+        id: oidc
+        env:
+          AUD: ${{ inputs.fleet_audience }}
+        run: |
+          set -euo pipefail
+          tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD}" | jq -r '.value')"
+          if [[ -z "$tok" || "$tok" == "null" ]]; then
+            echo "Failed to mint OIDC token" >&2; exit 1
+          fi
+          echo "::add-mask::$tok"
+          echo "token=$tok" >> "$GITHUB_OUTPUT"
+          # Show the subject claims we are asserting (not the token):
+          payload="$(echo "$tok" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          echo "OIDC subject claims:"
+          echo "$payload" | base64 -d 2>/dev/null | jq '{repository, repository_owner, ref, actor, aud}' || true
+
+      - name: Exchange for a gateway-scoped token
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+          KEYCLOAK_URL: ${{ inputs.keycloak_url }}
+          REALM: ${{ inputs.realm }}
+          REQUESTER: ${{ inputs.requester_client }}
+          IDP_ALIAS: ${{ inputs.idp_alias }}
+          GATEWAY_AUDIENCE: ${{ inputs.gateway_audience }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -X POST \
+            "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+            -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            -d "client_id=${REQUESTER}" \
+            -d "subject_token=${OIDC_TOKEN}" \
+            -d "subject_issuer=${IDP_ALIAS}" \
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+            -d "audience=${GATEWAY_AUDIENCE}")"
+          access="$(echo "$resp" | jq -r '.access_token // empty')"
+          if [[ -z "$access" ]]; then
+            echo "Token exchange FAILED:" >&2
+            echo "$resp" | jq '{error, error_description}' >&2 || echo "$resp" >&2
+            exit 1
+          fi
+          echo "::add-mask::$access"
+          echo "Token exchange SUCCEEDED. Gateway-scoped token claims:"
+          payload="$(echo "$access" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, scope}' || true

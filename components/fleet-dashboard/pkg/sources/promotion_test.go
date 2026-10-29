@@ -63,7 +63,7 @@ func TestPromotionDerivation(t *testing.T) {
 				deliveryLabelPrefix + "cluster":  "cluster-a",
 			},
 			"annotations": map[string]any{
-				capabilitiesAnnotation: "provider/aws,runtime/kata,gateway-version/v0.1.2-rhaiv.7",
+				capabilitiesAnnotation: "provider/aws,runtime/kata,network/vpn",
 			},
 		},
 		"spec": map[string]any{"destination": map[string]any{"namespace": "workload-a"}},
@@ -114,7 +114,7 @@ func TestPromotionDerivation(t *testing.T) {
 	}
 	// Capabilities are parsed from the delivery capabilities annotation, emitted in
 	// capabilityNamespaces order (FLT-CAP-01).
-	wantCaps := []string{"provider/aws", "runtime/kata", "gateway-version/v0.1.2-rhaiv.7"}
+	wantCaps := []string{"provider/aws", "runtime/kata", "network/vpn"}
 	if len(alpha.Capabilities) != len(wantCaps) {
 		t.Fatalf("alpha capabilities = %v, want %v", alpha.Capabilities, wantCaps)
 	}
@@ -610,7 +610,7 @@ func identityFixture(t *testing.T) (*Promotion, *config.Config) {
 func TestPromotionCapabilitiesPreferMetric(t *testing.T) {
 	p, _ := identityFixture(t)
 	p.WithClusterIdentities(fakeIdentities{ids: map[string][]ClusterIdentity{
-		"workload-a": {{Cluster: "cluster-a", Capabilities: []string{"provider/ibm", "gateway-version/v9"}, GatewayImage: "quay.io/x/gw:v9"}},
+		"workload-a": {{Cluster: "cluster-a", Capabilities: []string{"provider/ibm", "network/vpn"}, GatewayImage: "quay.io/x/gw:v9"}},
 	}})
 	got, err := p.Promotion(context.Background())
 	if err != nil {
@@ -619,7 +619,7 @@ func TestPromotionCapabilitiesPreferMetric(t *testing.T) {
 	envs := got.(PromotionPayload).Environments
 
 	alpha := envs["alpha"]
-	if want := []string{"provider/ibm", "gateway-version/v9"}; !equalStrings(alpha.Capabilities, want) {
+	if want := []string{"provider/ibm", "network/vpn"}; !equalStrings(alpha.Capabilities, want) {
 		t.Errorf("alpha capabilities = %v, want metric set %v", alpha.Capabilities, want)
 	}
 	if alpha.GatewayImage != "quay.io/x/gw:v9" {

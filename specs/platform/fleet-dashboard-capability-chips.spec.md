@@ -22,8 +22,8 @@ surface.
 
 This specification makes the following behavior contracts:
 
-1. The map card SHALL carry the cluster's **runtime** and **gateway-version**
-   capabilities as a second chip row below the existing provider/role row.
+1. The map card SHALL carry the cluster's **runtime** capability as a second
+   chip row below the existing provider/role row.
 2. All card chips SHALL share one consistent, measured size system so chip text
    never spills past its pill, and the card's text labels SHALL truncate at the
    card edge rather than overflow it.
@@ -47,7 +47,7 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
 
 - `PLAT-CLUS-06` is the authoritative model for the `namespace/value` capability
   string, its recognized namespaces (`provider`, `network`, `region`, `runtime`,
-  `environment`, `gateway-version`), and which namespaces are single-valued. This
+  `environment`), and which namespaces are single-valued. This
   spec consumes that model for display; it does not redefine it.
 - `FLT-MAP-06` requires the pure map **layout** (`computeLayout`) to stay free of
   DOM access and measurement. Chip text measurement in this spec happens in the
@@ -96,7 +96,7 @@ existing test factories and payloads that omit it stay valid.
 #### Scenario: FLT-CAP-01.01 -- Capabilities thread from wire to map node
 
 - GIVEN a promotion environment whose wire payload carries
-  `capabilities: ["provider/aws", "runtime/kata", "gateway-version/v0.1.2-rhaiv.7"]`
+  `capabilities: ["provider/aws", "runtime/kata", "network/vpn"]`
 - WHEN the wire adapter maps it into the promotion domain and the map node is built
 - THEN the map node SHALL carry the same three capability strings in order
 - AND no capability value SHALL be altered, dropped, or invented in transit
@@ -144,7 +144,7 @@ no vocabulary: one that returns the value of the first capability in a given
 namespace (or nothing when absent), one that splits a capability into its
 namespace and value on the first slash only (later slashes stay in the value),
 and one that returns the capabilities in a stable lead-namespace order
-(`provider`, `runtime`, `gateway-version`, `network`, `region`, then any other
+(`provider`, `runtime`, `network`, `region`, then any other
 namespace alphabetically). An unknown namespace SHALL be ordered after the lead
 namespaces and SHALL never be discarded.
 
@@ -157,10 +157,10 @@ namespaces and SHALL never be discarded.
 
 #### Scenario: FLT-CAP-02.02 -- Split on the first slash only
 
-- GIVEN the capability string `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN the capability string `runtime/kata-qemu.v2`
 - WHEN it is split into namespace and value
-- THEN the namespace SHALL be `gateway-version`
-- AND the value SHALL be `v0.1.2-rhaiv.7`, with its internal characters intact
+- THEN the namespace SHALL be `runtime`
+- AND the value SHALL be `kata-qemu.v2`, with its internal characters intact
 
 #### Scenario: FLT-CAP-02.03 -- Lead-namespace ordering keeps unknowns
 
@@ -169,32 +169,23 @@ namespaces and SHALL never be discarded.
 - THEN the order SHALL be `provider/ibm`, `runtime/runc`, `region/eu-de`, `zone/a`
 - AND the unknown `zone` namespace SHALL appear after the lead namespaces, not be dropped
 
-### Requirement: FLT-CAP-03 -- Map card second chip row for runtime and gateway-version
+### Requirement: FLT-CAP-03 -- Map card second chip row for runtime
 
 The map card SHALL render a second chip row directly below the provider/role row,
-containing the cluster's `runtime` capability chip and its `gateway-version`
-capability chip. The two rows SHALL be two intentional lines that do not wrap. A
-capability that the cluster does not declare SHALL drop its chip, and the row
-SHALL collapse around the chips that remain; when the cluster declares neither
-runtime nor gateway-version the second row SHALL be absent.
+containing the cluster's `runtime` capability chip. The two rows SHALL be two
+intentional lines that do not wrap. When the cluster declares no runtime the
+second row SHALL be absent.
 
-#### Scenario: FLT-CAP-03.01 -- Both capabilities present render two chips
+#### Scenario: FLT-CAP-03.01 -- A declared runtime renders its chip
 
-- GIVEN a card whose cluster declares `runtime/runc` and `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN a card whose cluster declares `runtime/runc`
 - WHEN the card is rendered
-- THEN a second chip row below the provider/role row SHALL show a runtime chip and a gateway-version chip
+- THEN a second chip row below the provider/role row SHALL show a runtime chip
 - AND the two chip rows SHALL remain on their own single lines without wrapping
 
-#### Scenario: FLT-CAP-03.02 -- Absent capability drops its chip
+#### Scenario: FLT-CAP-03.03 -- No runtime omits the row
 
-- GIVEN a card whose cluster declares `gateway-version/v0.1.2-rhaiv.7` but no `runtime`
-- WHEN the card is rendered
-- THEN the second row SHALL show only the gateway-version chip
-- AND no empty placeholder SHALL be drawn for the missing runtime chip
-
-#### Scenario: FLT-CAP-03.03 -- Neither capability omits the row
-
-- GIVEN a card whose cluster declares neither runtime nor gateway-version
+- GIVEN a card whose cluster declares no runtime
 - WHEN the card is rendered
 - THEN no second chip row SHALL be drawn
 
@@ -205,7 +196,7 @@ API under jsdom, so pixel-level fit is confirmed by visual review of the card;
 the truncation and width helpers themselves are unit-tested through their
 non-DOM fallback.
 
-Every chip on the card (provider, role, runtime, gateway-version) SHALL share one
+Every chip on the card (provider, role, runtime) SHALL share one
 size system: the same height, font size, font weight, horizontal padding, corner
 radius, and inter-chip gap. Each chip's width SHALL be derived by measuring its
 rendered text, not estimated per character, so no chip text spills past its pill.
@@ -215,11 +206,11 @@ use a cached offscreen text-measurement path and SHALL fall back to a slight
 over-estimate where no measurement API is available (server-side rendering or
 tests), so a chip never clips.
 
-#### Scenario: FLT-CAP-04.01 -- A long gateway-version fits inside its pill
+#### Scenario: FLT-CAP-04.01 -- A long runtime value fits inside its pill
 
-- GIVEN a card whose cluster declares `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN a card whose cluster declares `runtime/kata-qemu-snp`
 - WHEN the card is rendered
-- THEN the gateway-version chip's pill SHALL be wide enough to contain its text
+- THEN the runtime chip's pill SHALL be wide enough to contain its text
 - AND the text SHALL NOT extend past the pill's edges
 
 #### Scenario: FLT-CAP-04.02 -- A long environment name truncates at the card edge
@@ -231,9 +222,9 @@ tests), so a chip never clips.
 
 #### Scenario: FLT-CAP-04.03 -- Chips share one size family
 
-- GIVEN a card rendering a provider, role, runtime, and gateway-version chip
+- GIVEN a card rendering a provider, role, and runtime chip
 - WHEN the chips are drawn
-- THEN all four SHALL use the same height, font, padding, and corner radius
+- THEN all three SHALL use the same height, font, padding, and corner radius
 - AND only each chip's width and colour SHALL differ
 
 ### Requirement: FLT-CAP-05 -- Chip colour and casing semantics
@@ -243,26 +234,23 @@ no baked-in vocabulary. The provider chip SHALL use a brand hue for known public
 clouds and a deterministic hash hue otherwise, with a dark fill and bright
 same-hue text. The role chip SHALL be the one inverted pill: a light same-hue
 fill with dark text, so hub/spoke reads as structural rather than as another
-coloured capability. The runtime and gateway-version chips SHALL use a value-
-derived hue one notch dimmer than the provider chip, so the second row reads as
-secondary. The runtime chip label SHALL be upper-cased; the gateway-version chip
-label SHALL keep its natural case, because upper-casing a version string reads
-wrong. An unrecognized runtime or version value SHALL still render with a hash
-hue; the dashboard SHALL NOT require the value to be in a known set.
+coloured capability. The runtime chip SHALL use a value-derived hue one
+notch dimmer than the provider chip, so the second row reads as secondary. The
+runtime chip label SHALL be upper-cased. An unrecognized runtime value SHALL
+still render with a hash hue; the dashboard SHALL NOT require the value to be in a known set.
 
 #### Scenario: FLT-CAP-05.01 -- Second-row chips are dimmer than the provider chip
 
 - GIVEN a card with a provider chip and a runtime chip
 - WHEN the chips are drawn
 - THEN the runtime chip SHALL use a dimmer value of the hue than the provider chip
-- AND the provider/role row SHALL read as primary over the runtime/version row
+- AND the provider/role row SHALL read as primary over the runtime row
 
-#### Scenario: FLT-CAP-05.02 -- Version keeps natural case, runtime is upper-cased
+#### Scenario: FLT-CAP-05.02 -- Runtime is upper-cased
 
-- GIVEN a runtime value `runc` and a gateway-version value `v0.1.2-rhaiv.7`
-- WHEN the chips are rendered
+- GIVEN a runtime value `runc`
+- WHEN the chip is rendered
 - THEN the runtime chip SHALL read `RUNC`
-- AND the gateway-version chip SHALL read `v0.1.2-rhaiv.7` unchanged
 
 #### Scenario: FLT-CAP-05.03 -- Unknown value still renders
 

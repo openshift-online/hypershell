@@ -273,10 +273,21 @@ it always matches the OpenAPI description), then authenticate against the Kind c
 
 ```bash
 ./components/cli/hsctl login \
-  --url https://api.hypershell.localhost \
-  --issuer-url https://keycloak.hypershell.localhost/realms/hypershell \
+  --url https://api.hypershell.localhost/api/hypershell/v1 \
   --insecure
 ```
+
+The API advertises its configured public issuer at `/api/hypershell/v1/auth/config`,
+so no issuer flag is needed. Use the direct API host, not the web console's
+browser-session proxy. For example, hyp2 uses:
+
+```bash
+hsctl login --url https://api.hyp2.infra.hypershell.app/api/hypershell/v1
+```
+
+Server-root URLs also work. Older API deployments without discovery still need
+`--issuer-url https://keycloak.<instance>.infra.hypershell.app/realms/hypershell`;
+`--token-file` remains available for existing bearer tokens.
 
 For headless environments, add `--no-browser` to use the device authorization flow.
 The CLI stores tokens in `~/.config/hypershell/config.json` (or `~/.hypershell.json`
@@ -663,6 +674,18 @@ remove it once the commit is old enough, or when a newer pin replaces it.
 `components/api-server` pins the framework separately in its own `go.mod`, because
 it links the server framework, not the generators. It may be on a different commit
 than the CLI, so check that it still builds before moving it.
+For a feature such as API-driven login discovery, update both pins: regenerating
+`hsctl` alone cannot add the server endpoint. Run the API tests and build as well.
+
+After the downstream change merges, Konflux builds the changed API server and CLI
+components. The managed release's final pipeline publishes the OCI release bundle
+and a matching GitHub release with five `hsctl` downloads and `SHA256SUMS`; binaries
+are extracted from the released CLI image rather than rebuilt. Before promoting a
+bundle through GitOps, verify that it contains both the new API and CLI component
+revisions, since a bundle can reuse earlier builds for unchanged components. Deploy
+the updated API before asking users to rely on issuer discovery. Existing public
+issuer and route configuration does not need to change. See
+[`hsctl-release.spec.md`](specs/platform/hsctl-release.spec.md) for release details.
 
 ### Customizing generated code
 

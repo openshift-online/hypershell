@@ -1734,7 +1734,7 @@ describe("gateway shell pages", () => {
     );
   });
 
-  // Verifies: WEB-VER-02.01
+  // Verifies: WEB-VER-02.01, WEB-VER-05.01
   it("shows a running-version chip and Details field on the detail page (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -1755,7 +1755,6 @@ describe("gateway shell pages", () => {
     expect(
       screen.getByLabelText("Running version v0.1.2-rhaiv.7"),
     ).toBeTruthy();
-    expect(screen.queryByText("Newer version available")).toBeNull();
 
     await user.click(screen.getByRole("tab", { name: "Details" }));
     expect(screen.getByText("Version", { exact: true })).toBeTruthy();
@@ -1791,54 +1790,5 @@ describe("gateway shell pages", () => {
       .getByText("Version", { exact: true })
       .closest("dl");
     expect(within(detailsList as HTMLElement).getByText("-")).toBeTruthy();
-  });
-
-  it("shows the neutral newer-version indicator only when behind (WEB-VER-03)", () => {
-    renderPage(() => (
-      <GatewayPage
-        gatewayId="gateway-1"
-        gateway={{
-          clusterId: "cluster-east",
-          gatewayVersion: "v0.1.1-rhaiv.3",
-          id: "gateway-1",
-          name: "Team gateway",
-          namespace: "openshell",
-          phase: "Running",
-          provisioningVersion: "v0.1.2-rhaiv.7",
-          status: "Ready",
-        }}
-      />
-    ));
-
-    const indicator = screen.getByText("Newer version available");
-    expect(indicator).toBeTruthy();
-    // Neutral in tone: no warning/danger status treatment.
-    const indicatorRoot = indicator.closest(".pf-v6-c-label");
-    expect(indicatorRoot?.classList.contains("pf-m-orange")).toBe(false);
-    expect(indicatorRoot?.classList.contains("pf-m-red")).toBe(false);
-    // No upgrade affordance anywhere.
-    expect(screen.queryByText(/upgrade/i)).toBeNull();
-  });
-
-  // Verifies: WEB-VER-03.02
-  it("suppresses the newer-version indicator for a pinned-image gateway (WEB-VER-03)", () => {
-    renderPage(() => (
-      <GatewayPage
-        gatewayId="gateway-1"
-        gateway={{
-          clusterId: "cluster-east",
-          gatewayVersion: "v0.1.1-rhaiv.3",
-          id: "gateway-1",
-          imagePinned: true,
-          name: "Team gateway",
-          namespace: "openshell",
-          phase: "Running",
-          provisioningVersion: "v0.1.2-rhaiv.7",
-          status: "Ready",
-        }}
-      />
-    ));
-
-    expect(screen.queryByText("Newer version available")).toBeNull();
   });
 });

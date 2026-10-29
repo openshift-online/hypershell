@@ -526,7 +526,7 @@ func main() {
 		supervise("CIProvider watch", func(ctx context.Context) error {
 			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout)
 		})
-		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn)
+		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn, clusterID)
 		supervise("CITrust watch", func(ctx context.Context) error {
 			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
 		})
@@ -603,7 +603,7 @@ func main() {
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
-				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace, kcClient,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")
