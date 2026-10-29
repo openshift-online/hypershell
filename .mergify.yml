@@ -415,6 +415,7 @@ scopes:
       - Makefile
       - .dockerignore
       - .npmrc
+      - .gitmodules
       - .github/component-paths.json
       - .github/scripts/**
       - .github/actions/detect-konflux-components/**

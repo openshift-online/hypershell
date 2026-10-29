@@ -13,6 +13,20 @@ COPY components/cli/build-release.sh ./
 ARG TARGETARCH
 RUN HSCTL_RELEASE_TARGETS=linux-${TARGETARCH} sh build-release.sh && cp dist/hsctl-linux-${TARGETARCH} /hsctl
 
+# Build the fullsend CLI from pinned clean source (the
+# components/agents/third_party/fullsend submodule at tag v0.49.0) instead of
+# downloading the upstream release archive. The published release binary is
+# stamped `v0.49.0+dirty` (non-reproducible, CICD-ECC-04) and is not
+# Hermeto-attributed. A clean checkout builds a clean binary and the pipeline
+# prefetch-input attributes its gomod closure through Hermeto (CICD-ECC-02).
+# `-buildvcs=false` keeps the main module version deterministic (no `+dirty`).
+FROM go-${TARGETARCH} AS fullsend-builder
+WORKDIR /fullsend-src
+COPY components/agents/third_party/fullsend/ ./
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -buildvcs=false -ldflags="-s -w" -o /fullsend ./cmd/fullsend
+
 FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
 FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
 USER 0
@@ -35,6 +49,7 @@ FROM scratch
 COPY --from=assembler /rootfs/ /
 COPY --from=tools /tools/ /usr/local/bin/
 COPY --from=hsctl-builder /hsctl /usr/local/bin/hsctl
+COPY --from=fullsend-builder /fullsend /usr/local/bin/fullsend
 ENV HOME=/home/agent \
     XDG_CONFIG_HOME=/home/agent/.config \
     XDG_CACHE_HOME=/home/agent/.cache \

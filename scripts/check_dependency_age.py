@@ -34,7 +34,7 @@ TOOLS_PATH = "dependency-age-tools.json"
 # to install build tools hermetically via `npm ci`; they are intentionally not
 # pnpm workspace members and carry their own package-lock.json, so they are
 # excluded from the pnpm-workspace and package-lock checks below.
-EXCLUDED_PARTS = {".claude", ".git", "generated", "node_modules", "prefetch", "tmp", "vendor"}
+EXCLUDED_PARTS = {".claude", ".git", "generated", "node_modules", "prefetch", "third_party", "tmp", "vendor"}
 
 
 def parse_time(value):

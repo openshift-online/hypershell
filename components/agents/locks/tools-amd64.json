@@ -25,12 +25,5 @@
     "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
     "sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c",
     "member": "ripgrep-15.2.0-x86_64-unknown-linux-musl/rg"
-  },
-  {
-    "name": "fullsend",
-    "version": "0.49.0",
-    "url": "https://github.com/fullsend-ai/fullsend/releases/download/v0.49.0/fullsend_0.49.0_linux_amd64.tar.gz",
-    "sha256": "c4503c85db16733d816d3525a69be7166ffb4552b12495b13d3e84aee7e748d4",
-    "member": "fullsend"
   }
 ]
