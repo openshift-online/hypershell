@@ -201,81 +201,61 @@ cross-compile loop" and therefore safe. The live Konflux build disproved that:
 with the identical three params, stayed green - so the cause is cli-build-specific,
 not param syntax). Per the issue's mandate ("do one Go-only component end to end
 first, confirm it is green, then fan out") and the reviewer's guidance, the cli
-pipeline changes were **reverted** to hermetic off; cli joins the deferred set
-below until its hermetic build is confirmed green against `ec validate` / the
-Konflux build log, which this environment cannot produce. The honesty-clause
-takeaway: do not flip a hermetic flag on an unverified "it looks like a pure
-cross-compile" assumption - require a green build first.
+pipeline changes were **reverted** to hermetic off at that time. (This was later
+superseded: cli was converted to a full hermetic TA build and confirmed green -
+see the full-scope delivery note below.) The honesty-clause takeaway: do not flip
+a hermetic flag on an unverified "it looks like a pure cross-compile" assumption -
+require a green build first.
 
-**Full-scope fan-out (2026-10-28, maintainer "ship full scope in one PR", PR #779):**
-drove the live Konflux `on-pull-request` build as the verification loop (this
-environment has no Go/pnpm toolchain and no Konflux build-log / `ec validate`
-access, so the per-component PR build is the only "confirm green" signal
-available). Results this session:
-- **`cli` -- CONVERTED and CONFIRMED GREEN.** The earlier cli failure (reverted
-  above) flipped the three params on the **standard, non-Trusted-Artifacts**
-  pipeline; `api-server` only went green after its full TA conversion. Converted
-  all three cli pipeline files to the identical multi-arch TA `pipelineSpec` as
-  the green api-server pilot (`git-clone-oci-ta`, `prefetch-dependencies-oci-ta`,
-  `buildah-remote-oci-ta` x amd64/arm64, `ALWAYS_BUILD_INDEX: "true"`) with
-  `hermetic: "true"`, `enable-package-registry-proxy: "true"`, `prefetch-input`
-  `{"type":"gomod","path":"components/cli"}`. The `build-release.sh`
-  darwin/windows/linux cross-compile builds fine under hermetic (pure-Go, no
-  network). `hypershell-cli-main-on-pull-request` is **green (9m27s)**. The push
-  pipeline keeps its floating `main` tag (`ADDITIONAL_TAGS` on `apply-tags`); the
-  cli Dockerfile already carries per-arch base images so the multi-arch index is
-  correct per CICD-ECC-02.07.
-- **`agent-runtime` + `agent-runtime-slim` -- gomod ATTRIBUTED in all three
-  pipeline files, CONFIRMED GREEN.** Set `enable-package-registry-proxy: "true"`
-  and `prefetch-input` `{"type":"gomod","path":"components/cli"}` on the
-  pull-request, **push, and merge-queue** pipelines (they were already
-  TA/native-multi-arch, so the `pipelineSpec` already wires these params; only the
-  top-level `spec.params` overrides were missing). Kept `hermetic: "false"` per
-  CICD-ECC-02.06: their Python/Node tool closures are SHA-256-locked
-  `install-tools.py` downloads Hermeto cannot yet prefetch, so network isolation
-  would break them. The pull-request builds are **green** (agent-runtime 12m25s,
-  agent-runtime-slim 8m54s). The three `pipelineSpec` bodies per component are
-  byte-identical, so the shipped (push-built) image is attributed the same way the
-  verified PR build is -- closing the Amber-review finding (2026-10-29) that the
-  attribution was previously only on the pull-request file, leaving the shipped
-  images unattributed and violating CICD-ECC-02's "all three pipeline files" rule.
+**Full-scope delivery (2026-10-29, maintainer "ship FULL scope in one PR", PR #779):**
+The maintainer rejected partial-scope delivery and reran the funnel. Two earlier
+claims are **corrected** here: (1) the prior note that "this environment has no
+Go/pnpm toolchain and no Konflux / `ec validate` access" is FALSE in the rerun
+environment (go 1.26.7, node 24, pnpm 11, npm, podman/docker, helm, skopeo, and
+live Konflux read access via `oc login` are all present); and (2) the fullsend
+`+dirty` binary was wrongly reasoned to be an unfixable upstream blocker (a clean
+`git` checkout builds a clean binary - see below). No component is deferred; the
+full scope lives in this one PR.
 
-So verified conformance now covers `api-server` + `cli` (full hermetic) and
-`agent-runtime` + `agent-runtime-slim` (gomod attribution), up from the single
-`api-server` pilot. `fullsend-sandbox` is handled by #797 (checksum-pinned path).
+All eight Konflux components are now addressed in PR #779:
+- **`api-server`, `cli`** -- full hermetic Trusted-Artifacts builds
+  (`hermetic: "true"`, proxy, gomod `prefetch-input`), all three pipeline files each.
+- **`control-plane`** -- full hermetic TA. `helm` was a networked
+  `go install helm@v3.14.0`; it is now a tracked tool module
+  (`components/control-plane/tools/helm` with a Go `tool` directive + committed
+  `go.sum`) built from the Hermeto cache, so no build-time network fetch.
+- **`web-console`, `fleet-dashboard`** -- hermetic pnpm (+ gomod for
+  fleet-dashboard). The networked `bootstrap_pnpm.sh` is replaced by a prefetched
+  pnpm bootstrap (`prefetch/pnpm`), and Hermeto's injected root `.npmrc` (registry
+  -> prefetched `file://` cache) is now propagated into every pnpm install stage
+  (the earlier `ERR_PNPM_FETCH_404` was a missing `.npmrc`, not a proxy problem;
+  `.dockerignore` had stripped it). `PNPM_CONFIG_TRUST_LOCKFILE=true` for
+  pnpm 11.15.1 comes from Hermeto `generate-env`, applied by the buildah task.
+- **`agent-runtime`, `agent-runtime-slim`** -- gomod attributed in all three
+  pipeline files each, kept `hermetic: "false"` (their Python/Node tool closures
+  are SHA-256-locked `install-tools.py` downloads). The `fullsend` binary is no
+  longer downloaded from the `+dirty` upstream release: it is built from pinned
+  clean source (`components/agents/third_party/fullsend` submodule @ v0.49.0) in a
+  Go builder stage (`-buildvcs=false`, so no `+dirty`), and its gomod closure is
+  Hermeto-attributed via an added `prefetch-input` entry (CICD-ECC-04 + CICD-ECC-02).
+  Verified locally: the clean checkout builds `vcs.modified=false`, and the konflux
+  hermeto image prefetches its 668-dependency closure cleanly.
+- **`fullsend-sandbox`** -- SHA-256 digest-attribution path (no Hermeto-resolvable
+  from-source ecosystem); base-registry EC violation already fixed by #797 (merged).
 
-**Still blocked on a build toolchain this environment lacks (NOT on effort):**
-- `control-plane` -- its Dockerfile does `go install helm.sh/helm/v3/cmd/helm@v3.14.0`
-  twice (native + target-arch) over the network. Under hermetic this fetch fails;
-  to prefetch it, helm must become a tracked dependency of the control-plane
-  module (require + a `tools.go` blank import, then `go build` it from the Hermeto
-  cache). That needs `go mod tidy`/`go build` to regenerate `go.sum` (helm's full
-  transitive closure), which cannot be produced without a Go toolchain. Its
-  multi-module `replace`s to `../api-server` and `../cli` are in-repo and fine for
-  Hermeto; helm is the only blocker.
-- `web-console` + `fleet-dashboard` -- `scripts/bootstrap_pnpm.sh` `curl`s pnpm
-  from `registry.npmjs.org` (SHA-256-verified) and `pnpm install --frozen-lockfile`
-  pulls the dependency store; both are network fetches. A hermetic build needs the
-  pnpm bootstrap made offline and the shared-root `pnpm-lock.yaml` prefetched with
-  Hermeto's pnpm handling, which requires a pnpm/Node toolchain to generate and
-  validate the prefetch. `fleet-dashboard` additionally has a `gomod` ecosystem.
-- Recommended next step: run the remaining three conversions in an environment with
-  Go + pnpm toolchains and Konflux build-log / `ec validate` access, using the same
-  live-PR-build verification loop proven here for cli.
-**Other deferred CICD-ECC items:**
-- `fullsend-sandbox` is handled by CICD-ECC-02's checksum-pinned path, NOT by a
-  hermetic flip. PR **#797 (merged)** rebased it off `ghcr.io/fullsend-ai` onto a
-  digest-pinned `registry.access.redhat.com/ubi9/ubi` base (removing the
-  base-registry EC violation that was failing the whole application snapshot) and
-  assembles its toolchain + the `tirith` binary from SHA-256-verified downloads. It
-  builds no repository module from source, so it has no Hermeto-resolvable
-  ecosystem and SHALL NOT set `hermetic: "true"`; vendoring those downloads for a
-  fully hermetic build is a deferred goal of CICD-ECC-02.
-- CICD-ECC-03 (trusted attestation) and CICD-ECC-04 (+dirty baked binary) - both
-  require reading the live Konflux `verify` step output / image build log (authoritative
-  rule codes and the dirty binary's ingestion path), which cannot be produced locally.
-- CICD-ECC-06 (Mintmaker base-image bumps) - an operational merge policy, not a code
-  change.
+**Verification status (honest):** the live Konflux `on-pull-request` builds + the
+`enterprise-contract` checks for all eight components are running on PR #779 at
+commit `148f92df`. The current-main EC baseline is `Success: true, Result:
+WARNING, 0 Violations, 4225 Warnings` (4152 `sbom_spdx.hermeto_attribution_required`,
+which become failures 2027-01-15). A neutral/`skipping` or WARNING EC result is NOT
+counted as conformance: acceptance requires the attribution warnings driven down
+and no `+dirty` binary. These changes target exactly that; green-build and
+reduced-warning confirmation is pending the live run on this commit.
+
+**Remaining investigation (not deferred scope):** CICD-ECC-03 (trusted attestation)
+and CICD-ECC-06 (Mintmaker base-image policy) are validated against the live EC
+`verify` output / attestation now that Konflux read access is available; the EC
+baseline shows 0 attestation violations today.
 
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
