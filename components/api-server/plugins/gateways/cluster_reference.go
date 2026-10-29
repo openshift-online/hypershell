@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -62,8 +63,28 @@ func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.Ser
 // non-admin caller. Requirement-only selectors (provider/*, network/*, ...) are
 // unaffected and keep resolving by random selection among eligible clusters.
 func authorizeIdentityPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent) *errors.ServiceError {
-	if !managedClusters.SelectorReferencesIdentity(intent.Selector) &&
-		!managedClusters.SelectorReferencesIdentity(intent.ExcludedSelector) {
+	return requireAdminForIdentitySelectors(ctx, intent.Selector, intent.ExcludedSelector)
+}
+
+// authorizeIdentityAvailability applies the same platform:admin gate to the
+// placement-availability probe (POST .../placement_availability). Without it a
+// non-admin could submit a managed-cluster/<name> selector and learn from the
+// available flag whether a specifically named cluster exists and is eligible,
+// enumerating the fleet's identity capabilities by probe -- exactly what
+// PLAT-DATA-02 / PLAT-CLUS-14 forbid. Each entry in selectors is one capability
+// group evaluated independently, mirroring GatewayPlacementIntent.Selector.
+func authorizeIdentityAvailability(ctx context.Context, selectors [][]string) *errors.ServiceError {
+	return requireAdminForIdentitySelectors(ctx, selectors...)
+}
+
+// requireAdminForIdentitySelectors rejects a caller lacking platform:admin when
+// any of the given capability groups references a reserved managed-cluster/<name>
+// identity capability. Gating the selector's use -- not merely hiding the
+// capability value -- is the authoritative control: a leaked identity capability
+// stays unusable to a non-admin caller. Requirement-only groups (provider/*,
+// network/*, ...) are unaffected.
+func requireAdminForIdentitySelectors(ctx context.Context, groups ...[]string) *errors.ServiceError {
+	if !slices.ContainsFunc(groups, managedClusters.SelectorReferencesIdentity) {
 		return nil
 	}
 	if !rbac.HasPlatformAdminRole(ctx, rbac.GetUserIDFromContext(ctx)) {

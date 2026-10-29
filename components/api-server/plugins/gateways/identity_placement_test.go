@@ -62,6 +62,40 @@ func TestAuthorizeIdentityPlacement(t *testing.T) {
 	}
 }
 
+// The placement-availability probe is gated the same way as create: a non-admin
+// cannot confirm a named cluster's existence and eligibility through the probe,
+// while requirement-only groups stay open.
+// Verifies: PLAT-DATA-02, PLAT-CLUS-14.03, PLAT-CLUS-14.04
+func TestAuthorizeIdentityAvailability(t *testing.T) {
+	identityGroups := [][]string{
+		{"provider/aws"},
+		{managedClusters.IdentityCapability("hyp0-spoke1")},
+	}
+	requirementGroups := [][]string{{"provider/aws", "network/public"}, {"region/us-east-1"}}
+
+	if svcErr := authorizeIdentityAvailability(adminContext(), identityGroups); svcErr != nil {
+		t.Fatalf("platform:admin availability probe with identity selector must be authorized, got %v", svcErr)
+	}
+
+	svcErr := authorizeIdentityAvailability(nonAdminContext(), identityGroups)
+	if svcErr == nil {
+		t.Fatal("non-admin availability probe with identity selector must be rejected")
+	}
+	if svcErr.HttpCode != http.StatusForbidden {
+		t.Fatalf("non-admin availability probe must be 403, got %d", svcErr.HttpCode)
+	}
+
+	if svcErr := authorizeIdentityAvailability(context.Background(), identityGroups); svcErr == nil {
+		t.Fatal("anonymous availability probe with identity selector must be rejected")
+	}
+
+	for _, ctx := range []context.Context{adminContext(), nonAdminContext(), context.Background()} {
+		if svcErr := authorizeIdentityAvailability(ctx, requirementGroups); svcErr != nil {
+			t.Fatalf("requirement-only availability probe must never be gated, got %v", svcErr)
+		}
+	}
+}
+
 // An identity selector resolves deterministically to exactly the cluster whose
 // derived identity capability it names, and to no other.
 // Verifies: PLAT-CLUS-14.03

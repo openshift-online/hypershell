@@ -103,6 +103,12 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 		if len(request.Selectors) == 0 || len(request.Selectors) > 32 {
 			return nil, errors.Validation("selectors must contain between 1 and 32 selectors")
 		}
+		// Identity selection is platform-admin-only (PLAT-DATA-02, PLAT-CLUS-14):
+		// gate the probe so a non-admin cannot confirm a named cluster's existence
+		// and eligibility by its available flag.
+		if authzErr := authorizeIdentityAvailability(r.Context(), request.Selectors); authzErr != nil {
+			return nil, authzErr
+		}
 		availability, svcErr := h.availability(r.Context(), request.Selectors)
 		if svcErr != nil {
 			return nil, svcErr
