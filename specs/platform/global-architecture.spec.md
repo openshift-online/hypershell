@@ -891,7 +891,7 @@ NOT install the CRD/controller, which is a cluster prerequisite on par with
 cert-manager. The gateway's Kubernetes compute driver watches this CRD; when it is
 absent the sandbox RPCs surface as gRPC `Unimplemented` and the driver logs `no
 supported Agent Sandbox API version is available`. The version installed SHALL
-serve the API version the gateway requires (`v1beta1` for gateway 0.1.2-rhaiv.0; upstream
+serve the API version the gateway requires (`v1beta1` for gateway 0.1.6-rhaiv.0; upstream
 `v0.5.x`).
 
 ### Requirement: PLAT-ARCH-17 -- Sandbox Base Image Supports an In-Cluster Registry

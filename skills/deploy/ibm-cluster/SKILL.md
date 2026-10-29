@@ -384,17 +384,17 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 # Source images are normally pinned by digest (resolved from the Quay tag API).
-# The v0.1.5-rhaiv.3 bump could not reach quay.io from the agent runtime that
+# The v0.1.6-rhaiv.0 bump could not reach quay.io from the agent runtime that
 # made this change, so these fall back to a tag-only reference; resolve and pin
 # the digest before mirroring with
 # `skopeo inspect --format '{{.Digest}}' docker://<ref>`. A bare tag is a
 # mutable reference and only a last-resort fallback.
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3    docker://$REG/openshift/openshell-gateway:v0.1.5-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.0    docker://$REG/openshift/openshell-gateway:v0.1.6-rhaiv.0
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.3 docker://$REG/openshift/openshell-supervisor:v0.1.5-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.6-rhaiv.0 docker://$REG/openshift/openshell-supervisor:v0.1.6-rhaiv.0
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.5-rhaiv.3 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.5-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.6-rhaiv.0 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.6-rhaiv.0
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 

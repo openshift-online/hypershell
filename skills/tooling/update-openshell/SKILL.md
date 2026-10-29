@@ -181,6 +181,12 @@ facts rather than the active pin:
   illustrative values, not pins.
 - the arbitrary tag strings in `scripts/test_sync_openshell_version.py` and
   the capability fixtures in `components/api-server/plugins/` tests.
+- the matched example version in
+  `components/control-plane/internal/otel/metrics_test.go` (`gateway-version/v0.1.5-rhaiv.2`,
+  `odh-openshell-gateway:v0.1.5-rhaiv.2`) and the mirrored scenario fixture in
+  `specs/platform/control-plane-observability.spec.md` (OBS-CPL-09.01) - both
+  exercise the metrics-export behavior with an arbitrary capability/image string,
+  not the deployed version. Found during the v0.1.6-rhaiv.0 run.
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).
@@ -515,6 +521,98 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.6-rhaiv.0 (2026-10-29, v0.1.5-rhaiv.3 -> v0.1.6-rhaiv.0, no-arg scheduled run):**
+  Pins and chart bumped. Python policy checks that make up `make check` all pass run
+  directly (same sandbox limits as the 2026-10-23/27 entries: no Go toolchain, and
+  `make` itself cannot spawn `/bin/sh` here - every step below used the underlying
+  `git clone`/`cp`/`perl -pi`/`python3 scripts/*.py`/`python3 -m unittest scripts/*`
+  commands directly instead of `make vendor-openshell-chart` / `make check`).
+  `go build/vet/test` and `check-cli-drift` could not run; only one `.go` file
+  changed (`tests/e2e/cli_test.go`, a string-literal tag bump), same recorded gap
+  as prior Go-toolchain-less runs.
+  - **Step 0:** #809/#760/#752 have zero comments (no human reply yet, not
+    malformed - just unaddressed); skipped per "waiting for human direction." #366's
+    latest non-bot comment ("Reopening...") still names no version; skipped as
+    malformed, consistent with the 2026-10-27 disposition.
+  - **Found an existing unmerged PR for an intermediate version:** #810
+    (`chore(deps): bump OpenShell to v0.1.5-rhaiv.4`, branch
+    `implementer/update-openshell-v0.1.5-rhaiv.4`) was already open from a prior
+    run and is now `CONFLICTING` with `main`. Since the latest midstream tag
+    (`v0.1.6-rhaiv.0`) is newer than that PR's target, this run branched fresh from
+    `main` (still at `v0.1.5-rhaiv.3`) and bumped straight to `v0.1.6-rhaiv.0`
+    rather than rebasing #810, carrying its triage findings forward instead of
+    rediscovering them. Per the "never merge, close, or force-push" rule, #810 was
+    left open for a human to close as superseded; did not duplicate its content,
+    only linked the new PR from issue #809.
+  - **Auth-gate finding carried forward, not re-triaged from scratch:** the
+    `v0.1.5-rhaiv.4` upgrade note (NVIDIA #4821, gateways now refuse to start
+    without OIDC/mTLS/operator-auth/`gateway_jwt` or an explicit
+    `allow_unauthenticated_users = true`) is already filed as
+    openshift-online/hypershell#809 with the same disposition PR #810 used: ship
+    the mechanical bump, do not change `ValidateRenderedGatewayConfig` without a
+    maintainer decision. Still open, still unresolved as of this run; this PR does
+    not re-litigate it, only links to it.
+  - **New needs-decision/verify-live item: sandbox<->supervisor control-connection
+    direction reversed for new sandboxes** (NVIDIA #4656, Kubernetes/Docker/Podman/VM
+    drivers): previously the supervisor dialed the sandbox; now the sandbox dials
+    out to its supervisor (existing running sandboxes keep the old direction across
+    the upgrade). HyperShell's own `openshell-gateway-allow-sandbox` NetworkPolicy
+    (`deploy/base/platform-resources/networkpolicies.yaml`) already permits ingress
+    from sandbox pods (`agents.x-k8s.io/sandbox-name-hash` selector) to the gateway
+    pod on port 8080, and the vendored chart's `*-sandbox-ssh` policies only ever
+    restricted *ingress to* sandbox pods on port 2222 (SSH), never egress - so
+    nothing in the existing NetworkPolicy set should block a sandbox dialing out.
+    But the exact port/protocol the reversed control connection itself uses was not
+    identified from the release notes or the vendored chart, so this is **not
+    independently verified** - flag for live Kind/ROKS validation on the next
+    deploy (same disposition as the 0.1.3-rhaiv.3 entry's readiness-probe-port
+    item). No NetworkPolicy change applied in this PR.
+  - **Chart vendor diff (27 files, not the usual ~48 - this crosses a minor NVIDIA
+    base bump 0.1.5->0.1.6):** the new/changed templates
+    (`supervisor-hpa.yaml`, `supervisor-pdb.yaml`, `supervisor-networkpolicy.yaml`,
+    `supervisor-service.yaml`, `supervisor-token-secret.yaml`, plus `supervisor.yaml`,
+    `_helpers.tpl`, `_toml.tpl`, `clusterrole.yaml`, `role.yaml`, `rolebinding.yaml`
+    diffs) all implement the new experimental shared-supervisor HA pool
+    (replicas/autoscaling/PDB) and an operator-owned additional-destination-CA
+    trust bundle for sandbox supervisors. Read every new `{{- if ... }}` gate
+    directly rather than assuming from the release notes: every one of them is
+    gated on `gatewayConfig["openshell.drivers.kubernetes"].supervisor_topology ==
+    "gateway"` (`openshell.supervisorEnabled`) or
+    `supervisor.network.additionalCaConfigMapName` being non-empty, and HyperShell
+    sets neither - confirmed inert, consistent with the "not adopted" disposition
+    already recorded for this feature in the 0.1.5-rhaiv.2/rhaiv.3 entries. The new
+    unconditional piece is a `gateway-state` `emptyDir` volume + `XDG_STATE_HOME`
+    env var on the gateway pod itself (content-addressed supervisor trust-artifact
+    cache) - harmless, no RBAC/SecurityContext/NetworkPolicy interaction.
+  - **RBAC:** the only new grants (`configmaps` get/create, gated on
+    `additionalCaConfigMapName`) never render for HyperShell's config; no
+    `controller-rbac.yaml` change needed.
+  - **`values_test.go`:** the TOML serialization/spacing logic itself is unchanged
+    this bump (only new, gated keys were added to the schema); no assertion update
+    needed, unlike the 0.1.3-rhaiv.3 chart-format rewrite.
+  - **Console:** unchanged, still pinned to dashboard release v0.1.1. Still blocked
+    on `quay.io` being unreachable from this runtime (same gap as every entry since
+    2026-10-22); tracked in #760/#752, not duplicated.
+  - **`v1beta1` citation bumped, not just reconfirmed:** the
+    `global-architecture.spec.md` PLAT-ARCH sentence had cited "`v1beta1` for
+    gateway 0.1.2-rhaiv.0" unchanged across three prior bumps (0.1.3, 0.1.4, 0.1.5)
+    even though the skill's own footprint table says to re-check this claim on
+    every run. Confirmed `agents.x-k8s.io/v1beta1` is still the chart's primary
+    served API version (`v1alpha1` is preflight-fallback only, per
+    `charts/openshell/templates/agent-sandbox-preflight.yaml`) and, per the
+    skill's own "treat an ambiguous occurrence as a pin" rule, updated the cited
+    version number to `0.1.6-rhaiv.0` this time instead of leaving it stale again.
+  - **Additive, no action:** `ResumeBoundaryRequest` field 3 rename (external
+    compute-driver protocol only; HyperShell uses the built-in Kubernetes driver),
+    gateway-authored OCSF audit events for auth/credential events (gateway-internal,
+    no config HyperShell renders), new opt-in `server.serviceHostnameFormat`
+    (default `""` keeps today's readable hostnames), new optional Helm
+    `server.extraEnv` / `pkiInitJob.podLabels`/`podAnnotations` (not adopted).
+  - **Footprint:** no new pinned file found missing from the table this run; added
+    one new do-not-change fixture pair (`otel/metrics_test.go` +
+    `control-plane-observability.spec.md`'s OBS-CPL-09.01 scenario, both sharing an
+    arbitrary example tag unrelated to the live pin).
 
 - **v0.1.5-rhaiv.3 (2026-10-27, v0.1.5-rhaiv.2 -> v0.1.5-rhaiv.3, no-arg scheduled run):**
   Clean mechanical bump. Pins and chart updated; the Python policy checks that make up
