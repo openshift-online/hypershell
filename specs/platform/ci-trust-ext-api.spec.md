@@ -1,6 +1,6 @@
 # CI Trust Extension API - self-service keyless CI on a gateway
 
-**Date:** 2026-10-26
+**Date:** 2026-10-28
 **Status:** Draft
 **Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (workspace scoping)
 
@@ -46,12 +46,22 @@ later, at CI time (no control-plane involvement):
           -> OpenShell token (workspace-scoped) -> gateway -> sandbox on cluster
 ```
 
-The control plane already provisions Keycloak clients, protocol mappers, and
-token-exchange permissions programmatically for gateways and the e2e client
-(`ProvisionGatewayClient`, `createProtocolMappers`, `EnsureE2ETokenExchange` /
-`enableTokenExchangePermissions` in
-`components/control-plane/internal/keycloak/client.go`). CIProvider/CITrust
-reconciliation extends that proven path; it does not add a new subsystem.
+The control plane already provisions Keycloak clients and protocol mappers
+programmatically for gateways (`ProvisionGatewayClient`, `createProtocolMappers`
+in `components/control-plane/internal/keycloak/client.go`). CIProvider/CITrust
+reconciliation reuses that admin-REST client, but the CI exchange is realized
+through the Keycloak 26.x **external-to-internal token-exchange v2** mechanism
+(`TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2`), not the legacy v1 path. The production
+fleet Keycloak runs 26.x with legacy token exchange (`TOKEN_EXCHANGE`) and
+fine-grained admin authorization v1 (`ADMIN_FINE_GRAINED_AUTHZ`) **disabled**, so
+the v1 token-exchange permission API
+(`.../identity-provider/instances/<alias>/management/permissions`) returns 501.
+The e2e impersonation helper `EnsureE2ETokenExchange` /
+`enableTokenExchangePermissions` is the v1 path and SHALL NOT be used for CI
+federation; it remains valid only for the separate e2e impersonation subsystem on
+a Keycloak where v1 is enabled (`ephemeral-pr-environments.spec.md`). The CI
+exchange requester is a **public** (keyless) client; the CI run's OIDC token is
+the only credential. See PLAT-CITR-08.
 
 ## Requirements
 
@@ -69,12 +79,29 @@ A `CIProvider` SHALL be realized at most once per distinct `issuer` on a given
 cluster Keycloak; multiple `CIProvider` records with the same issuer are a
 conflict and SHALL be rejected with 409.
 
+When the platform federation (the gitops realm configuration) already provisions
+the identity provider and its claim mappers for a forge (for example the
+`github-actions` IdP and its `repository` / `repository_owner` / `ref` claim
+mappers), the control plane SHALL **adopt** that existing IdP: it SHALL record the
+existing alias in `status.idp_alias` rather than create a second, parallel IdP,
+and it SHALL NOT delete a platform-provisioned IdP on `CIProvider` delete. The
+recorded alias SHALL be the alias Keycloak actually holds, so later reconcile
+passes and the token exchange resolve the same IdP.
+
 #### Scenario: PLAT-CITR-01.01 -- JWKS Unreachable Holds Not-Ready
 
 - GIVEN a `CIProvider` whose `jwks_url` the cluster Keycloak cannot reach
 - WHEN the control plane reconciles it
 - THEN the `CIProvider` SHALL NOT be marked Ready
 - AND its status SHALL name the unreachable JWKS endpoint
+
+#### Scenario: PLAT-CITR-01.02 -- Platform-Provisioned IdP Is Adopted, Not Duplicated
+
+- GIVEN the gitops realm configuration has already created the `github-actions` IdP
+- WHEN the control plane reconciles a `github` `CIProvider` for that issuer
+- THEN it SHALL record `status.idp_alias = github-actions`
+- AND it SHALL NOT create a second IdP for the same issuer
+- AND deleting the `CIProvider` SHALL NOT delete the platform-provisioned IdP
 
 ---
 
@@ -93,9 +120,12 @@ secret:
    distinct trusts' roles onto one `gh-<owner>` group would let a low-privilege
    repository inherit a sibling repository's higher role and leak roles across
    gateways.
-2. A **token-exchange permission** from the shared federation client onto the
-   target gateway's audience, so the exchange grant can mint a gateway-scoped
-   token.
+2. A **token-exchange authorization** that allows the shared, **public** (keyless)
+   federation client to exchange a token from the `CIProvider` IdP onto the target
+   gateway's audience, so the exchange grant can mint a gateway-scoped token. It
+   SHALL be realized through the Keycloak 26.x external-to-internal token-exchange
+   v2 admin-REST path and SHALL NOT use the v1 token-exchange permission API (per
+   PLAT-CITR-08).
 3. A **gateway RBAC binding** granting `role` to that per-trust group on the
    referenced `Gateway`, so a matched identity holds exactly the role its own
    `CITrust` grants on its own gateway and nothing more.
@@ -106,10 +136,10 @@ used for quota; it is a display/quota namespace, not the RBAC group the role bin
 to.
 
 The control plane SHALL render no raw credential, PEM, or `Secret` for a
-`CITrust`. Deleting a `CITrust` SHALL remove the per-trust subject mapper, which
-is the authoritative revocation (the deleted subject can no longer enter its group
-and so holds no role); the inert per-trust group and the gateway's shared
-exchange opt-in MAY be left in place.
+`CITrust`; the exchange requester holds no secret. Deleting a `CITrust` SHALL
+remove the per-trust subject mapper, which is the authoritative revocation (the
+deleted subject can no longer enter its group and so holds no role); the inert
+per-trust group and the gateway's shared exchange opt-in MAY be left in place.
 
 #### Scenario: PLAT-CITR-02.01 -- Forge-Namespaced Workspace Derivation
 
@@ -147,18 +177,34 @@ more authority than the caller holds.
 
 ---
 
-### Requirement: PLAT-CITR-04 -- Audience Pinning and Default-Deny
+### Requirement: PLAT-CITR-04 -- Subject Predicate Is the Trust Boundary; Audience Pinning and Default-Deny
 
-The federated audience SHALL come from `CIProvider.audience` and SHALL NOT be
-settable on a `CITrust`. A token whose `aud` does not equal the pinned audience
-SHALL be rejected at exchange. Claims that do not match any `CITrust` subject
-predicate SHALL yield no roles; the gateway SHALL reject a session that carries no
-workspace role (default-deny).
+The real trust boundary SHALL be the per-subject claim predicate, not the
+audience. The federated audience SHALL come from `CIProvider.audience` and SHALL
+NOT be settable on a `CITrust`; a token whose `aud` does not equal the pinned
+audience SHALL be rejected at exchange. The pinned audience is necessary but NOT
+sufficient: because any repository on the forge can mint a token carrying that
+audience, the exchange SHALL additionally succeed only for a token whose
+`repository` and `repository_owner` claims (and any tighter claims the `subject`
+sets) match a `CITrust` predicate for the requested gateway. A token that carries
+the right audience but a non-matching `repository` or `repository_owner` SHALL be
+rejected. Claims that do not match any `CITrust` subject predicate SHALL yield no
+roles; the gateway SHALL reject a session that carries no workspace role
+(default-deny). Once any `CITrust` exists for a gateway, the exchange SHALL remain
+closed to every repository that no `CITrust` predicate admits.
 
 #### Scenario: PLAT-CITR-04.01 -- Wrong Audience Rejected
 
 - GIVEN a CI token minted with an audience other than the provider's pinned `audience`
 - WHEN it is presented for token exchange
+- THEN Keycloak SHALL reject the exchange
+- AND no OpenShell token SHALL be issued
+
+#### Scenario: PLAT-CITR-04.02 -- Correct Audience But Wrong Repository Rejected
+
+- GIVEN a `CITrust` for `subject.repository = openshift-online/hypershell` on a gateway
+- AND a CI token carrying the pinned `audience` but minted from a different repository
+- WHEN that token is presented for token exchange onto the gateway
 - THEN Keycloak SHALL reject the exchange
 - AND no OpenShell token SHALL be issued
 
@@ -177,6 +223,13 @@ artifacts.
 - GIVEN a `CIProvider` with one `CITrust` referencing it
 - WHEN a delete is requested on the `CIProvider`
 - THEN the API server SHALL reject it with 409
+
+#### Scenario: PLAT-CITR-05.02 -- Deleting a CITrust Revokes the Exchange
+
+- GIVEN a `CITrust` whose subject can currently exchange its CI token for a gateway-scoped token
+- WHEN the `CITrust` is deleted
+- THEN the control plane SHALL remove the claim mapping, token-exchange authorization, and gateway RBAC binding
+- AND a subsequent exchange for that subject SHALL fail
 
 ---
 
@@ -201,21 +254,80 @@ cluster Keycloak SHALL hold Not-Ready per PLAT-CITR-01; this is the expected sta
 for an internal forge (e.g. `gitlab.cee.redhat.com`) until a reachable path
 exists.
 
+---
+
+### Requirement: PLAT-CITR-08 -- Keycloak 26.x External-to-Internal Token Exchange v2
+
+The control plane SHALL realize the CI token exchange using the Keycloak 26.x
+external-to-internal token-exchange v2 mechanism
+(`TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2`), driven through the Keycloak admin REST
+API. The requester SHALL be the shared **public** federation client, and the CI
+run's OIDC token SHALL be the only credential; no client secret SHALL be required
+anywhere in CI.
+
+The control plane SHALL NOT use the legacy v1 token-exchange mechanisms on the
+production fleet Keycloak: it SHALL NOT rely on legacy `TOKEN_EXCHANGE`, on
+`ADMIN_FINE_GRAINED_AUTHZ` v1, or on the v1 token-exchange permission API
+(`.../identity-provider/instances/<alias>/management/permissions`), which that
+Keycloak has disabled and which returns 501. The v1 e2e helper
+(`EnsureE2ETokenExchange` / `enableTokenExchangePermissions`) SHALL NOT be used for
+CI federation.
+
+The exchange this authorizes is a token-exchange grant at the realm token endpoint
+presenting the forge's OIDC JWT as the `subject_token`, the `CIProvider` IdP alias
+as the `subject_issuer`, and the referenced gateway's client as the `audience`; a
+successful exchange returns a workspace-scoped access token.
+
+#### Scenario: PLAT-CITR-08.01 -- v1 Permission API Is Not Called
+
+- GIVEN a production fleet Keycloak 26.x with legacy token exchange and fine-grained admin authorization v1 disabled
+- WHEN the control plane reconciles a `CITrust`
+- THEN it SHALL authorize the exchange through the v2 admin-REST path
+- AND it SHALL NOT call the v1 token-exchange permission API
+- AND reconciliation SHALL NOT fail because that v1 API returns 501
+
+---
+
+### Requirement: PLAT-CITR-09 -- Idempotent Reconcile That Survives Realm Reconcile
+
+CITrust reconciliation SHALL be idempotent and re-entrant: repeated reconciles of
+an unchanged `CITrust` SHALL converge to the same Keycloak state without creating
+duplicate artifacts or erroring on already-present ones, per the reconciliation
+contract (`specs/standards/control-plane/reconciliation-contract.spec.md`,
+STD-RCON-02). Every realized artifact SHALL coexist with the periodic
+realm-reconcile job that re-applies the gitops realm configuration: artifacts the
+control plane creates SHALL NOT be pruned by that job, and artifacts the gitops
+configuration owns (the IdP and its claim mappers) SHALL be adopted rather than
+recreated or deleted (per PLAT-CITR-01). A failed read of Keycloak state SHALL be
+treated as unknown, not absent, so the reconciler SHALL NOT delete or re-create an
+artifact on a transient admin-API failure (STD-RCON-08).
+
+#### Scenario: PLAT-CITR-09.01 -- Artifacts Survive the Realm-Reconcile Job
+
+- GIVEN a Ready `CITrust` whose exchange authorization and RBAC binding are realized
+- WHEN the periodic realm-reconcile job re-applies the gitops realm configuration
+- THEN the `CITrust` exchange SHALL keep working without a new reconcile pass
+- AND a subsequent reconcile of the unchanged `CITrust` SHALL make no duplicate artifact
+
 ## Security analysis
 
 - **Ownership is the gate** (PLAT-CITR-03): a tenant can only enable CI on a
   gateway they own, and never escalate beyond their own rights. Naming another
   party's repository at most lets that repository act on the declarer's own
   gateway (self-harm), never a cross-tenant breach.
-- **Audience pinning** (PLAT-CITR-04) blocks replay of tokens minted for other
-  relying parties.
+- **Subject predicate is the trust boundary** (PLAT-CITR-04): the
+  `repository` / `repository_owner` claim match (plus any tighter claims) is the
+  real gate. Audience pinning only blocks replay of tokens minted for other
+  relying parties; it is necessary but not sufficient, because any repository on
+  the forge can mint a token carrying the pinned audience.
 - **Tenant isolation** is structural: the forge-namespaced workspace is derived
   from immutable owner/namespace claims and enforced by the gateway, not by
   policy a tenant can edit.
 - **Least privilege and default-deny**: no platform or gateway-creator roles; a
   session with no matched workspace role is rejected.
-- **No secret** is ever stored or rendered; the only credential is the per-run CI
-  OIDC token, short-lived and audience-pinned.
+- **No secret** is ever stored or rendered, and the exchange requester is a public
+  (keyless) client (PLAT-CITR-08); the only credential is the per-run CI OIDC
+  token, short-lived and audience-pinned.
 - **Blast radius** of a compromised tenant CI is one gateway workspace.
 - **Quotas**: the derived workspace SHALL carry an OpenShell resource quota
   (concurrent sandboxes, CPU/mem, wall-clock) so an untrusted CI cannot exhaust
