@@ -274,8 +274,10 @@ apply_config() {
   # openshell-gw/<namespace>, and the policy scopes a token to its own namespace's mount. The
   # OpenShell runtime stores every provider credential at the flat, hash-addressed suffix
   # data/openshell/provider-credentials/<sha> under that mount (<sha> is seeded by a random
-  # provider UUID, so it is unguessable). NO list (cannot enumerate another's entries) and NO
-  # metadata delete (cannot permanently destroy versions; data-path delete is a soft delete).
+  # provider UUID, so it is unguessable). NO list (cannot enumerate another's entries). The
+  # policy DOES grant metadata delete: the OpenShell runtime removes a KV v2 credential through
+  # the metadata endpoint, so without it credential and sandbox deletion wedge. It stays scoped
+  # to the gateway's own per-tenant mount, so gateway-to-gateway isolation is unchanged.
   # A handle leaked from another tenant is unusable. The control plane creates the per-tenant
   # mount at provision via the provisioner role below. See openshell-gateway-credentials.spec.md
   # (Provider Credential Isolation).
@@ -284,7 +286,7 @@ apply_config() {
     '  capabilities = ["create", "read", "update", "delete"]' \
     '}' \
     "path \"openshell-gw/{{identity.entity.aliases.${accessor}.metadata.service_account_namespace}}/metadata/openshell/provider-credentials/*\" {" \
-    '  capabilities = ["read"]' \
+    '  capabilities = ["read", "delete"]' \
     '}' | vxti "$rt" vault policy write openshell-gateway-provider -
 
   # bound_service_account_namespaces="" is REQUIRED: a role update MERGES unspecified fields,
@@ -322,7 +324,8 @@ apply_config() {
 # for the control plane, which does this at provision) plus a SECOND tenant's mount, logs in
 # under the openshell-gateway role, and asserts: a round-trip under its OWN
 # openshell-gw/<ns>/.../provider-credentials/* works, LIST is denied, metadata delete is
-# denied, and ANOTHER tenant's mount is denied (isolation). Fails the script if the policy
+# allowed (the OpenShell runtime deletes KV v2 credentials via the metadata endpoint), and
+# ANOTHER tenant's mount is denied (isolation). Fails the script if the policy
 # drifts. See openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E).
 run_selftest() {
   local rt="$1" ns="openshell-vault-selftest" other="openshell-vault-other" unlabeled="openshell-vault-unlabeled" jwt nolabeljwt out rev denied
@@ -358,7 +361,7 @@ run_selftest() {
   ')"
   printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK        || { error "vault self-test: own-mount round-trip failed (out: ${out})"; exit 1; }
   printf '%s\n' "${out}" | grep -q LIST_DENIED         || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q META_DELETE_DENIED  || { error "vault self-test: metadata delete not denied (out: ${out})"; exit 1; }
+  printf '%s\n' "${out}" | grep -q META_DELETE_ALLOWED || { error "vault self-test: metadata delete not allowed - gateway cannot finalize KV v2 credential deletion (out: ${out})"; exit 1; }
   printf '%s\n' "${out}" | grep -q CROSS_TENANT_DENIED || { error "vault self-test: cross-tenant access not denied - isolation broken (out: ${out})"; exit 1; }
 
   # Namespace selector: a ServiceAccount in an UNLABELED namespace must be refused at login,
@@ -387,7 +390,7 @@ run_selftest() {
   vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
   vkube delete namespace "${unlabeled}" --wait=false >/dev/null 2>&1 || true
   printf '%s\n' "${rev}" | grep -q REVOKED_DENIED || { error "vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"; exit 1; }
-  success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete denied; cross-tenant denied; unlabeled-namespace login denied; revoked->denied)"
+  success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete allowed; cross-tenant denied; unlabeled-namespace login denied; revoked->denied)"
 }
 
 info "Waiting for the Vault API..."
