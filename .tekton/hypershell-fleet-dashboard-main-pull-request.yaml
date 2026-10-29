@@ -37,7 +37,7 @@ spec:
   - name: enable-package-registry-proxy
     value: "true"
   - name: prefetch-input
-    value: '[{"type": "gomod", "path": "components/fleet-dashboard"}, {"type": "npm", "path": "."}]'
+    value: '[{"type": "gomod", "path": "components/fleet-dashboard"}, {"type": "pnpm", "path": "."}]'
   pipelineSpec:
     description: |
       Build native Linux AMD64 and ARM64 fleet dashboard images and publish their combined image index.

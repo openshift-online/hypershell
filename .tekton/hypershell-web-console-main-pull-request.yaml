@@ -37,7 +37,7 @@ spec:
   - name: enable-package-registry-proxy
     value: "true"
   - name: prefetch-input
-    value: '{"type": "npm", "path": "."}'
+    value: '{"type": "pnpm", "path": "."}'
   pipelineSpec:
     description: |
       Build native Linux AMD64 and ARM64 web console images and publish their combined image index.
