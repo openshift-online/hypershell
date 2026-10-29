@@ -584,3 +584,55 @@ func TestDedicatedRouteCreatorRoleIsKeycloakAssigned(t *testing.T) {
 	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleGatewayDedicatedRouteCreator)
 	Expect(rbac.CanRequestGatewayDedicatedRoute(bindings)).To(BeTrue())
 }
+
+// TestCIFederationAdminRoleIsKeycloakAssigned proves the new ci-federation:admin
+// entitlement behaves like its platform-wide siblings (SEC-RBAC-21): it is seeded
+// built-in, it requires global scope, it cannot be granted through the RoleBinding
+// API (Keycloak-owned; SyncJWTRoles would revoke a directly created binding on the
+// caller's next sign-in), and a JWT-carried realm role produces the global binding
+// the ci_providers gate checks.
+func TestCIFederationAdminRoleIsKeycloakAssigned(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	ciRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:admin role must be seeded")
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+
+	// Gateway scope is rejected: the entitlement is platform-wide (scope=global).
+	gatewayID := "gw-ci-federation-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    ciRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// Direct assignment is rejected: the role is Keycloak-owned.
+	userID := "user-ci-federation-direct"
+	_, err = rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &userID,
+	})
+	Expect(err).To(HaveOccurred(), "a Keycloak-owned role must not be assignable through the API")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	// A JWT-carried realm role syncs the global binding the ci_providers gate reads.
+	userService := users.Service(&environments.Environment().Services)
+	syncedUserID, userErr := userService.UpsertByUsername(context.Background(), "sync-ci-federation", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedUserID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedUserID)
+	Expect(findErr).NotTo(HaveOccurred())
+	granted := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleCIFederationAdmin && b.Scope == roleBindings.ScopeGlobal {
+			granted = true
+		}
+	}
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationAdmin)
+}
