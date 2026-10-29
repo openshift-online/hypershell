@@ -62,4 +62,5 @@ func init() {
 	db.RegisterMigration(migrationSeedManagedClusterRegistrarRole())
 	db.RegisterMigration(migrationAddGatewayAdminRole())
 	db.RegisterMigration(migrationAddGatewayDedicatedRouteCreatorRole())
+	db.RegisterMigration(migrationAddCIFederationAdminRole())
 }

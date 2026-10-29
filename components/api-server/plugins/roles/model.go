@@ -45,6 +45,13 @@ const (
 	RoleGatewayAdmin                 = "gateway:admin"
 	RoleGatewayViewer                = "gateway:viewer"
 	RoleManagedClusterRegistrar      = "managed-cluster-registrar"
+	// RoleCIFederationAdmin is the narrow platform-wide role that authorizes the
+	// ci_providers ext kind (register/read/update/delete a CI OIDC forge,
+	// SEC-RBAC-21) and nothing else. It lets the gitops CI-federation seeder
+	// register forges with a least-privilege credential instead of
+	// platform:admin. It confers no gateway, platform, or other ext-kind
+	// authority.
+	RoleCIFederationAdmin = "ci-federation:admin"
 )
 
 // JWTSyncedRoles is the set of roles whose bindings are reconciled from the
@@ -56,4 +63,5 @@ var JWTSyncedRoles = map[string]bool{
 	RolePlatformAdmin:                true,
 	RoleGatewayCreator:               true,
 	RoleGatewayDedicatedRouteCreator: true,
+	RoleCIFederationAdmin:            true,
 }

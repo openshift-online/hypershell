@@ -44,7 +44,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("ci_trusts", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewCITrustHandler(Service(envServices), generic.Service(envServices))
+		h := NewCITrustHandler(Service(envServices), generic.Service(envServices), newTenancyAuthorizer(envServices))
 
 		router := extRouter.PathPrefix("/ci_trusts").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
