@@ -225,13 +225,20 @@ available). Results this session:
   pipeline keeps its floating `main` tag (`ADDITIONAL_TAGS` on `apply-tags`); the
   cli Dockerfile already carries per-arch base images so the multi-arch index is
   correct per CICD-ECC-02.07.
-- **`agent-runtime` + `agent-runtime-slim` -- gomod ATTRIBUTED and CONFIRMED
-  GREEN.** Set `enable-package-registry-proxy: "true"` and `prefetch-input`
-  `{"type":"gomod","path":"components/cli"}` on both pull-request pipelines (they
-  were already TA/native-multi-arch). Kept `hermetic: "false"` per CICD-ECC-02.06:
-  their Python/Node tool closures are SHA-256-locked `install-tools.py` downloads
-  Hermeto cannot yet prefetch, so network isolation would break them. Both builds
-  are **green** (agent-runtime 12m25s, agent-runtime-slim 8m54s).
+- **`agent-runtime` + `agent-runtime-slim` -- gomod ATTRIBUTED in all three
+  pipeline files, CONFIRMED GREEN.** Set `enable-package-registry-proxy: "true"`
+  and `prefetch-input` `{"type":"gomod","path":"components/cli"}` on the
+  pull-request, **push, and merge-queue** pipelines (they were already
+  TA/native-multi-arch, so the `pipelineSpec` already wires these params; only the
+  top-level `spec.params` overrides were missing). Kept `hermetic: "false"` per
+  CICD-ECC-02.06: their Python/Node tool closures are SHA-256-locked
+  `install-tools.py` downloads Hermeto cannot yet prefetch, so network isolation
+  would break them. The pull-request builds are **green** (agent-runtime 12m25s,
+  agent-runtime-slim 8m54s). The three `pipelineSpec` bodies per component are
+  byte-identical, so the shipped (push-built) image is attributed the same way the
+  verified PR build is -- closing the Amber-review finding (2026-10-29) that the
+  attribution was previously only on the pull-request file, leaving the shipped
+  images unattributed and violating CICD-ECC-02's "all three pipeline files" rule.
 
 So verified conformance now covers `api-server` + `cli` (full hermetic) and
 `agent-runtime` + `agent-runtime-slim` (gomod attribution), up from the single
