@@ -1,7 +1,6 @@
 package login
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
 	"github.com/openshift-online/hypershell/components/cli/pkg/oidc"
+	"github.com/openshift-online/hypershell/components/cli/pkg/urls"
 )
 
 var args struct {
@@ -31,10 +31,12 @@ var Cmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in to the API server",
 	Long: "Log in, saving the credentials to the configuration file.\n\n" +
-		"With --issuer-url the login uses OpenID Connect: the browser flow with PKCE by default,\n" +
+		"The API supplies its OpenID Connect issuer, or --issuer-url overrides discovery.\n" +
+		"Login uses the browser flow with PKCE by default,\n" +
 		"or the device flow with --no-browser. The session is renewed automatically with the\n" +
-		"saved refresh token. Without --issuer-url a bearer token you already have is saved.\n\n" +
+		"saved refresh token. Use --token-file to save a bearer token you already have.\n\n" +
 		"Examples:\n" +
+		"  hsctl login --url https://api.example.com/api/hypershell/v1\n" +
 		"  hsctl login --token-file ~/.config/token --url http://localhost:8000\n" +
 		"  echo \"$JWT_TOKEN\" | hsctl login --token-file /dev/stdin --url local\n" +
 		"  hsctl login --issuer-url https://sso.example.com/realms/example --url https://api.example.com\n" +
@@ -49,10 +51,10 @@ func init() {
 	flags.StringVar(&args.token, "token", "", "Bearer access token (JWT) - DEPRECATED: use --token-file instead.")
 	flags.StringVar(&args.tokenFile, "token-file", "", "File containing bearer access token (use /dev/stdin to read from stdin).")
 	flags.BoolVar(&args.insecure, "insecure", false, "Enables insecure communication with the server.")
-	flags.StringVar(&args.issuerURL, "issuer-url", "", "OpenID Connect issuer URL; selects OIDC login instead of a saved token.")
-	flags.StringVar(&args.clientID, "client-id", "hypershell-cli", "OpenID Connect public client ID (with --issuer-url).")
-	flags.StringSliceVar(&args.scopes, "scope", []string{"openid"}, "OpenID Connect scopes to request (with --issuer-url).")
-	flags.BoolVar(&args.noBrowser, "no-browser", false, "Use the device flow instead of opening a browser (with --issuer-url).")
+	flags.StringVar(&args.issuerURL, "issuer-url", "", "OpenID Connect issuer URL (overrides API discovery).")
+	flags.StringVar(&args.clientID, "client-id", "hypershell-cli", "OpenID Connect public client ID.")
+	flags.StringSliceVar(&args.scopes, "scope", []string{"openid"}, "OpenID Connect scopes to request.")
+	flags.BoolVar(&args.noBrowser, "no-browser", false, "Use the device flow instead of opening a browser.")
 }
 
 func run(cmd *cobra.Command, argv []string) error {
@@ -60,9 +62,18 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.token != "" || args.tokenFile != "" {
 			return fmt.Errorf("--issuer-url can't be combined with --token or --token-file")
 		}
-		return runOIDC(cmd)
+		return runOIDC(cmd, args.issuerURL, args.url)
 	}
-	return runToken()
+	if cmd.Flags().Changed("token") || cmd.Flags().Changed("token-file") {
+		return runToken()
+	}
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	issuer, baseURL, err := oidc.DiscoverAPI(ctx, args.url, urls.APIPrefix, args.insecure)
+	if err != nil {
+		return fmt.Errorf("API login discovery failed: %w; supply --issuer-url or --token-file if the server does not support discovery", err)
+	}
+	return runOIDC(cmd, issuer, baseURL)
 }
 
 func runToken() error {
@@ -121,11 +132,11 @@ func runToken() error {
 	return nil
 }
 
-func runOIDC(cmd *cobra.Command) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+func runOIDC(cmd *cobra.Command, issuerURL, serverURL string) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
-	client := oidc.NewClient(args.issuerURL, args.clientID, args.insecure)
+	client := oidc.NewClient(issuerURL, args.clientID, args.insecure)
 	var tokens *oidc.Tokens
 	var err error
 	if args.noBrowser {
@@ -149,7 +160,7 @@ func runOIDC(cmd *cobra.Command) error {
 	cfg.IssuerURL = client.Issuer
 	cfg.ClientID = args.clientID
 	cfg.ExpiresAt = tokens.ExpiresAt(time.Now())
-	cfg.URL = args.url
+	cfg.URL = serverURL
 	cfg.Insecure = args.insecure
 	if tokens.RefreshToken == "" {
 		fmt.Fprintf(os.Stderr, "Warning: the issuer returned no refresh token, so the session can't be renewed automatically.\n")

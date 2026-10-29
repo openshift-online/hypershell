@@ -11,7 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/lib/pq v1.10.9
 	github.com/onsi/gomega v1.27.1
-	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261021105531-fc88cf69871f
+	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/client_model v0.3.0
 	github.com/segmentio/ksuid v1.0.4

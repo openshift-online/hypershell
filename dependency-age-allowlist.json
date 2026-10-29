@@ -2,9 +2,9 @@
   {
     "kind": "go",
     "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
-    "version": "v0.0.0-20261021105531-fc88cf69871f",
-    "reason": "The framework replaced glog and its Logger interface with log/slog (openshift-online/rh-trex-ai#70, feat(logger)!: replace glog and the Logger interface with log/slog). HyperShell needs it to export API server logs over OpenTelemetry with trace and span IDs (specs/platform/api-server-observability.spec.md API-OBS-09): the framework now passes the request context with every record and keeps a program's own slog default. The pin also carries the earlier #67 (fix(db): run DAO sessions on the request transaction) and #68 that the previous pin 014cfa0 was taken for. The framework publishes no tag for this module path, so a pseudo-version is required. The commit merged to main as fc88cf6 and is under the 14 day minimum age until 2026-11-04; remove this age note then if no newer pin replaced it.",
-    "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, golangci-lint, unit tests (including pkg/logging, which runs the framework's HTTP logging middleware at debug level and checks no header or body is logged), and integration tests run against that exact commit."
+    "version": "v0.0.0-20261029165438-8f11b55b73f2",
+    "reason": "Adopt openshift-online/rh-trex-ai#72: public API login configuration and generated CLI issuer discovery, so hsctl login needs only the API URL (SEC-OIDC-12). The API framework, CLI runtime, and generators are pinned to upstream main merge 8f11b55b73f2dcf569730afcb9d087050106000c. This also retains the existing transaction and slog fixes. The module has no release tags. Remove this age exception after 2026-11-12 or when a newer pin replaces it.",
+    "compensatingVerification": "Full-SHA generator pin, checksum-locked Go modules, generator drift checks, CLI unit tests, cross-compilation of all release targets, API build and tests including unauthenticated discovery through the real HyperShell RBAC middleware. Upstream tests cover browser/device login and discovery failures; the candidate completed a real hyp2 device login and an authenticated read-only API request before merge."
   },
   {
     "kind": "go",
@@ -12,12 +12,5 @@
     "version": "v1.11.0",
     "reason": "The current telemetry dependency graph resolves this transitive version within the cooldown window.",
     "compensatingVerification": "The module is checksum-locked; API server and control plane vet and golangci-lint checks cover the resolved graph."
-  },
-  {
-    "kind": "go",
-    "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
-    "version": "v0.0.0-20261007150231-ff48c5631a19",
-    "reason": "HyperShell generates its CLI and terminal UI with the rh-trex-ai generators and links the terminal UI runtime from the same commit: PR 58 (generated OIDC login, logout, whoami and token refresh, delete and update commands, config file name and OIDC client ID options, the tuicmd package). It merged to main as ff48c56 and the framework publishes no tag for this module path, so a pseudo-version is required. The commit is under the 14 day minimum age until 2026-10-21; remove this entry then if no newer pin replaced it.",
-    "compensatingVerification": "The dependency is commit-pinned by full SHA in scripts/rh-trex-ai.ref and components/cli/go.mod. make check regenerates the CLI and the TUI descriptor from that same commit and fails on any difference, and the hsctl unit tests run against that exact commit."
   }
 ]
