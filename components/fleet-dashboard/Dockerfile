@@ -37,6 +37,14 @@ WORKDIR /app
 # cache during hermetic builds; a benign committed copy keeps local builds working.
 COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/fleet-dashboard-ui/package.json packages/fleet-dashboard-ui/package.json
+# Hermetic-build registry alignment (see components/web-console/Dockerfile). In a
+# Hermeto build, align pnpm-workspace.yaml's default registry with the injected
+# file:// cache and trust the rewritten lockfile; no-op for local builds.
+RUN if grep -qE '^registry=file:' .npmrc 2>/dev/null; then \
+      reg="$(grep -E '^registry=file:' .npmrc | head -1 | cut -d= -f2-)"; \
+      sed -i -E "s#^(  default: ).*#\\1${reg}#" pnpm-workspace.yaml; \
+      sed -i -E "s#^(trustLockfile: ).*#\\1true#" pnpm-workspace.yaml; \
+    fi
 RUN pnpm install --frozen-lockfile --filter @openshift-online/hypershell-fleet-dashboard-ui...
 
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/fleet-dashboard-ui packages/fleet-dashboard-ui

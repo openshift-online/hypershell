@@ -41,6 +41,20 @@ COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/package.json compo
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/bff/package.json components/web-console/bff/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
 
+# Hermetic-build registry alignment. In a Hermeto build, Hermeto injects
+# `registry=file://.../deps/pnpm/npm/` into .npmrc, but pnpm-workspace.yaml's
+# `registries.default` (public registry) and `trustLockfile: false` take
+# precedence over .npmrc and would make pnpm fetch from the network (which is off)
+# and reject the Hermeto-rewritten lockfile. Point the default registry at the
+# prefetched cache and trust the lockfile FOR THE HERMETIC BUILD ONLY. Local
+# (non-Hermeto) builds have no injected file:// registry, so this is a no-op and
+# the committed registry default + supply-chain settings are preserved.
+RUN if grep -qE '^registry=file:' .npmrc 2>/dev/null; then \
+      reg="$(grep -E '^registry=file:' .npmrc | head -1 | cut -d= -f2-)"; \
+      sed -i -E "s#^(  default: ).*#\\1${reg}#" pnpm-workspace.yaml; \
+      sed -i -E "s#^(trustLockfile: ).*#\\1true#" pnpm-workspace.yaml; \
+    fi
+
 RUN pnpm install --frozen-lockfile
 
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript components/sdk-typescript
