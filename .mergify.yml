@@ -206,6 +206,7 @@ scopes:
           - pnpm-workspace.yaml
           - .node-version
           - scripts/bootstrap_pnpm.sh
+          - prefetch/**
           - deploy/**
           - charts/**
           - dashboards/**
@@ -241,6 +242,7 @@ scopes:
           - pnpm-workspace.yaml
           - .node-version
           - scripts/bootstrap_pnpm.sh
+          - prefetch/**
           - deploy/**
           - charts/**
           - dashboards/**

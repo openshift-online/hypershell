@@ -17,8 +17,15 @@ FROM --platform=linux/${BUILDARCH} build-${BUILDARCH} AS build
 
 USER root
 
-COPY scripts/bootstrap_pnpm.sh .
-RUN ./bootstrap_pnpm.sh
+# Install the pinned pnpm CLI from the Hermeto-prefetched npm bootstrap
+# (prefetch/pnpm). `npm ci --prefer-offline` resolves pnpm from the prefetched
+# cache so the build is hermetic (no network); outside Hermeto it falls back to
+# the registry. Replaces the networked scripts/bootstrap_pnpm.sh for the image
+# build while CI keeps using that script.
+COPY prefetch/pnpm/package.json prefetch/pnpm/package-lock.json /opt/pnpm-bootstrap/
+RUN npm ci --prefix /opt/pnpm-bootstrap --prefer-offline --ignore-scripts --no-audit --no-fund --no-progress \
+  && ln -sf /opt/pnpm-bootstrap/node_modules/.bin/pnpm /usr/local/bin/pnpm \
+  && test "$(pnpm --version)" = "11.15.1"
 
 USER ${CONTAINER_DEFAULT_USER}
 
@@ -56,8 +63,15 @@ FROM --platform=linux/${TARGETARCH} build-${TARGETARCH} AS bundle
 
 USER root
 
-COPY scripts/bootstrap_pnpm.sh .
-RUN ./bootstrap_pnpm.sh
+# Install the pinned pnpm CLI from the Hermeto-prefetched npm bootstrap
+# (prefetch/pnpm). `npm ci --prefer-offline` resolves pnpm from the prefetched
+# cache so the build is hermetic (no network); outside Hermeto it falls back to
+# the registry. Replaces the networked scripts/bootstrap_pnpm.sh for the image
+# build while CI keeps using that script.
+COPY prefetch/pnpm/package.json prefetch/pnpm/package-lock.json /opt/pnpm-bootstrap/
+RUN npm ci --prefix /opt/pnpm-bootstrap --prefer-offline --ignore-scripts --no-audit --no-fund --no-progress \
+  && ln -sf /opt/pnpm-bootstrap/node_modules/.bin/pnpm /usr/local/bin/pnpm \
+  && test "$(pnpm --version)" = "11.15.1"
 
 USER ${CONTAINER_DEFAULT_USER}
 

@@ -34,6 +34,8 @@ packages/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh
+!prefetch/
+!prefetch/**
 **/node_modules
 **/.react-router
 **/build
