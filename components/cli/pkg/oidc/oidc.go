@@ -465,3 +465,58 @@ func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
 		"client_id":       {c.ClientID},
 	}, nil)
 }
+
+// DiscoverAPI obtains the public issuer without sending any saved credentials.
+// The returned base URL is suitable for generated resource paths, which already
+// include apiPrefix. Both server roots and full API URLs are accepted.
+func DiscoverAPI(ctx context.Context, serverURL, apiPrefix string, insecure bool) (string, string, error) {
+	if err := validateDiscoveryURL(serverURL, insecure); err != nil {
+		return "", "", fmt.Errorf("invalid API URL: %w", err)
+	}
+	baseURL := strings.TrimRight(serverURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, apiPrefix)
+	client := NewClient("", "", insecure).HTTP
+	// Do not allow redirects to move the trust anchor to another origin or HTTP.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+apiPrefix+"/auth/config", nil)
+	if err != nil {
+		return "", "", fmt.Errorf("can't create discovery request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return "", "", fmt.Errorf("can't reach API login configuration: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("API login configuration returned HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return "", "", fmt.Errorf("can't read API login configuration: %w", err)
+	}
+	if len(body) > maxResponseBytes {
+		return "", "", errors.New("API login configuration is too large")
+	}
+	var metadata struct {
+		IssuerURL string `json:"issuer_url"`
+	}
+	if err := json.Unmarshal(body, &metadata); err != nil {
+		return "", "", errors.New("invalid API login configuration JSON")
+	}
+	if err := validateDiscoveryURL(metadata.IssuerURL, insecure); err != nil {
+		return "", "", fmt.Errorf("invalid API login issuer: %w", err)
+	}
+	return metadata.IssuerURL, baseURL, nil
+}
+
+func validateDiscoveryURL(rawURL string, insecure bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return errors.New("expected an absolute URL without userinfo, query, or fragment")
+	}
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && (insecure || isLoopbackHost(parsed.Hostname()))) {
+		return errors.New("HTTPS is required except for loopback hosts or with --insecure")
+	}
+	return nil
+}
