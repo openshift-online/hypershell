@@ -479,9 +479,10 @@ func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
 // --- Phase P2 / P3 ---
 
 // p2_1SandboxLifecycle creates a sandbox via the CLI, waits for its pod to run,
-// execs into it, deletes it, and verifies the gateway's active_sandbox_count tracks
-// create/delete. Owns its own gateway so the count assertion is isolated.
-// Verifies: E2E-CORE-13.05, E2E-CORE-14.01, E2E-CORE-14.02
+// execs into it, deletes it, verifies the gateway's active_sandbox_count tracks
+// create/delete, and confirms each sandbox is fully deleted from the gateway store
+// within a time bound. Owns its own gateway so the count assertion is isolated.
+// Verifies: E2E-CORE-13.05, E2E-CORE-13.06, E2E-CORE-14.01, E2E-CORE-14.02
 func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping sandbox lifecycle")
@@ -554,9 +555,47 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.runSandboxCLIConcurrently(t, local, "delete", names)
 	s.pollActiveSandboxCount(t, gw.ID, 0)
 
+	// active_sandbox_count tracks sandbox PODS, so it can reach 0 while a sandbox is
+	// still wedged in the gateway's object store (phase Deleting) - the exact failure
+	// mode of openshift-online/hypershell#827. Short mode must therefore confirm each
+	// sandbox is FULLY deleted (gone from `openshell sandbox list`) within a time bound.
+	s.waitSandboxesFullyDeleted(t, local, names, durationSecondsEnv("E2E_SANDBOX_DELETE_TIMEOUT", 120*time.Second))
+
 	// The CLI is done with this gateway: retire its service account (a no-op in
 	// identity mode).
 	s.retireGatewayServiceAccount(ref)
+}
+
+// waitSandboxesFullyDeleted polls `openshell sandbox list` until none of the given
+// sandbox names remain, failing after timeout. This is the regression guard for
+// openshift-online/hypershell#827: active_sandbox_count tracks sandbox pods, so it can
+// reach 0 while a sandbox is still wedged in the gateway's object store (phase Deleting,
+// object-store finalization failed). The CLI list reflects that store, so a wedged
+// sandbox stays visible here until it is truly finalized.
+func (s *E2ESuite) waitSandboxesFullyDeleted(t *testing.T, local string, names []string, timeout time.Duration) {
+	t.Helper()
+	var remaining []string
+	err := pollNoCtx(timeout, 5*time.Second, func() bool {
+		out, err := s.cli(t, local, "sandbox", "list", "--names")
+		if err != nil {
+			s.Logf("sandbox list (awaiting full deletion) returned an error (continuing): %v", err)
+			return false
+		}
+		listed := make(map[string]struct{})
+		for _, line := range strings.Split(stripANSI(out), "\n") {
+			if n := strings.TrimSpace(line); n != "" {
+				listed[n] = struct{}{}
+			}
+		}
+		remaining = remaining[:0]
+		for _, n := range names {
+			if _, ok := listed[n]; ok {
+				remaining = append(remaining, n)
+			}
+		}
+		return len(remaining) == 0
+	})
+	s.Require().NoErrorf(err, "sandboxes not fully deleted within %s (still present: %v); active_sandbox_count tracks pods, this check reads the gateway store - openshift-online/hypershell#827", timeout, remaining)
 }
 
 func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
