@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).with_name("check_mergify_scopes.py")
-SPEC = importlib.util.spec_from_file_location("check_mergify_scopes", SCRIPT_PATH)
+SCRIPT_PATH = Path(__file__).with_name("check_ci_impact_scopes.py")
+SPEC = importlib.util.spec_from_file_location("check_ci_impact_scopes", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mod)
 
@@ -45,9 +45,9 @@ class GlobSemanticsTest(unittest.TestCase):
         self.assertFalse(self.match("OPENSHELL_VERSION", "OPENSHELL_VERSION.bak"))
 
 
-class ParseMergifyTest(unittest.TestCase):
+class ParseImpactScopesTest(unittest.TestCase):
     def test_parses_real_config(self):
-        scopes, barriers = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        scopes, barriers = mod.parse_impact_scopes(mod.IMPACT_PATH.read_text(encoding="utf-8"))
         # All 13 CICD-MRG-03 consumer scopes must be present.
         expected = {
             "api-server", "cli", "control-plane", "sdk-typescript", "sdk-go",
@@ -66,8 +66,8 @@ class ParseMergifyTest(unittest.TestCase):
 
     def test_expected_scopes_matches_real_config(self):
         # main() guards the parsed scope set against EXPECTED_SCOPES; keep that
-        # constant in sync with the committed .mergify.yml (finding 3).
-        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        # constant in sync with the committed ci-impact-scopes.yml (finding 3).
+        scopes, _ = mod.parse_impact_scopes(mod.IMPACT_PATH.read_text(encoding="utf-8"))
         self.assertEqual(mod.EXPECTED_SCOPES, frozenset(scopes))
 
     def test_parses_reindented_block(self):
@@ -88,7 +88,7 @@ class ParseMergifyTest(unittest.TestCase):
             "        include:\n"
             "          - .mergify.yml\n"
         )
-        scopes, barriers = mod.parse_mergify(text)
+        scopes, barriers = mod.parse_impact_scopes(text)
         self.assertEqual({"api-server", "cli"}, set(scopes))
         self.assertEqual(["components/api-server/**"], scopes["api-server"]["include"])
         self.assertEqual([".mergify.yml"], barriers)
@@ -111,7 +111,7 @@ class ParseMergifyTest(unittest.TestCase):
             "    include:\n"
             "      - .mergify.yml\n"
         )
-        scopes, barriers = mod.parse_mergify(text)
+        scopes, barriers = mod.parse_impact_scopes(text)
         self.assertEqual({"api-server"}, set(scopes))
         self.assertEqual(["components/api-server/**"], scopes["api-server"]["include"])
         self.assertEqual(["**/README.md"], scopes["api-server"]["exclude"])
@@ -172,14 +172,14 @@ class CoverageAuditHelpersTest(unittest.TestCase):
 
 class SharedGroupDriftGuardTest(unittest.TestCase):
     def test_real_config_has_no_drift(self):
-        # The committed .mergify.yml must satisfy every shared input group.
-        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        # The committed ci-impact-scopes.yml must satisfy every shared input group.
+        scopes, _ = mod.parse_impact_scopes(mod.IMPACT_PATH.read_text(encoding="utf-8"))
         self.assertEqual([], mod.shared_group_errors(scopes))
 
     def test_missing_shared_pattern_in_one_member_is_flagged(self):
         # Drop a single shared deployment input from one member scope and confirm
         # the guard reports it (silent drift becomes a loud failure).
-        scopes, _ = mod.parse_mergify(mod.MERGIFY_PATH.read_text(encoding="utf-8"))
+        scopes, _ = mod.parse_impact_scopes(mod.IMPACT_PATH.read_text(encoding="utf-8"))
         scopes["api-server"]["include"].remove("charts/**")
         errors = mod.shared_group_errors(scopes)
         self.assertTrue(errors)

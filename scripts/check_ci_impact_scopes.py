@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Validate the Mergify dependency-aware scope graph in ``.mergify.yml``.
+"""Validate the CI dependency-aware scope graph in ``.github/ci-impact-scopes.yml``.
+
+This metadata is local only; Mergify uses a serial queue without scopes.
+CI selection comes from component-paths.json.
 
 Desired state: specs/platform/mergify-parallel-merge-queue.spec.md (CICD-MRG).
 
@@ -19,14 +22,12 @@ This policy check does three things:
 3. Detector alignment (CICD-MRG-09): spot-check that ``.github/component-paths.json``
    encodes the same cross-component dependencies the scopes do (control-plane
    consuming API helper packages and the CLI, OpenAPI propagating to its
-   consumers), so queue independence and what-is-tested stay in agreement.
+   consumers), so critical CI dependencies remain covered.
 
 Glob matching follows Mergify's documented doublestar semantics -- ``**`` spans
 zero or more path segments, ``*`` and ``?`` stay within a single segment -- NOT
 shell ``fnmatch`` (where ``*`` crosses ``/``). The glob-to-regex translation is
-exercised directly by scripts/test_check_mergify_scopes.py. Validate the real
-globs against the Mergify service during rollout; matching the documented
-semantics here is necessary but not a substitute for service simulation.
+exercised directly by scripts/test_check_ci_impact_scopes.py. This audit is entirely local and does not upload scopes to Mergify.
 """
 
 import json
@@ -37,9 +38,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MERGIFY_PATH = ROOT / ".mergify.yml"
+IMPACT_PATH = ROOT / ".github" / "ci-impact-scopes.yml"
 COMPONENT_PATHS_PATH = ROOT / ".github" / "component-paths.json"
-ALLOWLIST_PATH = ROOT / ".mergify-scope-allowlist.txt"
+ALLOWLIST_PATH = ROOT / ".github" / "ci-impact-allowlist.txt"
 
 
 # --------------------------------------------------------------------------- #
@@ -98,11 +99,11 @@ def matches_any(path: str, patterns: list[str]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# .mergify.yml parsing (dependency-free; no PyYAML in the policy environment)
+# .github/ci-impact-scopes.yml parsing (dependency-free; no PyYAML in the policy environment)
 # --------------------------------------------------------------------------- #
 
 
-def parse_mergify(text: str) -> tuple[dict[str, dict[str, list[str]]], list[str]]:
+def parse_impact_scopes(text: str) -> tuple[dict[str, dict[str, list[str]]], list[str]]:
     """Parse ``scopes.source.files`` and ``scopes.barrier_files.include``.
 
     Returns ``(scopes, barriers)`` where ``scopes`` maps a scope name to its
@@ -199,7 +200,7 @@ def parse_mergify(text: str) -> tuple[dict[str, dict[str, list[str]]], list[str]
 
 # The exact dependency-aware consumer scopes the specification defines
 # (CICD-MRG-03). main() asserts the parsed set matches this, so a reindented or
-# restructured .mergify.yml that the heuristic parser reads partially fails
+# restructured .github/ci-impact-scopes.yml that the heuristic parser reads partially fails
 # loudly on every invocation path (hook, CI, or `make check`) instead of
 # passing a wrong or truncated scope graph. Adding or removing a scope is a
 # deliberate owner decision that must update this set too.
@@ -222,15 +223,14 @@ EXPECTED_SCOPES: frozenset[str] = frozenset(
 )
 
 
-# Shared input groups (CICD-MRG-03 drift guard). Mergify scope include/exclude
+# Shared input groups (CICD-MRG-03 drift guard). CI impact scope include/exclude
 # lists are flat, and a YAML anchor/alias replaces a whole value -- it cannot
 # splice a shared block into part of a larger list. So the producer inputs that
 # must appear in several consumer scopes (a deployment change rebuilding every
 # runtime lane, the OpenAPI contract propagating to its consumers, and so on) are
 # necessarily duplicated across include lists. The risk the review called out is
 # silent drift: an owner adds an input to one lane's list but forgets the others,
-# and a later change to that file then rebuilds only one lane while the parallel
-# lanes merge without revalidating. These groups make the coupling explicit and
+# and a later change to that file then fails to classify all affected consumers. These groups make the coupling explicit and
 # machine-checked: every member scope must contain every pattern in the group, so
 # a half-applied edit fails this check loudly instead of drifting. Adding a shared
 # input means adding it to the group's tuple AND to each member scope's list.
@@ -526,18 +526,18 @@ def main() -> int:
     errors: list[str] = []
 
     try:
-        mergify_text = MERGIFY_PATH.read_text(encoding="utf-8")
+        impact_text = IMPACT_PATH.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"Unable to read {MERGIFY_PATH.relative_to(ROOT)}: {exc}")
+        print(f"Unable to read {IMPACT_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
-    scopes, barriers = parse_mergify(mergify_text)
+    scopes, barriers = parse_impact_scopes(impact_text)
     parsed_names = set(scopes)
     if parsed_names != EXPECTED_SCOPES:
         missing = sorted(EXPECTED_SCOPES - parsed_names)
         unexpected = sorted(parsed_names - EXPECTED_SCOPES)
         print(
-            "Parsed .mergify.yml scopes do not match the expected scope graph "
+            "Parsed .github/ci-impact-scopes.yml scopes do not match the expected scope graph "
             "(CICD-MRG-03). This usually means the file was reindented or "
             "restructured and the parser read it partially."
         )
@@ -552,10 +552,10 @@ def main() -> int:
         return 1
     empty = sorted(name for name, spec in scopes.items() if not spec["include"])
     if empty:
-        print(f"Scopes with no include patterns parsed from .mergify.yml: {empty}")
+        print(f"Scopes with no include patterns parsed from .github/ci-impact-scopes.yml: {empty}")
         return 1
     if not barriers:
-        print("No barrier_files parsed from .mergify.yml.")
+        print("No barrier_files parsed from .github/ci-impact-scopes.yml.")
         return 1
 
     # 0. Shared-input drift guard (CICD-MRG-03). Run before the scenario table so
@@ -617,20 +617,20 @@ def main() -> int:
     )
     for path in unclassified:
         errors.append(
-            f"tracked path {path!r} is not classified by any Mergify scope or "
-            f"barrier (CICD-MRG-08). Map it to a scope in .mergify.yml, add it to "
+            f"tracked path {path!r} is not classified by any CI impact scope or "
+            f"barrier (CICD-MRG-08). Map it to a scope in .github/ci-impact-scopes.yml, add it to "
             f"barrier_files if it affects all lanes, or record an explicit owner "
             f"decision in {ALLOWLIST_PATH.name}."
         )
 
     if errors:
-        print("Mergify scope validation failed:")
+        print("CI impact scope validation failed:")
         for error in errors:
             print(f"- {error}")
         return 1
 
     print(
-        f"Mergify scope graph OK: {len(scopes)} scopes, {len(barriers)} barrier "
+        f"CI impact scope graph OK: {len(scopes)} scopes, {len(barriers)} barrier "
         f"patterns, {len(SCENARIOS)} scenarios, "
         f"{len(DETECTOR_EXPECTATIONS)} detector expectations; all tracked files "
         f"classified."
