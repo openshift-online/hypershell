@@ -1,116 +1,72 @@
-# Mergify Parallel Merge Queue Specification
+# Mergify Open Source Merge Queue Specification
 
-**Date:** 2026-10-21
-**Status:** Draft
-**Related:** `e2e-testing.spec.md` (HYPERSHELL-18) - CI E2E workflow, Tests CI Gate,
-             merge-queue gate, and Konflux image consumption;
-             `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) - automated
-             OpenShift pull-request CI, environment lifecycle on merge-queue entries
-
+**Date:** 2026-10-29
+**Status:** Approved
 **ID prefix:** CICD-MRG
+**Related:** `e2e-testing.spec.md`, `ephemeral-pr-environments.spec.md`
 
 ## Purpose
 
-HyperShell uses Mergify to manage the merge queue for `main`. The default serial
-queue mode validates and merges pull requests one at a time, which means
-independent changes (for example a documentation fix and an API server bug fix)
-wait behind each other even when neither can affect the other. Parallel mode with
-dependency-aware scopes lets the queue validate and merge pull requests with
-disjoint scopes concurrently while preserving ordering for pull requests whose
-scopes overlap. This reduces merge latency for independent work without
-sacrificing correctness for related changes.
+Use Mergify's Open Source plan with cumulative speculative validation, automatic
+queue entry after review and CI, and dependency-aware selective CI. Serial mode
+orders merges while up to ten speculative PRs validate concurrently. Independent
+scope lanes, multi-PR batches, priorities and two-step CI are not used.
 
-The scope model classifies every tracked file into one or more consumer lanes.
-A change to a producer file (for example an OpenAPI contract) selects its own
-scope and every consumer scope that depends on that contract, so the queue
-serializes those pull requests. A change that touches only a single consumer's
-implementation (for example an API server handler) selects only its own scope, so
-it can merge concurrently with a CLI-only change. Barrier files (global build
-infrastructure, workflow definitions, required-check machinery) serialize the
-entire queue around the pull request that changes them, because they can affect
-every scope.
+The existing filename is retained for links. The previous parallel-lane design
+is superseded: local impact scopes are coverage-audit metadata only, not Mergify
+configuration or runtime CI filters. `.github/component-paths.json` owns runtime
+selection. E2E remains optional, runs on ordinary PRs and main, and is suppressed
+on temporary queue PRs as described below.
 
-E2E testing is valuable but its 10-20 minute runtime creates merge latency when
-it gates the merge path. This spec removes E2E from the required merge gate
-(`Tests CI Gate`) while keeping it available on ordinary pull requests and running
-on `main` after merge. The required merge gate depends only on change detection
-and unit tests. E2E is suppressed on Mergify temporary queue pull requests so
-the queue validates quickly. Post-merge E2E on `main` has its own concurrency
-policy so rapid merges do not cancel each other's validation runs.
+Plan basis: [pricing](https://mergify.com/pricing),
+[queue modes](https://docs.mergify.com/merge-queue/queue-modes/), and
+[queue action](https://docs.mergify.com/workflow/actions/queue/), checked 2026-10-29.
+The Open Source plan differs from the Free private-team plan.
 
 ## Requirements
 
-### Requirement: CICD-MRG-01 -- Parallel Queue Mode
+### Requirement: CICD-MRG-01 -- Serial Queue with Speculative Checks
 
-The Mergify merge queue SHALL operate in `parallel` mode. Pull requests with
-disjoint scopes SHALL validate and merge independently. Pull requests with
-overlapping scopes SHALL be validated in dependency order. The queue SHALL NOT
-use `isolated` mode: ordering between scopes that can interact SHALL be
-preserved.
+The queue SHALL use `mode: serial` and `max_parallel_checks: 10`. It SHALL NOT
+configure Mergify scopes or use isolated mode. Each speculative head SHALL
+include all preceding queued changes and merge in order after required checks.
 
-#### Scenario: CICD-MRG-01.01 -- Disjoint scopes merge independently
+#### Scenario: CICD-MRG-01.02 -- Cumulative validation
 
-- GIVEN pull request A touches only `components/api-server/` files
-- AND pull request B touches only `docs/README.md`
-- WHEN both are enqueued
-- THEN the queue SHALL validate A and B concurrently in independent lanes
-- AND the faster lane SHALL merge without waiting for the slower lane
-
-#### Scenario: CICD-MRG-01.02 -- Overlapping scopes preserve ordering
-
-- GIVEN pull request A modifies `components/api-server/openapi/openapi.yaml`
-- AND pull request B modifies `components/cli/` files
-- WHEN both are enqueued
-- THEN A and B SHALL share the `cli` scope (because OpenAPI inputs are part of
-  the CLI scope)
-- AND the queue SHALL validate B against a speculative merge that includes A
-
-#### Scenario: CICD-MRG-01.03 -- Barrier file serializes the queue
-
-- GIVEN pull request A modifies `.mergify.yml`
-- AND pull requests B and C are enqueued with disjoint scopes
-- WHEN A is enqueued
-- THEN the queue SHALL serialize B and C behind A until A merges
-- AND after A merges, B and C SHALL resume independent validation if their scopes
-  remain disjoint
+- GIVEN A changes an API contract and B changes a separate component
+- WHEN B is tested speculatively after A
+- THEN B's CI SHALL select affected components from both A and B
+- AND unrelated changes on main after the fork SHALL NOT be attributed to B
 
 ### Requirement: CICD-MRG-02 -- Queue Rules
 
-The merge queue SHALL preserve the existing approval workflow. The queue rule
-SHALL require the `agent/review-code-approved` label in `queue_conditions`. The
-queue SHALL target only the `main` branch and use squash merges. The commit
-message format SHALL use the pull request title and inherited body with no
-trailers.
+Queue entry SHALL require `base = main`, `agent/review-code-approved`, non-draft
+status, and successful `Checks CI Gate` and `Tests CI Gate`. Branch protection
+injection SHALL remain `queue` so additional GitHub requirements apply at entry
+and merge. The queue SHALL squash with PR title, inherited body, and no trailers.
+Batch size and wait options SHALL be omitted (default size one).
 
-The queue SHALL NOT configure multi-pull-request batching: `batch_size` and
-`batch_max_wait_time` SHALL be omitted so batches stay at the default size of 1.
-The Merge Queue Batch feature (batch sizes greater than 1) requires a higher
-Mergify subscription tier than this organization has, so it is intentionally
-unused; parallel scopes still provide independent lanes. The queue SHALL enable
-branch-protection injection so required checks continue to come from GitHub's
-rules.
+#### Scenario: CICD-MRG-02.01 -- Approval required
 
-#### Scenario: CICD-MRG-02.01 -- Approval label required for enqueue
-
-- GIVEN a pull request without the `agent/review-code-approved` label
-- WHEN it is proposed for the merge queue
-- THEN the queue SHALL NOT accept it until the label is present
+- GIVEN a PR lacks the approval label
+- WHEN checks succeed
+- THEN the queue SHALL NOT accept it
 
 #### Scenario: CICD-MRG-02.02 -- Squash merge with PR title
 
-- GIVEN a pull request is ready to merge from the queue
-- WHEN the queue merges it
-- THEN it SHALL squash the pull request's commits into one
-- AND the commit title SHALL be the pull request title
-- AND the commit body SHALL be the pull request body
+- GIVEN an approved PR passes required checks
+- WHEN it merges
+- THEN its commits SHALL be squashed with its title and inherited body
 
-### Requirement: CICD-MRG-03 -- Dependency-Aware Scope Definitions
+### Requirement: CICD-MRG-03 -- Local Dependency-Aware Impact Audit
 
-The queue SHALL classify changes into file-pattern scopes that represent consumer
-dependency lanes. Each scope SHALL include the consumer's own source files and
-all upstream producer inputs that can affect it. A change to a producer input
-SHALL select its own scope and every consumer scope whose include patterns match
-that file.
+The repository SHALL retain the consumer impact model in
+`.github/ci-impact-scopes.yml`, validated by `scripts/check_ci_impact_scopes.py`.
+It SHALL classify tracked paths and guard shared input consistency without
+configuring Mergify scopes. These groups describe potential build/runtime impact;
+they do not determine queue order or directly schedule jobs. Runtime lint/unit
+selection uses `.github/component-paths.json`; deployment/E2E and documentation
+have separate workflows, so broad audit groups are not identical to unit filters.
 
 The following consumer scopes SHALL be defined:
 
@@ -135,7 +91,7 @@ The following consumer scopes SHALL be defined:
 9. **deployment** - Charts, deployment overlays, dashboards, version pins, cluster
    helpers, and release-bundle inputs.
 10. **test-infrastructure** - E2E and PR test harnesses, environment automation,
-    and CI scripts. This scope SHALL be independent of application lanes when only
+    and CI scripts. This scope SHALL be separate from application impact groups when only
     the optional harness changes.
 11. **architecture-site** - Site tooling, published architecture sources and
     assets, the architecture site workflow, and frontend toolchain.
@@ -154,27 +110,27 @@ Each scope SHALL exclude known informational files (`README.md`, `AGENTS.md`,
 blanket-excluded from all patterns because it may be embedded runtime content,
 prompts, or generator input.
 
-#### Scenario: CICD-MRG-03.01 -- API-only change is independent of frontend
+#### Scenario: CICD-MRG-03.01 -- API-only change does not select frontend impact
 
 - GIVEN a pull request changes only `components/api-server/internal/handlers/`
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select the `api-server` scope only (plus `control-plane` and
   other consumers whose include patterns match `components/api-server/**`)
 - AND it SHALL NOT select `web-console` or `fleet-dashboard` scopes
-- AND it SHALL merge independently of a concurrent frontend-only pull request
+- AND it SHALL be classified separately from a concurrent frontend-only pull request
 
 #### Scenario: CICD-MRG-03.02 -- OpenAPI change propagates to consumers
 
 - GIVEN a pull request changes `components/api-server/openapi/openapi.yaml`
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select the `api-server`, `cli`, `control-plane`,
   `sdk-typescript`, `sdk-go`, `web-console`, and `agents` scopes
 - AND it SHALL NOT select `fleet-dashboard` (absent a verified SDK dependency)
 
-#### Scenario: CICD-MRG-03.03 -- Frontend lockfile does not block Go
+#### Scenario: CICD-MRG-03.03 -- Frontend lockfile does not select Go impact
 
 - GIVEN a pull request changes only `pnpm-lock.yaml`
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select frontend consumer scopes (`sdk-typescript`, `web-console`,
   `fleet-dashboard`, `architecture-site`) and NOT Go-only scopes
   (`api-server`, `cli`, `control-plane`, `sdk-go`)
@@ -182,62 +138,29 @@ prompts, or generator input.
 #### Scenario: CICD-MRG-03.04 -- Fleet dashboard excludes TypeScript SDK
 
 - GIVEN a pull request changes only `components/sdk-typescript/` files
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select the `sdk-typescript` and `web-console` scopes
 - AND it SHALL NOT select the `fleet-dashboard` scope
 
 #### Scenario: CICD-MRG-03.05 -- Control plane includes API and CLI modules
 
 - GIVEN a pull request changes `components/api-server/pkg/api/grpc/` files
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select the `control-plane` scope (because the control plane
   module replaces the API-server module and imports those packages)
 
 #### Scenario: CICD-MRG-03.06 -- Agent images include CLI inputs
 
 - GIVEN a pull request changes `components/cli/` files
-- WHEN it is enqueued
+- WHEN the local audit classifies its paths
 - THEN it SHALL select the `cli`, `control-plane`, and `agents` scopes
   (because agent Containerfiles embed `hsctl`)
 
-### Requirement: CICD-MRG-04 -- Barrier Files
+### Requirement: CICD-MRG-04 -- Global Input Classification
 
-The queue SHALL define barrier files that serialize the entire queue around pull
-requests that change global build and check infrastructure. Barrier files SHALL
-include:
-
-- `.mergify.yml` (queue configuration itself)
-- `Makefile` (root build orchestration)
-- `.dockerignore` (build context for all images)
-- `.github/component-paths.json` (change detection input)
-- `.github/scripts/**` (detection and CI helper scripts)
-- `.github/actions/detect-konflux-components/**` (Konflux detection)
-- `.github/workflows/checks.yml` (required Checks CI Gate)
-- `.github/workflows/tests.yml` (required Tests CI Gate orchestrator)
-- `.github/workflows/unit-tests.yml` (unit test stage)
-- `.github/workflows/e2e.yml` (E2E stage)
-- Repository policy check scripts (`scripts/check_ci_components.py`,
-  `scripts/check_dependency_pins.py`, `scripts/check_dependency_age.py`,
-  `scripts/check_forbidden_terms.py`, `scripts/check_spec_ids.py`, and their
-  corresponding test scripts)
-- `scripts/run-shell-unit-tests.sh` (shell test discovery)
-
-Barrier files SHALL NOT include every script, all documentation, or every
-component build file. Only changes that affect all validation SHALL be barriers.
-
-#### Scenario: CICD-MRG-04.01 -- Workflow change blocks all lanes
-
-- GIVEN pull request A modifies `.github/workflows/tests.yml`
-- AND pull requests B and C with disjoint scopes are in the queue
-- WHEN A is enqueued
-- THEN B and C SHALL wait for A to merge before resuming validation
-
-#### Scenario: CICD-MRG-04.02 -- Component Makefile is not a barrier
-
-- GIVEN a pull request modifies only `components/api-server/Makefile`
-- WHEN it is enqueued
-- THEN it SHALL be classified by scope patterns, not as a barrier
-- AND it SHALL NOT serialize the entire queue
+Global build and CI inputs SHALL remain classified in the local audit's
+`barrier_files` list. In serial mode every PR is already cumulatively ordered;
+these entries SHALL NOT be uploaded to Mergify or imply independent queue lanes.
 
 ### Requirement: CICD-MRG-05 -- Tests CI Gate Excludes E2E
 
@@ -356,120 +279,114 @@ failures visibly.
 
 ### Requirement: CICD-MRG-08 -- Unknown Path Coverage Audit
 
-New or unmapped tracked paths SHALL NOT silently pass as documentation-only or as
-having no scope. The implementation SHALL include an audit that identifies
-unclassified tracked paths and requires an explicit owner decision for new
-production directories.
+`make check` SHALL audit tracked paths against local impact groups, global inputs,
+and `.github/ci-impact-allowlist.txt`. Unmapped paths SHALL fail until classified
+or explicitly acknowledged. Removing Mergify scopes SHALL NOT remove this audit.
 
-A pull request that introduces files in an unclassified path SHALL be flagged by
-the audit. A universal `**` repository scope SHALL NOT be added as a fallback,
-because it either couples every pull request or risks treating unknown runtime
-files as independent maintenance.
+#### Scenario: CICD-MRG-08.01 -- New component is flagged
 
-#### Scenario: CICD-MRG-08.01 -- New component directory is flagged
-
-- GIVEN a pull request adds files under a new `components/new-service/` directory
-- AND `components/new-service/` is not classified by any scope or barrier pattern
+- GIVEN an unmapped file in `components/new-service/`
 - WHEN the coverage audit runs
-- THEN it SHALL flag the new path as unclassified
-- AND the pull request SHALL require explicit scope classification before merging
+- THEN it SHALL fail until an owner classifies the path
 
-#### Scenario: CICD-MRG-08.02 -- Existing classified path passes audit
+#### Scenario: CICD-MRG-08.02 -- Classified path passes
 
-- GIVEN a pull request modifies only files under `components/api-server/`
-- AND `components/api-server/` is classified by the `api-server` scope
-- WHEN the coverage audit runs
-- THEN it SHALL pass without flagging
+- GIVEN an API source file covered by the local impact model
+- WHEN the audit runs
+- THEN it SHALL pass
 
-### Requirement: CICD-MRG-09 -- Component Detector Alignment
+### Requirement: CICD-MRG-09 -- Cumulative Component Detection
 
-The Mergify scope definitions and the CI change detector
-(`.github/component-paths.json`) SHALL recognize the same dependency
-relationships for each component. When a file change selects a Mergify scope, the
-CI detector SHALL run the corresponding component's tests. Intentional
-differences SHALL be documented (for example, optional E2E harness changes do not
-force application merge ordering but do run the E2E tests).
+Both Checks and Tests SHALL use full-history checkout and the shared detector.
+For every PR, including Mergify draft PRs, detection SHALL diff target base to
+head using the merge base, with rename detection disabled to include both sides
+of cross-component moves. It SHALL NOT diff only the final queued PR or use
+Mergify scope metadata. Git, event parsing and metadata errors SHALL fail the
+job, not silently select no components. Required gates SHALL fail when detection
+fails. Manual dispatch SHALL select all components.
 
-The implementation SHALL audit `.github/component-paths.json` and job wiring for
-the same dependency relationships as the Mergify scopes, particularly:
+The component map SHALL include upstream API helpers and CLI code consumed by
+control-plane, API and SDK generators consumed by SDKs/console, domain probes
+consumed by both shared UI packages, and shared frontend toolchain inputs.
 
-- Control-plane imports of API helper packages and CLI code
-- Shared-package changes running the tests that consume them
-- Agent images embedding the CLI
+#### Scenario: CICD-MRG-09.01 -- CLI change selects consumers
 
-#### Scenario: CICD-MRG-09.01 -- CLI change runs control-plane tests
+- GIVEN a CLI kustomize change
+- WHEN detection runs
+- THEN CLI and control-plane tests SHALL be selected
 
-- GIVEN a pull request changes `components/cli/pkg/kustomize/` files
-- WHEN the CI detector evaluates the change
-- THEN it SHALL flag the `control_plane` component as changed
-- AND the control-plane unit tests SHALL run
+#### Scenario: CICD-MRG-09.02 -- OpenAPI change selects consumers
 
-#### Scenario: CICD-MRG-09.02 -- Scope and detector agree on OpenAPI consumers
+- GIVEN an OpenAPI change
+- WHEN detection runs
+- THEN API, CLI, control-plane, SDKs and web-console SHALL be selected
+- AND unrelated fleet UI jobs SHALL remain unselected
 
-- GIVEN a pull request changes `components/api-server/openapi/openapi.yaml`
-- WHEN the CI detector evaluates the change
-- THEN it SHALL flag `cli`, `sdk_typescript`, `sdk_go`, and `web_console` as
-  changed
-- AND the Mergify scope SHALL select the corresponding consumer scopes
+### Requirement: CICD-MRG-10 -- Queue Integration
 
-### Requirement: CICD-MRG-10 -- Konflux Pipeline Audit on Queue PRs
+Mergify's bypass of the native GitHub merge-queue requirement is confirmed by
+the repository owner. This change SHALL preserve that setup and the existing
+required checks. Strict up-to-date checks SHALL remain disabled for squash
+speculation. GitHub Actions SHALL run on Mergify draft PRs without a blanket
+draft exclusion. Konflux PR pipelines may build optional images; those checks
+SHALL NOT become required gates in this change. Their path filters remain
+separate from lint/unit selection.
 
-Konflux triggers on Mergify temporary queue pull requests SHALL be audited.
-Existing dedicated merge-queue pipelines match push branches under
-`gh-readonly-queue/main/`, whereas Mergify queue pull requests exercise
-pull-request pipelines. Required checks SHALL report for the SHA that Mergify
-evaluates. Optional image and E2E builds SHALL NOT exhaust runners or cluster
-capacity and indirectly delay cheap CI.
+#### Scenario: CICD-MRG-10.01 -- Required checks on queue PRs
 
-GitHub merge-group assumptions SHALL NOT be copied onto Mergify queue branches
-without verification.
+- GIVEN a temporary Mergify PR
+- WHEN CI runs
+- THEN both required gates SHALL report on that PR's revision
+- AND E2E SHALL remain outside the merge gate
 
-#### Scenario: CICD-MRG-10.01 -- Required checks report for queue PR SHA
+### Requirement: CICD-MRG-11 -- Deployment Impact Audit
 
-- GIVEN a Mergify temporary queue pull request
-- WHEN cheap required validation (detection, unit tests, policy checks) runs
-- THEN the checks SHALL report for the SHA that Mergify evaluates
-- AND the checks SHALL pass or fail independently of optional E2E
+Deployment/release inputs SHALL remain classified in deployment and runtime
+consumer impact groups in the local audit. These conservative groups document
+runtime impact, not a mandate to run every unit suite for YAML-only changes.
+Existing deployment validation and optional E2E routing SHALL be preserved.
 
-### Requirement: CICD-MRG-11 -- Deployment Scope Propagation
+#### Scenario: CICD-MRG-11.01 -- Chart impact includes runtime consumers
 
-Deployment and release input changes (charts, deployment overlays, dashboards,
-version pins, cluster helpers, release-bundle inputs) SHALL select the
-`deployment` scope and all runtime consumer scopes in this initial conservative
-design. Ordinary API, CLI, or console implementation changes SHALL remain
-independent except where actual upstream dependencies overlap.
+- GIVEN a chart input change
+- WHEN the local audit evaluates it
+- THEN deployment and runtime consumer impact groups SHALL match
 
-The deployment scope propagation MAY be narrowed in a later change with evidence
-from build and runtime ownership that demonstrates fewer consumers are affected.
+#### Scenario: CICD-MRG-11.02 -- API code is not deployment input
 
-#### Scenario: CICD-MRG-11.01 -- Chart change selects all runtime consumers
+- GIVEN an API implementation change
+- WHEN the local audit evaluates it
+- THEN deployment SHALL NOT be selected
 
-- GIVEN a pull request changes `charts/hypershell/values.yaml`
-- WHEN it is enqueued
-- THEN it SHALL select the `deployment` scope and all runtime consumer scopes
-  (`api-server`, `cli`, `control-plane`, `web-console`, `fleet-dashboard`,
-  `agents`)
+### Requirement: CICD-MRG-12 -- Automatic Queue Entry
 
-#### Scenario: CICD-MRG-11.02 -- API implementation is independent of charts
+A `pull_request_rules` queue action SHALL automatically enqueue non-draft PRs to
+main with the approval label and both required CI gates successful, using the
+named queue rule. The same conditions SHALL be present on the queue rule so
+manual commands cannot bypass them. Removing approval SHALL make the PR
+ineligible. No paid priorities, scheduling, batching, or two-step CI are needed.
 
-- GIVEN a pull request changes only `components/api-server/internal/`
-- WHEN it is enqueued
-- THEN it SHALL NOT select the `deployment` scope
-- AND it SHALL merge independently of a deployment-only pull request
+#### Scenario: CICD-MRG-12.01 -- Approval and successful checks enqueue
 
-### Requirement: CICD-MRG-12 -- No Automatic Enqueue Policy
+- GIVEN a non-draft PR to main has the approval label
+- WHEN both required gates succeed
+- THEN Mergify SHALL automatically enqueue it without a manual command
+- AND a missing, pending, failed or cancelled gate SHALL prevent automatic entry
 
-This change SHALL NOT introduce a new automatic-enqueue policy. The existing
-manual, dashboard, or command enqueue flow SHALL be preserved. Adding a label to
-`queue_conditions` alone does not establish autoqueue behavior.
+## Rollout and Operations
 
-#### Scenario: CICD-MRG-12.01 -- Label alone does not enqueue
-
-- GIVEN a pull request has the `agent/review-code-approved` label
-- AND no explicit enqueue action has been taken
-- WHEN the queue evaluates its conditions
-- THEN the pull request SHALL NOT be automatically enqueued
+Merge this configuration PR through the existing manual flow. After it lands,
+observe an approved PR automatically enter and a speculative draft PR report both
+gates. Existing approved, green PRs can also become eligible automatically.
+Keep the approval label off PRs that should not merge. For an incident, remove
+the approval label from affected original PRs and dequeue them before repair;
+reapply approval only when ready. Avoid external merges and edits to queued PRs,
+which invalidate speculative work. Monitor runner wait, required-check duration,
+queue latency and reruns before increasing concurrency above ten.
 
 ## Retired IDs
 
-None.
+- `CICD-MRG-01.01` - independent-lane behavior superseded by serial speculation.
+- `CICD-MRG-01.03` - independent-lane behavior superseded by serial speculation.
+- `CICD-MRG-04.01` - independent-lane behavior superseded by serial speculation.
+- `CICD-MRG-04.02` - independent-lane behavior superseded by serial speculation.
