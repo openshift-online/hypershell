@@ -191,6 +191,72 @@ describe("ProvisioningDashboardPage", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("shows the seven-day P99, target, warning, and trend", () => {
+    renderProvisioningDashboard([
+      {
+        id: "provision-time",
+        provisionDuration: {
+          mean: "312",
+          p50: "288",
+          p95: "726",
+          p99: "872",
+          target: "300",
+          p99Trend: {
+            points: [
+              { label: "2026-10-27", value: 800 },
+              { label: "2026-10-28", value: 872 },
+            ],
+          },
+        },
+        unit: "sec",
+        value: "312",
+      },
+    ]);
+
+    const p99Value = screen.getByText("14m 32s");
+    expect(p99Value).toBeTruthy();
+    expect(getSummaryValue("Target").getByText("5m 00s")).toBeTruthy();
+    expect(
+      p99Value
+        .closest(".pf-v6-c-description-list__group")
+        ?.querySelector(
+          ".hypershell-dashboard-summary-list__indicator--warning",
+        ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Last 7 days - daily P99 time to ready"),
+    ).toBeTruthy();
+  });
+
+  it("keeps the target and hides unavailable P99 details at 30 days", () => {
+    renderProvisioningDashboard(
+      [
+        {
+          id: "provision-time",
+          provisionDuration: {
+            mean: "312",
+            p50: "288",
+            p95: "726",
+            target: "300",
+            p99Trend: {
+              points: [
+                { label: "2026-10-27", value: 800 },
+                { label: "2026-10-28", value: 872 },
+              ],
+            },
+          },
+          unit: "sec",
+          value: "312",
+        },
+      ],
+      { timeRange: 30 },
+    );
+
+    expect(getSummaryValue("Target").getByText("5m 00s")).toBeTruthy();
+    expect(screen.queryByText("P99")).toBeNull();
+    expect(screen.queryByText(/daily P99 time to ready/)).toBeNull();
+  });
+
   it("shows an unavailable state when the provision time metric is absent", () => {
     renderProvisioningDashboard([]);
 

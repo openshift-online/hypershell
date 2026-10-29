@@ -40,6 +40,30 @@ export function ProvisionTimeChart({
     p50: stats.p50Seconds,
     p95: stats.p95Seconds,
   } as const;
+  const optionalRows = [
+    ...(stats.p99Seconds === undefined
+      ? []
+      : [
+          {
+            key: "p99",
+            label: messages.provisionTimeP99Label,
+            value: stats.p99Seconds,
+          },
+        ]),
+    ...(stats.targetSeconds === undefined
+      ? []
+      : [
+          {
+            key: "target",
+            label: messages.provisionTimeTargetLabel,
+            value: stats.targetSeconds,
+          },
+        ]),
+  ] as const;
+  const p99ExceedsTarget =
+    stats.p99Seconds !== undefined &&
+    stats.targetSeconds !== undefined &&
+    stats.p99Seconds > stats.targetSeconds;
 
   return (
     <Stack hasGutter className="hypershell-dashboard-provision-time">
@@ -62,8 +86,25 @@ export function ProvisionTimeChart({
               </DescriptionListDescription>
             </DescriptionListGroup>
           ))}
+          {optionalRows.map((row) => (
+            <DescriptionListGroup key={row.key} className="pf-v6-u-pb-sm">
+              <DescriptionListTerm>
+                <FormattedMessage {...row.label} />
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                {formatProvisionDurationValue(intl, row.value, metric.unit)}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+          ))}
         </DescriptionList>
       </StackItem>
+      {p99ExceedsTarget ? (
+        <StackItem>
+          <Content component="p" className="pf-m-warning-color-100">
+            <FormattedMessage {...messages.provisionTimeP99Warning} />
+          </Content>
+        </StackItem>
+      ) : null}
       {metric.provisionDuration?.p50Trend &&
       metric.provisionDuration.p95Trend ? (
         <StackItem>
@@ -76,6 +117,15 @@ export function ProvisionTimeChart({
             caption=""
             trend={metric.provisionDuration.p95Trend}
             title="P95"
+          />
+        </StackItem>
+      ) : null}
+      {stats.p99Seconds !== undefined && metric.provisionDuration?.p99Trend ? (
+        <StackItem>
+          <TrendSparklineChart
+            caption="Selected range - daily P99"
+            trend={metric.provisionDuration.p99Trend}
+            title="P99"
           />
         </StackItem>
       ) : null}
