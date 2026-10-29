@@ -45,6 +45,7 @@ type SandboxAttentionReconciler struct {
 	listSandboxes                  func(ctx context.Context) ([]*unstructured.Unstructured, error)
 	listNamespaces                 func(ctx context.Context) ([]*corev1.Namespace, error)
 	activeSandboxes                map[string]gateway.SandboxObservation
+	publishedUsageNamespaces       map[string]struct{}
 	publishUsage                   func(ctx context.Context, counts map[string]int)
 	recordLifetime                 func(ctx context.Context, namespace string, lifetime time.Duration)
 	publishReadiness               func(ctx context.Context, ready int)
@@ -69,14 +70,15 @@ func NewSandboxAttentionReconciler(
 		interval = defaultSandboxAttentionInterval
 	}
 	r := &SandboxAttentionReconciler{
-		client:        client,
-		dynamicClient: dynamicClient,
-		grpcConn:      grpcConn,
-		interval:      interval,
-		clusterID:     clusterID,
-		instance:      instance,
-		now:           time.Now,
-		oidcInspector: oidcInspector,
+		client:                   client,
+		dynamicClient:            dynamicClient,
+		grpcConn:                 grpcConn,
+		interval:                 interval,
+		clusterID:                clusterID,
+		instance:                 instance,
+		now:                      time.Now,
+		oidcInspector:            oidcInspector,
+		publishedUsageNamespaces: make(map[string]struct{}),
 	}
 	r.publish = r.exportCounts
 	r.liveNamespaces = r.grpcLiveNamespaces
@@ -205,7 +207,22 @@ func (r *SandboxAttentionReconciler) recordUsage(
 	crListFailed bool,
 ) {
 	if !crListFailed && r.publishUsage != nil {
-		r.publishUsage(ctx, gateway.ProvisionedSandboxCounts(sandboxes, eligible))
+		counts := gateway.ProvisionedSandboxCounts(sandboxes, eligible)
+		for namespace := range eligible {
+			if _, ok := counts[namespace]; !ok {
+				counts[namespace] = 0
+			}
+		}
+		for namespace := range r.publishedUsageNamespaces {
+			if _, ok := eligible[namespace]; !ok {
+				counts[namespace] = 0
+			}
+		}
+		r.publishUsage(ctx, counts)
+		r.publishedUsageNamespaces = make(map[string]struct{}, len(eligible))
+		for namespace := range eligible {
+			r.publishedUsageNamespaces[namespace] = struct{}{}
+		}
 	}
 
 	current, departed := gateway.ReconcileActiveSandboxes(r.activeSandboxes, observations)

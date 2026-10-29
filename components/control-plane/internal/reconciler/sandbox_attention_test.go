@@ -408,3 +408,26 @@ func TestSandboxAttentionReconcilerRecordsUsageMetrics(t *testing.T) {
 		t.Fatalf("lifetimes = %v, want one 3h lifetime", gotLifetimes)
 	}
 }
+
+func TestRecordUsageClearsDepartedNamespaceSeries(t *testing.T) {
+	var publications []map[string]int
+	r := &SandboxAttentionReconciler{
+		now: time.Now,
+		publishUsage: func(_ context.Context, counts map[string]int) {
+			copy := make(map[string]int, len(counts))
+			for namespace, count := range counts {
+				copy[namespace] = count
+			}
+			publications = append(publications, copy)
+		},
+	}
+	r.recordUsage(context.Background(), map[string]struct{}{"openshell-live": {}}, nil, nil, false)
+	r.recordUsage(context.Background(), map[string]struct{}{}, nil, nil, false)
+
+	if len(publications) != 2 {
+		t.Fatalf("publications = %d, want 2", len(publications))
+	}
+	if got := publications[1]["openshell-live"]; got != 0 {
+		t.Fatalf("departed namespace total = %d, want 0", got)
+	}
+}

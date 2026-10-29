@@ -105,6 +105,7 @@ func TestClientConcurrentTokenSnapshots(t *testing.T) {
 
 func TestGatewayClientSyncedChecksManagedState(t *testing.T) {
 	missingUserRole := false
+	driftedMapper := false
 	mux := http.NewServeMux()
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients", testRealm), func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]keycloakClient{{
@@ -128,11 +129,11 @@ func TestGatewayClientSyncedChecksManagedState(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(roles)
 	})
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", testRealm, testGatewayUUID), func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode([]map[string]string{
-			{"id": "mapper-aud", "name": "audience"},
-			{"id": "mapper-sub", "name": "sub"},
-			{"id": "mapper-roles", "name": "client-roles"},
-		})
+		mappers := desiredGatewayProtocolMappers(testGatewayClientID)
+		if driftedMapper {
+			mappers[2].Config["claim.name"] = "wrong.roles"
+		}
+		_ = json.NewEncoder(w).Encode(mappers)
 	})
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -152,6 +153,15 @@ func TestGatewayClientSyncedChecksManagedState(t *testing.T) {
 	}
 	if synced {
 		t.Fatal("GatewayClientSynced() = true with a missing managed role")
+	}
+	missingUserRole = false
+	driftedMapper = true
+	synced, err = client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil {
+		t.Fatalf("GatewayClientSynced() mapper drift error = %v", err)
+	}
+	if synced {
+		t.Fatal("GatewayClientSynced() = true with same-name mapper configuration drift")
 	}
 }
 

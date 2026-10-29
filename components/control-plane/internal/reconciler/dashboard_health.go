@@ -1,9 +1,7 @@
 package reconciler
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -21,22 +19,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var routeGVR = schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-
-const consoleCertificateRouteName = "openshell-console"
+var certificateGVR = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
 
 var managedCertificateSecretNames = map[string]struct{}{
 	"openshell-server-tls":           {},
 	"openshell-client-tls":           {},
 	"openshell-server-external-tls":  {},
 	"openshell-gateway-external-tls": {},
-}
-
-var expectedCertificateSecretNames = []string{
-	"openshell-server-tls",
-	"openshell-client-tls",
-	"openshell-server-external-tls",
-	"openshell-gateway-external-tls",
 }
 
 type oidcClientInspector interface {
@@ -136,25 +125,21 @@ func desiredOIDCClientIDs(gateways []*pb.Gateway) []string {
 }
 
 func (r *SandboxAttentionReconciler) listCertificateMaterials(ctx context.Context, eligible map[string]struct{}) ([][]byte, error) {
+	certificates, err := r.dynamicClient.Resource(certificateGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list managed Certificates: %w", err)
+	}
 	secrets, err := r.client.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list TLS secrets: %w", err)
 	}
-	routes, err := r.dynamicClient.Resource(routeGVR).Namespace("").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		// Kubernetes clusters without OpenShift Routes legitimately do not expose
-		// this API; their certificate population is secret-backed only.
-		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return selectCertificateMaterials(secrets.Items, nil, eligible), nil
-		}
-		return nil, fmt.Errorf("list console Routes: %w", err)
-	}
-	return selectCertificateMaterials(secrets.Items, routes.Items, eligible), nil
+	return selectCertificateMaterials(secrets.Items, certificates.Items, eligible), nil
 }
 
-func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.Unstructured, eligible map[string]struct{}) [][]byte {
-	materials := make([][]byte, 0)
-	seen := make(map[[sha256.Size]byte]struct{})
+func selectCertificateMaterials(secrets []corev1.Secret, certificates []unstructured.Unstructured, eligible map[string]struct{}) [][]byte {
 	secretMaterials := make(map[string][]byte)
 
 	for i := range secrets {
@@ -170,47 +155,23 @@ func selectCertificateMaterials(secrets []corev1.Secret, routes []unstructured.U
 		}
 		secretMaterials[secret.Namespace+"\x00"+secret.Name] = secret.Data[corev1.TLSCertKey]
 	}
-	for namespace := range eligible {
-		for _, name := range expectedCertificateSecretNames {
-			// A missing expected Secret is an unavailable certificate, not an
-			// absent observation. Each namespace/name identity is counted even
-			// when two expected Secrets contain the same leaf certificate.
-			material := secretMaterials[namespace+"\x00"+name]
-			materials = append(materials, material)
-			if len(bytes.TrimSpace(material)) > 0 {
-				seen[certificateMaterialIdentity(material)] = struct{}{}
-			}
-		}
-	}
-	for i := range routes {
-		route := &routes[i]
-		if _, ok := eligible[route.GetNamespace()]; !ok {
+	materials := make([][]byte, 0, len(certificates))
+	seenIdentities := make(map[string]struct{})
+	for i := range certificates {
+		certificate := &certificates[i]
+		if _, ok := eligible[certificate.GetNamespace()]; !ok {
 			continue
 		}
-		if route.GetName() != consoleCertificateRouteName {
+		secretName, _, _ := unstructured.NestedString(certificate.Object, "spec", "secretName")
+		if _, managed := managedCertificateSecretNames[secretName]; !managed {
 			continue
 		}
-		termination, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination")
-		if termination == "" {
+		identity := certificate.GetNamespace() + "\x00" + secretName
+		if _, seen := seenIdentities[identity]; seen {
 			continue
 		}
-		certificate, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "certificate")
-		material := []byte(certificate)
-		if len(bytes.TrimSpace(material)) > 0 {
-			identity := certificateMaterialIdentity(material)
-			if _, exists := seen[identity]; exists {
-				continue
-			}
-			seen[identity] = struct{}{}
-		}
-		materials = append(materials, material)
+		seenIdentities[identity] = struct{}{}
+		materials = append(materials, secretMaterials[identity])
 	}
 	return materials
-}
-
-func certificateMaterialIdentity(material []byte) [sha256.Size]byte {
-	if block, _ := pem.Decode(material); block != nil && block.Type == "CERTIFICATE" {
-		return sha256.Sum256(block.Bytes)
-	}
-	return sha256.Sum256(bytes.TrimSpace(material))
 }

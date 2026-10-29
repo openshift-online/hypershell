@@ -34,36 +34,37 @@ func TestEvaluateCertificateHealth(t *testing.T) {
 	}
 }
 
-func TestSelectCertificateMaterialsUsesManagedIdentitiesAndDeduplicates(t *testing.T) {
+func TestSelectCertificateMaterialsUsesConfiguredSecretIdentities(t *testing.T) {
 	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	managed := testCertificatePEM(t, now.Add(5*24*time.Hour))
-	external := testCertificatePEM(t, now.Add(20*24*time.Hour))
 	unrelated := testCertificatePEM(t, now.Add(30*24*time.Hour))
 	secrets := []corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: managed}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: external}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: external}},
+		// This has a managed name but no Certificate configuration, so it is not inventory.
+		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "unrelated-workload-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "other"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 	}
-	route := func(name string, certificate []byte) unstructured.Unstructured {
+	certificate := func(namespace, secretName string) unstructured.Unstructured {
 		return unstructured.Unstructured{Object: map[string]interface{}{
-			"metadata": map[string]interface{}{"name": name, "namespace": "openshell-one"},
-			"spec":     map[string]interface{}{"tls": map[string]interface{}{"termination": "edge", "certificate": string(certificate)}},
+			"metadata": map[string]interface{}{"name": secretName, "namespace": namespace},
+			"spec":     map[string]interface{}{"secretName": secretName},
 		}}
 	}
-	routes := []unstructured.Unstructured{
-		route(consoleCertificateRouteName, managed), // Same logical certificate as the Secret.
-		route("unrelated-route", unrelated),
+	certificates := []unstructured.Unstructured{
+		certificate("openshell-one", "openshell-server-tls"),
+		certificate("openshell-one", "openshell-client-tls"), // Configured but missing.
+		certificate("openshell-one", "unrelated-workload-tls"),
+		certificate("other", "openshell-server-tls"),
 	}
 
-	materials := selectCertificateMaterials(secrets, routes, map[string]struct{}{"openshell-one": {}})
-	if len(materials) != 4 {
-		t.Fatalf("materials = %d, want three expected Secret identities plus one missing expected certificate", len(materials))
+	materials := selectCertificateMaterials(secrets, certificates, map[string]struct{}{"openshell-one": {}})
+	if len(materials) != 2 {
+		t.Fatalf("materials = %d, want two configured managed Secret identities", len(materials))
 	}
 	health := evaluateCertificateHealth(materials, now)
-	if health.Valid != 3 || health.Expired != 0 || health.Unavailable != 1 {
-		t.Fatalf("health = %+v, want three valid expected Secrets and one unavailable expected certificate", health)
+	if health.Valid != 1 || health.Expired != 0 || health.Unavailable != 1 {
+		t.Fatalf("health = %+v, want one valid and one unavailable configured certificate", health)
 	}
 }
 
