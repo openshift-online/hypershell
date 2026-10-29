@@ -8,6 +8,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -54,6 +55,7 @@ func NewRoleBindingService(
 	lockFactory db.LockFactory,
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
+	userDao users.UserDao,
 	events services.EventService,
 	defaultRoles []string,
 ) RoleBindingService {
@@ -66,6 +68,7 @@ func NewRoleBindingService(
 		lockFactory:  lockFactory,
 		rbDao:        rbDao,
 		roleDao:      roleDao,
+		userDao:      userDao,
 		events:       events,
 		defaultRoles: defaultRoles,
 	}
@@ -77,6 +80,7 @@ type sqlRoleBindingService struct {
 	lockFactory  db.LockFactory
 	rbDao        RoleBindingDao
 	roleDao      roles.RoleDao
+	userDao      users.UserDao
 	events       services.EventService
 	defaultRoles []string
 }
@@ -227,18 +231,19 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, err
 	}
 
-	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
-		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
-			return nil, err
-		}
+	// SEC-RBAC-23: default-deny write authorization shared by Create and Delete.
+	// It rejects missing caller identity, Keycloak-owned and managed-cluster roles,
+	// gateway writes by a non-owner, and any role with no explicit rule, before any
+	// row or event is written.
+	if err := s.authorizeWrite(ctx, opCreate, role.Name, rb); err != nil {
+		return nil, err
 	}
 
-	// Keycloak-owned entitlements: platform-wide roles whose bindings SyncJWTRoles
-	// reconciles from the caller's JWT. A binding created here would be removed by
-	// that caller's next sign-in, so assignment goes through the identity provider.
-	if role.Name == roles.RoleGatewayCreator || role.Name == roles.RolePlatformAdmin ||
-		role.Name == roles.RoleGatewayDedicatedRouteCreator || role.Name == roles.RoleCIFederationAdmin {
-		return nil, errors.Forbidden("%s can only be assigned via Keycloak", role.Name)
+	// SEC-RBAC-23 target validation: a create must name a valid, existing target
+	// user. Role and scope are validated above; gateway existence is enforced by
+	// the owner check in authorizeWrite (a nonexistent gateway has no owner).
+	if err := s.validateTargetUser(ctx, rb); err != nil {
+		return nil, err
 	}
 
 	rb.CaptureTraceContext(ctx)
@@ -270,10 +275,25 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 		return errors.Validation("invalid role_id: role not found")
 	}
 
-	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
-		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
-			return err
+	// Serialize a gateway-owner removal under the SAME per-gateway advisory lock the
+	// access facade uses so last-owner protection (GTW-ACC-07) holds under
+	// concurrency: the lock must wrap the owner-count read (in authorizeWrite's
+	// guardLastGatewayOwner) and the row delete together, otherwise two concurrent
+	// deletes of distinct owner bindings could both pass the check and drop the
+	// gateway's last owner.
+	if role.Name == roles.RoleGatewayOwner && rb.GatewayID != nil {
+		unlock, lockErr := s.acquireGatewayAccessLock(ctx, *rb.GatewayID)
+		if lockErr != nil {
+			return lockErr
 		}
+		defer unlock()
+	}
+
+	// SEC-RBAC-23: authorize the delete against the binding's STORED role, scope,
+	// and gateway using the same shared, default-deny policy as Create. A
+	// caller-supplied scope or gateway never decides which permissions apply.
+	if err := s.authorizeWrite(ctx, opDelete, role.Name, rb); err != nil {
+		return err
 	}
 
 	if err := s.rbDao.Delete(ctx, id); err != nil {
@@ -501,6 +521,119 @@ func (s *sqlRoleBindingService) FindByIDs(ctx context.Context, ids []string) (Ro
 	return bindings, nil
 }
 
+// write operations evaluated by the shared SEC-RBAC-23 authorization check.
+const (
+	opCreate = "create"
+	opDelete = "delete"
+)
+
+// gatewayAccessLockType and the "gateway-access-"+gatewayID lock id intentionally
+// mirror the access facade (plugins/gatewayAccess), so last-owner mutations on the
+// low-level resource serialize in the SAME per-gateway domain as the facade's
+// grant/revoke. SEC-RBAC-23 requires this resource not be a weaker (unserialized)
+// path to removing a gateway's last owner (GTW-ACC-07). The value must stay in
+// sync with gatewayAccess.accessLockType.
+const gatewayAccessLockType db.LockType = "gateway_access"
+
+func gatewayAccessLockID(gatewayID string) string {
+	return "gateway-access-" + gatewayID
+}
+
+// acquireGatewayAccessLock takes the shared per-gateway advisory lock. The
+// returned release function must be deferred by the caller.
+func (s *sqlRoleBindingService) acquireGatewayAccessLock(ctx context.Context, gatewayID string) (func(), *errors.ServiceError) {
+	if s.lockFactory == nil {
+		return func() {}, nil
+	}
+	owner, err := s.lockFactory.NewAdvisoryLock(ctx, gatewayAccessLockID(gatewayID), gatewayAccessLockType)
+	if err != nil {
+		return nil, errors.GeneralError("unable to acquire gateway access lock: %s", err)
+	}
+	return func() { s.lockFactory.Unlock(ctx, owner) }, nil
+}
+
+// authorizeWrite is the single, default-deny authorization check shared by Create
+// and Delete on the low-level generic /role_bindings resource (SEC-RBAC-23). It
+// evaluates the operation, the authenticated caller, the stored role, the scope,
+// and the target gateway, and runs before any row or event is written. A role for
+// which no rule grants the operation is denied, so adding a role to the database
+// never silently makes it assignable or removable through this resource.
+//
+// It is the authoritative decision and holds even when the service is called
+// outside the REST handler; it does not depend on the HTTP RBAC middleware having
+// run first. For delete the caller passes the stored binding so authorization is
+// made against its persisted role/scope/gateway, never a caller-supplied value.
+func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, roleName string, rb *RoleBinding) *errors.ServiceError {
+	switch roleName {
+	case roles.RoleGatewayOwner, roles.RoleGatewayAdmin, roles.RoleGatewayViewer:
+		// Gateway roles reuse the access-management ownership rule: the caller
+		// must hold gateway:owner on the binding's gateway. validateCallerOwnsGateway
+		// rejects a missing caller identity, so a gateway:admin or gateway:viewer
+		// (and platform:admin without ownership) cannot bypass the owner requirement.
+		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
+			return err
+		}
+		// Last-owner protection (GTW-ACC-07): a delete that would remove a
+		// gateway's last gateway:owner is refused, as in the access facade.
+		if op == opDelete && roleName == roles.RoleGatewayOwner {
+			if err := s.guardLastGatewayOwner(ctx, rb); err != nil {
+				return err
+			}
+		}
+		return nil
+	case roles.RolePlatformAdmin, roles.RoleGatewayCreator,
+		roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin:
+		// Keycloak-owned platform entitlements: SyncJWTRoles reconciles these from
+		// the caller's JWT, so assignment and removal go through Keycloak, not this
+		// resource. A binding written here would not survive the next sign-in.
+		return errors.Forbidden("%s is managed through Keycloak and cannot be assigned or removed through the role_bindings resource", roleName)
+	case roles.RoleManagedClusterRegistrar:
+		// Registration authority is JWT-controlled (SEC-RBAC-16); a database
+		// binding for this role grants nothing and must not be user-writable.
+		return errors.Forbidden("%s cannot be assigned or removed through the role_bindings resource; cluster registration is controlled by the JWT", roleName)
+	default:
+		// Default deny: any other or future role has no explicit rule and is
+		// rejected until one is added.
+		return errors.Forbidden("role %q has no write policy on the role_bindings resource; it cannot be assigned or removed here", roleName)
+	}
+}
+
+// validateTargetUser enforces the SEC-RBAC-23 target requirement for a create: the
+// binding must name a valid, existing target user. It runs after authorizeWrite so
+// a denied role fails closed with the policy decision rather than disclosing
+// whether a user exists.
+func (s *sqlRoleBindingService) validateTargetUser(ctx context.Context, rb *RoleBinding) *errors.ServiceError {
+	if rb.UserID == nil || *rb.UserID == "" {
+		return errors.Validation("user_id is required")
+	}
+	if s.userDao == nil {
+		// Fail closed: the target-user check is a required SEC-RBAC-23 control and
+		// must never be skipped silently if the dependency is unwired.
+		return errors.GeneralError("role binding service is misconfigured: target user validation is unavailable")
+	}
+	if _, err := s.userDao.Get(ctx, *rb.UserID); err != nil {
+		return errors.NotFound("target user not found")
+	}
+	return nil
+}
+
+// guardLastGatewayOwner refuses a delete that would remove the gateway's last
+// remaining gateway:owner binding (GTW-ACC-07), mirroring the access facade's
+// last-owner protection so the low-level resource is not a weaker path.
+func (s *sqlRoleBindingService) guardLastGatewayOwner(ctx context.Context, rb *RoleBinding) *errors.ServiceError {
+	if rb.GatewayID == nil {
+		return nil
+	}
+	ownerCount, err := s.rbDao.CountOwnersByGatewayID(ctx, *rb.GatewayID)
+	if err != nil {
+		return errors.GeneralError("unable to evaluate gateway owners: %s", err)
+	}
+	if ownerCount <= 1 {
+		return errors.Conflict("this gateway must keep at least one owner; assign another owner before removing this one")
+	}
+	return nil
+}
+
 func (s *sqlRoleBindingService) validateScope(rb *RoleBinding) *errors.ServiceError {
 	switch rb.Scope {
 	case ScopeGlobal:
@@ -524,7 +657,11 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 
 	callerUserID := rbac.GetUserIDFromContext(ctx)
 	if callerUserID == "" {
-		return nil
+		// SEC-RBAC-23: a missing caller identity never grants permission. The
+		// previous success-on-missing-identity path is removed; user-facing
+		// writes without an authenticated caller are rejected here even if the
+		// HTTP middleware did not run first.
+		return errors.Forbidden("an authenticated caller is required to write gateway role bindings")
 	}
 
 	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)

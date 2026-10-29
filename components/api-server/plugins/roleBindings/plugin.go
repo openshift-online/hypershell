@@ -37,6 +37,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 			roleBindingDao,
 			roles.NewRoleDao(&env.Database.SessionFactory),
+			users.NewUserDao(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory)),
 			events.Service(&env.Services),
 			defaultRoles,
 		)
