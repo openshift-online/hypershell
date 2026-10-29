@@ -162,7 +162,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 22 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
