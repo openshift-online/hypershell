@@ -7,7 +7,7 @@
 ## Overview
 
 A HyperShell user enables their own CI (GitHub Actions or GitLab CI/CD) to run
-Fullsend agents against a gateway they own, with **no stored secret**. The CI job
+Fullsend agents against a gateway they manage, with **no stored secret**. The CI job
 mints its native OIDC token, exchanges it at the cluster Keycloak, and receives a
 short-lived OpenShell access token scoped to a workspace on that gateway.
 
@@ -28,7 +28,7 @@ The authorization model for both kinds (the `ci-federation:admin` role for
 `CIProvider` and the per-gateway tenancy for `CITrust`) is specified canonically
 in [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
 (SEC-RBAC-21, SEC-RBAC-22); this spec defers to it and restates only the
-gateway-ownership gate in PLAT-CITR-03.
+per-gateway tenancy gate in PLAT-CITR-03.
 
 There is no secret in the repo, no OAuth app to register on the forge, and no
 operator Terraform per tenant: a `CITrust` is the entire self-service act. This is
@@ -328,10 +328,11 @@ artifact on a transient admin-API failure (STD-RCON-08).
 
 ## Security analysis
 
-- **Ownership is the gate** (PLAT-CITR-03): a tenant can only enable CI on a
-  gateway they own, and never escalate beyond their own rights. Naming another
-  party's repository at most lets that repository act on the declarer's own
-  gateway (self-harm), never a cross-tenant breach.
+- **Tenancy is the gate** (PLAT-CITR-03): a tenant can only enable CI on a
+  gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`),
+  and never escalate beyond their own rights. Naming another party's repository
+  at most lets that repository act on the declarer's own gateway (self-harm),
+  never a cross-tenant breach.
 - **Subject predicate is the trust boundary** (PLAT-CITR-04): the
   `repository` / `repository_owner` claim match (plus any tighter claims) is the
   real gate. Audience pinning only blocks replay of tokens minted for other
