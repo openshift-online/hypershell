@@ -92,7 +92,10 @@ Else:
 and the role markers are NOT phase labels and MUST NOT be removed by this step,
 even while normalizing phase state: `agent/review-spec-blocked` (human spec gate),
 `agent/allowed` (authorization gate), `agent/scope/*` (scope selector), and
-`agent/execution-record` (canonical-link marker). This step removes ONLY the prior
-phase labels named above - it is not a license to remove everything but one label.
+`agent/execution-record` (canonical-link marker). The paused-state holds
+`agent/blocked`, `agent/needs-input`, and `agent/duplicate` are also NOT phase
+labels and MUST NOT be removed here; removing one would silently un-pause the item.
+This step removes ONLY the prior phase labels named above - it is not a license to
+remove everything but one label.
 
 _Note: If a label does not exist, create it._

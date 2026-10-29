@@ -91,6 +91,8 @@ sign-off before any code is written. NEVER remove it in this step, even while
 normalizing phase state; removing it silently destroys a human's intent to gate
 the spec-to-code transition. The role markers are likewise NOT phase labels and
 MUST NOT be removed here: `agent/allowed` (authorization gate), `agent/scope/*`
-(scope selector), and `agent/execution-record` (canonical-link marker). This step
-removes ONLY the prior phase labels named above - it is not a license to remove
-everything but one label.
+(scope selector), and `agent/execution-record` (canonical-link marker). The
+paused-state holds `agent/blocked`, `agent/needs-input`, and `agent/duplicate` are
+also NOT phase labels and MUST NOT be removed here; removing one would silently
+un-pause the item. This step removes ONLY the prior phase labels named above - it
+is not a license to remove everything but one label.

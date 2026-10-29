@@ -135,9 +135,12 @@ Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 and the role markers are NOT phase labels and MUST NOT be removed by this step,
 even while normalizing phase state: `agent/review-spec-blocked` (human spec gate),
 `agent/allowed` (authorization gate), `agent/scope/*` (scope selector), and
-`agent/execution-record` (canonical-link marker). This step mutates ONLY the phase
-labels named in the verdict branches below - it is not a license to remove
-everything but one label.
+`agent/execution-record` (canonical-link marker). The paused-state holds
+`agent/blocked`, `agent/needs-input`, and `agent/duplicate` are also NOT phase
+labels and MUST NOT be removed here; removing one would silently un-pause the item
+(eg. resume a 10-rejection issue that this step itself just blocked). This step
+mutates ONLY the phase labels named in the verdict branches below - it is not a
+license to remove everything but one label.
 
 **Always post the review as a comment on `$GITHUB_ISSUE_URL`, for BOTH an
 approved and a rejected verdict.** An approved review MUST NOT be silent: the

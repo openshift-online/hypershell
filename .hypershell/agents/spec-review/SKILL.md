@@ -75,8 +75,11 @@ approved verdict; the orchestrator holds the record at that gate until a human
 signs off, so clearing it here would silently destroy the human's intent. The role
 markers are likewise NOT phase labels and MUST NOT be removed here: `agent/allowed`
 (authorization gate), `agent/scope/*` (scope selector), and `agent/execution-record`
-(canonical-link marker). This step mutates ONLY the phase and verdict labels named
-in this step - it is not a license to remove everything but one label.
+(canonical-link marker). The paused-state holds `agent/blocked`, `agent/needs-input`,
+and `agent/duplicate` are also NOT phase labels and MUST NOT be removed here;
+removing one would silently un-pause the item (eg. resume a 3-rejection spec that
+this step itself just blocked). This step mutates ONLY the phase and verdict labels
+named in this step - it is not a license to remove everything but one label.
 
 Do NOT place any `agent/*` phase label on `$GITHUB_PR_URL`. The issue is the only
 holder of phase state:

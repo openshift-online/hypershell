@@ -407,9 +407,13 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
   # `agent/review-code-rejected`, and the terminal `agent/review-code-approved`.
   # It EXCLUDES the human gate `agent/review-spec-blocked` (NOT a phase label - see
   # the gate description above; removing it would destroy a human's spec sign-off
-  # intent) and the role markers `agent/allowed`, `agent/scope/*`, and
-  # `agent/execution-record`. NEVER remove any of those here. "Remove every other
-  # phase label" is NOT a license to remove everything but one label.
+  # intent), the role markers `agent/allowed`, `agent/scope/*`, and
+  # `agent/execution-record`, and the paused-state holds `agent/blocked`,
+  # `agent/needs-input`, and `agent/duplicate` (a person or a worker set these to
+  # pause the item; removing one would silently un-pause it - eg. resume a
+  # 3-rejection spec hold or drop a human needs-input hold). NEVER remove any of
+  # those here. "Remove every other phase label" is NOT a license to remove
+  # everything but one label.
 
   # Keep Jira converged with the new phase: derived status, artifact remote links,
   # and an attributed phase-narrative comment. Idempotent and dry-run aware.
