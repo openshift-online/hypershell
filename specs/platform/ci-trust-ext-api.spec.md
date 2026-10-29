@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-28
 **Status:** Draft
-**Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (workspace scoping)
+**Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (CIProvider `ci-federation:admin` authorization SEC-RBAC-21, CITrust per-gateway tenancy SEC-RBAC-22), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (workspace scoping)
 
 ## Overview
 
@@ -14,12 +14,21 @@ short-lived OpenShell access token scoped to a workspace on that gateway.
 This spec defines the reconcile contract and security model for the two extension
 kinds whose data model lives in [`data-model.spec.md`](./data-model.spec.md):
 
-- **CIProvider** (PLAT-DATA-24): platform-admin registration of a CI OIDC issuer.
-  Realized as a validation-only Keycloak identity provider.
-- **CITrust** (PLAT-DATA-25): a gateway owner's declaration that CI matching a
-  subject claim predicate may federate into that gateway. Realized as a scoped
-  Keycloak claim-to-workspace mapping, a token-exchange permission, and a gateway
-  RBAC binding.
+- **CIProvider** (PLAT-DATA-24): registration of a CI OIDC issuer, authorized by
+  the narrow `ci-federation:admin` role (not `platform:admin`; see
+  [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+  SEC-RBAC-21). Realized as a validation-only Keycloak identity provider.
+- **CITrust** (PLAT-DATA-25): a gateway owner or admin's declaration that CI
+  matching a subject claim predicate may federate into that gateway, authorized
+  by the per-gateway `CanManageGatewayResources` tenancy check (SEC-RBAC-22).
+  Realized as a scoped Keycloak claim-to-workspace mapping, a token-exchange
+  permission, and a gateway RBAC binding.
+
+The authorization model for both kinds (the `ci-federation:admin` role for
+`CIProvider` and the per-gateway tenancy for `CITrust`) is specified canonically
+in [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-21, SEC-RBAC-22); this spec defers to it and restates only the
+gateway-ownership gate in PLAT-CITR-03.
 
 There is no secret in the repo, no OAuth app to register on the forge, and no
 operator Terraform per tenant: a `CITrust` is the entire self-service act. This is
@@ -160,17 +169,25 @@ per-trust group and the gateway's shared exchange opt-in MAY be left in place.
 
 ---
 
-### Requirement: PLAT-CITR-03 -- Gateway Ownership and Role Bound
+### Requirement: PLAT-CITR-03 -- Gateway Tenancy and Role Bound
 
-The API server SHALL reject a `CITrust` create or update unless the caller owns
-the referenced `Gateway`, with 403. The API server SHALL reject a `CITrust` whose
-`role` exceeds the caller's own rights on that gateway, with 403. A `CITrust`
-therefore can only grant CI access to a gateway the caller controls, and never
-more authority than the caller holds.
+The API server SHALL reject a `CITrust` create, update, or delete unless the
+caller can manage the referenced `Gateway` -- `gateway:owner` or `gateway:admin`
+on it, or `platform:admin` -- with 403; this is the shared
+`CanManageGatewayResources` per-gateway tenancy check, authorized identically to
+the other gateway-scoped extension kinds and specified canonically in
+`security/rbac-enforcement.spec.md` (SEC-RBAC-22). The `gateway_id` SHALL be read
+from the request body on create and from the stored record on update and delete.
+The API server SHALL reject a `CITrust` whose `role` exceeds the caller's own
+rights on that gateway, with 403. A `CITrust` therefore can only grant CI access
+to a gateway the caller controls, and never more authority than the caller holds.
+Deny-by-default holds: an unbound caller, a `gateway:creator` with no binding on
+the referenced gateway, a `gateway:viewer`, and a caller bound only to a
+different gateway SHALL all be rejected on write.
 
 #### Scenario: PLAT-CITR-03.01 -- Cross-Tenant Grant Impossible
 
-- GIVEN caller A owns gateway `gw-a` and caller B owns gateway `gw-b`
+- GIVEN caller A manages gateway `gw-a` and caller B manages gateway `gw-b`
 - WHEN caller A creates a `CITrust` referencing `gw-b`
 - THEN the API server SHALL reject it with 403
 - AND no Keycloak mapping or RBAC binding SHALL be created for `gw-b`
