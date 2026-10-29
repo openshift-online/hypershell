@@ -197,7 +197,13 @@ in particular, a failed deploy or a failed e2e run SHALL NOT leave an environmen
 behind. Destroying the environment SHALL use the same teardown as
 `make openshift-down` (namespace group, cluster-scoped RBAC, instance-managed
 gateway and database namespaces, and per-namespace swaps), so a torn-down
-ephemeral cycle leaves no HyperShell-owned residue.
+ephemeral cycle leaves no HyperShell-owned residue. The teardown SHALL delete the
+control-plane (platform) namespace group before the instance-managed gateway and
+database namespaces, so the control plane cannot recreate a gateway namespace from
+a still-live Gateway record mid-teardown; within each tier the namespace deletions
+SHALL be issued concurrently and all awaited, so teardown wall-clock is bounded by
+the slowest namespace rather than their sum, and any delete failure SHALL fail the
+teardown.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
 `.github/workflows/e2e.yml`, the Tests e2e stage invoked concurrently with Unit
@@ -342,6 +348,14 @@ SHALL preserve any active per-namespace component swap the same way
 - AND the e2e stage SHALL be suppressed on merge-queue events and Mergify queue
   pull requests (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06)
 - AND E2E validation of the merged code SHALL happen on push to `main`
+
+#### Scenario: CICD-PREN-02.08 -- Teardown deletes the control-plane namespace before gateway namespaces, concurrently within a tier
+
+- GIVEN an environment with a platform namespace group and one or more instance-managed gateway namespaces
+- WHEN the teardown runs
+- THEN it SHALL delete the platform (control-plane) namespace group before it deletes the instance-managed gateway namespaces, so the control plane cannot recreate a gateway namespace mid-teardown
+- AND within each tier it SHALL issue the namespace deletions concurrently and await them all
+- AND any delete failure SHALL fail the teardown
 
 ### Requirement: CICD-PREN-03 -- Extend and Destroy Controls
 

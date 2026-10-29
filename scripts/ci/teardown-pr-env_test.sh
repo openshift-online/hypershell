@@ -119,5 +119,33 @@ else
   PASS=$((PASS + 1))
 fi
 
+# Tier ordering (CICD-PREN-02.08): the control-plane namespace group is deleted
+# before the instance-managed gateway namespaces, so the instance namespace appears
+# after the group in the deletion log.
+: > "${DELETED}"
+cat > "${LIVE}" <<EOF
+hypershell-ci-pr-1
+hypershell-ci-pr-1-keycloak
+openshell-aaa
+EOF
+cat > "${workdir}/cp_managed.tsv" <<EOF
+openshell-aaa	hypershell-ci-pr-1
+EOF
+rm -f "${FAIL_DELETE}"
+write_stub
+if run_teardown hypershell-ci-pr-1; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: tiered teardown must succeed'
+fi
+if [[ "$(tail -n1 "${DELETED}")" == "openshell-aaa" ]]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: instance namespace must be deleted after the control-plane group; got order:'
+  cat "${DELETED}"
+fi
+
 printf 'teardown-pr-env tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]
