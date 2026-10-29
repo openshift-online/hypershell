@@ -172,37 +172,6 @@ func (r gatewaySubjectResolver) RegisteredClusterIDForSubject(ctx context.Contex
 	return cluster.ID, true, nil
 }
 
-// registeredClusterVersions resolves each cluster's advertised provisioning
-// version (its gateway-version capability) through the managedClusters plugin,
-// looked up per call so it follows the environment's service registry. It returns
-// nil when the plugin is absent; the gateway handler treats a nil lookup as "no
-// versions" so version enrichment degrades to absent rather than failing a read.
-func registeredClusterVersions(s *environments.Services) ClusterProvisioningVersionLookup {
-	if s == nil || s.GetService("ManagedClusters") == nil {
-		return nil
-	}
-	return func(ctx context.Context, clusterIDs []string) (map[string]string, *errors.ServiceError) {
-		svc := managedClusters.Service(s)
-		if svc == nil {
-			return nil, errors.GeneralError("managed cluster service is not available")
-		}
-		clusters, svcErr := svc.FindByIDs(ctx, clusterIDs)
-		if svcErr != nil {
-			return nil, svcErr
-		}
-		versions := make(map[string]string, len(clusters))
-		for _, cluster := range clusters {
-			if cluster == nil {
-				continue
-			}
-			if version := managedClusters.GatewayVersionCapability(cluster.Capabilities); version != "" {
-				versions[cluster.ID] = version
-			}
-		}
-		return versions, nil
-	}
-}
-
 type placementSnapshot struct {
 	candidates []PlacementCandidate
 	localID    string
@@ -371,7 +340,7 @@ func init() {
 		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		placement := newRegisteredPlacementService(envServices)
 		gatewayService := Service(envServices)
-		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
 
 		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
 			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)

@@ -130,8 +130,8 @@ export function roleBadgeFill(role: string): SvgColor {
 
 /**
  * Capability chip colours (dark fill + bright same-hue text) for an opaque
- * capability VALUE - one notch dimmer than {@link providerChip} so the runtime /
- * gateway-version row reads as secondary to the provider/role row (FLT-CAP-05).
+ * capability VALUE - one notch dimmer than {@link providerChip} so the runtime
+ * row reads as secondary to the provider/role row (FLT-CAP-05).
  * The hue is value-derived (brand hue for a known public cloud, else a hash hue),
  * so an unrecognized value still renders without any capability list baked in.
  */

@@ -18,12 +18,6 @@ export interface GatewayRecord {
   externalDns?: string;
   gatewayVersion?: string;
   id: string;
-  /**
-   * True when the gateway pins an explicit container image and therefore need
-   * not track its cluster's advertised provisioning version. A pinned gateway
-   * never shows the newer-version-available indicator (see WEB-VER-03).
-   */
-  imagePinned?: boolean;
   name: string;
   namespace: string;
   oidcAudience?: string;
@@ -31,23 +25,8 @@ export interface GatewayRecord {
   oidcIssuer?: string;
   phase?: string;
   provisioningConditions?: readonly ProvisioningCondition[];
-  /**
-   * The gateway version the gateway's cluster advertises for provisioning onto
-   * new gateways (its single-valued `gateway-version/<tag>` capability). Absent
-   * when the cluster advertises none.
-   */
-  provisioningVersion?: string;
   status?: string;
 }
-
-/**
- * Derived verdict for whether a gateway's running version is behind the
- * provisioning version its cluster advertises (WEB-VER-03/WEB-VER-04). `"behind"` fires
- * the neutral newer-version-available indicator; `"none"` suppresses it. The
- * verdict is computed once in the application layer and consumed, not
- * recomputed, by React components.
- */
-export type GatewayVersionDrift = "behind" | "none";
 
 export interface GatewayPlacement {
   id: string;

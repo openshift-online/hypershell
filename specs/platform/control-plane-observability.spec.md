@@ -351,7 +351,7 @@ These values are bounded deployment configuration, not resource identifiers, so 
 #### Scenario: OBS-CPL-09.01 -- Capabilities and gateway image exported
 
 - GIVEN the OTel SDK is initialized with metrics export enabled
-- AND the control plane is configured as managed cluster `hyp2-spoke1` with capabilities `provider/ibm,gateway-version/v0.1.5-rhaiv.2`
+- AND the control plane is configured as managed cluster `hyp2-spoke1` with capabilities `provider/ibm,network/public`
 - AND `GATEWAY_IMAGE` is `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2`
 - WHEN metrics are collected
 - THEN `hypershell.managed_cluster.capability.info` SHALL report `1` for each capability, labelled with `managed_cluster=hyp2-spoke1` and the capability's namespace and value

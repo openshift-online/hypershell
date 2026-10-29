@@ -1602,19 +1602,6 @@ export const messages = defineMessages({
     description:
       "Accessible name for the running-version chip beside the gateway status indicator.",
   },
-  newerVersionAvailable: {
-    id: "app.gateway.version.newerAvailable",
-    defaultMessage: "Newer version available",
-    description:
-      "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways.",
-  },
-  newerVersionAvailableTooltip: {
-    id: "app.gateway.version.newerAvailable.tooltip",
-    defaultMessage:
-      "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
-    description:
-      "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
-  },
   advancedOptions: {
     id: "app.page.gatewayProvision.advancedOptions",
     defaultMessage: "Advanced options",

@@ -641,7 +641,7 @@ func TestRegisterClusterIdentityInfo(t *testing.T) {
 
 	unregister, err := RegisterClusterIdentityInfo(
 		"hyp2-spoke1",
-		[]string{"provider/ibm", "gateway-version/v0.1.5-rhaiv.2"},
+		[]string{"provider/ibm", "network/public"},
 		"quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2",
 	)
 	if err != nil {
@@ -663,8 +663,8 @@ func TestRegisterClusterIdentityInfo(t *testing.T) {
 		}
 	}
 	want := map[string][2]string{
-		"provider/ibm":                   {"provider", "ibm"},
-		"gateway-version/v0.1.5-rhaiv.2": {"gateway-version", "v0.1.5-rhaiv.2"},
+		"provider/ibm":   {"provider", "ibm"},
+		"network/public": {"network", "public"},
 	}
 	if !reflect.DeepEqual(capabilities, want) {
 		t.Fatalf("capability series = %v, want %v", capabilities, want)

@@ -210,14 +210,14 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
-| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 11 |
+| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
 | `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
-| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 5 |
+| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
 ## Multi-Group Files
 

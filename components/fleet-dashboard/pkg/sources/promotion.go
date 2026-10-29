@@ -505,7 +505,6 @@ const capabilitiesAnnotation = deliveryLabelPrefix + "capabilities"
 var capabilityNamespaces = []string{
 	"provider",
 	"runtime",
-	"gateway-version",
 	"network",
 	"region",
 	// The `environment` capability namespace is distinct from the `env` delivery
