@@ -388,10 +388,12 @@ func migrationAddGatewayDedicatedRouteCreatorRole() *gormigrate.Migration {
 // migrationAddCIFederationAdminRole seeds the ci-federation:admin built-in role
 // idempotently (SEC-RBAC-21). It is a platform-wide (global-scope) entitlement
 // that authorizes only the ci_providers ext kind; it is deliberately narrower
-// than platform:admin so the CI-federation seeder holds least privilege. Like
-// platform:admin and gateway:dedicated-route-creator it is JWT-synced (assigned
-// through Keycloak), and no existing binding is touched. Re-running is safe: an
-// existing row short-circuits.
+// than platform:admin so the CI-federation seeder holds least privilege. Unlike
+// platform:admin and gateway:dedicated-route-creator it is NOT JWT-synced: it is
+// granted through the RoleBinding API by a platform:admin, so HyperShell owns the
+// authorization decision rather than delegating it to a Keycloak realm role. This
+// migration only seeds the role record; no existing binding is touched.
+// Re-running is safe: an existing row short-circuits.
 func migrationAddCIFederationAdminRole() *gormigrate.Migration {
 	type Role struct {
 		db.Model
