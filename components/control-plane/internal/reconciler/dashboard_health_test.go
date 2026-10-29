@@ -40,31 +40,48 @@ func TestSelectCertificateMaterialsUsesConfiguredSecretIdentities(t *testing.T) 
 	unrelated := testCertificatePEM(t, now.Add(30*24*time.Hour))
 	secrets := []corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: managed}},
-		// This has a managed name but no Certificate configuration, so it is not inventory.
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-external-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "unrelated-workload-tls", Namespace: "openshell-one"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: "other"}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{corev1.TLSCertKey: unrelated}},
 	}
-	certificate := func(namespace, secretName string) unstructured.Unstructured {
-		return unstructured.Unstructured{Object: map[string]interface{}{
-			"metadata": map[string]interface{}{"name": secretName, "namespace": namespace},
-			"spec":     map[string]interface{}{"secretName": secretName},
-		}}
-	}
-	certificates := []unstructured.Unstructured{
-		certificate("openshell-one", "openshell-server-tls"),
-		certificate("openshell-one", "openshell-client-tls"), // Configured but missing.
-		certificate("openshell-one", "unrelated-workload-tls"),
-		certificate("other", "openshell-server-tls"),
+	dedicated := true
+	gateways := []*pb.Gateway{
+		{Namespace: "openshell-one", DedicatedRoute: &dedicated},
+		{Namespace: "openshell-one"}, // Duplicate namespaces must not duplicate inventory.
+		{Namespace: "other", DedicatedRoute: &dedicated},
 	}
 
-	materials := selectCertificateMaterials(secrets, certificates, map[string]struct{}{"openshell-one": {}})
-	if len(materials) != 2 {
-		t.Fatalf("materials = %d, want two configured managed Secret identities", len(materials))
+	expected := expectedCertificateSecretIdentities(gateways, map[string]struct{}{"openshell-one": {}})
+	materials := selectCertificateMaterials(secrets, expected)
+	if len(materials) != 3 {
+		t.Fatalf("materials = %d, want three configured Secret identities", len(materials))
 	}
 	health := evaluateCertificateHealth(materials, now)
-	if health.Valid != 1 || health.Expired != 0 || health.Unavailable != 1 {
-		t.Fatalf("health = %+v, want one valid and one unavailable configured certificate", health)
+	if health.Valid != 1 || health.Expired != 0 || health.Unavailable != 2 {
+		t.Fatalf("health = %+v, want one valid and two unavailable configured certificates", health)
+	}
+}
+
+func TestExpectedCertificateSecretIdentitiesFollowGatewayConfiguration(t *testing.T) {
+	dedicated := true
+	tests := []struct {
+		name    string
+		gateway *pb.Gateway
+		want    int
+	}{
+		{name: "default", gateway: &pb.Gateway{Namespace: "openshell-one"}, want: 2},
+		{name: "dedicated", gateway: &pb.Gateway{Namespace: "openshell-one", DedicatedRoute: &dedicated}, want: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expectedCertificateSecretIdentities(
+				[]*pb.Gateway{tt.gateway, tt.gateway},
+				map[string]struct{}{"openshell-one": {}},
+			)
+			if len(got) != tt.want {
+				t.Fatalf("identities = %v, want %d deduplicated identities", got, tt.want)
+			}
+		})
 	}
 }
 

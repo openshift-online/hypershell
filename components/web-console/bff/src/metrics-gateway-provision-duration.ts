@@ -34,9 +34,9 @@ export interface GatewayProvisionDurationSeconds {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
-  p99_seconds?: number;
-  target_seconds?: number;
-  daily_p99?: GatewayProvisionDurationDailyP99[];
+  p99_seconds: number | null;
+  target_seconds: number;
+  daily_p99: GatewayProvisionDurationDailyP99[] | null;
 }
 
 interface PrometheusQueryResponse {
@@ -180,10 +180,8 @@ export async function queryGatewayProvisionDuration(
     observation_count,
     p50_seconds,
     p95_seconds,
-    ...(rangeDays === 7
-      ? { target_seconds: gatewayProvisionDurationTargetSeconds }
-      : {}),
-    ...(p99Seconds === undefined ? {} : { p99_seconds: p99Seconds }),
-    ...(dailyP99 === undefined ? {} : { daily_p99: dailyP99 }),
+    p99_seconds: p99Seconds ?? null,
+    target_seconds: gatewayProvisionDurationTargetSeconds,
+    daily_p99: dailyP99 ?? null,
   };
 }

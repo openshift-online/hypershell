@@ -78,9 +78,9 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
-  p99_seconds?: number;
-  target_seconds?: number;
-  daily_p99?: { date: string; p99_seconds: number }[];
+  p99_seconds: number | null;
+  target_seconds: number;
+  daily_p99: { date: string; p99_seconds: number }[] | null;
   daily_p50?: { date: string; p50_seconds: number }[];
   daily_p95?: { date: string; p95_seconds: number }[];
 }
@@ -516,12 +516,10 @@ async function fetchGatewayProvisionDurationMetric(
         mean,
         p50,
         p95,
-        ...(body.p99_seconds === undefined
+        ...(body.p99_seconds === null
           ? {}
           : { p99: formatProvisionSeconds(body.p99_seconds) }),
-        ...(body.target_seconds === undefined
-          ? {}
-          : { target: formatProvisionSeconds(body.target_seconds) }),
+        target: formatProvisionSeconds(body.target_seconds),
         ...(p50Trend.length >= 2 ? { p50Trend: { points: p50Trend } } : {}),
         ...(p95Trend.length >= 2 ? { p95Trend: { points: p95Trend } } : {}),
         ...(p99Trend.length >= 2 ? { p99Trend: { points: p99Trend } } : {}),

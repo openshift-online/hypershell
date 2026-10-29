@@ -107,6 +107,24 @@ describe("SLI health metric queries", () => {
     await expect(
       queryResourceReadiness(staleSandbox.url, 5_000),
     ).resolves.toEqual({ pod_readiness_percent: 80 });
+
+    const scrapeSkew = await startStub(
+      new Map([
+        [podReadyPromql, "11"],
+        [podTotalPromql, "10"],
+        [sandboxReadyPromql, "5"],
+        [sandboxTotalPromql, "4"],
+        [sandboxReadySourceAvailablePromql, "1"],
+      ]),
+    );
+    servers.push(scrapeSkew.server);
+    await expect(
+      queryResourceReadiness(scrapeSkew.url, 5_000),
+    ).resolves.toEqual({
+      pod_readiness_percent: 100,
+      sandbox_readiness_percent: 100,
+      unready_resources: 0,
+    });
   });
 
   it("uses the fleet minimum certificate expiry and preserves unavailable counts", async () => {
@@ -184,9 +202,23 @@ describe("SLI health metric queries", () => {
     servers.push(empty.server);
     await expect(queryOidcClientSync(empty.url, 5_000)).resolves.toEqual({
       accuracy_percent: null,
-      synced_clients: 0,
-      expected_clients: 0,
+      synced_clients: null,
+      expected_clients: null,
       keycloak_status: "disconnected",
+    });
+
+    const unknown = await startStub(
+      new Map([
+        [oidcClientsSyncedPromql, "3"],
+        [oidcClientsExpectedPromql, "4"],
+      ]),
+    );
+    servers.push(unknown.server);
+    await expect(queryOidcClientSync(unknown.url, 5_000)).resolves.toEqual({
+      accuracy_percent: null,
+      synced_clients: null,
+      expected_clients: null,
+      keycloak_status: "unknown",
     });
   });
 });

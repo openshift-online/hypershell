@@ -563,6 +563,14 @@
     "defaultMessage": "P99",
     "description": "Label for the 99th percentile gateway provision duration."
   },
+  "app.dashboard.provisionTime.p99Note": {
+    "defaultMessage": "P99 target is 5 minutes; the warning state appears when P99 exceeds the target.",
+    "description": "Context note explaining the P99 gateway provision target."
+  },
+  "app.dashboard.provisionTime.p99TrendCaption": {
+    "defaultMessage": "Last {days} days - daily P99 time to ready",
+    "description": "Caption for the daily gateway provision P99 trend."
+  },
   "app.dashboard.provisionTime.p99Warning": {
     "defaultMessage": "P99 exceeds the 5-minute target",
     "description": "Warning shown when P99 provision duration exceeds target."

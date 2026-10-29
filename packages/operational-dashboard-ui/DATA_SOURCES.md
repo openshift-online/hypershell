@@ -159,9 +159,10 @@ selected 7- or 30-day window. Values are presented in **seconds**
 
 The BFF also returns optional `daily_p50` and `daily_p95` arrays. The adapter
 maps arrays with at least two points to `provisionDuration.p50Trend` and
-`provisionDuration.p95Trend`. For the 7-day range it also returns P99, a
-300-second target, and optional `daily_p99`; those fields are omitted for the
-30-day range. The Provisioning page warns when P99 exceeds the target.
+`provisionDuration.p95Trend`. The response always includes the 300-second
+target. For the 7-day range it can also return P99 and `daily_p99`; those two
+fields are explicitly `null` for the 30-day range. The Provisioning page warns
+when P99 exceeds the target.
 
 Requires control-plane metrics export through the in-cluster OpenTelemetry
 Collector (`deploy/base/prometheus/otel-collector.yaml`).

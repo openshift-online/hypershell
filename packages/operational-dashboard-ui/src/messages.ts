@@ -1741,6 +1741,17 @@ export const messages = defineMessages({
     defaultMessage: "P99",
     description: "Label for the 99th percentile gateway provision duration.",
   },
+  provisionTimeP99Note: {
+    id: "app.dashboard.provisionTime.p99Note",
+    defaultMessage:
+      "P99 target is 5 minutes; the warning state appears when P99 exceeds the target.",
+    description: "Context note explaining the P99 gateway provision target.",
+  },
+  provisionTimeP99TrendCaption: {
+    id: "app.dashboard.provisionTime.p99TrendCaption",
+    defaultMessage: "Last {days} days - daily P99 time to ready",
+    description: "Caption for the daily gateway provision P99 trend.",
+  },
   provisionTimeTargetLabel: {
     id: "app.dashboard.provisionTime.target",
     defaultMessage: "Target",

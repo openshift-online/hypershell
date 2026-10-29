@@ -49,21 +49,21 @@ export async function queryOidcClientSync(
       : connected >= 1
         ? "connected"
         : "disconnected";
-  const validCounts =
+  const countsAvailable =
+    keycloakStatus === "connected" &&
     synced !== undefined &&
     expected !== undefined &&
     Number.isInteger(synced) &&
     Number.isInteger(expected) &&
-    expected > 0 &&
+    synced >= 0 &&
+    expected >= 0 &&
     synced <= expected;
+  const validAccuracy = countsAvailable && expected > 0;
 
   return {
-    accuracy_percent:
-      validCounts && keycloakStatus === "connected"
-        ? (100 * synced) / expected
-        : null,
-    synced_clients: synced === undefined ? null : Math.round(synced),
-    expected_clients: expected === undefined ? null : Math.round(expected),
+    accuracy_percent: validAccuracy ? (100 * synced) / expected : null,
+    synced_clients: countsAvailable ? synced : null,
+    expected_clients: countsAvailable ? expected : null,
     keycloak_status: keycloakStatus,
   };
 }

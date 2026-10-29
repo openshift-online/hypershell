@@ -7,26 +7,21 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var certificateGVR = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-
-var managedCertificateSecretNames = map[string]struct{}{
-	"openshell-server-tls":           {},
-	"openshell-client-tls":           {},
-	"openshell-server-external-tls":  {},
-	"openshell-gateway-external-tls": {},
-}
+const (
+	serverTLSSecretName          = "openshell-server-tls"
+	clientTLSSecretName          = "openshell-client-tls"
+	gatewayExternalTLSSecretName = "openshell-gateway-external-tls"
+)
 
 type oidcClientInspector interface {
 	GatewayClientSynced(ctx context.Context, clientID string) (bool, error)
@@ -125,21 +120,44 @@ func desiredOIDCClientIDs(gateways []*pb.Gateway) []string {
 }
 
 func (r *SandboxAttentionReconciler) listCertificateMaterials(ctx context.Context, eligible map[string]struct{}) ([][]byte, error) {
-	certificates, err := r.dynamicClient.Resource(certificateGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	gateways, err := r.listGateways(ctx)
 	if err != nil {
-		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("list managed Certificates: %w", err)
+		return nil, fmt.Errorf("list gateways for certificate inventory: %w", err)
 	}
 	secrets, err := r.client.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list TLS secrets: %w", err)
 	}
-	return selectCertificateMaterials(secrets.Items, certificates.Items, eligible), nil
+	expected := expectedCertificateSecretIdentities(gateways, eligible)
+	return selectCertificateMaterials(secrets.Items, expected), nil
 }
 
-func selectCertificateMaterials(secrets []corev1.Secret, certificates []unstructured.Unstructured, eligible map[string]struct{}) [][]byte {
+func expectedCertificateSecretIdentities(gateways []*pb.Gateway, eligible map[string]struct{}) []string {
+	expected := make(map[string]struct{})
+	for _, item := range gateways {
+		if item == nil {
+			continue
+		}
+		namespace := item.GetNamespace()
+		if _, ok := eligible[namespace]; !ok {
+			continue
+		}
+		for _, name := range []string{serverTLSSecretName, clientTLSSecretName} {
+			expected[namespace+"\x00"+name] = struct{}{}
+		}
+		if item.GetDedicatedRoute() {
+			expected[namespace+"\x00"+gatewayExternalTLSSecretName] = struct{}{}
+		}
+	}
+	identities := make([]string, 0, len(expected))
+	for identity := range expected {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	return identities
+}
+
+func selectCertificateMaterials(secrets []corev1.Secret, expectedIdentities []string) [][]byte {
 	secretMaterials := make(map[string][]byte)
 
 	for i := range secrets {
@@ -147,30 +165,10 @@ func selectCertificateMaterials(secrets []corev1.Secret, certificates []unstruct
 		if secret.Type != corev1.SecretTypeTLS {
 			continue
 		}
-		if _, ok := eligible[secret.Namespace]; !ok {
-			continue
-		}
-		if _, managed := managedCertificateSecretNames[secret.Name]; !managed {
-			continue
-		}
 		secretMaterials[secret.Namespace+"\x00"+secret.Name] = secret.Data[corev1.TLSCertKey]
 	}
-	materials := make([][]byte, 0, len(certificates))
-	seenIdentities := make(map[string]struct{})
-	for i := range certificates {
-		certificate := &certificates[i]
-		if _, ok := eligible[certificate.GetNamespace()]; !ok {
-			continue
-		}
-		secretName, _, _ := unstructured.NestedString(certificate.Object, "spec", "secretName")
-		if _, managed := managedCertificateSecretNames[secretName]; !managed {
-			continue
-		}
-		identity := certificate.GetNamespace() + "\x00" + secretName
-		if _, seen := seenIdentities[identity]; seen {
-			continue
-		}
-		seenIdentities[identity] = struct{}{}
+	materials := make([][]byte, 0, len(expectedIdentities))
+	for _, identity := range expectedIdentities {
 		materials = append(materials, secretMaterials[identity])
 	}
 	return materials

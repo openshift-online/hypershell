@@ -91,6 +91,62 @@ describe("queryGatewayProvisionDuration", () => {
         observation_count: 2,
         p50_seconds: 288,
         p95_seconds: 726,
+        p99_seconds: null,
+        target_seconds: 300,
+        daily_p99: null,
+      });
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("retains the target and explicit null P99 fields for the 30-day range", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const query = new URL(
+        request.url ?? "",
+        "http://127.0.0.1",
+      ).searchParams.get("query");
+      response.setHeader("content-type", "application/json");
+      const values = new Map<string, string>([
+        ["sum(increase(gateway_provision_duration_seconds_count[30d]))", "2"],
+        [
+          "sum(increase(gateway_provision_duration_seconds_sum[30d])) / sum(increase(gateway_provision_duration_seconds_count[30d]))",
+          "315",
+        ],
+        [
+          "histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket[30d])))",
+          "288",
+        ],
+        [
+          "histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket[30d])))",
+          "726",
+        ],
+      ]);
+      const value = query === null ? undefined : values.get(query);
+      if (value === undefined) {
+        response.statusCode = 400;
+        response.end();
+        return;
+      }
+      response.end(prometheusSample(value));
+    });
+
+    try {
+      await expect(
+        queryGatewayProvisionDuration(
+          `http://127.0.0.1:${String(prometheus.port)}`,
+          5_000,
+          undefined,
+          30,
+        ),
+      ).resolves.toEqual({
+        mean_seconds: 315,
+        observation_count: 2,
+        p50_seconds: 288,
+        p95_seconds: 726,
+        p99_seconds: null,
+        target_seconds: 300,
+        daily_p99: null,
       });
     } finally {
       prometheus.close();

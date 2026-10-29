@@ -138,6 +138,9 @@ const mockGatewayProvisionDurationResponse = {
   observation_count: 2,
   p50_seconds: 288,
   p95_seconds: 726,
+  p99_seconds: null,
+  target_seconds: 300,
+  daily_p99: null,
 };
 
 const mockGatewayProvisionOutcomesResponse = {
@@ -630,6 +633,7 @@ describe("createDashboardControlPlaneAdapter", () => {
         mean: "315.00",
         p50: "288.00",
         p95: "726.00",
+        target: "300.00",
       },
       unit: "sec",
       value: "315.00",
@@ -744,6 +748,7 @@ describe("createDashboardControlPlaneAdapter", () => {
         mean: "315.00",
         p50: "288.00",
         p95: "726.00",
+        target: "300.00",
       },
       unit: "sec",
       value: "315.00",

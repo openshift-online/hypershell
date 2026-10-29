@@ -120,7 +120,7 @@ export function ProvisionTimeChart({
           />
         </StackItem>
       ) : null}
-      {metric.provisionDuration?.p99Trend ? (
+      {stats.p99Seconds !== undefined && metric.provisionDuration?.p99Trend ? (
         <StackItem>
           <TrendSparklineChart
             caption="Selected range - daily P99"

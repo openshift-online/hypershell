@@ -52,28 +52,37 @@ export async function queryResourceReadiness(
   ]);
 
   const validPods =
-    podReady !== undefined &&
-    podTotal !== undefined &&
-    podTotal > 0 &&
-    podReady <= podTotal;
+    podReady !== undefined && podTotal !== undefined && podTotal > 0;
   const validSandboxes =
     sandboxReady !== undefined &&
     sandboxTotal !== undefined &&
     sandboxSourceAvailable === 1 &&
-    sandboxTotal > 0 &&
-    sandboxReady <= sandboxTotal;
+    sandboxTotal > 0;
+
+  const effectivePodReady =
+    podReady === undefined || podTotal === undefined
+      ? 0
+      : Math.min(podReady, podTotal);
+  const effectiveSandboxReady =
+    sandboxReady === undefined || sandboxTotal === undefined
+      ? 0
+      : Math.min(sandboxReady, sandboxTotal);
 
   return {
     ...(validPods
-      ? { pod_readiness_percent: (100 * podReady) / podTotal }
+      ? { pod_readiness_percent: (100 * effectivePodReady) / podTotal }
       : {}),
     ...(validSandboxes
-      ? { sandbox_readiness_percent: (100 * sandboxReady) / sandboxTotal }
+      ? {
+          sandbox_readiness_percent:
+            (100 * effectiveSandboxReady) / sandboxTotal,
+        }
       : {}),
     ...(validPods && validSandboxes
       ? {
           unready_resources:
-            podTotal - podReady + (sandboxTotal - sandboxReady),
+            Math.max(podTotal - podReady, 0) +
+            Math.max(sandboxTotal - sandboxReady, 0),
         }
       : {}),
   };
