@@ -83,18 +83,33 @@ conflict and SHALL be rejected with 409.
 For a Ready `CITrust`, the control plane SHALL realize three things and nothing
 secret:
 
-1. A **scoped claim-to-workspace mapping** on the referenced `CIProvider` IdP that
-   accepts only tokens whose claims match the compiled `subject` predicate and
-   stamps the derived workspace (`gh-<owner>` for GitHub, `gl-<namespace>` for
-   GitLab) into the issued token.
+1. A **scoped claim-to-group mapping** on the referenced `CIProvider` IdP that
+   accepts only tokens whose claims match the compiled `subject` predicate -- which
+   SHALL include the repository/owner identity claim for GitHub/Forgejo
+   (`repository`/`repository_owner`) or `project_path` for GitLab, since a
+   ref/environment-only predicate is not a trust boundary -- and lands the matched
+   identity in a **per-trust group** isolated to that one `CITrust` (its subject
+   and its gateway). The group SHALL NOT be a shared per-owner group: aggregating
+   distinct trusts' roles onto one `gh-<owner>` group would let a low-privilege
+   repository inherit a sibling repository's higher role and leak roles across
+   gateways.
 2. A **token-exchange permission** from the shared federation client onto the
    target gateway's audience, so the exchange grant can mint a gateway-scoped
    token.
-3. A **gateway RBAC binding** granting `role` in the derived workspace on the
-   referenced `Gateway`.
+3. A **gateway RBAC binding** granting `role` to that per-trust group on the
+   referenced `Gateway`, so a matched identity holds exactly the role its own
+   `CITrust` grants on its own gateway and nothing more.
+
+The derived workspace label (`gh-<owner>` for GitHub, `gl-<namespace>` for GitLab)
+remains the forge-namespaced tenancy namespace reported in `CITrust` status and
+used for quota; it is a display/quota namespace, not the RBAC group the role binds
+to.
 
 The control plane SHALL render no raw credential, PEM, or `Secret` for a
-`CITrust`. Deleting a `CITrust` SHALL remove all three realized artifacts.
+`CITrust`. Deleting a `CITrust` SHALL remove the per-trust subject mapper, which
+is the authoritative revocation (the deleted subject can no longer enter its group
+and so holds no role); the inert per-trust group and the gateway's shared
+exchange opt-in MAY be left in place.
 
 #### Scenario: PLAT-CITR-02.01 -- Forge-Namespaced Workspace Derivation
 
@@ -103,6 +118,15 @@ The control plane SHALL render no raw credential, PEM, or `Secret` for a
 - WHEN both are reconciled
 - THEN the first SHALL map to workspace `gh-acme` and the second to `gl-acme`
 - AND the two SHALL be isolated workspaces with independent RBAC
+
+#### Scenario: PLAT-CITR-02.02 -- Same-Owner Repositories Do Not Cross-Inherit
+
+- GIVEN a `CITrust` for `subject.repository = acme/low` granting `openshell-user` on `gw-1`
+- AND a second `CITrust` for `subject.repository = acme/high` granting `openshell-admin` on `gw-1`
+- WHEN both are reconciled
+- THEN each SHALL bind its role to its own per-trust group, not a shared `gh-acme` group
+- AND a token from `acme/low` SHALL hold only `openshell-user` (it SHALL NOT inherit `openshell-admin`)
+- AND a `CITrust` role granted on one gateway SHALL NOT bind onto another gateway's client
 
 ---
 
