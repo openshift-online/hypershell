@@ -86,6 +86,10 @@ func TestMatrix(t *testing.T) {
 
 	var mu sync.Mutex
 	outcomes := map[string]string{}
+	// covered records the clusters the matrix actually exercised a suite against, so
+	// the run can assert full fleet coverage: the covered set must equal the selected
+	// Healthy set (E2E-CORE-30).
+	covered := map[string]bool{}
 
 	sem := make(chan struct{}, concurrency)
 	for _, tg := range targets {
@@ -134,10 +138,21 @@ func TestMatrix(t *testing.T) {
 			}
 
 			s := newE2ESuite(clusterDriver, clusterClients)
-			s.clusterIDOverride = tg.id
+			// Target the cluster by its server-assigned identity capability
+			// (managed-cluster/<name>): positive creates place by that selector and the
+			// suite verifies each gateway resolved to targetClusterID via an
+			// admin-visible read (E2E-CORE-30, PLAT-DATA-02). The matrix client is the
+			// admin token acquired above, which holds platform:admin.
+			s.targetClusterName = tg.name
+			s.targetClusterID = tg.id
 			s.nameSuffix = sanitizeName(tg.name)
 			s.kubeContext = contextName
 			s.skipKubeChecks = managedKubeContextSkip(contextName)
+
+			mu.Lock()
+			covered[tg.name] = true
+			mu.Unlock()
+
 			suite.Run(t, s)
 
 			mu.Lock()
@@ -164,6 +179,20 @@ func TestMatrix(t *testing.T) {
 		}
 		b.WriteString("===================================================\n")
 		t.Log(b.String())
+
+		// Full fleet coverage: every selected Healthy cluster must have been
+		// exercised by a suite, and no other cluster. This guards against a target
+		// being silently dropped (for example a panic before suite.Run) so a green
+		// matrix cannot hide an uncovered cluster (E2E-CORE-30).
+		var missing []string
+		for _, tg := range targets {
+			if tg.healthy && !covered[tg.name] {
+				missing = append(missing, tg.name)
+			}
+		}
+		if len(missing) > 0 {
+			t.Errorf("matrix did not cover every selected Healthy cluster; missing: %s", strings.Join(missing, ", "))
+		}
 	})
 }
 

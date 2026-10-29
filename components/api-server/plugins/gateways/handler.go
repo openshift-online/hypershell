@@ -204,7 +204,15 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 				gatewayModel.ClusterId = pinnedCluster
 			} else {
-				if clusterErr := h.resolveGatewayPlacement(ctx, gateway.GetPlacement(), gatewayModel); clusterErr != nil {
+				intent := gateway.GetPlacement()
+				// Identity selection (placement by managed-cluster/<name>) is
+				// platform-admin-only (PLAT-DATA-02); requirement-only selectors are
+				// unaffected. Authorize before resolving so a non-admin identity selector
+				// is rejected and never resolves to a cluster.
+				if authzErr := authorizeIdentityPlacement(ctx, intent); authzErr != nil {
+					return nil, authzErr
+				}
+				if clusterErr := h.resolveGatewayPlacement(ctx, intent, gatewayModel); clusterErr != nil {
 					return nil, clusterErr
 				}
 			}

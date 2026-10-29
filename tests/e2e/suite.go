@@ -68,10 +68,16 @@ type E2ESuite struct {
 	clusterID    string
 	sandboxImage string
 
-	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
-	// specific cluster id instead of discovering the seeded one. nameSuffix is
-	// appended to the run id so each per-cluster suite's gateway names are unique.
-	clusterIDOverride string
+	// targetClusterName and targetClusterID, when set (by the matrix runner),
+	// target the suite at a specific cluster. Positive creates place by the
+	// cluster's server-assigned identity capability (managed-cluster/<name>), and
+	// the suite verifies the gateway resolved to targetClusterID via an
+	// admin-visible resolved-cluster read (E2E-CORE-30). A plain single-cluster or
+	// performance run leaves both empty and keeps the driver's requirement
+	// selector. nameSuffix is appended to the run id so each per-cluster suite's
+	// gateway names are unique.
+	targetClusterName string
+	targetClusterID   string
 	nameSuffix        string
 	kubeContext       string
 	skipKubeChecks    bool
@@ -543,7 +549,8 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		admin:                api,
 		clusterID:            s.clusterID,
 		sandboxImage:         s.sandboxImage,
-		clusterIDOverride:    s.clusterIDOverride,
+		targetClusterName:    s.targetClusterName,
+		targetClusterID:      s.targetClusterID,
 		nameSuffix:           s.nameSuffix,
 		primary:              s.primary,
 		primaryGatewayToken:  s.primaryGatewayToken,

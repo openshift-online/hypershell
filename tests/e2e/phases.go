@@ -32,9 +32,9 @@ import (
 func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err error) {
 	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", s.seedDefaults())
 
-	// The matrix runner pins the cluster id directly.
-	if s.clusterIDOverride != "" {
-		clusterID = s.clusterIDOverride
+	// The matrix runner targets a specific cluster by id.
+	if s.targetClusterID != "" {
+		clusterID = s.targetClusterID
 	}
 
 	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
@@ -43,7 +43,7 @@ func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err e
 	}
 	for _, c := range clusters.Items {
 		if clusterID != "" {
-			break // pinned by the matrix runner
+			break // targeted by the matrix runner
 		}
 		if c.OidcSubject == "" {
 			continue // not registered
@@ -178,7 +178,7 @@ func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 // Verifies: E2E-CORE-13.02
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
-	if s.clusterIDOverride != "" {
+	if s.targetClusterName != "" {
 		prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
 	}
 	name := fmt.Sprintf("%s-%s", prefix, s.runID)
@@ -563,21 +563,35 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
-	// Developer gateway-create: environment-dependent on the RBAC default. Pinned to
-	// the suite's selected cluster under the matrix so a successful create cannot land
-	// on another cluster.
-	createBody := s.gatewayCreateRequestForSuite("e2e-dev-create-" + s.runID)
+	// Developer gateway-create: environment-dependent on the RBAC default. The
+	// developer is not platform:admin and so cannot place by a cluster's identity
+	// capability (PLAT-DATA-02); this probe tests the gateway:creator permission, not
+	// cluster targeting, so it uses the driver's requirement selector and does not
+	// assert which cluster it resolved to. (A matrix suite's cluster targeting is
+	// exercised by the platform:admin positive creates below and in P1.)
+	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
 		s.Assert().Truef(st == http.StatusCreated || st == http.StatusOK, "with gateway:creator default, developer create should succeed, got %d (%s)", st, string(body))
 		var created sdktypes.Gateway
 		if json.Unmarshal(body, &created) == nil && created.ID != "" {
-			s.Assert().NoError(verifyPinnedCluster(s.clusterIDOverride, created.ClusterID), "developer-created gateway must bind to the pinned cluster")
 			_ = s.admin.Gateways().Delete(ctx, created.ID) // clean up
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
+		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
+	}
+
+	// A non-admin developer that places by a cluster's identity capability is
+	// rejected regardless of the gateway:creator default: identity selection is
+	// platform:admin-only (PLAT-DATA-02, PLAT-CLUS-14.04). Only exercised under the
+	// matrix, where a concrete target cluster name is known.
+	if s.targetClusterName != "" {
+		identityBody := identityGatewayCreateRequest("e2e-dev-identity-"+s.runID, s.targetClusterName)
+		st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", identityBody)
+		s.Require().NoError(err, "developer identity-selector POST /gateways")
+		s.Assert().Equalf(http.StatusForbidden, st, "non-admin identity-selector create must be 403 (body: %s)", string(body))
 		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
@@ -595,7 +609,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		var platformCreated sdktypes.Gateway
 		s.Require().NoError(json.Unmarshal(body, &platformCreated), "decode platform-admin-created gateway")
 		if platformCreated.ID != "" {
-			s.Assert().NoError(verifyPinnedCluster(s.clusterIDOverride, platformCreated.ClusterID), "platform-admin-created gateway must bind to the pinned cluster")
+			s.Assert().NoError(verifyResolvedCluster(s.targetClusterID, platformCreated.ClusterID), "platform-admin-created gateway must resolve to the selected cluster")
 			s.trackGateway(platformCreated.ID)
 		}
 	} else {
@@ -747,9 +761,14 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().Containsf(strings.ToLower(string(body)), "placement", "400 reason should name placement (body: %s)", string(body))
 
 	// 12f: a cluster_id that references no registered ManagedCluster is rejected
-	// (PLAT-CLUS-09). This probe carries its own unregistered cluster_id and is never
-	// given the matrix target, so a pinned suite still exercises the rejection path.
-	unregistered := pinnedGatewayCreateRequest("e2e-bad-cluster-"+s.runID, "unregistered-"+s.runID)
+	// (PLAT-CLUS-09). The user-facing cluster_id create path still exists on the API;
+	// this contract-negative probe sends a raw body with its own unregistered
+	// cluster_id (never the matrix target) so the rejection path is exercised
+	// regardless of which cluster the suite targets.
+	unregistered := map[string]any{
+		"name":       "e2e-bad-cluster-" + s.runID,
+		"cluster_id": "unregistered-" + s.runID,
+	}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", unregistered)
 	s.Require().NoError(err, "gateway create with unregistered cluster_id")
 	s.Assert().Equalf(http.StatusBadRequest, st, "unregistered cluster_id must be 400 (body: %s)", string(body))
@@ -897,16 +916,16 @@ type gatewayPlacementIntent struct {
 }
 
 // gatewayCreateRequest contains only the user-writable fields accepted by
-// GatewayCreateRequest: a name and exactly one of cluster_id or placement
-// (PLAT-DATA-02 exactly-one-of). Every other gateway field (route, oidc,
-// credential_driver, image, ...) is platform-managed and control-plane-only; the
-// strict create endpoint rejects a user caller that supplies one (data-model.spec.md,
-// PLAT-DATA-23). Both ClusterID and Placement are omitempty so each shape serializes
-// without the other; Placement is a pointer so a pinned request omits it entirely
-// rather than emitting an empty object.
+// GatewayCreateRequest: a name and a placement selector. Every other gateway field
+// (route, oidc, credential_driver, image, ...) is platform-managed and
+// control-plane-only; the strict create endpoint rejects a user caller that supplies
+// one (data-model.spec.md, PLAT-DATA-23). The matrix no longer pins a gateway by a
+// user-settable cluster_id; it places by the cluster's server-assigned identity
+// capability instead (E2E-CORE-30, PLAT-DATA-02). The cluster_id create path still
+// exists on the API and is exercised by the P2.4 contract-negative probe via a raw
+// request body.
 type gatewayCreateRequest struct {
 	Name      string                  `json:"name"`
-	ClusterID string                  `json:"cluster_id,omitempty"`
 	Placement *gatewayPlacementIntent `json:"placement,omitempty"`
 }
 
@@ -927,40 +946,42 @@ func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest
 	}
 }
 
-// pinnedGatewayCreateRequest builds a create payload pinned to a specific cluster:
-// it sets cluster_id and omits placement, so the gateway can only bind to that
-// cluster (PLAT-DATA-02, PLAT-CLUS-09). The matrix runner uses this to keep every
-// positive create on its selected ManagedCluster.
-func pinnedGatewayCreateRequest(name, clusterID string) gatewayCreateRequest {
+// identityGatewayCreateRequest builds a create payload that targets a specific
+// cluster by its server-assigned identity capability (managed-cluster/<name>). Only
+// a platform:admin caller may place by identity; the matrix client holds it
+// (E2E-CORE-30, PLAT-DATA-02). The gateway resolves deterministically to that one
+// cluster and never falls back to requirement-only, random, or another cluster.
+func identityGatewayCreateRequest(name, clusterName string) gatewayCreateRequest {
 	return gatewayCreateRequest{
 		Name:      name,
-		ClusterID: clusterID,
+		Placement: &gatewayPlacementIntent{Selector: []string{"managed-cluster/" + clusterName}},
 	}
 }
 
 // gatewayCreateRequestForSuite builds the positive-create payload for this suite. A
-// matrix suite (clusterIDOverride set) pins every positive create to its selected
-// cluster via cluster_id and omits placement, so a positive-workflow gateway can
-// never fall back to selector placement, random placement, or another cluster. A
-// plain single-cluster or performance run keeps the driver's placement selector,
-// preserving its existing late-binding behavior.
+// matrix suite (targetClusterName set) targets its selected cluster by the cluster's
+// server-assigned identity capability, so a positive-workflow gateway resolves to
+// exactly that cluster and never falls back to a requirement-only selector, random
+// placement, or another cluster. A plain single-cluster or performance run keeps the
+// driver's requirement selector, preserving its existing late-binding behavior.
 func (s *E2ESuite) gatewayCreateRequestForSuite(name string) gatewayCreateRequest {
-	if s.clusterIDOverride != "" {
-		return pinnedGatewayCreateRequest(name, s.clusterIDOverride)
+	if s.targetClusterName != "" {
+		return identityGatewayCreateRequest(name, s.targetClusterName)
 	}
 	return gatewayCreateRequestForDriver(name, s.driver.Name())
 }
 
-// verifyPinnedCluster reports whether a positive create bound to the suite's pinned
-// cluster. For a non-matrix suite (empty override) it is a no-op, so placement-based
-// runs are unaffected. For a matrix suite it fails when the response cluster_id does
-// not equal the selected target, with a diagnostic naming both ids.
-func verifyPinnedCluster(override, responseClusterID string) error {
-	if override == "" {
+// verifyResolvedCluster reports whether a positive create resolved to the suite's
+// selected cluster. For a non-matrix suite (empty target) it is a no-op, so
+// placement-based runs are unaffected. For a matrix suite it fails when the
+// gateway's resolved cluster_id (an admin-visible, server-assigned read) does not
+// equal the selected target, with a diagnostic naming both ids.
+func verifyResolvedCluster(targetClusterID, resolvedClusterID string) error {
+	if targetClusterID == "" {
 		return nil
 	}
-	if responseClusterID != override {
-		return fmt.Errorf("pinned gateway create bound to cluster_id %q but this matrix suite targets %q: a positive create must bind to its selected cluster", responseClusterID, override)
+	if resolvedClusterID != targetClusterID {
+		return fmt.Errorf("gateway resolved to cluster_id %q but this matrix suite targets %q: a positive create must resolve to its selected cluster", resolvedClusterID, targetClusterID)
 	}
 	return nil
 }
@@ -1003,11 +1024,7 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 // readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
 	body := s.gatewayCreateRequestForSuite(name)
-	if body.ClusterID != "" {
-		s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s cluster_id=%s (pinned)", s.apiHost, name, body.ClusterID)
-	} else {
-		s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
-	}
+	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")
 	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))
@@ -1015,10 +1032,11 @@ func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
 	var created sdktypes.Gateway
 	s.Require().NoError(json.Unmarshal(resp, &created), "unmarshal created gateway")
 	s.Require().NotEmpty(created.ID, "created gateway id")
-	// A matrix suite must bind every positive create to its selected cluster; a
+	// A matrix suite must resolve every positive create to its selected cluster; a
 	// mismatch stops the gateway's workflow immediately rather than continuing
-	// against a gateway on the wrong cluster.
-	s.Require().NoError(verifyPinnedCluster(s.clusterIDOverride, created.ClusterID), "positive gateway create must bind to the pinned cluster")
+	// against a gateway on the wrong cluster. The resolved cluster_id is an
+	// admin-visible, server-assigned read, not a user-supplied value.
+	s.Require().NoError(verifyResolvedCluster(s.targetClusterID, created.ClusterID), "positive gateway create must resolve to the selected cluster")
 	return &created
 }
 

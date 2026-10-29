@@ -1521,29 +1521,33 @@ The refactored deploy structure SHALL maintain backward compatibility with exist
 
 ### Requirement: E2E-CORE-30 -- Managed-Cluster Matrix Runner
 
-`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy.
+`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy, and across the run SHALL assert that the set of clusters actually exercised equals the selected Healthy set (full fleet coverage).
 
 ```text
-for mc in GET /managed_clusters:
+for mc in GET /managed_clusters:         # authenticated as platform:admin
     if mc is unregistered or unhealthy:
         report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
         continue
-    suite = E2ESuite { targetClusterID: mc.id }
-    run suite
+    suite = E2ESuite { target: mc.name }
+    run suite                            # positive creates place via [managed-cluster/mc.name]
+assert covered == selected Healthy set
 ```
 
-`TestMatrix` SHALL configure each `E2ESuite` with `mc.id` as its target cluster. Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL use the existing pinned `cluster_id` contract defined by PLAT-DATA-02 and PLAT-CLUS-09, and SHALL include `cluster_id: mc.id`. After each such create, the suite SHALL assert that the response contains the same `cluster_id` before continuing that gateway's workflow. These positive creates SHALL NOT use selector placement, random placement, or a fallback cluster.
+`TestMatrix` SHALL authenticate as a `platform:admin` caller and target each `E2ESuite` at its cluster by the cluster's server-assigned identity capability `managed-cluster/<name>` (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md), "Requirement: Server-Assigned Identity Capability", and PLAT-DATA-02 "Identity selection is platform-admin-only"). Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL place by `placement.selector = [managed-cluster/<name>]` and SHALL NOT send `cluster_id`. After each such create, the suite SHALL confirm the gateway resolved to that cluster before continuing its workflow, using an admin-visible resolved-cluster read (so the check does not depend on a user-settable `cluster_id`). These positive creates SHALL NOT use requirement-only selectors, random placement, or a fallback cluster. Because identity selection is `platform:admin`-gated, the e2e client SHALL hold `platform:admin`; without it the positive creates SHALL be rejected.
 
-Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its unregistered `cluster_id`, its empty `cluster_id` with no placement, and its placement selector with no `cluster_id`; the matrix target SHALL NOT be injected into those requests, and a successful late-bound response SHALL NOT be required to resolve to `mc.id`. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
+Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its negative and late-binding placement requests; the identity capability SHALL NOT be injected into those requests, and a successful late-bound response (a requirement-only selector) SHALL resolve by random selection among eligible clusters and SHALL NOT be required to resolve to the suite's target. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
 
-#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster
+#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster, by identity
 
 - GIVEN `GET /managed_clusters` returns registered Healthy clusters `A` and `B`
+- AND `TestMatrix` authenticates as `platform:admin`
 - WHEN `TestMatrix` runs
-- THEN it SHALL configure one `E2ESuite` with target cluster `A` and one with target cluster `B`
-- AND every positive workflow or provisioning create from the suite targeting `A` SHALL include `cluster_id: "A"` and verify the response has `cluster_id: "A"`
-- AND every positive workflow or provisioning create from the suite targeting `B` SHALL include `cluster_id: "B"` and verify the response has `cluster_id: "B"`
+- THEN it SHALL run one `E2ESuite` targeting `A` and one targeting `B`
+- AND every positive workflow or provisioning create from the suite targeting `A` SHALL place by `placement.selector = [managed-cluster/A]` and verify the gateway resolved to `A`
+- AND every positive workflow or provisioning create from the suite targeting `B` SHALL place by `placement.selector = [managed-cluster/B]` and verify the gateway resolved to `B`
+- AND no positive-workflow create SHALL send `cluster_id`
 - AND neither suite SHALL place a positive-workflow gateway on any other cluster
+- AND across the run the covered set SHALL equal `{A, B}`
 - AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
 #### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly

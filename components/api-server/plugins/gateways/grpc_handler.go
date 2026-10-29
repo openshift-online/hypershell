@@ -189,6 +189,13 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		if h.placement == nil {
 			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
 		}
+		// Identity selection (placement by managed-cluster/<name>) is
+		// platform-admin-only (PLAT-DATA-02); requirement-only selectors are
+		// unaffected. Authorize before resolving so a non-admin identity selector is
+		// rejected and never resolves to a cluster.
+		if authzErr := authorizeIdentityPlacement(ctx, intent); authzErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(authzErr)
+		}
 		if svcErr := validatePlacementIntent(&intent); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}

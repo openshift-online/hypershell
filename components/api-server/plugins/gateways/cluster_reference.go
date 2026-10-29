@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
@@ -48,6 +49,30 @@ func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.Ser
 		return nil
 	}
 	return errors.Validation("placement must include selector or mode")
+}
+
+// authorizeIdentityPlacement enforces "Identity selection is platform-admin-only"
+// (data-model.spec.md PLAT-DATA-02, managed-cluster-registration.spec.md
+// PLAT-CLUS-14): a placement selector (or excludedSelector) that references a
+// cluster's reserved managed-cluster/<name> identity capability resolves
+// deterministically to exactly that cluster, but only for a caller holding
+// platform:admin. Any other caller is rejected with 403 and the create does not
+// resolve. Gating the selector's use -- not merely hiding the capability value --
+// is the authoritative control: a leaked identity capability stays unusable to a
+// non-admin caller. Requirement-only selectors (provider/*, network/*, ...) are
+// unaffected and keep resolving by random selection among eligible clusters.
+func authorizeIdentityPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent) *errors.ServiceError {
+	if !managedClusters.SelectorReferencesIdentity(intent.Selector) &&
+		!managedClusters.SelectorReferencesIdentity(intent.ExcludedSelector) {
+		return nil
+	}
+	if !rbac.HasPlatformAdminRole(ctx, rbac.GetUserIDFromContext(ctx)) {
+		return errors.Forbidden(
+			"placement by a %s/<name> identity capability requires platform:admin; normal callers place by requirement capabilities (provider/*, network/*, ...) and cannot target a specific cluster by identity",
+			managedClusters.IdentityCapabilityNamespace,
+		)
+	}
+	return nil
 }
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a

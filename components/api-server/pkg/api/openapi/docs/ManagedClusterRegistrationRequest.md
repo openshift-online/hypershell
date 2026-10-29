@@ -5,7 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** | Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call. |
-**Capabilities** | Pointer to **[]string** | Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities. | [optional]
+**Capabilities** | Pointer to **[]string** | Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities. The managed-cluster namespace is reserved and server-assigned: a set that declares any managed-cluster/_* label is rejected with 400 (PLAT-CLUS-14). | [optional]
 
 ## Methods
 

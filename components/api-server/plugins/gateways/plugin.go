@@ -207,10 +207,18 @@ func (p *registeredPlacementService) snapshot(ctx context.Context) (placementSna
 			}
 			continue
 		}
-		if len(cluster.Capabilities) == 0 {
-			continue
-		}
-		result.candidates = append(result.candidates, PlacementCandidate{ID: cluster.ID, Capabilities: cluster.Capabilities, Connected: true})
+		// Every ManagedCluster carries a reserved, server-assigned identity capability
+		// managed-cluster/<name> derived from its unique name (PLAT-CLUS-14). It is
+		// appended to the candidate's capability set so a platform:admin identity
+		// selector resolves deterministically to exactly that cluster, while
+		// requirement selectors (provider/*, network/*, ...) still match only on the
+		// declared set. A cluster with no declared capabilities is still a candidate
+		// so it remains targetable by identity, but requirement/random selectors never
+		// land on it because it matches no requirement label.
+		caps := make([]string, 0, len(cluster.Capabilities)+1)
+		caps = append(caps, cluster.Capabilities...)
+		caps = append(caps, managedClusters.IdentityCapability(cluster.Name))
+		result.candidates = append(result.candidates, PlacementCandidate{ID: cluster.ID, Capabilities: caps, Connected: true})
 	}
 	return result, nil
 }

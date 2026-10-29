@@ -260,7 +260,9 @@ single-valued `provider`, `region`, or `environment` namespaces SHALL return
 The registering control plane SHALL be the only writer of `capabilities`.
 Generic ManagedCluster create and patch requests SHALL NOT assign or modify
 them. A heartbeat SHALL replace the prior set in one transaction and update
-`last_seen_at`; a rejected set SHALL change neither field.
+`last_seen_at`; a rejected set SHALL change neither field. The `managed-cluster`
+namespace is reserved and server-assigned (see PLAT-CLUS-14): a self-declared set
+that includes any `managed-cluster/*` label SHALL be rejected with 400.
 
 #### Scenario: PLAT-CLUS-06.01 -- GitOps changes a cluster capability
 
@@ -510,6 +512,70 @@ release promotion.
 - WHEN the e2e suite runs area 12
 - THEN it SHALL assert the registration, idempotency, RBAC, and collision behavior above against the live API
 
+### Requirement: PLAT-CLUS-14 -- Server-Assigned Identity Capability
+
+The API server SHALL expose, for every `ManagedCluster`, a reserved identity
+capability of the form `managed-cluster/<name>`, where `<name>` is the cluster's
+unique registered `name`. This capability SHALL be server-assigned and derived
+from the stored `name` (whose uniqueness the name index guarantees), in the same
+way `oidc_subject` is server-assigned: it SHALL NOT be accepted from any caller.
+
+`managed-cluster` SHALL be a reserved capability namespace. A self-declared
+capability set (registration heartbeat, or a generic create/patch) that includes
+any `managed-cluster/*` label SHALL be rejected with 400, so a control plane can
+neither assign nor spoof another cluster's identity capability. The reserved
+namespace is distinct from the self-declared namespaces in PLAT-CLUS-06.
+
+The identity capability SHALL be usable as a placement selector only by a caller
+holding `platform:admin` (`RolePlatformAdmin`). A placement request from any
+other caller whose selector references a `managed-cluster/*` capability SHALL be
+rejected and SHALL NOT resolve to a cluster; normal callers place by requirement
+capabilities (`provider/*`, `network/*`, and the other PLAT-CLUS-06 namespaces)
+and SHALL NOT be able to target a specific cluster by identity. Gating the
+selector's use -- not merely hiding the value -- is the authoritative control: a
+leaked identity capability SHALL remain unusable to a non-admin caller.
+
+As defense in depth, the API server SHALL omit `managed-cluster/*` capabilities
+from `GET /managed_clusters` responses for callers without `platform:admin`, so a
+non-admin caller cannot enumerate the fleet's identity capabilities. The identity
+capability SHALL still be used internally for placement resolution regardless of
+the response filtering.
+
+#### Scenario: PLAT-CLUS-14.01 -- Identity capability is exposed per cluster
+
+- GIVEN a registered cluster named `hyp0-spoke1`
+- WHEN a `platform:admin` caller reads it from `GET /managed_clusters`
+- THEN its capabilities SHALL include `managed-cluster/hyp0-spoke1`
+- AND that label SHALL be present even though the control plane never declared it
+
+#### Scenario: PLAT-CLUS-14.02 -- Reserved namespace rejected as input
+
+- GIVEN a control plane registration or a generic create/patch
+- WHEN its `capabilities` input includes any `managed-cluster/*` label
+- THEN the API SHALL return 400
+- AND the stored capabilities and `last_seen_at` SHALL remain unchanged
+
+#### Scenario: PLAT-CLUS-14.03 -- platform-admin places by identity capability
+
+- GIVEN registered clusters `A` and `B`
+- WHEN a `platform:admin` caller creates a gateway whose placement selector is `[managed-cluster/A]`
+- THEN placement SHALL resolve to cluster `A` and no other
+- AND the caller SHALL be able to confirm the gateway resolved to `A`
+
+#### Scenario: PLAT-CLUS-14.04 -- Non-admin identity selector rejected
+
+- GIVEN a caller without `platform:admin`
+- WHEN it creates a gateway whose placement selector references a `managed-cluster/*` capability
+- THEN the request SHALL be rejected
+- AND the gateway SHALL NOT be placed on that cluster
+
+#### Scenario: PLAT-CLUS-14.05 -- Identity capability hidden from non-admin reads
+
+- GIVEN a registered cluster with a `managed-cluster/<name>` identity capability
+- WHEN a caller without `platform:admin` reads it from `GET /managed_clusters`
+- THEN the response SHALL NOT include any `managed-cluster/*` capability
+- AND placement resolution SHALL still recognize the identity capability internally
+
 ---
 
 ## Design Decisions
@@ -530,6 +596,7 @@ release promotion.
 | Namespaced string capabilities with match-all selectors | Provider, network, runtime, and future dimensions remain independent and extensible without a provider-by-network schema matrix. |
 | Registration replaces the complete capability set | GitOps remains the source of truth, removed capabilities do not linger, and one heartbeat converges deployment configuration into placement state. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
+| Per-cluster targeting is a server-assigned, platform-admin-only identity capability (`managed-cluster/<name>`), not a user-settable cluster reference | Placement is capability-based: normal callers express requirements (`provider/*`, `network/*`) and never choose a cluster. Operational and test callers that must reach a specific cluster do so through one gated capability on the same selector path, so there is a single place to authorize "where this lands". Deriving it from the unique `name` server-side makes it unspoofable (like `oidc_subject`) and needs no control-plane change; gating its *use* on `platform:admin` -- not hiding the value -- is what prevents a tenant from self-placing, by this capability or any other identity selector. |
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
 | `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |
 | `last_seen_at` as passive liveness, not a status field | Keeps the control plane's self-reported liveness separate from the hub reconciler's view of cluster state. The `status` field remains the reconciler's domain. |

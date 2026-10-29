@@ -40,7 +40,7 @@ type ManagedCluster struct {
 	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Timestamp of the most recent registration call. Updated on every POST /registration.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	// Registration-owned capability labels used by match-all placement selectors.
+	// Registration-owned capability labels used by match-all placement selectors. The reserved managed-cluster/<name> identity capability is server-assigned (derived from the unique name) and is included here only for a platform:admin caller; it is never accepted as input (PLAT-CLUS-14).
 	Capabilities []string `json:"capabilities,omitempty"`
 }
 
