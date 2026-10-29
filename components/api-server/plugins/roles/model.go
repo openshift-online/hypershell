@@ -51,6 +51,11 @@ const (
 	// register forges with a least-privilege credential instead of
 	// platform:admin. It confers no gateway, platform, or other ext-kind
 	// authority.
+	//
+	// Unlike the other platform-wide roles below it is NOT Keycloak-owned: it is
+	// assigned through the RoleBinding API (scope=global) by a platform:admin, so
+	// authorization over ci_providers is a decision HyperShell makes from its own
+	// RBAC, not one delegated to a Keycloak realm role.
 	RoleCIFederationAdmin = "ci-federation:admin"
 )
 
@@ -63,5 +68,8 @@ var JWTSyncedRoles = map[string]bool{
 	RolePlatformAdmin:                true,
 	RoleGatewayCreator:               true,
 	RoleGatewayDedicatedRouteCreator: true,
-	RoleCIFederationAdmin:            true,
+	// RoleCIFederationAdmin is intentionally absent: it is granted through the
+	// RoleBinding API by a platform:admin (SEC-RBAC-21), not synced from a
+	// Keycloak realm role. Keeping it out of this set means an API-created
+	// binding is never revoked by SyncJWTRoles on the caller's next sign-in.
 }
