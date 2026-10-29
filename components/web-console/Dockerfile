@@ -31,7 +31,9 @@ USER ${CONTAINER_DEFAULT_USER}
 
 WORKDIR /app
 
-COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# .npmrc carries Hermeto's injected registry redirect to the prefetched pnpm
+# cache during hermetic builds; a benign committed copy keeps local builds working.
+COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript/package.json components/sdk-typescript/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/operational-dashboard-ui/package.json packages/operational-dashboard-ui/package.json
@@ -80,6 +82,9 @@ WORKDIR /app
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/package.json /app/package.json
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/pnpm-lock.yaml /app/pnpm-lock.yaml
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/pnpm-workspace.yaml /app/pnpm-workspace.yaml
+# Carry the Hermeto-injected .npmrc so the prod install stage also resolves
+# dependencies from the prefetched cache under network isolation.
+COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/.npmrc /app/.npmrc
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/components /app/components
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/packages /app/packages
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/images /app/images

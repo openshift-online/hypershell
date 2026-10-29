@@ -33,7 +33,9 @@ USER ${CONTAINER_DEFAULT_USER}
 WORKDIR /app
 
 # Workspace manifests first for layer caching, then install, then sources.
-COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# .npmrc carries Hermeto's injected registry redirect to the prefetched pnpm
+# cache during hermetic builds; a benign committed copy keeps local builds working.
+COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/fleet-dashboard-ui/package.json packages/fleet-dashboard-ui/package.json
 RUN pnpm install --frozen-lockfile --filter @openshift-online/hypershell-fleet-dashboard-ui...
 

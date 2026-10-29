@@ -414,6 +414,7 @@ scopes:
       - .mergify.yml
       - Makefile
       - .dockerignore
+      - .npmrc
       - .github/component-paths.json
       - .github/scripts/**
       - .github/actions/detect-konflux-components/**
