@@ -243,19 +243,46 @@ All eight Konflux components are now addressed in PR #779:
 - **`fullsend-sandbox`** -- SHA-256 digest-attribution path (no Hermeto-resolvable
   from-source ecosystem); base-registry EC violation already fixed by #797 (merged).
 
-**Verification status (honest):** the live Konflux `on-pull-request` builds + the
-`enterprise-contract` checks for all eight components are running on PR #779 at
-commit `148f92df`. The current-main EC baseline is `Success: true, Result:
-WARNING, 0 Violations, 4225 Warnings` (4152 `sbom_spdx.hermeto_attribution_required`,
-which become failures 2027-01-15). A neutral/`skipping` or WARNING EC result is NOT
-counted as conformance: acceptance requires the attribution warnings driven down
-and no `+dirty` binary. These changes target exactly that; green-build and
-reduced-warning confirmation is pending the live run on this commit.
+**Verification (live Konflux, head `979f2623`).** All eight component
+`on-pull-request` builds are GREEN. The authoritative combined pr-group EC
+PipelineRun (`hypershell-main-enterprise-contract-5fvxs`, snapshot pinning all
+eight PR images) reports `0 failures, 3567 warnings` (`WARNING`), with NO `+dirty`
+entries. (Individual-component snapshots mix stale `main` images and must NOT be
+read as PR state.) This confirms:
+- **CICD-ECC-01 / -03:** 0 EC violations; attestation is trusted (0 attestation
+  violations).
+- **CICD-ECC-04:** no `+dirty` / non-reproducible binary anywhere; `fullsend` is
+  now built from pinned clean source and its dependency closure is Hermeto
+  attributed (no `fullsend-ai` PURLs remain in the warnings).
+- **CICD-ECC-05:** `#774` is CLOSED; `fullsend-sandbox` has one pipeline source.
 
-**Remaining investigation (not deferred scope):** CICD-ECC-03 (trusted attestation)
-and CICD-ECC-06 (Mintmaker base-image policy) are validated against the live EC
-`verify` output / attestation now that Konflux read access is available; the EC
-baseline shows 0 attestation violations today.
+**Attribution (CICD-ECC-02) - verified per component.** Missing-Hermeto-attribution
+warnings by component: `web-console 0`, `api-server 4`, `cli 4`, `control-plane 2`,
+`fleet-dashboard 4`, `agent-runtime 1016`, `agent-runtime-slim 1016`,
+`fullsend-sandbox 1374`. The Go/Node components are effectively fully attributed;
+their 2-4 residual warnings are Go `stdlib` (the toolchain standard library, not a
+Hermeto-prefetchable dependency) and the component's own first-party main-module
+PURL (a self-reference, not a real dependency gap).
+
+**External blocker for full attribution (concrete, not deferred scope).** The 3406
+remaining warnings on the three agent images are the dependency closures of
+downloaded third-party tools that this repository cannot build from source:
+- `atlassian.com/cli` (**acli**, the Atlassian CLI, ~376 build-info dep modules) is
+  **closed source**; it is a required tool (Jira automation) and cannot be rebuilt
+  through Hermeto. Present in `agent-runtime`, `agent-runtime-slim`, `fullsend-sandbox`.
+- `fullsend-sandbox` additionally inherits tool binaries (`tirith`, `pi`, `codex`,
+  `claude`, ...) from its **upstream base image** `ghcr.io/fullsend-ai/fullsend-sandbox`,
+  not built in this repo (hence 1374 > 1016).
+These are attributed by SHA-256 digest per CICD-ECC-02.06, which the specification
+already sanctions. EC's `sbom_spdx.hermeto_attribution_required` rule (a warning
+today, a failure from 2027-01-15) does not honor that path, so clearing it requires
+a Conforma policy exception in the **tenant** policy
+`rhtap-releng-tenant/app-interface-standard` (scoping out Go `stdlib`, first-party
+main-module PURLs, and SHA-256-attributed closed-source/base-image tools) - a
+Konflux tenant-config action **outside this repository and PR #779** - or upstream
+source availability for `acli`. This is reported as a blocker with exact
+components/rules; it is NOT waived here and the warnings are NOT counted as
+conformance.
 
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
