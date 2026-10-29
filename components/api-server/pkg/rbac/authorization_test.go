@@ -958,3 +958,124 @@ func TestCanManageGatewayResources(t *testing.T) {
 		t.Error("an empty gateway id must never be manageable")
 	}
 }
+
+// --- Extension kind authorization gate: CI federation (SEC-RBAC-19/21/22) ---
+
+func gwBinding(role, gw string) BindingSummary {
+	return BindingSummary{RoleName: role, Scope: "gateway", GatewayID: &gw}
+}
+
+func globalBinding(role string) BindingSummary {
+	return BindingSummary{RoleName: role, Scope: "global"}
+}
+
+// TestIsAuthorized_CIProvidersRequireCIFederationAdmin covers SEC-RBAC-21: the
+// ci_providers ext kind is gated on the narrow ci-federation:admin role (or
+// platform:admin) for every method, never on gateway:creator.
+func TestIsAuthorized_CIProvidersRequireCIFederationAdmin(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		if !isAuthorized(method, "ci_providers", "", "", []BindingSummary{globalBinding("ci-federation:admin")}, nil, true) {
+			t.Errorf("%s: ci-federation:admin must authorize ci_providers", method)
+		}
+		if !isAuthorized(method, "ci_providers", "", "", []BindingSummary{globalBinding("platform:admin")}, nil, true) {
+			t.Errorf("%s: platform:admin must authorize ci_providers", method)
+		}
+		if isAuthorized(method, "ci_providers", "", "", []BindingSummary{globalBinding("gateway:creator")}, nil, true) {
+			t.Errorf("%s: gateway:creator must NOT authorize ci_providers", method)
+		}
+		if isAuthorized(method, "ci_providers", "", "", []BindingSummary{gwBinding("gateway:owner", "gw-1")}, nil, true) {
+			t.Errorf("%s: a gateway owner must NOT authorize ci_providers", method)
+		}
+	}
+}
+
+// TestIsAuthorized_CIFederationAdminGrantsNothingElse covers SEC-RBAC-21.03: the
+// role authorizes ci_providers only - not gateway creation, not ci_trusts, not
+// any other ext kind.
+func TestIsAuthorized_CIFederationAdminGrantsNothingElse(t *testing.T) {
+	b := []BindingSummary{globalBinding("ci-federation:admin")}
+	if isAuthorized(http.MethodPost, "gateways", "", "", b, nil, false) {
+		t.Error("ci-federation:admin must not create gateways")
+	}
+	if isAuthorized(http.MethodPost, "ci_trusts", "", "", b, nil, true) {
+		t.Error("ci-federation:admin must not author ci_trusts")
+	}
+	if isAuthorized(http.MethodPost, "agent_runtimes", "", "", b, nil, true) {
+		t.Error("ci-federation:admin must not author agent_runtimes")
+	}
+	if isAuthorized(http.MethodPost, "secret_sources", "", "", b, nil, true) {
+		t.Error("ci-federation:admin must not author secret_sources")
+	}
+}
+
+// TestIsAuthorized_CITrustsAdmitGatewayBindings covers the SEC-RBAC-22 middleware
+// gate: a caller with any gateway binding (owner/admin/viewer), a gateway:creator,
+// or platform:admin is admitted here; the per-gateway tenancy is enforced
+// in-handler. A caller with no bindings at all is denied.
+func TestIsAuthorized_CITrustsAdmitGatewayBindings(t *testing.T) {
+	admit := [][]BindingSummary{
+		{gwBinding("gateway:owner", "gw-1")},
+		{gwBinding("gateway:admin", "gw-1")},
+		{gwBinding("gateway:viewer", "gw-1")},
+		{globalBinding("gateway:creator")},
+		{globalBinding("platform:admin")},
+	}
+	for i, b := range admit {
+		if !isAuthorized(http.MethodPost, "ci_trusts", "", "", b, nil, true) {
+			t.Errorf("case %d: expected ci_trusts admit at middleware gate", i)
+		}
+	}
+	if isAuthorized(http.MethodPost, "ci_trusts", "", "", nil, nil, true) {
+		t.Error("a caller with no bindings must be denied ci_trusts")
+	}
+	if isAuthorized(http.MethodPost, "ci_trusts", "", "", []BindingSummary{globalBinding("ci-federation:admin")}, nil, true) {
+		t.Error("ci-federation:admin alone must NOT be admitted to ci_trusts")
+	}
+}
+
+// TestIsAuthorized_UnknownExtKindFailsClosed is the regression guard for the
+// fail-closed omission that motivated SEC-RBAC-19: an ext resource not in
+// extKinds is denied for everyone, including platform:admin.
+func TestIsAuthorized_UnknownExtKindFailsClosed(t *testing.T) {
+	if isAuthorized(http.MethodGet, "not_a_real_kind", "", "", []BindingSummary{globalBinding("platform:admin")}, nil, true) {
+		t.Error("an unknown ext kind must fail closed even for platform:admin")
+	}
+}
+
+// TestExtKinds_IncludesCIKinds guards the allow-list hygiene requirement that the
+// two previously-omitted kinds are now present.
+func TestExtKinds_IncludesCIKinds(t *testing.T) {
+	if !extKinds["ci_providers"] {
+		t.Error("ci_providers must be in the extKinds allow-list")
+	}
+	if !extKinds["ci_trusts"] {
+		t.Error("ci_trusts must be in the extKinds allow-list")
+	}
+}
+
+// TestCanReadGatewayResources covers the shared read-tenancy helper used by the
+// ci_trusts read path.
+func TestCanReadGatewayResources(t *testing.T) {
+	gw := "gw-1"
+	cases := []struct {
+		name string
+		b    []BindingSummary
+		want bool
+	}{
+		{"owner", []BindingSummary{gwBinding("gateway:owner", gw)}, true},
+		{"admin", []BindingSummary{gwBinding("gateway:admin", gw)}, true},
+		{"viewer", []BindingSummary{gwBinding("gateway:viewer", gw)}, true},
+		{"platform admin", []BindingSummary{globalBinding("platform:admin")}, true},
+		{"creator only", []BindingSummary{globalBinding("gateway:creator")}, false},
+		{"other gateway", []BindingSummary{gwBinding("gateway:owner", "gw-2")}, false},
+		{"unbound", nil, false},
+	}
+	for _, c := range cases {
+		if got := CanReadGatewayResources(c.b, gw); got != c.want {
+			t.Errorf("%s: CanReadGatewayResources = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if CanReadGatewayResources([]BindingSummary{globalBinding("platform:admin")}, "") {
+		t.Error("an empty gateway id must never be readable")
+	}
+}
