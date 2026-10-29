@@ -701,7 +701,7 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 **Phase P2 -- Hard behaviors** (parallel, each on its own gateway, bounded by `E2E_CONCURRENCY`, queued in canonical order):
 
-- **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
+- **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting), and confirm each sandbox is **fully deleted** (gone from `openshell sandbox list`) within `E2E_SANDBOX_DELETE_TIMEOUT` seconds -- `active_sandbox_count` tracks pods and cannot see a sandbox wedged in the gateway store. Owns its own gateway so the count assertion is isolated.
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
 - **P2.3 Gateway deletion + namespace GC** -- long-mode qualification of both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout long-mode P2; see Gateway Deletion and Namespace GC).
 - **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage).
@@ -773,6 +773,13 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 - WHEN `sandbox create --name <name>` is invoked
 - THEN a pod matching `default--<name>` SHALL appear in the gateway namespace
 - AND the pod SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds
+
+#### Scenario: E2E-CORE-13.06 -- Sandbox is fully deleted within the delete timeout
+
+- GIVEN a sandbox that has been created and then deleted via the openshell CLI
+- WHEN the suite lists the gateway's sandboxes after the delete
+- THEN the sandbox SHALL no longer appear in `openshell sandbox list` within `E2E_SANDBOX_DELETE_TIMEOUT` seconds (default 120)
+- AND this check SHALL run in short mode, because `active_sandbox_count` tracks sandbox pods and can reach 0 while a sandbox remains wedged in the gateway store (object-store finalization failed), so the count alone does not prove full deletion
 
 ### Requirement: E2E-CORE-14 -- Active Sandbox Count Accounting
 
@@ -1706,6 +1713,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
 | `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each phase, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
+| `E2E_SANDBOX_DELETE_TIMEOUT` | `120` | Seconds to wait for a deleted sandbox to be fully removed from the gateway store (`openshell sandbox list`) |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
@@ -2014,7 +2022,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P1.3 Token + CA trust | fetch the per-gateway token (the driver's, or with `E2E_GATEWAY_AUTH=service_account` a gateway service account's) and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
 | P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
 | P1.5 Connectivity | one route reachability check | n/a |
-| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
+| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0, and the sandbox fully removed from `openshell sandbox list` within `E2E_SANDBOX_DELETE_TIMEOUT`; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
