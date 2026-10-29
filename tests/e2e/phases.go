@@ -175,40 +175,119 @@ func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 
 // --- Phase P1: primary gateway up and reachable ---
 
-// Verifies: E2E-CORE-13.02
-func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
-	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
-	if s.clusterIDOverride != "" {
-		prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
-	}
-	name := fmt.Sprintf("%s-%s", prefix, s.runID)
-	created := s.createGateway(t, name)
-	s.trackGateway(created.ID)
+// gatewayWorkspaceModes is the workspace-mode vocabulary the API server accepts
+// (shared, managed, operator; see field_policy.go gatewayWorkspaceModes, with
+// managed the create-time default). P1.1 asserts the primary gateway reports one
+// of these.
+var gatewayWorkspaceModes = []string{"shared", "managed", "operator"}
 
-	s.primary = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
+// ensurePrimaryGateway provisions the shared primary gateway exactly once and
+// records its artifacts on the suite (or step clone), so every step that reads the
+// primary gateway -- the P1 assertion steps and the P2/P3 steps that reuse it --
+// sees the same ready gateway, token, endpoint, and CLI handle. It is idempotent:
+// a full or Phase-P1 run provisions eagerly at Phase-P1 start, while an isolated
+// step provisions lazily on first call. Safe for concurrent step clones because
+// provisioning runs under primaryState.once.
+func (s *E2ESuite) ensurePrimaryGateway(t *testing.T) {
+	t.Helper()
+	st := s.primaryState
+	st.once.Do(func() { st.provision(s, t) })
+	// Copy the shared result into this suite/clone so the existing readers
+	// (s.primary, s.primaryGatewayToken, s.primaryLocalName, ...) work unchanged.
+	s.primary = st.ref
+	s.primaryReadyGateway = st.ready
+	s.primaryProvisionDuration = st.provisionDuration
+	s.primaryWorkspaceMode = st.workspaceMode
+	s.primaryGatewayToken = st.token
+	s.primaryEndpoint = st.endpoint
+	s.primaryLocalName = st.localName
+}
+
+// provision creates (or adopts) the primary gateway, waits for it to reach Running
+// with settled provisioning conditions, acquires its per-gateway token, discovers
+// its endpoint, and registers it with the CLI, recording each artifact on st. It
+// runs under primaryState.once, so a provisioning failure (a testify FailNow)
+// stops the calling step.
+func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
+	t.Helper()
+	start := time.Now()
+
+	var created *sdktypes.Gateway
+	if adoptID := os.Getenv("E2E_PRIMARY_GATEWAY_ID"); adoptID != "" {
+		// Fast local iteration: adopt an already-running gateway and leave it in
+		// place. It is never tracked for deletion, so TearDownSuite keeps it.
+		s.Logf("adopting existing primary gateway %s (E2E_PRIMARY_GATEWAY_ID); it will not be deleted in teardown", adoptID)
+		gw, err := s.admin.Gateways().Get(t.Context(), adoptID)
+		s.Require().NoError(err, "get adopted primary gateway %s", adoptID)
+		created = gw
+	} else {
+		prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
+		if s.clusterIDOverride != "" {
+			prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
+		}
+		name := fmt.Sprintf("%s-%s", prefix, s.runID)
+		created = s.createGateway(t, name)
+		s.trackGateway(created.ID)
+	}
+	st.ref = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
 
 	running := s.waitGatewayRunning(t, created.ID)
-	s.primary.Namespace = running.Namespace
-	s.primaryWorkspaceMode = running.WorkspaceMode
-	s.Require().Equal("Running", running.Phase, "gateway must reach Running")
-	s.Require().NotEmpty(running.RouteAddress, "running gateway publishes route_address")
+	st.ref.Namespace = running.Namespace
+	st.workspaceMode = running.WorkspaceMode
+	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
+	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
+
 	var conditionsErr error
 	conditionsWaitErr := harness.Poll(t.Context(), 5*time.Second, durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
 		current, err := s.admin.Gateways().Get(ctx, created.ID)
 		if err != nil {
 			return false, nil
 		}
-		conditionsErr = validateProvisioningConditions(current.ProvisioningConditions)
-		return conditionsErr == nil, nil
+		if conditionsErr = validateProvisioningConditions(current.ProvisioningConditions); conditionsErr == nil {
+			running = current
+			return true, nil
+		}
+		return false, nil
 	})
-	s.Require().NoError(conditionsWaitErr, "gateway provisioning conditions did not settle: %v", conditionsErr)
-	s.Logf("primary gateway %s (%s) Running in namespace %s", running.Name, running.ID, running.Namespace)
+	s.Require().NoError(conditionsWaitErr, "primary gateway provisioning conditions did not settle: %v", conditionsErr)
+	st.ready = running
+	st.provisionDuration = time.Since(start)
+	s.Logf("primary gateway %s (%s) Running in namespace %s after %s", running.Name, running.ID, running.Namespace, st.provisionDuration)
+
+	// Per-gateway token (the P1.3 artifact): a token exchange in identity mode, a
+	// client_credentials token in service_account mode.
+	tok := s.requireGatewayToken(t, t.Context(), st.ref, "acquire primary gateway token with openshell-admin role")
+	s.Require().NotEmpty(tok.AccessToken, "primary gateway token")
+	st.token = tok
+
+	// Endpoint discovery + CLI registration (the P1.4 artifacts). Both need a
+	// per-cluster kube context; without one they are skipped and P1.4/P1.5 skip too.
 	if !s.skipKubeChecks {
-		s.startOrphanReaper(t)
+		s.requireGatewayRoute(t, st.ref, "wait for primary gateway route")
+		endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), st.ref)
+		s.Require().NoError(err, "discover primary gateway endpoint")
+		st.endpoint = endpoint
+		st.localName = s.registerGateway(t, st.ref, endpoint, tok.AccessToken)
 	}
 }
 
+// p1_1Provisioning asserts the shared primary gateway (created in setup via
+// ensurePrimaryGateway) reconciled to Running with valid provisioning conditions
+// and workspace mode, and logs the recorded provisioning duration (TTR). The
+// gateway itself is created in setup, not here, so this step runs in isolation.
+// Verifies: E2E-CORE-13.02
+func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
+	s.ensurePrimaryGateway(t)
+	s.Require().NotNil(s.primaryReadyGateway, "primary gateway provisioned in setup")
+	s.Require().Equal("Running", s.primaryReadyGateway.Phase, "primary gateway reached Running")
+	s.Require().NotEmpty(s.primaryReadyGateway.RouteAddress, "running primary gateway publishes route_address")
+	s.Require().NoError(validateProvisioningConditions(s.primaryReadyGateway.ProvisioningConditions), "primary gateway provisioning conditions complete")
+	s.Assert().Containsf(gatewayWorkspaceModes, s.primaryWorkspaceMode, "primary gateway workspace mode %q is valid", s.primaryWorkspaceMode)
+	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
+}
+
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping gateway infrastructure checks")
@@ -355,45 +434,41 @@ func certificateReady(certificate *unstructured.Unstructured) bool {
 	return false
 }
 
+// p1_3TokenAndCATrust asserts the per-gateway token acquired during setup is
+// present (CA trust is installed process-wide for the SDK and consumed by the CLI
+// via SSL_CERT_FILE in P1.4/P1.5) and exercises the per-gateway OAuth device
+// authorization path. It reads the setup-recorded token rather than acquiring one,
+// so it runs in isolation.
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
-	// The per-gateway Keycloak client is "<gw-name>-<gw-id>"; block until the
-	// admin role lands in a token for it (roles reconcile asynchronously).
+	s.ensurePrimaryGateway(t)
+	// The per-gateway Keycloak client is "<gw-name>-<gw-id>".
 	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
-	if s.usesGatewayServiceAccount() {
-		s.runner.Comment("create a gateway service account for client %s and mint its client_credentials token (no token exchange)", clientID)
-	} else {
-		s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
-	}
-	tok := s.requireGatewayToken(t, t.Context(), s.primary, "acquire gateway token with openshell-admin role")
-	s.Require().NotEmpty(tok.AccessToken, "gateway token")
-	s.primaryGatewayToken = tok
+	s.Require().NotEmpty(s.primaryGatewayToken.AccessToken, "primary gateway token acquired in setup")
 	s.longOnly("device-authorization", func(t *testing.T) {
 		if s.driver.Name() != "kind" {
 			t.Skipf("device authorization check runs on kind only; driver is %s", s.driver.Name())
 		}
 		s.Require().NoError(s.driver.ValidateGatewayDeviceAuthorization(t.Context(), clientID), "per-gateway OAuth device authorization with PKCE")
 	})
-	// CA trust is already installed process-wide for the SDK (no insecure bypass);
-	// the CLI consumes the same CA via SSL_CERT_FILE in P1.4/P1.5.
 }
 
-// p1_4RouteAndCLIRegistration waits for the gateway route, discovers the endpoint,
-// and registers the gateway with the openshell CLI (writes its per-gateway config).
+// p1_4RouteAndCLIRegistration asserts the gateway endpoint was discovered and the
+// CLI handle registered during setup, so the route-discovery + CLI-registration
+// outcome is verified without redoing it.
 func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping route and CLI registration")
 	}
-	s.requireGatewayRoute(t, s.primary, "wait for gateway route")
-	endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), s.primary)
-	s.Require().NoError(err, "discover gateway endpoint")
-	s.Logf("gateway endpoint: %s", endpoint)
-
-	s.primaryLocalName = s.registerGateway(t, s.primary, endpoint, s.primaryGatewayToken.AccessToken)
+	s.Assert().NotEmpty(s.primaryEndpoint, "primary gateway endpoint discovered in setup")
+	s.Require().NotEmpty(s.primaryLocalName, "primary gateway registered with the CLI in setup")
+	s.Logf("primary gateway endpoint: %s (CLI handle %s)", s.primaryEndpoint, s.primaryLocalName)
 }
 
 // p1_5Connectivity verifies the openshell CLI connects and reports status over the
-// trusted TLS established in P1.3.
+// trusted TLS established for the primary gateway in setup.
 func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping CLI connectivity")
 	}
@@ -616,9 +691,14 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
-	// account is revoked, verified, and deleted here (a no-op in identity mode).
-	s.retireGatewayServiceAccount(s.primary)
+	// The orphan reaper is normally seeded in SetupSuite (long mode) so its sweep
+	// interval overlaps P1 and P2. Seed it here too, so an isolated P2.3 run -- where
+	// setup did not start it -- still has an orphan to assert against. The primary
+	// gateway's service account is NOT retired here (TearDownSuite retires it, so it
+	// never races with P2.5's use of the primary gateway).
+	if s.orphan == nil {
+		s.startOrphanReaper(t)
+	}
 
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
 	gw := s.createGateway(t, "e2e-del-"+s.runID)
@@ -652,8 +732,9 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	}), "deleted gateway API record reaches 404")
 	s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
 
-	// Periodic-reaper path: P1.1 seeded the orphan and started this wait in the
-	// background, overlapping it with P1.2-P1.5 and the P2 fan-out.
+	// Periodic-reaper path: SetupSuite seeded the orphan and started this wait in
+	// the background (an isolated P2.3 run self-seeded it above), overlapping the
+	// sweep interval with P1 and the P2 fan-out.
 	s.longOnly("orphan-reaper", func(t *testing.T) {
 		s.Require().NotNil(s.orphan, "background orphan reaper was started")
 		select {
@@ -790,6 +871,7 @@ func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time
 // and the unprivileged hypershell-control-plane service account.
 // Verifies: E2E-CORE-21.01, E2E-CORE-21.02, PLAT-USR-03.02, PLAT-USR-03.04
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 
 	privilegedLabel := "platform-admin"
