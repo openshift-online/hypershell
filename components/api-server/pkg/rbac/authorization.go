@@ -277,6 +277,34 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+// roleCIFederationAdmin mirrors roles.RoleCIFederationAdmin; kept local to avoid
+// an import cycle with the roles plugin package.
+const roleCIFederationAdmin = "ci-federation:admin"
+
+// hasCIFederationAdmin reports whether the caller holds the narrow platform-wide
+// role that authorizes the ci_providers ext kind (SEC-RBAC-21). It authorizes
+// nothing else, so it is checked only at the ci_providers gate.
+func hasCIFederationAdmin(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleCIFederationAdmin {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyGatewayBinding reports whether the caller holds any gateway-scoped
+// binding (owner, admin, or viewer on any gateway). It is the coarse admit gate
+// for ci_trusts, whose per-gateway tenancy is resolved and enforced in-handler.
+func hasAnyGatewayBinding(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUsersInventoryAccess(bindings []BindingSummary, _ []string) bool {
 	return hasPlatformAdmin(bindings)
 }
@@ -288,13 +316,22 @@ func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) b
 // extKinds are the Extension API kinds served under /api/hypershell/ext/.
 // They are platform-wide authoring kinds (the hsctl extension commands and
 // hsctl apply). The middleware gate requires gateway:creator or
-// platform:admin for every method; the gateway-scoped kinds among them
-// (agent_runtimes, secret_sources) additionally enforce per-resource tenancy
-// in their handlers. Keep in sync with the plugins registering
-// RegisterPrefixedRoutes(_, "ext", ...).
+// platform:admin for every method by default; two kinds use a different gate
+// (ci_providers requires ci-federation:admin, ci_trusts is per-gateway
+// tenancy, see isAuthorized). The gateway-scoped kinds among them
+// (agent_runtimes, secret_sources, ci_trusts) additionally enforce
+// per-resource tenancy in their handlers.
+//
+// Every plugin that registers an ext route with
+// RegisterPrefixedRoutes(_, "ext", ...) MUST have its kind here: a kind absent
+// from this map is fail-closed for every caller including platform:admin
+// (SEC-RBAC-19), which is a latent outage, not a deliberate deny. Keep this map
+// in sync with those plugins.
 var extKinds = map[string]bool{
 	"agent_runtimes":        true,
 	"agent_workspaces":      true,
+	"ci_providers":          true,
+	"ci_trusts":             true,
 	"inference_routes":      true,
 	"provider_bindings":     true,
 	"provider_specs":        true,
@@ -332,6 +369,31 @@ func CanManageGatewayResources(bindings []BindingSummary, gatewayID string) bool
 			continue
 		}
 		if b.RoleName == "gateway:owner" || b.RoleName == "gateway:admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// CanReadGatewayResources reports whether a caller holding bindings may read a
+// gateway-scoped resource belonging to gatewayID: a gateway:owner,
+// gateway:admin, or gateway:viewer binding on that gateway, or platform:admin.
+// It is the shared in-handler read-tenancy check for gateway-scoped extension
+// kinds that confine reads to the referenced gateway (ci_trusts, SEC-RBAC-22):
+// a caller with no binding on the gateway may not read its records.
+func CanReadGatewayResources(bindings []BindingSummary, gatewayID string) bool {
+	if gatewayID == "" {
+		return false
+	}
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope != "gateway" || b.GatewayID == nil || *b.GatewayID != gatewayID {
+			continue
+		}
+		switch b.RoleName {
+		case "gateway:owner", "gateway:admin", "gateway:viewer":
 			return true
 		}
 	}
@@ -500,17 +562,38 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	// Extension kinds (/api/hypershell/ext/...): the platform-wide authoring
-	// kinds served to hsctl and the generated SDKs. Every method requires
-	// gateway:creator or platform:admin at this gate (the authoring posture of
-	// "these kinds are authored over HTTP", grpc_authorization.go). The
-	// gateway-scoped kinds (agent_runtimes, secret_sources) additionally
-	// enforce per-resource tenancy in their handlers: the caller must hold
-	// gateway:owner or gateway:admin on the referenced gateway, or be
-	// platform:admin (CanManageGatewayResources). An ext path whose resource
-	// is not a known extension kind fails closed rather than falling through
-	// to the creator fallback below.
+	// kinds served to hsctl and the generated SDKs. An ext path whose resource
+	// is not a known extension kind fails closed rather than falling through to
+	// the creator fallback below.
 	if extSurface {
-		return extKinds[resource] && hasDashboardInventoryAccess(bindings, jwtRoles)
+		if !extKinds[resource] {
+			return false
+		}
+		switch resource {
+		case "ci_providers":
+			// A forge registration is a narrow platform operation, not a
+			// gateway-authoring one: it requires the dedicated ci-federation:admin
+			// role (or platform:admin), NOT gateway:creator (SEC-RBAC-21).
+			return hasCIFederationAdmin(bindings) || hasPlatformAdmin(bindings)
+		case "ci_trusts":
+			// A gateway-scoped tenancy kind (SEC-RBAC-22). The referenced gateway
+			// id is not in the ext path (ext kinds are flat and body-addressed),
+			// so this gate admits any caller with a gateway binding, a
+			// gateway:creator, or platform:admin, and the handler enforces
+			// per-gateway tenancy: CanManageGatewayResources on writes and
+			// per-gateway read access on reads. A bare gateway:creator with no
+			// binding on the referenced gateway is admitted here but rejected
+			// in-handler.
+			return hasAnyGatewayBinding(bindings) || hasGatewayCreator(bindings) || hasPlatformAdmin(bindings)
+		default:
+			// Every method requires gateway:creator or platform:admin at this gate
+			// (the authoring posture of "these kinds are authored over HTTP",
+			// grpc_authorization.go). The gateway-scoped kinds (agent_runtimes,
+			// secret_sources) additionally enforce per-resource tenancy in their
+			// handlers: the caller must hold gateway:owner or gateway:admin on the
+			// referenced gateway, or be platform:admin (CanManageGatewayResources).
+			return hasDashboardInventoryAccess(bindings, jwtRoles)
+		}
 	}
 
 	if resource == "managed_clusters" {
