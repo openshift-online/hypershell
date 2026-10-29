@@ -21,7 +21,7 @@ Current model:
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
-- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-admin-scoped; referenced by many CITrusts; holds no secret.
+- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-wide; authorized by the narrow `ci-federation:admin` role (SEC-RBAC-21), not `platform:admin`; referenced by many CITrusts; holds no secret.
 - **CITrust** - a gateway owner or admin's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`). The self-service, secret-less way to enable CI on a gateway.
 
 ## Entity Relationship Diagram
