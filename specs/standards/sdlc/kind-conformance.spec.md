@@ -23,6 +23,16 @@ migration that fails closed on the production PostgreSQL driver, so that every
 query on `ci_providers`/`ci_trusts` aborted with `SQLSTATE 25P02` in a deployed
 environment while CI stayed green.
 
+A second failure in the same family drives SDLC-CONF-10 through SDLC-CONF-12: the
+first fix changed the `CIProvider`/`CITrust` migration bodies (`AutoMigrate` ->
+raw SQL) but kept the same migration IDs. Because the framework records a migration
+ID as applied exactly once, the corrected body was skipped on every upgraded hub
+that had already recorded the old ID, so the clean tables were never created and
+the deployed environments stayed broken while a fresh-database conformance test
+passed. Migration corrections therefore SHALL ship as new migration IDs, schema
+convergence SHALL run automatically on deploy, and conformance SHALL exercise the
+upgrade path, not only a fresh database.
+
 ## Requirements
 
 ### Requirement: SDLC-CONF-01 -- Kind Completeness Manifest
@@ -265,23 +275,130 @@ only coverage is mock-based.
 
 When a migration fix ships for a Kind whose table is already in a bad state in a
 deployed environment (for example `ci_providers`/`ci_trusts` left broken by a
-failed `AutoMigrate`), the environment SHALL converge to a queryable state
-without a manual, ad-hoc SQL patch applied by a human. The repair SHALL be a
-documented or automated step that re-runs the now-idempotent raw-SQL migration
-(or recreates the affected table) so the deployed API server serves the Kind
-after the fix is deployed. The repair SHALL leave the table queryable with no
-aborted transaction.
+failed `AutoMigrate`), every environment SHALL converge to a queryable state at
+deploy time without a manual, ad-hoc SQL patch applied by a human. Convergence
+SHALL come from a new-ID convergence migration (SDLC-CONF-11), NOT from a changed
+body under the already-shipped migration ID: a migration whose body is edited but
+whose ID is unchanged never re-runs on an environment that already recorded that
+ID (SDLC-CONF-10), so editing the original migration in place only repairs fresh
+databases and leaves every upgraded environment broken. The convergence migration
+SHALL run automatically when the fixed API server image is deployed and SHALL
+leave the table queryable with no aborted transaction. Any documented runbook
+repair SHALL describe this new-migration convergence as the primary path and MUST
+NOT claim that re-deploying the image re-runs the original (same-ID) migration;
+manual `DROP TABLE IF EXISTS` steps MAY remain only as a belt-and-suspenders
+fallback.
 
 #### Scenario: SDLC-CONF-09.01 -- Broken deployed table converges after the fix deploys
 
 - GIVEN a deployed environment where `ci_providers` returns 500 with
-  `SQLSTATE 25P02`
-- WHEN the raw-SQL migration fix is deployed and the documented repair runs
-- THEN `ci_providers` SHALL be queryable with no `25P02`
-- AND the repair SHALL be reproducible, not a hand-typed one-off
+  `SQLSTATE 25P02` and the original creating migration ID is already recorded as
+  applied
+- WHEN the fixed API server image carrying the new-ID convergence migration is
+  deployed
+- THEN the convergence migration SHALL run because its ID has not been recorded
+- AND `ci_providers` SHALL be queryable with no `25P02` with no hand-typed SQL
 
-#### Scenario: SDLC-CONF-09.02 -- Repair is idempotent
+#### Scenario: SDLC-CONF-09.02 -- Convergence is idempotent across redeploys
 
-- GIVEN the repair step for a broken deployed table
-- WHEN it is run twice
-- THEN the second run SHALL make no change and SHALL leave the table queryable
+- GIVEN an environment already converged by the new-ID convergence migration
+- WHEN the fixed image is deployed again
+- THEN the convergence migration SHALL NOT re-run (its ID is now recorded)
+- AND the table SHALL remain queryable with no change and no error
+
+### Requirement: SDLC-CONF-10 -- Shipped Migration Bodies Are Immutable; Fixes Ship as a New Migration ID
+
+Once a migration ID has shipped, its body SHALL be treated as immutable. The
+migration framework (gormigrate) records a migration ID as applied exactly once;
+on any environment that already recorded that ID, an edited body is SKIPPED and
+never re-runs. Editing an already-shipped migration in place therefore repairs
+only fresh databases and silently leaves every upgraded environment on the old
+behavior. Any correction to already-shipped migration behavior SHALL ship as a
+NEW migration with a new, unique ID so it runs on every environment regardless of
+prior state. The system SHALL provide a static conformance check (wired into
+`make check`, per SDLC-CONF-05) that detects a changed body under an
+already-shipped migration ID -- by comparing a recorded body hash against the ID
+-- and FAILS, naming the migration, so a "fix in place" edit cannot merge.
+
+#### Scenario: SDLC-CONF-10.01 -- A changed body under a shipped ID fails the gate
+
+- GIVEN a migration whose ID was shipped in a prior release and whose body is now
+  edited without a new ID
+- WHEN the static conformance check (SDLC-CONF-05) runs
+- THEN the check SHALL fail
+- AND it SHALL name the migration whose body changed under an already-shipped ID
+
+#### Scenario: SDLC-CONF-10.02 -- A correction shipped as a new ID converges upgraded environments
+
+- GIVEN an upgraded environment that recorded the original migration ID
+- WHEN a corrected migration ships under a new, unique ID
+- THEN the new migration SHALL run on that environment because its ID is not
+  recorded
+- AND the corrected behavior SHALL take effect without editing the original
+  migration
+
+### Requirement: SDLC-CONF-11 -- Idempotent Convergence Migration for a Mis-shipped Schema
+
+When a prior migration left a deployed schema wrong (a missing clean table, a
+stale mangled table, or both -- for example `ci_providers` missing while a mangled
+`c_iproviders` remains), the fix SHALL be a new-ID convergence migration
+(SDLC-CONF-10) that, using the raw-SQL / `dbmigrate.CreateTable` path and the
+Kind's pinned `TableName()` (SDLC-CONF-02):
+
+- Creates the clean table if it is missing.
+- Migrates any rows from the stale mangled table into the clean table, then drops
+  the stale table.
+- Is fully idempotent: on an already-healthy environment (clean table present,
+  stale table absent) it makes no change and does not error, and it SHALL NOT use
+  `AutoMigrate` or poison the transaction on the production driver (`lib/pq` with
+  `PreferSimpleProtocol`).
+
+Every migration whose body was rewritten in place by a prior "fix in place" change
+(the `AutoMigrate` -> raw-SQL conversion) SHALL be audited, and each Kind whose
+upgraded-environment schema does not match its intended schema SHALL be brought to
+convergence by this pattern. The audit SHALL NOT assume only `ci_providers` and
+`ci_trusts` are affected.
+
+#### Scenario: SDLC-CONF-11.01 -- Upgraded hub converges to the clean table
+
+- GIVEN an upgraded environment where the clean table is missing and a stale
+  mangled table (for example `c_iproviders`) remains
+- WHEN the new-ID convergence migration runs
+- THEN the clean table SHALL exist, any rows SHALL be migrated into it, and the
+  stale mangled table SHALL be dropped
+- AND no query SHALL abort with `SQLSTATE 25P02`
+
+#### Scenario: SDLC-CONF-11.02 -- No-op on a healthy environment
+
+- GIVEN an environment where the clean table is already present and no stale
+  mangled table exists
+- WHEN the convergence migration runs
+- THEN it SHALL make no change and SHALL NOT error
+
+### Requirement: SDLC-CONF-12 -- Upgrade-Path Conformance Test
+
+The system SHALL provide an upgrade-path conformance test, distinct from the
+fresh-database generic CRUD conformance test (SDLC-CONF-06), that runs the
+migration suite against a database pre-seeded with the pre-fix state: the stale
+mangled tables (for example `c_iproviders`) AND the original migration IDs already
+recorded in the `migrations` table. After the migration suite runs, the test SHALL
+assert that every ext Kind's clean table exists, that the full create -> get ->
+list -> delete round-trip succeeds, and that no stale mangled table remains. This
+test SHALL run on the production driver configuration (SDLC-CONF-04) in continuous
+integration. Both the fresh-database test (SDLC-CONF-06) and this upgrade-path
+test SHALL pass; a convergence regression SHALL fail this test.
+
+#### Scenario: SDLC-CONF-12.01 -- Pre-seeded upgrade path converges and passes
+
+- GIVEN a database pre-seeded with the stale mangled tables and the original
+  migration IDs already recorded as applied
+- WHEN the migration suite runs and the upgrade-path conformance test executes
+- THEN every ext Kind's clean table SHALL exist, every CRUD round-trip SHALL
+  succeed, and no stale mangled table SHALL remain
+
+#### Scenario: SDLC-CONF-12.02 -- A convergence regression fails the test
+
+- GIVEN a change that removes or breaks the new-ID convergence migration
+- WHEN the upgrade-path conformance test runs
+- THEN the test SHALL fail and name the Kind whose clean table is missing or whose
+  stale table remains
