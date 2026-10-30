@@ -127,8 +127,13 @@ make generate-cli                              # Regenerate hsctl commands and t
 make generate-tui                              # Regenerate only the TUI descriptor
 cd components/cli && go test ./...             # CLI unit tests
 
+# Local agent development
+make fullsend                                  # Start/resume local Fullsend (docs/development/fullsend.md)
+make fullsend-doctor                           # Check local tools and credential configuration
+
 # All Components
 make ci-test                                   # Run all *_test.sh shell unit tests
+bash scripts/funnel-dispatch_test.sh            # Go dispatcher race/vet and migration integration tests
 make unit-test-all                             # Run Go, frontend, and shell unit tests
 make e2e-console                               # Playwright e2e of web console + OpenShell console (needs port 443 from make kind-up)
 pnpm test:e2e:all                              # Bring up Kind with Jaeger and run all three browser e2e suites

@@ -151,3 +151,10 @@ Rollout order:
 There can be a temporary publication gap while the first two images build.
 Retrying an incomplete immutable Snapshot cannot fill its missing components;
 use the later complete Snapshot. Existing deployments are unaffected.
+
+The local Fullsend harnesses in `.fullsend/harness/` use this component's
+published image by digest. Keep those references aligned when updating the
+image. They also attach Fullsend's `package-registries` provider so Go and
+Node dependency downloads work inside the sandbox. The published image includes
+Corepack; use `corepack pnpm` to select the version in `package.json`, or pass
+`PNPM='corepack pnpm'` to Make.

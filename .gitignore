@@ -71,3 +71,9 @@ loop.txt
 /e2e-console-artifacts
 
 artifacts/
+
+# Local Fullsend dispatcher gateway selection (no credentials).
+.hypershell/.funnel-gateway.json
+
+# Per-worktree local Fullsend preferences and credentials.
+/.hypershell/fullsend.env

@@ -5,7 +5,22 @@ description: "Review the code changes on the work item's pull request and record
 
 ## Runtime context (supplied by the harness as environment variables)
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a clean checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+
+### Sandbox checkout and build tools
+
+The local dispatcher supplies an independent Git checkout with the host's local
+edits, including non-ignored untracked files. Inspect `git status` before editing;
+keep unrelated local work out of your commits. Use this checkout instead of
+cloning a fresh copy to work around a linked-worktree path.
+
+The HyperShell sandbox image includes Go, Node, npm, Corepack, make, and GCC.
+Use `corepack pnpm` for frontend commands; it selects the version pinned in
+`package.json`. For Make targets that invoke pnpm, use
+`make PNPM='corepack pnpm' <target>`. Package registry access is provided through
+Fullsend's `package-registries` provider. Run relevant builds and unit tests in
+the sandbox. Tests requiring a container engine, cluster, or browser installation
+still need their documented infrastructure; report those limitations explicitly.
 
 ---
 
@@ -38,7 +53,11 @@ Supported arguments:
 
 Using the GitHub API, fetch `$GITHUB_ISSUE_URL`.
 
-Read the issue title and body and identify the linked PR.
+When `GITHUB_PR_URL` and `PR_NUMBER` are supplied, review that exact PR and
+verify its explicit link to this issue. Do not substitute a newer or similarly
+named PR. Stop and report ambiguity or a mismatched link without posting a verdict.
+When no PR is supplied, resolve exactly one linked PR from the issue; apply the
+same ambiguity rule.
 
 Output: (`$LINKED_PR`, `$ISSUE_CONTENTS`)
 

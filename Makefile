@@ -88,6 +88,13 @@ help:
 	@echo "  HyperShell Makefile"
 	@echo "  ==================="
 	@echo ""
+	@echo "  Local Fullsend agents"
+	@echo "    fullsend                      Start or resume the dispatcher (watch mode)"
+	@echo "    fullsend-status               Show persisted job state"
+	@echo "    fullsend-doctor               Check local tools and credential configuration"
+	@echo "    fullsend-help                 Show local commands and setup help"
+	@echo "    Setup: docs/development/fullsend.md"
+	@echo ""
 	@echo "  Local Development"
 	@echo "    Targets are kind-<name> or openshift-<name>. They do the same work."
 	@echo ""
@@ -776,3 +783,19 @@ e2e-tracing:
 .PHONY: test-release-bundle
 test-release-bundle:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_bundle.py
+
+# Local Fullsend: pass values as environment entries, never interpolate them
+# into shell commands. The trusted env file is sourced only by local.sh.
+.PHONY: fullsend fullsend-status fullsend-doctor fullsend-help
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_SCOPE = $(SCOPE)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_ENV_FILE = $(ENV_FILE)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_MODEL = $(MODEL)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_CONCURRENCY = $(if $(filter command line,$(origin CONCURRENCY)),$(CONCURRENCY))
+fullsend:
+	@bash .hypershell/execute-sdlc/local.sh watch
+fullsend-status:
+	@bash .hypershell/execute-sdlc/local.sh status
+fullsend-doctor:
+	@bash .hypershell/execute-sdlc/local.sh doctor
+fullsend-help:
+	@bash .hypershell/execute-sdlc/local.sh help

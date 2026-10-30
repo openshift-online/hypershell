@@ -4,11 +4,12 @@ agent: agents/triage.md
 description: "Triage and label new issues"
 role: triage
 slug: fullsend-triage
-image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55
+image: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-fullsend-sandbox-main@sha256:373911325896e430b278a6d68885ac87a304542da58d03452f343a4500801fe1
 policy: policies/base.yaml
 providers:
   - vertex-ai
   - github
+  - package-registries
 host_files:
   - src: ${GOOGLE_APPLICATION_CREDENTIALS}
     dest: /tmp/.gcp-credentials.json
@@ -21,6 +22,8 @@ env:
     GH_TOKEN: ${GH_TOKEN}
     REPOSITORY: ${REPOSITORY}
   sandbox:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    COREPACK_HOME: /sandbox/.cache/corepack
     FULLSEND_FORGE: github
     CLAUDE_CODE_USE_VERTEX: "1"
     ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID}
@@ -32,13 +35,15 @@ env:
     LABEL_SCOPE: ${LABEL_SCOPE}
     TRUSTED_BRANCH: main
     DRY_RUN: ${DRY_RUN}
+    GITHUB_ISSUE_URL: ${FULLSEND_WORK_ITEM_URL}
+    ISSUE_NUMBER: ${ISSUE_NUMBER}
 timeout_minutes: 30
 trigger: |
   event.transition.kind == "label_changed"
     && event.transition.label.action == "added"
     && (event.transition.label.name == "agent/allowed")
     && event.entity.kind == "work_item"
-    && event.state.labels.exists(l, l == "agent/scope/hyp0")
+    && event.state.labels.exists(l, l.startsWith("agent/scope/"))
     && !event.state.labels.exists(l, l == "agent/workable")
     && !event.state.labels.exists(l, l == "agent/needs-input")
     && !event.state.labels.exists(l, l == "agent/duplicate")

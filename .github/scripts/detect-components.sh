@@ -96,6 +96,8 @@ bash_tests="${all_components_changed}"
 if [[ "${bash_tests}" != true ]]; then
   for file in "${changed_files[@]}"; do
     if [[ "${file}" == ".github/workflows/unit-tests.yml" ||
+          "${file}" == .hypershell/execute-sdlc/* ||
+          "${file}" == .fullsend/* ||
           "${file}" == "scripts/run-shell-unit-tests.sh" ||
           "${file}" == ".github/scripts/detect-components.sh" ||
           "${file}" == "Makefile" ]]; then
