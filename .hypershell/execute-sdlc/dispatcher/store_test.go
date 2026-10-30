@@ -359,6 +359,7 @@ func TestConfirmedUnknownRetryRejectsStaleAndLiveRuns(t *testing.T) {
 	}
 }
 
+// Verifies: SDLC-LOC-04
 func TestLegacyLifecycleNamesPreserveOwnershipAndHistory(t *testing.T) {
 	s := testStore(t)
 	j := testJob()

@@ -59,6 +59,7 @@ class SharedAgentTests(unittest.TestCase):
         self.assertEqual((source/'harness/ingest.yaml').read_bytes(), original)
         self.assertFalse((source/'agents/funnel-ingest.md').exists())
 
+    # Verifies: SDLC-LOC-03.01
     def test_canonical_changes_flow_through_runtime_overrides(self):
         import shutil
         import yaml
@@ -236,6 +237,7 @@ class ImplementationCycleTests(unittest.TestCase):
         self.coordinator = funnel.Coordinator(args, self.store, -1)
         self.github = self.coordinator.github
 
+    # Verifies: SDLC-LOC-05.01
     def test_repeated_rejections_distinct_but_polling_and_restart_stable(self):
         for phase in ('code', 'spec'):
             agent = phase+'-implementation'
@@ -312,6 +314,7 @@ class LocalLaunchTests(unittest.TestCase):
     def invoke(self, target='fullsend', *values):
         return subprocess.run(['make','--no-print-directory','-s','-f',str(ROOT/'Makefile'),target,*values],cwd=self.root,env=self.env,text=True,capture_output=True,timeout=15)
 
+    # Verifies: SDLC-LOC-02.01
     def test_local_config_make_overrides_and_action_modes(self):
         (self.root/'.hypershell/fullsend.env').write_text('FULLSEND_SCOPE=agent/scope/local\nFULLSEND_MODEL=file-model\nCONCURRENCY=2\n')
         self.env['CONCURRENCY']='7'
@@ -356,6 +359,7 @@ class LocalLaunchTests(unittest.TestCase):
         self.assertNotIn('usage:',result.stdout)
         self.assertNotIn('make fullsend-plan',result.stdout)
 
+    # Verifies: SDLC-LOC-01.01
     def test_unregistered_or_unverifiable_scope_blocks_start_but_not_status(self):
         self.env['FULLSEND_SCOPE'] = 'agent/scope/test'
         for mode in ('error', 'wrong'):
@@ -738,6 +742,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(self.start().wait(timeout=8), 0)
         self.assertEqual(len(self.runs()), 2)
 
+    # Verifies: SDLC-LOC-04.01
     def test_restart_uses_free_capacity_while_adopted_worker_runs(self):
         first = self.start('--watch', MOCK_DELAYS='{"1":5,"2":0.1}')
         self.wait_for(lambda: any(row['item']=='2' and row['status']=='succeeded' for row in self.rows()))
@@ -782,6 +787,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(third.wait(timeout=8), 0)
         self.assertEqual([call['item'] for call in self.runs()], ['2'])
 
+    # Verifies: SDLC-LOC-07
     def test_auth_refresh_continues_when_all_worker_slots_are_busy(self):
         proc = self.start('--watch', '--auth-check-interval', '1', MOCK_DELAYS='{"1":5,"2":5}')
         self.wait_for(lambda: len(self.runs())==2)
@@ -985,6 +991,7 @@ class ProcessTests(unittest.TestCase):
 
 
 class LifecycleValidationTests(unittest.TestCase):
+    # Verifies: SDLC-LOC-06
     def test_partial_failures_and_missing_results_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp)/'output').mkdir()
