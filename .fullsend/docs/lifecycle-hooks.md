@@ -117,17 +117,39 @@ execution-record marker and the scope label; `reconcile` writes Jira status from
 the GitHub phase labels. Neither writes a GitHub phase label, so there is no
 competing writer.
 
+## Posting the outcome comment (SDLC-HOOK-10)
+
+The post-script posts the agent's `comment` through the repository's
+sticky-comment primitive, `fullsend issues post-comment` (the same tool
+`post-update-openshell.sh` uses), keyed by the `<!-- fullsend:<phase>-agent -->`
+marker so a reapplied result edits the one comment in place instead of posting a
+duplicate.
+
+The comment is posted BEFORE any label change. For a review phase the comment is
+the required review record (the result schema requires a non-empty `comment`), so
+if it cannot be posted the post-script fails before the verdict labels move: the
+verdict never lands without its record, and a rerun retries the sticky post and
+then the transition. For a non-review phase the comment is optional; a failed post
+logs a warning and the transition still applies.
+
 ## Required runner tools and permissions
 
 The tooling splits by hook:
 
-- The **pre-script and post-script** need `gh` (authenticated by `GH_TOKEN`),
-  `jq`, and (post-script only) the `fullsend` CLI for the sticky `issues
-  post-comment`. They do not use `python3`.
+- The **pre-script and post-script** need `gh` (authenticated by `GH_TOKEN`) and
+  `jq`. The **post-script** additionally needs the `fullsend` CLI, the repository
+  sticky-comment primitive used for `issues post-comment`; it is a required runner
+  tool for every phase that posts a comment, exactly as `post-update-openshell.sh`
+  requires it. These scripts do not use `python3`.
 - The **validation step** (`validate-output-schema.sh`) needs `python3` with the
   `jsonschema` package, declared as the harness `preflight_check`. Validation runs
   Python in isolated mode (`python3 -I`) so the untrusted output tree cannot
   shadow the stdlib or the installed package.
+- The **review harnesses** (`spec-review`, `code-review`) extend their
+  `preflight_check` to also assert the `fullsend` CLI is present (SDLC-HOOK-11),
+  because a review verdict comment is required: a missing `fullsend` then fails
+  fast at preflight with a clear message instead of wedging every verdict in the
+  post-script's required-comment hard-fail on each rerun.
 
 `curl` is deliberately unavailable (base policy). The minted token uses the
 harness `role:` and needs permission to read and write issue labels and to read
@@ -151,8 +173,10 @@ directory with the same `PHASE`, `ISSUE_URL`, and recorded `LIFECYCLE_*`
 environment (where the deployed Fullsend interfaces support re-invoking a
 post-script). Failure classes are distinguishable from the post-script logs:
 `no validated agent result` (agent failure), a non-zero exit on a schema or
-identifier problem (invalid output), `review result is stale` (stale output), and
-`final-state verification FAILED` (label-application failure).
+identifier problem (invalid output), `review result is stale` (stale output),
+`FAILED to post the required ... review comment` (comment-posting failure, before
+any label change, so a rerun is safe), and `final-state verification FAILED`
+(label-application failure).
 
 ## Tests
 

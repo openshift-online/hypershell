@@ -119,6 +119,16 @@ for p in spec-review code-implementation code-review; do
 done
 lifecycle_phase_needs_pr triage && _no "triage needs no PR" || _ok "triage needs no PR"
 
+# ---- Required-comment classification (SDLC-HOOK-10) ------------------------
+# Review phases must post the verdict comment as the review record; a failure to
+# post it is fatal in the post-script. Non-review phases treat it as optional.
+for p in spec-review code-review; do
+  lifecycle_phase_requires_comment "${p}" && _ok "${p} requires its review comment" || _no "${p} requires its review comment"
+done
+for p in triage spec-implementation code-implementation; do
+  lifecycle_phase_requires_comment "${p}" && _no "${p} comment is optional" || _ok "${p} comment is optional"
+done
+
 # ---- Outcome enum (SDLC-HOOK-04.01) --------------------------------------
 lifecycle_outcome_valid spec-review approved && _ok "approved is valid for spec-review" || _no "approved valid spec-review"
 lifecycle_outcome_valid spec-review bogus && _no "bogus rejected for spec-review" || _ok "bogus outcome rejected for spec-review"

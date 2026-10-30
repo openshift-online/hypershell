@@ -91,6 +91,24 @@ gh_remove_label() {
   done
 }
 
+# Post (or update in place) this phase's sticky comment, identified by an HTML
+# marker, using the repository's sticky-comment primitive, `fullsend issues
+# post-comment` - the same tool post-update-openshell.sh uses. It finds this
+# agent's previous comment by marker and author and edits it in place, so a
+# reapplied result converges without a duplicate comment (SDLC-HOOK-09). The
+# comment body is read from stdin and never interpolated into the argument list.
+# Returns the CLI's exit status so the caller decides whether a failure is fatal.
+gh_post_sticky_comment() {
+  local repo="$1" number="$2" marker="$3" body="$4"
+  printf '%s\n' "${body}" \
+    | fullsend issues post-comment \
+        --tracker github \
+        --project "${repo}" \
+        --number "${number}" \
+        --marker "${marker}" \
+        --result -
+}
+
 # Close an issue, only if it is currently open (idempotent).
 gh_close_issue() {
   local repo="$1" number="$2" state
@@ -118,9 +136,10 @@ gh_pr_is_linked() {
   state="$(gh_retry api "repos/${repo}/pulls/${pr}" --jq '.state' 2>/dev/null || true)"
   [[ "${state}" == "open" ]] || return 1
   body="$(gh_retry api "repos/${repo}/pulls/${pr}" --jq '.body // ""' 2>/dev/null || true)"
-  # Closing keyword followed by #<issue>, case-insensitive.
+  # Closing keyword, an optional punctuation separator (so the colon form
+  # "Closes: #<issue>" also links), then whitespace and #<issue>, case-insensitive.
   printf '%s' "${body}" \
-    | grep -qiE "(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#${issue}([^0-9]|$)"
+    | grep -qiE "(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#${issue}([^0-9]|$)"
 }
 
 # Print the number of the open pull request linked to an issue by a closing

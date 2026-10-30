@@ -78,11 +78,17 @@ MOCK
 chmod +x "${BIN}/gh"
 
 # ---- Mock fullsend -------------------------------------------------------
+# The sticky-comment primitive. MOCK_COMMENT_FAIL=1 simulates a post failure so
+# the required-comment hard-fail path can be exercised.
 cat > "${BIN}/fullsend" <<'MOCK'
 #!/usr/bin/env bash
 set -uo pipefail
 if [[ "${1:-}" == "issues" && "${2:-}" == "post-comment" ]]; then
   cat >/dev/null
+  if [[ "${MOCK_COMMENT_FAIL:-0}" == 1 ]]; then
+    echo "mock fullsend: post-comment failed" >&2
+    exit 1
+  fi
   printf 'comment\n' >> "${MOCK_COMMENTS:-/dev/null}"
   exit 0
 fi
@@ -290,16 +296,17 @@ fi
 # ---- Scenario L: code-review approved with green checks applies (HOOK-07.02)
 S="${WORK}/L.labels"
 _seed "${S}" agent/reviewable-code agent/review-spec-approved agent/allowed
+LCOMMENTS="${WORK}/L.comments"; : > "${LCOMMENTS}"
 _run code-review \
   '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
   MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
-  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' \
+  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' MOCK_COMMENTS="${LCOMMENTS}" \
   > "${WORK}/L.out" 2>&1
 if _has_label "${S}" agent/review-code-approved && ! _has_label "${S}" agent/reviewable-code \
-   && _has_label "${S}" agent/review-spec-approved; then
-  _ok "code-review approved with green checks applies and preserves the spec approval"
+   && _has_label "${S}" agent/review-spec-approved && [[ -s "${LCOMMENTS}" ]]; then
+  _ok "code-review approved with green checks applies, preserves the spec approval, and posts the verdict comment"
 else
-  _no "code-review approved with green checks applies and preserves the spec approval" "$(cat "${WORK}/L.out")"
+  _no "code-review approved with green checks applies, preserves the spec approval, and posts the verdict comment" "$(cat "${WORK}/L.out")"
 fi
 
 # ---- Scenario M: approval blocked when CI has not reported (no signals) ----
@@ -346,6 +353,20 @@ if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-spec && ! _has_label
   _ok "spec-impl completed on a fresh issue adopts the agent's verified PR"
 else
   _no "spec-impl completed on a fresh issue adopts the agent's verified PR" "rc=${rc} $(cat "${WORK}/O.out")"
+fi
+
+# ---- Scenario O2: colon closing form "Closes: #868" links (regex fix) ---------
+S="${WORK}/O2.labels"
+_seed "${S}" agent/workable agent/allowed "${REPO_SCOPE}"
+_run spec-implementation \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"spec pushed","pr_number":869,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 MOCK_PR_STATE=open MOCK_PR_BODY="Closes: #868" \
+  > "${WORK}/O2.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-spec && ! _has_label "${S}" agent/workable; then
+  _ok "colon closing form (Closes: #868) is recognized as linking the PR"
+else
+  _no "colon closing form (Closes: #868) is recognized as linking the PR" "rc=${rc} $(cat "${WORK}/O2.out")"
 fi
 
 # ---- Scenario P: spec-impl completed, agent PR not linked -> rejected ---------
@@ -410,6 +431,44 @@ if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-c
   _ok "an unreported required check keeps an approval pending"
 else
   _no "an unreported required check keeps an approval pending" "$(cat "${WORK}/R.out")"
+fi
+
+# ---- Scenario S: a failed REQUIRED review comment blocks the transition -------
+# The comment is posted before any label change, so a failure to post the required
+# review record leaves the labels untouched and fails visibly (SDLC-HOOK-10).
+S="${WORK}/S.labels"
+_seed "${S}" agent/reviewable-spec agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S}")"
+_run spec-review \
+  '{"schema_version":"1","phase":"spec-review","outcome":"approved","rationale":"good","pr_number":5,"head_sha":"abc1234","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
+  MOCK_COMMENT_FAIL=1 \
+  > "${WORK}/S.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] \
+   && grep -q "required spec-review review comment" "${WORK}/S.out"; then
+  _ok "a failed required review comment blocks the transition and fails visibly"
+else
+  _no "a failed required review comment blocks the transition and fails visibly" "rc=${rc} $(cat "${WORK}/S.out")"
+fi
+
+# ---- Scenario T: a failed OPTIONAL comment still applies the transition --------
+# code-implementation's comment is optional; a failed post is a warning only and
+# the reviewable-code transition still lands.
+S="${WORK}/T.labels"
+_seed "${S}" agent/review-spec-approved agent/allowed "${REPO_SCOPE}"
+_run code-implementation \
+  '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc","comment":"fyi"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_COMMENT_FAIL=1 \
+  > "${WORK}/T.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-code \
+   && _has_label "${S}" agent/review-spec-approved; then
+  _ok "a failed optional comment warns but still applies the transition"
+else
+  _no "a failed optional comment warns but still applies the transition" "rc=${rc} $(cat "${WORK}/T.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"

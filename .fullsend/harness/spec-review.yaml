@@ -26,7 +26,11 @@ validation_loop:
   script: scripts/validate-output-schema.sh
   schema: schemas/spec-review-result.schema.json
   max_iterations: 2
-  preflight_check: python3 -c "import jsonschema"
+  # Declare the review harness runner tools (SDLC-HOOK-11): python3+jsonschema for
+  # read-only validation, and the fullsend CLI the post-script requires to post the
+  # verdict review comment. A missing fullsend fails fast here with a clear message
+  # instead of wedging every verdict in the post-script's required-comment loop.
+  preflight_check: 'python3 -c "import jsonschema" && command -v fullsend >/dev/null 2>&1 || { echo "spec-review harness needs python3 jsonschema (validation) and the fullsend CLI (verdict review comment) on the runner" >&2; exit 1; }'
 env:
   runner:
     FULLSEND_FORGE: github
