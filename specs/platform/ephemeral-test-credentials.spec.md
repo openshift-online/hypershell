@@ -749,9 +749,9 @@ This divergence exists so a Kind developer can create gateways out of the box wi
 a manual Keycloak role assignment, while OpenShift and PR environments keep exercising
 the `403 Forbidden` path for a caller without `gateway:creator`
 (`platform/e2e-testing.spec.md`, Requirement: E2E-CORE-15). Before this requirement,
-a Kind developer's `gateway:creator` capability came from the API server's
-`RBAC_DEFAULT_ROLES` environment default rather than from Keycloak; now Keycloak is
-the only source of the role, on every environment including Kind (see
+a Kind developer's `gateway:creator` capability came from a blanket environment
+default on the API server rather than from Keycloak; now Keycloak is the only
+source of the role, on every environment including Kind (see
 `../security/rbac-enforcement.spec.md`, Requirement: SEC-RBAC-13).
 
 #### Scenario: CICD-CRED-13.01 -- Kind developer can create gateways via a Keycloak-granted role
@@ -795,4 +795,4 @@ the only source of the role, on every environment including Kind (see
 | Brokered PR environments seed users; canonical CI never password-logins | Client-credentials and token exchange resolve users by username. The users must exist for impersonation and for a human username/password login; canonical PR CI never sends those passwords on the public internet |
 | The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach `developer` and `platform-admin` without a password. Token-exchange impersonation SHALL NOT include other GitHub-brokered users. Interactive admin-console impersonation is owned by `ephemeral-pr-environments.spec.md` |
 | Seed assigns Keycloak realm roles only | `gateway:viewer` is a per-gateway DB binding. A Keycloak seed step cannot grant it. Area 9's `openshell-user` path is a per-gateway client-role grant owned by `ephemeral-pr-environments.spec.md` |
-| Kind's `developer` gets `gateway:creator` from the seed script, not from an API server default | The API server no longer has an `RBAC_DEFAULT_ROLES` env default (`../security/rbac-enforcement.spec.md`, SEC-RBAC-13); Keycloak is the only source of the role on every environment, Kind included. Granting it through the same seed script that already sets `developer`'s other realm roles keeps a Kind developer's out-of-the-box gateway-create capability with no new mechanism. OpenShift and PR environments deliberately omit it so the `403` path stays tested (HYPERSHELL-465) |
+| Kind's `developer` gets `gateway:creator` from the seed script, not from an API server default | The API server no longer has a blanket default-role environment variable (`../security/rbac-enforcement.spec.md`, SEC-RBAC-13); Keycloak is the only source of the role on every environment, Kind included. Granting it through the same seed script that already sets `developer`'s other realm roles keeps a Kind developer's out-of-the-box gateway-create capability with no new mechanism. OpenShift and PR environments deliberately omit it so the `403` path stays tested (HYPERSHELL-465) |
