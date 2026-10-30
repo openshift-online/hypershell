@@ -16,11 +16,32 @@ host_files:
     optional: true
 model: claude-sonnet-5
 effort: high
+# Lifecycle hooks (SDLC-HOOK): the pre-script records starting state (including
+# the PR head commit) and may skip the run; the agent writes only a validated
+# result; the post-script checks evidence (stale head, required checks), applies
+# the verdict transition, and verifies it. Phase labels are written by the
+# post-script, never by the agent.
+pre_script: scripts/pre-lifecycle.sh
+post_script: scripts/post-lifecycle.sh
+validation_loop:
+  script: scripts/validate-output-schema.sh
+  schema: schemas/code-review-result.schema.json
+  max_iterations: 2
+  # Declare the review harness runner tools (SDLC-HOOK-11): python3+jsonschema for
+  # read-only validation, and the fullsend CLI the post-script requires to post the
+  # verdict review comment. A missing fullsend fails fast here with a clear message
+  # instead of wedging every verdict in the post-script's required-comment loop.
+  preflight_check: 'python3 -c "import jsonschema" && command -v fullsend >/dev/null 2>&1 || { echo "code-review harness needs python3 jsonschema (validation) and the fullsend CLI (verdict review comment) on the runner" >&2; exit 1; }'
 env:
   runner:
     FULLSEND_FORGE: github
     GH_TOKEN: ${GH_TOKEN}
     REPOSITORY: ${REPOSITORY}
+    PHASE: code-review
+    ISSUE_URL: ${FULLSEND_WORK_ITEM_URL}
+    LABEL_SCOPE: ${LABEL_SCOPE}
+    DRY_RUN: ${DRY_RUN}
+    PR_NUMBER: ${PR_NUMBER}
   sandbox:
     COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
     COREPACK_HOME: /sandbox/.cache/corepack
@@ -35,6 +56,7 @@ env:
     LABEL_SCOPE: ${LABEL_SCOPE}
     TRUSTED_BRANCH: main
     DRY_RUN: ${DRY_RUN}
+    PHASE: code-review
     GITHUB_ISSUE_URL: ${FULLSEND_WORK_ITEM_URL}
     ISSUE_NUMBER: ${ISSUE_NUMBER}
     GITHUB_PR_URL: ${PR_URL}

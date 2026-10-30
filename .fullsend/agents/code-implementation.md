@@ -5,7 +5,29 @@ description: "Implement the code change on the work item's pull request."
 
 ## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`.
+
+You do the implementation work (reconcile the spec to code, fix CI, resolve conflicts, push) but you do NOT change any `agent/*` lifecycle label. You write a structured result to `$FULLSEND_OUTPUT_DIR/agent-result.json`; a trusted post-script validates it and applies the label transition (see `specs/standards/sdlc/fullsend-lifecycle-label-hooks.spec.md`, SDLC-HOOK).
+
+Write exactly one JSON object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+
+```json
+{
+  "schema_version": "1",
+  "phase": "code-implementation",
+  "outcome": "completed | blocked",
+  "rationale": "one or two sentences on what was done or why it is blocked",
+  "pr_number": 123,
+  "head_sha": "<40-hex head commit you pushed>",
+  "comment": "optional markdown to post on the issue"
+}
+```
+
+Use `completed` when the code is pushed and the PR is ready for code review;
+`pr_number` and `head_sha` are then REQUIRED and MUST identify the PR and the
+commit you pushed. Use `blocked` when a hard prerequisite fails (for example no
+linked PR). On `completed` the post-script sets `agent/reviewable-code`; it never
+takes a label name from this result. Follow the workflow below.
 
 ---
 
@@ -34,9 +56,9 @@ Fetch `$GITHUB_ISSUE_URL` and fully read its title and body.
 Discover the linked pull request.
 
 If no linked pull request:
-- apply label `agent/blocked` to `$GITHUB_ISSUE_URL` (_Note: If the label does not exist, create it._)
-- write a comment on the issue noting the reason.
-- STOP. Do not execute any further steps.
+- Write a result with `outcome: "blocked"` and a `comment` explaining that no
+  pull request is linked to the issue.
+- STOP. Do not execute any further steps. The post-script applies `agent/blocked`.
 
 Output: `$LINKED_PULL_REQUEST`
 
@@ -72,7 +94,15 @@ Else:
   drift CI ping-pong.
 - Address any merge conflicts found in Step 2.
 - Commit (if not already) and push code to `$LINKED_PULL_REQUEST`.
-- Remove label `agent/review-code-rejected` from `$GITHUB_ISSUE_URL` if present.
-- Write label `agent/reviewable-code` to `$GITHUB_ISSUE_URL`.
 
-_Note: If a label does not exist, create it._
+### Step 6: Write the Result
+
+Write the result object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+- `outcome`: `completed` when the code is pushed and the PR is ready for review.
+- `pr_number` and `head_sha`: the PR number and the exact head commit you pushed.
+- `rationale` and optional `comment`.
+
+Do not add or remove any label. The trusted post-script reads this result,
+removes any stale `agent/review-code-rejected` or `agent/review-code-approved`,
+adds `agent/reviewable-code`, preserves `agent/review-spec-approved` as a
+completed prerequisite, and verifies the final state.

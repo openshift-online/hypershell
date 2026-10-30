@@ -1,0 +1,38 @@
+{
+  "$id": "https://fullsend.sh/schemas/triage-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "triage Agent Result",
+  "description": "Structured output from the triage agent (SDLC-HOOK-04). The post-script derives the label transition from the fixed outcome; arbitrary labels, repositories, and shell commands are never read from this result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "phase",
+    "outcome",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "phase": {
+      "const": "triage"
+    },
+    "outcome": {
+      "enum": [
+        "workable",
+        "needs-input",
+        "duplicate"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "comment": {
+      "type": "string",
+      "maxLength": 16384
+    }
+  }
+}
