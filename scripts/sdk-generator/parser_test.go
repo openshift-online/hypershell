@@ -206,6 +206,89 @@ func TestGeneratedGatewayBuildersValidateRequiredPlacement(t *testing.T) {
 	}
 }
 
+func TestParseSpecProjectsGatewayOwnershipFilterAndExistenceFlag(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	// The custom `mine` list query parameter must project onto the shared
+	// ListOptions union (deduped across primary collections) so it is generated
+	// rather than added to the SDK by hand.
+	var mine *Field
+	for index := range spec.ExtraListParameters {
+		if spec.ExtraListParameters[index].Name == "mine" {
+			mine = &spec.ExtraListParameters[index]
+			break
+		}
+	}
+	if mine == nil {
+		t.Fatalf("mine not projected as an extra list parameter: %#v", spec.ExtraListParameters)
+	}
+	if mine.TSType != "boolean" || mine.TSName != "mine" {
+		t.Fatalf("mine parameter = TSType %q TSName %q, want boolean/mine", mine.TSType, mine.TSName)
+	}
+	// Scope-specific list filters (e.g. the access directory's sort/order/role)
+	// must not leak into the shared ListOptions union.
+	for _, parameter := range spec.ExtraListParameters {
+		switch parameter.Name {
+		case "sort", "order", "role", "status":
+			t.Fatalf("scoped list parameter %q leaked into shared ListOptions", parameter.Name)
+		}
+	}
+
+	// The browser-safe existence flag must project as an optional extra field on
+	// GatewayList, outside the shared list envelope.
+	var gateway *Resource
+	for index := range spec.Resources {
+		if spec.Resources[index].Name == "Gateway" {
+			gateway = &spec.Resources[index]
+			break
+		}
+	}
+	if gateway == nil {
+		t.Fatal("gateway resource is missing")
+	}
+	var flag *Field
+	for index := range gateway.ListExtraFields {
+		if gateway.ListExtraFields[index].Name == "has_other_owned_gateways" {
+			flag = &gateway.ListExtraFields[index]
+			break
+		}
+	}
+	if flag == nil {
+		t.Fatalf("has_other_owned_gateways not projected as a list extra field: %#v", gateway.ListExtraFields)
+	}
+	if flag.Required || flag.TSType != "boolean" {
+		t.Fatalf("has_other_owned_gateways = required %v TSType %q, want optional boolean", flag.Required, flag.TSType)
+	}
+
+	outDir := t.TempDir()
+	header := GeneratedHeader{SpecPath: specPath, SpecHash: "test"}
+	tsOut := filepath.Join(outDir, "typescript")
+	if err := generateTypeScript(spec, tsOut, header); err != nil {
+		t.Fatalf("generate TypeScript SDK: %v", err)
+	}
+	base, err := os.ReadFile(filepath.Join(tsOut, "src", "base.ts"))
+	if err != nil {
+		t.Fatalf("read generated base.ts: %v", err)
+	}
+	if !strings.Contains(string(base), "mine?: boolean;") {
+		t.Fatal("generated base.ts ListOptions is missing the mine filter")
+	}
+	if !strings.Contains(string(base), "if (opts.mine) params.set('mine', 'true');") {
+		t.Fatal("generated base.ts buildQueryString does not serialize the mine filter")
+	}
+	tsGateway, err := os.ReadFile(filepath.Join(tsOut, "src", "gateway.ts"))
+	if err != nil {
+		t.Fatalf("read generated gateway.ts: %v", err)
+	}
+	if !strings.Contains(string(tsGateway), "has_other_owned_gateways?: boolean;") {
+		t.Fatal("generated gateway.ts GatewayList is missing the has_other_owned_gateways flag")
+	}
+}
+
 func TestParseSpecPreservesWritableCreateFieldsWithoutPostOperation(t *testing.T) {
 	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
 	spec, err := parseSpec(specPath, "/api/hypershell")

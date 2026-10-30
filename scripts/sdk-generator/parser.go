@@ -9,6 +9,22 @@ import (
 	ir "github.com/openshift-online/hypershell/scripts/openapi-ir"
 )
 
+// standardListParameters are the pagination/search/order/fields query
+// parameters already modeled by the shared ListOptions type and query-string
+// builder. Any other list query parameter is projected as an extra option.
+var standardListParameters = map[string]bool{
+	"page": true, "size": true, "search": true, "orderBy": true, "fields": true,
+}
+
+// listEnvelopeFields are the properties contributed by the shared list envelope
+// (ListMeta plus ObjectReference) and the items array. Any other property on a
+// list response schema is projected as an extra list field.
+var listEnvelopeFields = map[string]bool{
+	"kind": true, "page": true, "size": true, "total": true,
+	"id": true, "href": true, "created_at": true, "updated_at": true,
+	"items": true,
+}
+
 func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 	document, err := ir.Load(specPath, ir.LoadOptions{})
 	if err != nil {
@@ -42,7 +58,82 @@ func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 		resources = append(resources, resource)
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
-	return &Spec{Resources: resources, APIPrefix: apiPrefix}, nil
+	return &Spec{
+		Resources:           resources,
+		APIPrefix:           apiPrefix,
+		ExtraListParameters: collectExtraListParameters(document, apiPrefix),
+	}, nil
+}
+
+// collectExtraListParameters returns the deduped, name-sorted union of
+// non-standard query parameters declared on primary (unscoped) list collection
+// operations. These are projected onto the shared ListOptions type so custom
+// list filters (for example an ownership filter) are generated rather than
+// hand-added. Scoped collections carry their list parameters on their own
+// per-resource ListOptions type (see Resource.ListParameters) and are excluded
+// here so the shared type is not polluted with scope-specific filters.
+func collectExtraListParameters(document *ir.Document, apiPrefix string) []Field {
+	views := primaryCollectionViews(document, apiPrefix)
+	seen := make(map[string]bool)
+	var extra []Field
+	for _, view := range views {
+		listOperation := operationAt(document, view.Path, "GET")
+		if listOperation == nil {
+			continue
+		}
+		for _, parameter := range listOperation.Parameters {
+			if parameter.In != "query" || parameter.Schema == nil {
+				continue
+			}
+			if standardListParameters[parameter.Name] || seen[parameter.Name] {
+				continue
+			}
+			seen[parameter.Name] = true
+			openAPIType, format, goType, tsType, modelRef := projectedTypes(document, parameter.Schema, parameter.Required, false)
+			extra = append(extra, Field{
+				Name: parameter.Name, GoName: toGoName(parameter.Name), TSName: toCamelCase(parameter.Name),
+				Type: openAPIType, Format: format, GoType: goType, TSType: tsType,
+				Required: parameter.Required, ModelRef: modelRef,
+			})
+		}
+	}
+	sort.Slice(extra, func(i, j int) bool { return extra[i].Name < extra[j].Name })
+	return extra
+}
+
+// listExtraFields returns the properties of a list response schema that fall
+// outside the shared list envelope and the items array, projected for SDK
+// output. The result is sorted by property name for deterministic generation.
+func listExtraFields(document *ir.Document, listType string) []Field {
+	if listType == "" {
+		return nil
+	}
+	listSchema := document.Schema(listType)
+	if listSchema == nil {
+		return nil
+	}
+	properties := document.EffectiveProperties(listSchema.Ref)
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		if listEnvelopeFields[name] {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	fields := make([]Field, 0, len(names))
+	for _, name := range names {
+		property := properties[name]
+		openAPIType, format, goType, tsType, modelRef := projectedTypes(document, property.Schema, property.Required, property.Nullable)
+		fields = append(fields, Field{
+			Name: name, GoName: toGoName(name), PythonName: name, TSName: toCamelCase(name),
+			Type: openAPIType, Format: format, GoType: goType, PythonType: toPythonType(openAPIType, format), TSType: tsType,
+			Required: property.Required, ReadOnly: property.ReadOnly, Nullable: property.Nullable,
+			Sensitive: extensionIsTrue(property.Extensions, "x-sensitive"), ModelRef: modelRef,
+			JSONTag: jsonTag(name, property.Required),
+		})
+	}
+	return fields
 }
 
 func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (Resource, error) {
@@ -183,6 +274,7 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (
 		GetResponseType:       getResponseType,
 		Models:                models,
 		ListParameters:        listParameters,
+		ListExtraFields:       listExtraFields(document, listType),
 		HasDelete:             operationAt(document, itemPath, "DELETE") != nil,
 		HasGet:                hasGet,
 		HasRevoke:             hasRevoke,
@@ -554,11 +646,13 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 	patchFields, _ := projectFieldsByName(document, schema.Name+"PatchRequest", false)
 	statusPatchFields, _ := projectFieldsByName(document, schema.Name+"StatusPatchRequest", false)
 
+	listType := successSchemaName(document, operationAt(document, collection.Path, "GET"), "200")
 	resource := Resource{
 		Name: schema.Name, Plural: resourcePlural(schema.Name), PathSegment: lastLiteralSegment(collection.Path),
 		AbsoluteCollectionPath: collection.Path,
 		Fields:                 fields, RequiredFields: required, CreateFields: createFields, Models: models, PatchFields: patchFields,
 		StatusPatchFields: statusPatchFields, HasStatusPatch: len(statusPatchFields) > 0,
+		ListExtraFields: listExtraFields(document, listType),
 	}
 	for _, view := range document.ResourceViews {
 		if view.SchemaRef != schema.Ref {
