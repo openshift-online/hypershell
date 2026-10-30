@@ -130,6 +130,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('--slurp', args)
         self.assertIn('state=all', args)
 
+    @patch.object(funnel, 'json_command')
+    def test_hosted_lifecycle_agents_are_not_dispatched_as_phases(self, run):
+        run.return_value = [{'agent': agent} for agent in
+                            ('ingest', 'reconcile', 'funnel-ingest',
+                             'funnel-reconcile', 'code-implementation')]
+        self.assertEqual(self.github.classify(issue()), ['code-implementation'])
+
     def test_pr_requires_exact_link_and_rejects_ambiguity(self):
         self.assertEqual(self.github.review_pr(issue(), [pr()])['number'], 10)
         for prs in ([pr(10), pr(11)], [pr(body='Fixes #11')], [pr(body='mentions #1')], []):

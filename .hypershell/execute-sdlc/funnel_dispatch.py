@@ -209,7 +209,11 @@ class GitHub:
                          state=dict(labels=labels))
             result = json_command(['fullsend', 'dispatch', '--config-dir', self.fullsend_dir,
                                    '--input-driver', 'json', '--output-driver', 'json'], data=json.dumps(event))
-            agents.update(entry['agent'] for entry in (result or []))
+            # Lifecycle work is scheduled separately with local Jira credentials.
+            # Hosted lifecycle harnesses must not also run as issue phases.
+            agents.update(entry['agent'] for entry in (result or [])
+                          if entry['agent'] not in ('ingest', 'reconcile',
+                                                    'funnel-ingest', 'funnel-reconcile'))
         return sorted(agents)
 
     def linked_prs(self, item, prs):
