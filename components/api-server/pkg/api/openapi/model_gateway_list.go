@@ -20,16 +20,17 @@ var _ MappedNullable = &GatewayList{}
 
 // GatewayList struct for GatewayList
 type GatewayList struct {
-	Kind                  *string    `json:"kind,omitempty"`
-	Page                  *int32     `json:"page,omitempty"`
-	Size                  *int32     `json:"size,omitempty"`
-	Total                 *int32     `json:"total,omitempty"`
-	Id                    *string    `json:"id,omitempty"`
-	Href                  *string    `json:"href,omitempty"`
-	CreatedAt             *time.Time `json:"created_at,omitempty"`
-	UpdatedAt             *time.Time `json:"updated_at,omitempty"`
-	Items                 []Gateway  `json:"items,omitempty"`
-	HasOtherOwnedGateways *bool      `json:"has_other_owned_gateways,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Page      *int32     `json:"page,omitempty"`
+	Size      *int32     `json:"size,omitempty"`
+	Total     *int32     `json:"total,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Items     []Gateway  `json:"items,omitempty"`
+	// Browser-safe existence flag reporting whether the caller's full authorized gateway list (before search, optional filters, and the `mine` ownership filter) contains at least one gateway the caller does not own. It is computed server-side with a bounded authorization-scoped existence query rather than by enumerating pages, so a console can decide whether to show the \"Show only my gateways\" toggle without downloading every page. It is evaluated only over the caller's authorized gateways and never discloses the existence of gateways the caller is not authorized to see (SEC-RBAC-10).
+	HasOtherOwnedGateways *bool `json:"has_other_owned_gateways,omitempty"`
 }
 
 // NewGatewayList instantiates a new GatewayList object
