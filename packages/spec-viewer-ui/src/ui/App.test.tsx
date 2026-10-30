@@ -130,6 +130,14 @@ function renderApp(saved: string[] = []) {
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
+  // The viewer remembers the view, panel widths, and pins in localStorage.
+  // Where storage works (CI), one test's choices would leak into the next.
+  // Without it (Node with no --localstorage-file), there is nothing to clear.
+  try {
+    (window.localStorage as Storage | undefined)?.clear();
+  } catch {
+    // Blocked storage: nothing was kept.
+  }
 });
 
 describe("App", () => {
