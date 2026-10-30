@@ -53,10 +53,20 @@ const (
 	// authority.
 	//
 	// Unlike the other platform-wide roles below it is NOT Keycloak-owned: it is
-	// assigned through the RoleBinding API (scope=global) by a platform:admin, so
-	// authorization over ci_providers is a decision HyperShell makes from its own
-	// RBAC, not one delegated to a Keycloak realm role.
+	// assigned through the RoleBinding API (scope=global) by a platform:admin or by
+	// a ci-federation:grantor (SEC-RBAC-23), so authorization over ci_providers is a
+	// decision HyperShell makes from its own RBAC, not one delegated to a Keycloak
+	// realm role.
 	RoleCIFederationAdmin = "ci-federation:admin"
+	// RoleCIFederationGrantor is the narrow bootstrap role that authorizes creating
+	// and deleting a global ci-federation:admin RoleBinding (SEC-RBAC-23) -- and
+	// nothing else. It exists so the CI-federation seeder's ci_providers
+	// authorization can be granted declaratively from gitops (a dedicated bootstrap
+	// identity holds this role via a Keycloak realm role) instead of requiring a
+	// platform:admin to run the one-time grant. It is itself Keycloak-owned
+	// (JWT-synced) and confers no other authority: it cannot grant any role other
+	// than ci-federation:admin, and holding it does not authorize ci_providers.
+	RoleCIFederationGrantor = "ci-federation:grantor"
 )
 
 // JWTSyncedRoles is the set of roles whose bindings are reconciled from the
@@ -68,8 +78,13 @@ var JWTSyncedRoles = map[string]bool{
 	RolePlatformAdmin:                true,
 	RoleGatewayCreator:               true,
 	RoleGatewayDedicatedRouteCreator: true,
+	// RoleCIFederationGrantor is the bootstrap grantor (SEC-RBAC-23): it is held by
+	// a gitops bootstrap identity via a Keycloak realm role, so it IS Keycloak-owned
+	// and synced here.
+	RoleCIFederationGrantor: true,
 	// RoleCIFederationAdmin is intentionally absent: it is granted through the
-	// RoleBinding API by a platform:admin (SEC-RBAC-21), not synced from a
-	// Keycloak realm role. Keeping it out of this set means an API-created
-	// binding is never revoked by SyncJWTRoles on the caller's next sign-in.
+	// RoleBinding API by a platform:admin or ci-federation:grantor (SEC-RBAC-21/23),
+	// not synced from a Keycloak realm role. Keeping it out of this set means an
+	// API-created binding is never revoked by SyncJWTRoles on the caller's next
+	// sign-in.
 }
