@@ -96,6 +96,7 @@ jobs:
       pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_go: ${{ steps.detect.outputs.sdk_go }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      spec_viewer: ${{ steps.detect.outputs.spec_viewer }}
       web_console: ${{ steps.detect.outputs.web_console }}
     steps:
       - name: Check out repository
@@ -121,6 +122,7 @@ jobs:
       operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
       sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
       sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
+      spec_viewer: ${{ needs.detect-changes.outputs.spec_viewer }}
       web_console: ${{ needs.detect-changes.outputs.web_console }}
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

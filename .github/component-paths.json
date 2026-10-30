@@ -107,12 +107,31 @@
     ],
     "unit_tested": true
   },
+  "spec_viewer": {
+    "directory": "packages/spec-viewer-ui",
+    "lint_job": "lint-spec-viewer",
+    "paths": [
+      "packages/spec-viewer-ui/**",
+      "scripts/check_fleet_dashboard_firewall.sh",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/checks.yml",
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/tests.yml"
+    ],
+    "unit_tested": true
+  },
   "fleet_dashboard": {
     "directory": "components/fleet-dashboard",
     "lint_job": "lint-fleet-dashboard",
     "paths": [
       "components/fleet-dashboard/**",
       "packages/fleet-dashboard-ui/**",
+      "packages/spec-viewer-ui/**",
       "scripts/check_fleet_dashboard_firewall.sh",
       "Makefile",
       ".github/component-paths.json",
