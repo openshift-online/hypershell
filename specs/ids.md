@@ -216,7 +216,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
-| `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
+| `WEB-UIEX` | `web-console/architecture.spec.md` | 7 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
 | `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
