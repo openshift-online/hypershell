@@ -139,15 +139,34 @@ var consoleOpenShiftRouteGVR = schema.GroupVersionResource{
 }
 
 // ConsoleExposureReady reports the readiness of the console exposure for the
-// selected ingress mode. A Gateway API HTTPRoute needs Accepted=True and
-// ResolvedRefs=True on one parent. An OpenShift Route needs Admitted=True from
-// one router. The reason describes a known rejection or an incomplete status.
-func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, namespace, ingressMode string) (ready bool, reason string, err error) {
+// selected ingress mode, AND that the exposure serves the console host derived
+// from the gateway's route config. A Gateway API HTTPRoute needs Accepted=True
+// and ResolvedRefs=True on one parent, its hostname must be the derived console
+// host, and its parentRef must target the Gateway that host is served by (the
+// per-tenant Gateway's "sandbox" listener for the dedicated per-gateway
+// certificate opt-in, the shared Gateway's HTTP listener otherwise). An
+// OpenShift Route needs Admitted=True from one router and its spec.host must be
+// the derived console host. The reason describes a known rejection, an
+// incomplete status, or a host/parent mismatch (the console self-heal converges
+// the exposure when one is reported).
+//
+// The host and parent checks are what keep the published console_address
+// honest: a console exposure that is Accepted but serves a different host --
+// for example a dedicated-route gateway whose console was provisioned onto
+// the shared ingress, whose dedicated host then resolves (through the shared
+// wildcard DNS) to a Gateway with no listener for it -- would otherwise
+// advertise a URL that presents a mismatched certificate and is refused by
+// every browser.
+func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, ingressMode string) (ready bool, reason string, err error) {
+	host, ok := deriveConsoleHost(nsConfig)
+	if !ok {
+		return false, "console host cannot be derived (GATEWAY_API_BASE_DOMAIN unset)", nil
+	}
 	switch ingressMode {
 	case IngressModeGatewayAPI:
-		return consoleHTTPRouteReady(ctx, dynamicClient, namespace)
+		return consoleHTTPRouteReady(ctx, dynamicClient, nsConfig, host)
 	case IngressModeRoute:
-		return consoleOpenShiftRouteReady(ctx, dynamicClient, namespace)
+		return consoleOpenShiftRouteReady(ctx, dynamicClient, nsConfig.Name, host)
 	case IngressModeNone:
 		return false, "no console ingress mode selected", nil
 	default:
@@ -155,14 +174,23 @@ func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 }
 
-// consoleHTTPRouteReady reports the readiness of the console HTTPRoute.
-func consoleHTTPRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
+// consoleHTTPRouteReady reports the readiness of the console HTTPRoute for
+// the derived console host: the spec must serve that host on the serving
+// Gateway's listener (consoleHTTPRouteServesExpectedHost), and one parent must
+// have fully accepted the route. The most specific rejection reason across
+// parents is tracked for the not-ready case.
+func consoleHTTPRouteReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, host string) (ready bool, reason string, err error) {
+	namespace := nsConfig.Name
 	route, err := dynamicClient.Resource(consoleHTTPRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return false, "console HTTPRoute not found", nil
 		}
 		return false, "", fmt.Errorf("get console HTTPRoute %s/%s: %w", namespace, consoleName, err)
+	}
+
+	if reason := consoleHTTPRouteServesExpectedHost(route, nsConfig, host); reason != "" {
+		return false, reason, nil
 	}
 
 	parents, found, err := unstructured.NestedSlice(route.Object, "status", "parents")
@@ -196,14 +224,24 @@ func consoleHTTPRouteReady(ctx context.Context, dynamicClient dynamic.Interface,
 	return false, reason, nil
 }
 
-// consoleOpenShiftRouteReady reports the admission state of the console Route.
-func consoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
+// consoleOpenShiftRouteReady reports the admission state of the console Route
+// for the derived console host: spec.host must be the derived host, and one
+// router must have Admitted the Route.
+func consoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace, host string) (ready bool, reason string, err error) {
 	route, err := dynamicClient.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return false, "console OpenShift Route not found", nil
 		}
 		return false, "", fmt.Errorf("get console OpenShift Route %s/%s: %w", namespace, consoleName, err)
+	}
+
+	serves, _, err := unstructured.NestedString(route.Object, "spec", "host")
+	if err != nil {
+		return false, "", fmt.Errorf("read console OpenShift Route %s/%s spec.host: %w", namespace, consoleName, err)
+	}
+	if serves != host {
+		return false, fmt.Sprintf("console Route serves %q, expected host %q (console self-heal re-parents it)", serves, host), nil
 	}
 
 	ingress, found, err := unstructured.NestedSlice(route.Object, "status", "ingress")
@@ -248,6 +286,84 @@ func consoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Inter
 	}
 
 	return false, reason, nil
+}
+
+// consoleHTTPRouteServesExpectedHost reports whether the console HTTPRoute's
+// spec matches the exposure the derived console host requires: the hostname
+// list must contain the derived host, and one parentRef must target the
+// Gateway that serves it -- the per-tenant Gateway's "sandbox" listener for a
+// dedicated-certificate gateway, the shared Gateway's HTTP listener otherwise
+// (the same shapes buildConsoleHTTPRoute emits). An empty return means the
+// spec matches; otherwise it is the actionable not-ready reason. The console
+// self-heal converges the exposure when a mismatch is reported, so the reason
+// names both what is served and what was expected.
+func consoleHTTPRouteServesExpectedHost(route *unstructured.Unstructured, nsConfig NamespaceConfig, host string) string {
+	hostnames, _, err := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
+	if err != nil {
+		return "console HTTPRoute spec.hostnames is unreadable"
+	}
+	servesHost := false
+	for _, h := range hostnames {
+		if h == host {
+			servesHost = true
+			break
+		}
+	}
+	if !servesHost {
+		return fmt.Sprintf("console HTTPRoute serves %v, expected hostname %q (console self-heal re-parents it onto the derived host)", hostnames, host)
+	}
+
+	parentRefs, _, err := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
+	if err != nil {
+		return "console HTTPRoute spec.parentRefs is unreadable"
+	}
+
+	if nsConfig.Gateway.Route.Certificate != nil {
+		// The dedicated path never rides the shared Gateway: the console must
+		// parent on the per-tenant Gateway (gw-<namespace>) in its own
+		// namespace, on the wildcard "sandbox" listener whose hostname covers
+		// the console host and whose certificate is the per-gateway one.
+		for _, p := range parentRefs {
+			ref, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _, _ := unstructured.NestedString(ref, "name")
+			ns, _, _ := unstructured.NestedString(ref, "namespace")
+			section, _, _ := unstructured.NestedString(ref, "sectionName")
+			if name == perTenantGatewayName(nsConfig.Name) && ns == nsConfig.Name && section == "sandbox" {
+				return ""
+			}
+		}
+		return fmt.Sprintf("console HTTPRoute is not parented on the per-tenant Gateway %s/%s listener \"sandbox\" (console self-heal re-parents it)", nsConfig.Name, perTenantGatewayName(nsConfig.Name))
+	}
+
+	// Shared path: the console parents on the shared Gateway's HTTP listener.
+	// The shared Gateway name is empty only on a controller without one
+	// configured; then the listener alone identifies the expected parent.
+	expectedListener := sharedGatewayListenerName()
+	for _, p := range parentRefs {
+		ref, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		section, _, _ := unstructured.NestedString(ref, "sectionName")
+		if section != expectedListener {
+			continue
+		}
+		if name := gatewayIngressName(); name != "" {
+			n, _, _ := unstructured.NestedString(ref, "name")
+			if n != name {
+				continue
+			}
+			ns, _, _ := unstructured.NestedString(ref, "namespace")
+			if ns != gatewayIngressNamespace() {
+				continue
+			}
+		}
+		return ""
+	}
+	return fmt.Sprintf("console HTTPRoute is not parented on the shared Gateway listener %q (console self-heal re-parents it)", expectedListener)
 }
 
 // routeConditionState returns whether the named HTTPRoute parent condition is
