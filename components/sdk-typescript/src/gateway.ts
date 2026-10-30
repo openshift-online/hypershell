@@ -64,6 +64,7 @@ export type Gateway = ObjectReference & {
 
 export type GatewayList = ListMeta & {
   items: Gateway[];
+  has_other_owned_gateways?: boolean;
 };
 
 export type GatewayCreateRequest = {

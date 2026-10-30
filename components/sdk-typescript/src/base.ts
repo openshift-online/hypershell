@@ -49,6 +49,7 @@ export type ListOptions = {
   search?: string;
   orderBy?: string;
   fields?: string;
+  mine?: boolean;
 };
 
 export function buildQueryString(opts?: ListOptions): string {
@@ -59,6 +60,7 @@ export function buildQueryString(opts?: ListOptions): string {
   if (opts.search) params.set('search', opts.search);
   if (opts.orderBy) params.set('orderBy', opts.orderBy);
   if (opts.fields) params.set('fields', opts.fields);
+  if (opts.mine) params.set('mine', 'true');
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
