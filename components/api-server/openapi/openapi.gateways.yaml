@@ -442,12 +442,7 @@ components:
         placement:
           description: >-
             Late-bind the gateway by capability-label selector. Mutually exclusive
-            with cluster_id. A selector normally declares requirement capabilities
-            (provider/*, network/*, ...) and resolves by random selection among
-            eligible clusters. A selector MAY instead reference a cluster's
-            server-assigned identity capability (managed-cluster/<name>) to resolve
-            deterministically to exactly that cluster, but only for a platform:admin
-            caller; any other caller is rejected (PLAT-DATA-02, PLAT-CLUS-14).
+            with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
 
     GatewayPlacementIntent:

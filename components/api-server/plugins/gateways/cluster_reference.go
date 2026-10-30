@@ -2,11 +2,9 @@ package gateways
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
@@ -50,50 +48,6 @@ func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.Ser
 		return nil
 	}
 	return errors.Validation("placement must include selector or mode")
-}
-
-// authorizeIdentityPlacement enforces "Identity selection is platform-admin-only"
-// (data-model.spec.md PLAT-DATA-02, managed-cluster-registration.spec.md
-// PLAT-CLUS-14): a placement selector (or excludedSelector) that references a
-// cluster's reserved managed-cluster/<name> identity capability resolves
-// deterministically to exactly that cluster, but only for a caller holding
-// platform:admin. Any other caller is rejected with 403 and the create does not
-// resolve. Gating the selector's use -- not merely hiding the capability value --
-// is the authoritative control: a leaked identity capability stays unusable to a
-// non-admin caller. Requirement-only selectors (provider/*, network/*, ...) are
-// unaffected and keep resolving by random selection among eligible clusters.
-func authorizeIdentityPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent) *errors.ServiceError {
-	return requireAdminForIdentitySelectors(ctx, intent.Selector, intent.ExcludedSelector)
-}
-
-// authorizeIdentityAvailability applies the same platform:admin gate to the
-// placement-availability probe (POST .../placement_availability). Without it a
-// non-admin could submit a managed-cluster/<name> selector and learn from the
-// available flag whether a specifically named cluster exists and is eligible,
-// enumerating the fleet's identity capabilities by probe -- exactly what
-// PLAT-DATA-02 / PLAT-CLUS-14 forbid. Each entry in selectors is one capability
-// group evaluated independently, mirroring GatewayPlacementIntent.Selector.
-func authorizeIdentityAvailability(ctx context.Context, selectors [][]string) *errors.ServiceError {
-	return requireAdminForIdentitySelectors(ctx, selectors...)
-}
-
-// requireAdminForIdentitySelectors rejects a caller lacking platform:admin when
-// any of the given capability groups references a reserved managed-cluster/<name>
-// identity capability. Gating the selector's use -- not merely hiding the
-// capability value -- is the authoritative control: a leaked identity capability
-// stays unusable to a non-admin caller. Requirement-only groups (provider/*,
-// network/*, ...) are unaffected.
-func requireAdminForIdentitySelectors(ctx context.Context, groups ...[]string) *errors.ServiceError {
-	if !slices.ContainsFunc(groups, managedClusters.SelectorReferencesIdentity) {
-		return nil
-	}
-	if !rbac.HasPlatformAdminRole(ctx, rbac.GetUserIDFromContext(ctx)) {
-		return errors.Forbidden(
-			"placement by a %s/<name> identity capability requires platform:admin; normal callers place by requirement capabilities (provider/*, network/*, ...) and cannot target a specific cluster by identity",
-			managedClusters.IdentityCapabilityNamespace,
-		)
-	}
-	return nil
 }
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a

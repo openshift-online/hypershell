@@ -1,19 +1,15 @@
 package managedClusters
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
-	"sort"
-	"strings"
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -118,17 +114,12 @@ func (h managedClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		},
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
-			// The managed-cluster namespace is reserved and server-assigned: a generic
-			// create may not declare or spoof an identity capability (PLAT-CLUS-14.02).
-			if HasReservedCapability(managedCluster.Capabilities) {
-				return nil, errors.Validation("capability namespace %q is reserved and server-assigned; it cannot be declared (PLAT-CLUS-14)", IdentityCapabilityNamespace)
-			}
 			managedClusterModel := ConvertManagedCluster(managedCluster)
 			managedClusterModel, err := h.managedCluster.Create(ctx, managedClusterModel)
 			if err != nil {
 				return nil, err
 			}
-			return presentForCaller(ctx, managedClusterModel), nil
+			return PresentManagedCluster(managedClusterModel), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -173,7 +164,7 @@ func (h managedClusterHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			return presentForCaller(ctx, managedClusterModel), nil
+			return PresentManagedCluster(managedClusterModel), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -204,9 +195,8 @@ func (h managedClusterHandler) List(w http.ResponseWriter, r *http.Request) {
 				Items: []openapi.ManagedCluster{},
 			}
 
-			includeIdentity := callerSeesIdentityCapability(ctx)
 			for _, managedCluster := range managedClusters {
-				converted := presentWithIdentity(&managedCluster, includeIdentity)
+				converted := PresentManagedCluster(&managedCluster)
 				managedClusterList.Items = append(managedClusterList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -233,47 +223,11 @@ func (h managedClusterHandler) Get(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 
-			return presentForCaller(ctx, managedCluster), nil
+			return PresentManagedCluster(managedCluster), nil
 		},
 	}
 
 	handlers.HandleGet(w, r, cfg)
-}
-
-// callerSeesIdentityCapability reports whether the caller may see the reserved,
-// server-assigned managed-cluster/<name> identity capability in a response. Only a
-// platform:admin caller sees it; a non-admin caller cannot enumerate the fleet's
-// identity capabilities (PLAT-CLUS-14, defense in depth).
-func callerSeesIdentityCapability(ctx context.Context) bool {
-	return rbac.HasPlatformAdminRole(ctx, rbac.GetUserIDFromContext(ctx))
-}
-
-// presentForCaller presents a cluster with its identity capability included only
-// for a platform:admin caller.
-func presentForCaller(ctx context.Context, managedCluster *ManagedCluster) openapi.ManagedCluster {
-	return presentWithIdentity(managedCluster, callerSeesIdentityCapability(ctx))
-}
-
-// presentWithIdentity presents a cluster, adding the derived managed-cluster/<name>
-// identity capability when includeIdentity is true and otherwise stripping any
-// managed-cluster/* label (defensive: the stored set never carries one, since it is
-// rejected as input). The identity capability is derived server-side from the
-// unique name and is never persisted (PLAT-CLUS-14).
-func presentWithIdentity(managedCluster *ManagedCluster, includeIdentity bool) openapi.ManagedCluster {
-	presented := PresentManagedCluster(managedCluster)
-	filtered := make([]string, 0, len(presented.Capabilities)+1)
-	for _, label := range presented.Capabilities {
-		if strings.HasPrefix(label, IdentityCapabilityNamespace+"/") {
-			continue
-		}
-		filtered = append(filtered, label)
-	}
-	if includeIdentity && managedCluster.Name != "" {
-		filtered = append(filtered, IdentityCapability(managedCluster.Name))
-	}
-	sort.Strings(filtered)
-	presented.Capabilities = filtered
-	return presented
 }
 
 func (h managedClusterHandler) Delete(w http.ResponseWriter, r *http.Request) {

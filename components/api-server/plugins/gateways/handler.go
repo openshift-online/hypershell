@@ -103,12 +103,6 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 		if len(request.Selectors) == 0 || len(request.Selectors) > 32 {
 			return nil, errors.Validation("selectors must contain between 1 and 32 selectors")
 		}
-		// Identity selection is platform-admin-only (PLAT-DATA-02, PLAT-CLUS-14):
-		// gate the probe so a non-admin cannot confirm a named cluster's existence
-		// and eligibility by its available flag.
-		if authzErr := authorizeIdentityAvailability(r.Context(), request.Selectors); authzErr != nil {
-			return nil, authzErr
-		}
 		availability, svcErr := h.availability(r.Context(), request.Selectors)
 		if svcErr != nil {
 			return nil, svcErr
@@ -210,15 +204,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 				gatewayModel.ClusterId = pinnedCluster
 			} else {
-				intent := gateway.GetPlacement()
-				// Identity selection (placement by managed-cluster/<name>) is
-				// platform-admin-only (PLAT-DATA-02); requirement-only selectors are
-				// unaffected. Authorize before resolving so a non-admin identity selector
-				// is rejected and never resolves to a cluster.
-				if authzErr := authorizeIdentityPlacement(ctx, intent); authzErr != nil {
-					return nil, authzErr
-				}
-				if clusterErr := h.resolveGatewayPlacement(ctx, intent, gatewayModel); clusterErr != nil {
+				if clusterErr := h.resolveGatewayPlacement(ctx, gateway.GetPlacement(), gatewayModel); clusterErr != nil {
 					return nil, clusterErr
 				}
 			}

@@ -8986,7 +8986,7 @@
             "name": "capabilities",
             "type": "array",
             "required": false,
-            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities. The managed-cluster namespace is reserved and server-assigned: a set that declares any managed-cluster/* label is rejected with 400 (PLAT-CLUS-14)."
+            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
           },
           {
             "name": "name",

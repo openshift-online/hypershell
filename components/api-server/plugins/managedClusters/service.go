@@ -176,48 +176,10 @@ var capabilitySegmentRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])
 const (
 	providerNamespace = "provider"
 	regionNamespace   = "region"
-	// IdentityCapabilityNamespace is the reserved, server-assigned capability
-	// namespace. Every ManagedCluster has an identity capability
-	// managed-cluster/<name> derived from its unique name (PLAT-CLUS-14). It is
-	// a recognized namespace so a placement selector may reference it, but it is
-	// rejected as a self-declared capability input (see normalizeCapabilityLabels)
-	// so a control plane can neither assign nor spoof an identity capability.
-	IdentityCapabilityNamespace = "managed-cluster"
 )
 
-var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true, IdentityCapabilityNamespace: true}
+var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true}
 var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true}
-
-// IdentityCapability returns the reserved, server-assigned identity capability
-// for a cluster name (PLAT-CLUS-14). Names are unique (uix_managed_clusters_name),
-// so this resolves a placement selector deterministically to exactly one cluster.
-func IdentityCapability(name string) string {
-	return IdentityCapabilityNamespace + "/" + name
-}
-
-// HasReservedCapability reports whether any label is in the reserved
-// managed-cluster namespace. Used to reject a self-declared capability set that
-// tries to assign or spoof an identity capability (PLAT-CLUS-14.02).
-func HasReservedCapability(labels []string) bool {
-	return hasNamespace(labels, IdentityCapabilityNamespace)
-}
-
-// SelectorReferencesIdentity reports whether a placement selector references any
-// managed-cluster/* identity capability. Its use is gated on platform:admin
-// (PLAT-DATA-02); a normal caller that references it is rejected.
-func SelectorReferencesIdentity(labels []string) bool {
-	return hasNamespace(labels, IdentityCapabilityNamespace)
-}
-
-func hasNamespace(labels []string, namespace string) bool {
-	prefix := namespace + "/"
-	for _, label := range labels {
-		if strings.HasPrefix(label, prefix) {
-			return true
-		}
-	}
-	return false
-}
 
 // capabilityValue returns the value advertised through the given single-valued
 // capability namespace, or "" when the set declares none. Inputs are assumed
@@ -232,24 +194,19 @@ func capabilityValue(capabilities []string, namespace string) string {
 	return ""
 }
 
-// NormalizeCapabilities validates a self-declared capability set and returns a
-// stable, deduplicated representation suitable for persistence and selector
-// matching. It rejects the reserved managed-cluster namespace: identity
-// capabilities are server-assigned, never declared (PLAT-CLUS-14).
+// NormalizeCapabilities validates capability labels and returns a stable,
+// deduplicated representation suitable for persistence and selector matching.
 func NormalizeCapabilities(labels []string, requireNonEmpty bool) ([]string, *errors.ServiceError) {
-	return normalizeCapabilityLabels(labels, requireNonEmpty, true, true, true)
+	return normalizeCapabilityLabels(labels, requireNonEmpty, true, true)
 }
 
 // NormalizeSelector applies the same vocabulary while collapsing duplicates,
 // because selectors are query intent rather than the declared source-of-truth set.
-// It allows the reserved managed-cluster namespace so an authorized caller can
-// place a gateway by a cluster's identity capability (PLAT-DATA-02); the use of
-// such a selector is gated on platform:admin by the gateway create path.
 func NormalizeSelector(labels []string) ([]string, *errors.ServiceError) {
-	return normalizeCapabilityLabels(labels, true, false, false, false)
+	return normalizeCapabilityLabels(labels, true, false, false)
 }
 
-func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicates, enforceSingleValue, rejectReserved bool) ([]string, *errors.ServiceError) {
+func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicates, enforceSingleValue bool) ([]string, *errors.ServiceError) {
 	if len(labels) == 0 {
 		if requireNonEmpty {
 			return nil, errors.Validation("capabilities must contain at least one label")
@@ -262,9 +219,6 @@ func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicate
 		parts := strings.Split(label, "/")
 		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilitySegmentRE.MatchString(parts[1]) {
 			return nil, errors.Validation("invalid capability label %q: expected a recognized namespace and lowercase DNS-label value", label)
-		}
-		if rejectReserved && parts[0] == IdentityCapabilityNamespace {
-			return nil, errors.Validation("capability namespace %q is reserved and server-assigned; it cannot be declared (PLAT-CLUS-14)", IdentityCapabilityNamespace)
 		}
 		if seen[label] {
 			if rejectDuplicates {

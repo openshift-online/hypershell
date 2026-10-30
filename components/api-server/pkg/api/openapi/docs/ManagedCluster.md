@@ -18,7 +18,7 @@ Name | Type | Description | Notes
 **ApiServerUrl** | Pointer to **string** |  | [optional]
 **OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly]
 **LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly]
-**Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. The reserved managed-cluster/&lt;name&gt; identity capability is server-assigned (derived from the unique name) and is included here only for a platform:admin caller; it is never accepted as input (PLAT-CLUS-14). | [optional] [readonly]
+**Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. | [optional] [readonly]
 
 ## Methods
 

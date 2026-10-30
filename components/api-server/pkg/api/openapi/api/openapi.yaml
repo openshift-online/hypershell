@@ -4488,9 +4488,7 @@ components:
             type: string
           capabilities:
             description: Registration-owned capability labels used by match-all placement
-              selectors. The reserved managed-cluster/<name> identity capability is
-              server-assigned (derived from the unique name) and is included here
-              only for a platform:admin caller; it is never accepted as input (PLAT-CLUS-14).
+              selectors.
             items:
               type: string
             readOnly: true
@@ -4609,9 +4607,7 @@ components:
           description: "Complete self-declared capability set. Optional for backward\
             \ compatibility: a control plane that predates the capability model may\
             \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
-            \ any stored capabilities. The managed-cluster namespace is reserved and\
-            \ server-assigned: a set that declares any managed-cluster/* label is\
-            \ rejected with 400 (PLAT-CLUS-14)."
+            \ any stored capabilities."
           items:
             type: string
           type: array
