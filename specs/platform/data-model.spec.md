@@ -298,18 +298,14 @@ request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spe
 field persisted on the Gateway (not merely request-scoped), because it is
 re-evaluated for late binding after create.
 
-**Identity selection is platform-admin-only.** A `placement` selector normally
-declares requirement capabilities (`provider/*`, `network/*`, and the other
-self-declared namespaces) and SHALL resolve by random selection among eligible
-clusters, so a normal caller cannot choose a specific cluster. A selector MAY
-instead reference a cluster's server-assigned identity capability
-(`managed-cluster/<name>`) to resolve deterministically to exactly that cluster,
-but ONLY when the caller holds `platform:admin`; for any other caller a selector
-that references a `managed-cluster/*` capability SHALL be rejected and SHALL NOT
-resolve (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
-"Requirement: Server-Assigned Identity Capability"). This is the authorized path
-for operational and test callers that must target a specific cluster, and it
-keeps per-cluster targeting off the normal-user placement surface.
+**Requirement-capability selection only.** A `placement` selector declares
+requirement capabilities (`provider/*`, `network/*`, and the other self-declared
+namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels") and SHALL resolve by random
+selection among the eligible clusters that match it, so a caller expresses the
+TYPE of placement it wants and SHALL NOT choose a specific cluster through this
+contract. Deterministic single-cluster targeting is out of scope here: it is a
+separate `cluster_name` placement selector tracked in its own issue (#857).
 
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway

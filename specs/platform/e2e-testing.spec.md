@@ -44,7 +44,7 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     ├── suite.go           -- E2ESuite (testify/suite.Suite): SetupSuite/TearDownSuite,
     │                         ordered phase-step subtests, mode + multi-identity gating
     ├── perf_test.go       -- TestPerformance entry point; PerfHarness (bounded concurrency)
-    ├── matrix_test.go     -- TestMatrix entry point; fans the suite across ManagedClusters
+    ├── matrix_test.go     -- TestMatrix entry point; fans the suite across distinct fleet capabilities
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
     ├── harness/           -- shared helpers: CommandRunner (demo logging), Reporter
     │                         (pass/fail/skip), the opt-in structured run reporter
@@ -594,7 +594,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
-The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per selected healthy cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
+The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per distinct fleet capability concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
 7. **Collision-free naming, capacity, and determinism.** Every concurrently-created gateway SHALL have a unique name (`<step-id>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway steps multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list steps in canonical phase order (P0.1, P0.2, P1.1, ...) regardless of completion order.
 
@@ -1521,49 +1521,126 @@ The refactored deploy structure SHALL maintain backward compatibility with exist
 
 ### Requirement: E2E-CORE-30 -- Managed-Cluster Matrix Runner
 
-`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy, and across the run SHALL assert that the set of clusters actually exercised equals the selected Healthy set (full fleet coverage).
+`TestMatrix` SHALL validate placement **per distinct capability** advertised
+across the fleet, not per cluster, so its cost scales with the bounded capability
+set rather than with the cluster count. "Can a user deploy here" is a per-cluster
+property, but "does placement by this capability work" is a property of the
+software and the fleet's capability set; running the full suite once per cluster
+is therefore redundant at fleet scale and does not scale to 100+ clusters.
+
+`TestMatrix` SHALL read `GET /managed_clusters`, apply the passive health gate
+below to select the registered, Healthy clusters, and enumerate the **union of
+distinct capability labels** those clusters advertise across the self-declared
+namespaces (`provider/*`, `network/*`, `region/*`, `runtime/*`, `environment/*`;
+see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels"). It SHALL run the existing
+`E2ESuite` exactly ONCE PER DISTINCT CAPABILITY. Each suite SHALL place its
+positive workflow and provisioning gateways by that one capability selector
+(`placement.selector = [<capability>]`, no `cluster_id`) and SHALL assert the
+gateway deploys to SOME eligible cluster -- any cluster that advertises the
+capability -- rather than to a predetermined cluster. `E2E_MANAGED_CLUSTERS` MAY
+narrow the fleet to an allowlist of cluster names whose capabilities feed the
+enumeration.
+
+Across the run `TestMatrix` SHALL assert **full capability coverage**: every
+distinct capability present across the Healthy clusters is exercised by exactly
+one suite. It SHALL also report the **union of clusters actually landed on** across
+all suites (the landed-cluster union) as observational output, not as a coverage
+assertion: a single cluster MAY satisfy several capabilities and some clusters MAY
+never be landed on, which is expected and SHALL NOT fail the run. The matrix cost
+(the number of `E2ESuite` runs) SHALL equal the distinct-capability count and
+SHALL be independent of the cluster count.
+
+**Passive health gate.** A ManagedCluster with an empty `oidc_subject`
+(unregistered), or whose `last_seen_at` age exceeds `E2E_MANAGED_HEALTHY_WINDOW`
+(stale), SHALL be excluded from the capability enumeration and SHALL NOT
+contribute its capabilities. When such a cluster is explicitly named by
+`E2E_MANAGED_CLUSTERS`, the matrix SHALL report FAIL by default, or SKIP when
+`E2E_MANAGED_SKIP_UNHEALTHY=1` (fail-closed otherwise).
+
+**Kubernetes-context scoping.** Kubernetes-level checks for a landed cluster SHALL
+run only under its `E2E_MANAGED_KUBECONTEXT_<name>` mapping. Absent that mapping,
+API-level checks SHALL still run and Kubernetes-level checks SHALL report SKIP; the
+suite SHALL NOT fall back to another cluster's context.
+
+**Determinism and concurrency.** The per-capability suites SHALL run bounded by
+`E2E_CONCURRENCY`: at `E2E_CONCURRENCY=1` they run sequentially in a deterministic
+capability order; higher values fan them out within that bound.
 
 ```text
-for mc in GET /managed_clusters:         # authenticated as platform:admin
-    if mc is unregistered or unhealthy:
-        report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
-        continue
-    suite = E2ESuite { target: mc.name }
-    run suite                            # positive creates place via [managed-cluster/mc.name]
-assert covered == selected Healthy set
+clusters = GET /managed_clusters                         # authenticated
+healthy  = [mc for mc in clusters
+            if mc.oidc_subject != ""
+            and age(mc.last_seen_at) <= E2E_MANAGED_HEALTHY_WINDOW
+            and (E2E_MANAGED_CLUSTERS unset or mc.name in E2E_MANAGED_CLUSTERS)]
+for mc in explicitly selected but excluded (unregistered/stale):
+    report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
+
+capabilities = distinct(union of mc.capabilities for mc in healthy)
+for cap in capabilities:                                 # cost = len(capabilities), not len(clusters)
+    suite = E2ESuite { placement: [cap] }
+    run suite                                            # positive creates place via [cap]
+    assert gateway landed on some cluster advertising cap
+    record landed_cluster(cap)
+assert exercised == capabilities                         # full capability coverage
+report landed-cluster union                              # observational, never a failure
 ```
 
-`TestMatrix` SHALL authenticate as a `platform:admin` caller and target each `E2ESuite` at its cluster by the cluster's server-assigned identity capability `managed-cluster/<name>` (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md), "Requirement: Server-Assigned Identity Capability", and PLAT-DATA-02 "Identity selection is platform-admin-only"). Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL place by `placement.selector = [managed-cluster/<name>]` and SHALL NOT send `cluster_id`. After each such create, the suite SHALL confirm the gateway resolved to that cluster before continuing its workflow, using an admin-visible resolved-cluster read (so the check does not depend on a user-settable `cluster_id`). These positive creates SHALL NOT use requirement-only selectors, random placement, or a fallback cluster. Because identity selection is `platform:admin`-gated, the e2e client SHALL hold `platform:admin`; without it the positive creates SHALL be rejected.
+Contract-negative creates and late-binding probes SHALL retain the request shape
+required by the behavior they verify. In particular, P2.4 SHALL continue to send
+its negative and late-binding placement requests -- an unregistered `cluster_id`,
+an empty `cluster_id` with no placement, and a placement selector with no
+`cluster_id` -- unchanged; the capability round-robin selector SHALL NOT be
+injected into those requests, and a successful late-bound response (a
+requirement-capability selector) SHALL resolve by random selection among eligible
+clusters.
 
-Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its negative and late-binding placement requests; the identity capability SHALL NOT be injected into those requests, and a successful late-bound response (a requirement-only selector) SHALL resolve by random selection among eligible clusters and SHALL NOT be required to resolve to the suite's target. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
+#### Scenario: E2E-CORE-30.01 -- Suite runs once per distinct fleet capability
 
-#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster, by identity
-
-- GIVEN `GET /managed_clusters` returns registered Healthy clusters `A` and `B`
-- AND `TestMatrix` authenticates as `platform:admin`
+- GIVEN `GET /managed_clusters` returns registered Healthy clusters advertising the distinct capabilities `provider/aws`, `provider/ibm`, and `network/public`
 - WHEN `TestMatrix` runs
-- THEN it SHALL run one `E2ESuite` targeting `A` and one targeting `B`
-- AND every positive workflow or provisioning create from the suite targeting `A` SHALL place by `placement.selector = [managed-cluster/A]` and verify the gateway resolved to `A`
-- AND every positive workflow or provisioning create from the suite targeting `B` SHALL place by `placement.selector = [managed-cluster/B]` and verify the gateway resolved to `B`
-- AND no positive-workflow create SHALL send `cluster_id`
-- AND neither suite SHALL place a positive-workflow gateway on any other cluster
-- AND across the run the covered set SHALL equal `{A, B}`
+- THEN it SHALL run exactly one `E2ESuite` per distinct capability (three suites)
+- AND each suite SHALL place its positive-workflow and provisioning gateways by `placement.selector = [<capability>]` and SHALL NOT send `cluster_id`
+- AND each such gateway SHALL be asserted to deploy to some cluster that advertises that capability
 - AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
 #### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly
 
-- GIVEN a selected ManagedCluster is unregistered or not Healthy
-- WHEN `TestMatrix` evaluates that cluster
-- THEN it SHALL NOT create a gateway or run `E2ESuite` for that cluster
-- AND it SHALL report FAIL by default
+- GIVEN a selected ManagedCluster is unregistered (empty `oidc_subject`) or stale (`last_seen_at` outside `E2E_MANAGED_HEALTHY_WINDOW`)
+- WHEN `TestMatrix` evaluates the fleet
+- THEN that cluster SHALL be excluded from the capability enumeration and SHALL NOT contribute its capabilities
+- AND when it is explicitly named by `E2E_MANAGED_CLUSTERS` the matrix SHALL report FAIL by default
 - OR it SHALL report SKIP when `E2E_MANAGED_SKIP_UNHEALTHY=1`
 
 #### Scenario: E2E-CORE-30.03 -- Missing Kubernetes context skips Kubernetes checks
 
-- GIVEN a selected registered Healthy cluster has no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
-- WHEN `E2ESuite` runs for that cluster
+- GIVEN a capability suite's gateway lands on a cluster with no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
+- WHEN the suite runs
 - THEN API-level steps SHALL still run
 - AND Kubernetes-level steps SHALL report SKIP rather than use another cluster's context
+
+#### Scenario: E2E-CORE-30.04 -- Full capability coverage asserted and landed-cluster union reported
+
+- GIVEN Healthy clusters where `A` advertises `provider/aws` and `network/public`, and `B` advertises `provider/aws` and `region/us-east-1`
+- WHEN `TestMatrix` runs
+- THEN it SHALL exercise every distinct capability `{provider/aws, network/public, region/us-east-1}` exactly once
+- AND it SHALL report the union of clusters actually landed on across the suites
+- AND a cluster that is never landed on (because another cluster satisfied its capabilities) SHALL NOT fail the run
+
+#### Scenario: E2E-CORE-30.05 -- Matrix cost is independent of cluster count
+
+- GIVEN two fleets that advertise the same distinct capability set, one with 2 Healthy clusters and one with 100
+- WHEN `TestMatrix` runs against each
+- THEN the number of `E2ESuite` runs SHALL equal the distinct-capability count in both cases
+- AND the suite count SHALL NOT grow with the cluster count
+
+#### Scenario: E2E-CORE-30.06 -- Contract-negative and late-binding shapes are preserved
+
+- GIVEN the P2.4 contract-negative and late-binding probes
+- WHEN a capability suite runs
+- THEN it SHALL still send an unregistered `cluster_id`, an empty `cluster_id` with no placement, and a placement selector with no `cluster_id`, unchanged
+- AND the capability round-robin selector SHALL NOT be injected into those requests
+- AND a successful late-bound create (a requirement-capability selector) SHALL resolve by random selection among eligible clusters
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 
@@ -1629,7 +1706,7 @@ tests/e2e/                 -- Go module: github.com/openshift-online/hypershell/
   suite.go                 -- E2ESuite: SetupSuite/TearDownSuite, ordered phase-step subtests, mode gating
   phases.go                -- the phase steps P0-P3 (short/long tagged), infra-agnostic
   perf_test.go             -- TestPerformance entry point + PerfHarness (bounded concurrency, checkpoints)
-  matrix_test.go           -- TestMatrix entry point + matrix runner (fans the suite across ManagedClusters)
+  matrix_test.go           -- TestMatrix entry point + matrix runner (fans the suite across distinct fleet capabilities)
   driver/
     driver.go              -- E2EInfraDriver interface + registry + auto-detection (this spec)
     kind.go                -- Kind infra driver (this spec)
@@ -1714,7 +1791,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
-| `E2E_CONCURRENCY` | `4` | Overarching bound on parallel fan-out work: gateway create/provision/delete in the performance harness, and clusters run in parallel in the matrix runner. `1` forces sequential. There is no per-subsystem concurrency knob |
+| `E2E_CONCURRENCY` | `4` | Overarching bound on parallel fan-out work: gateway create/provision/delete in the performance harness, and per-capability suites run in parallel in the matrix runner. `1` forces sequential. There is no per-subsystem concurrency knob |
 | `E2E_PAUSE` | `0` | Bash smoke script only (`make e2e-smoke`): seconds to pause after echoing each command, for live demos. The Go suites have no pause |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for the admin-authenticated steps (P0, P1, and the admin paths of P2/P3) |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
@@ -1749,16 +1826,16 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_REPORT_NAMESPACE` | (unset) | Runtime namespace carried as `namespace`; supplied at runtime by hypershell-gitops |
 
 The managed-cluster matrix runner (`TestMatrix`, `make e2e-matrix`) adds the following; see
-[Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner). Each per-cluster
+[Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner). Each per-capability
 suite reuses the full single-cluster variable set above.
 
 | Env Var                          | Default                  | Description                                                                                  |
 | -------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
-| `E2E_MANAGED_CLUSTERS`           | (unset = all registered) | Optional allowlist of ManagedCluster names to run; allowlist only, no denylist               |
-| `E2E_MANAGED_SKIP_UNHEALTHY`     | `0`                      | `1` downgrades an unregistered/stale/unreachable cluster from failure to skip                |
+| `E2E_MANAGED_CLUSTERS`           | (unset = all registered) | Optional allowlist of ManagedCluster names whose capabilities feed the distinct-capability enumeration; allowlist only, no denylist |
+| `E2E_MANAGED_SKIP_UNHEALTHY`     | `0`                      | `1` downgrades an explicitly selected unregistered/stale/unreachable cluster from failure to skip |
 | `E2E_MANAGED_HEALTHY_WINDOW`     | `5m`                     | Max `last_seen_at` age for a cluster to count as healthy                                     |
-| `E2E_MANAGED_GATEWAY_PREFIX`     | `e2e`                    | Prefix for each cluster's uniquely named gateway (`<prefix>-<cluster>-<runid>`)              |
-| `E2E_MANAGED_KUBECONTEXT_<name>` | (unset)                  | Kube context for cluster `<name>`; enables its kube-level steps (P1.2, P2.3), else they skip |
+| `E2E_MANAGED_GATEWAY_PREFIX`     | `e2e`                    | Prefix for each capability suite's uniquely named gateway (`<prefix>-<sanitized-capability>-<runid>`) |
+| `E2E_MANAGED_KUBECONTEXT_<name>` | (unset)                  | Kube context for cluster `<name>`; enables kube-level steps (P1.2, P2.3) for gateways that land on it, else they skip |
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
 [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md#environment-variables).
