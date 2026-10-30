@@ -3,8 +3,6 @@ package roleBindings
 import (
 	"context"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
@@ -28,7 +26,6 @@ import (
 type ServiceLocator func() RoleBindingService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	defaultRoles := defaultRolesFromEnv()
 	roleBindingDao := NewRoleBindingDao(&env.Database.SessionFactory)
 	RegisterRoleBindingMetrics(roleBindingDao)
 
@@ -38,29 +35,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			roleBindingDao,
 			roles.NewRoleDao(&env.Database.SessionFactory),
 			events.Service(&env.Services),
-			defaultRoles,
 		)
 	}
-}
-
-// defaultRolesFromEnv reads RBAC_DEFAULT_ROLES (comma-separated role names).
-// Defaults to gateway:creator so all authenticated users can create gateways.
-// Set RBAC_DEFAULT_ROLES= (explicit empty) to disable defaults entirely.
-func defaultRolesFromEnv() []string {
-	val, set := os.LookupEnv("RBAC_DEFAULT_ROLES")
-	if !set {
-		return []string{roles.RoleGatewayCreator}
-	}
-	if val == "" {
-		return nil
-	}
-	var result []string
-	for _, r := range strings.Split(val, ",") {
-		if trimmed := strings.TrimSpace(r); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
 
 func Service(s *environments.Services) RoleBindingService {

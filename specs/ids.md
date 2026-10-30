@@ -33,7 +33,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
-| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -162,7 +162,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 22 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

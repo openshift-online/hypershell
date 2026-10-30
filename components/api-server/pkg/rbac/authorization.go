@@ -621,8 +621,9 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		// Collection GET is allowed for any authenticated user. The list
 		// handler filters to accessible IDs and returns 200 with an empty
 		// items array when there are none. Requiring a RoleBinding here
-		// 403s developers on OpenShift (RBAC_DEFAULT_ROLES empty) and the
-		// web console shows "Gateways could not be loaded".
+		// 403s any caller without gateway:creator or a per-gateway binding
+		// (for example a developer whose Keycloak roles grant neither), and
+		// the web console shows "Gateways could not be loaded".
 		if method == http.MethodGet {
 			return true
 		}

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -660,10 +661,10 @@ func (s *E2ESuite) deleteSandboxAndWaitForCount(t *testing.T, local, name, gatew
 }
 
 // p2_2RBACEnforcement checks the developer vs platform-admin boundary at the API:
-// the developer may list gateways; gateway-create depends on the deployment's
-// RBAC default (gateway:creator grants create, otherwise 403); platform-admin
-// holds the elevated permissions including gateway delete. The developer
-// sandbox-create positive case needs the CLI and lands with the CLI wave.
+// the developer may list gateways; gateway-create follows whether the caller's
+// own token carries gateway:creator (E2E-CORE-15); platform-admin holds the
+// elevated permissions including gateway delete. The developer sandbox-create
+// positive case needs the CLI and lands with the CLI wave.
 // Verifies: E2E-CORE-15.02, E2E-CORE-15.03, E2E-CORE-15.04, E2E-CORE-15.05
 func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	ctx := t.Context()
@@ -677,18 +678,20 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
-	// Developer gateway-create: environment-dependent on the RBAC default.
+	// Developer gateway-create: follows whether the developer's own token
+	// carries gateway:creator. The shared developer seed omits it on every
+	// environment so the denial path is exercised consistently (CICD-CRED-13).
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
-	if s.rbacDefaultIncludesCreator(t) {
-		s.Assert().Truef(st == http.StatusCreated || st == http.StatusOK, "with gateway:creator default, developer create should succeed, got %d (%s)", st, string(body))
+	if s.tokenHasRealmRole(t, s.devCreds(), "gateway:creator") {
+		s.Assert().Truef(st == http.StatusCreated || st == http.StatusOK, "with gateway:creator, developer create should succeed, got %d (%s)", st, string(body))
 		var created sdktypes.Gateway
 		if json.Unmarshal(body, &created) == nil && created.ID != "" {
 			_ = s.admin.Gateways().Delete(ctx, created.ID) // clean up
 		}
 	} else {
-		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
+		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator, developer create must be 403 (body: %s)", string(body))
 		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
@@ -701,8 +704,8 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	platformCreate := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name())
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodPost, "/gateways", platformCreate)
 	s.Require().NoError(err, "platform-admin POST /gateways")
-	if s.rbacDefaultIncludesCreator(t) {
-		s.Require().Truef(st == http.StatusCreated || st == http.StatusOK, "platform-admin gateway create should follow the gateway:creator default, got %d (%s)", st, string(body))
+	if s.tokenHasRealmRole(t, s.platformAdminCreds(), "gateway:creator") {
+		s.Require().Truef(st == http.StatusCreated || st == http.StatusOK, "platform-admin gateway create should follow its token's gateway:creator role, got %d (%s)", st, string(body))
 		var platformCreated sdktypes.Gateway
 		s.Require().NoError(json.Unmarshal(body, &platformCreated), "decode platform-admin-created gateway")
 		if platformCreated.ID != "" {
@@ -1201,27 +1204,45 @@ func (s *E2ESuite) podLogs(ctx context.Context, ns, selector string, tail int64)
 	return b.String(), nil
 }
 
-// rbacDefaultIncludesCreator reports whether the deployed api-server grants the
-// gateway:creator role by default (so a plain developer may create gateways). It
-// reads RBAC_DEFAULT_ROLES on the api-server deployment; unset means the Kind
-// default, which includes gateway:creator.
-func (s *E2ESuite) rbacDefaultIncludesCreator(t *testing.T) bool {
-	dep, err := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace()).Get(t.Context(), "hypershell-api-server", metav1.GetOptions{})
+// jwtRealmRoles decodes the realm_access.roles claim from a JWT without
+// verifying its signature: the suite already trusts the issuing driver, and
+// the claim is not available any other way now that the API server merges no
+// default role of its own (SEC-RBAC-13).
+func jwtRealmRoles(token string) ([]string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("malformed JWT: expected 3 segments, got %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		s.Logf("WARN read api-server RBAC default (assuming creator-default): %v", err)
-		return true
+		return nil, fmt.Errorf("decode JWT payload: %w", err)
 	}
-	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name != "api-server" {
-			continue
-		}
-		for _, e := range c.Env {
-			if e.Name == "RBAC_DEFAULT_ROLES" {
-				return strings.Contains(e.Value, "gateway:creator")
-			}
+	var claims struct {
+		RealmAccess struct {
+			Roles []string `json:"roles"`
+		} `json:"realm_access"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("unmarshal JWT claims: %w", err)
+	}
+	return claims.RealmAccess.Roles, nil
+}
+
+// tokenHasRealmRole reports whether creds' current OIDC token carries role in
+// its realm_access.roles claim (E2E-CORE-15): the expected create-gateway
+// result follows the caller's own token, not API server Deployment
+// configuration.
+func (s *E2ESuite) tokenHasRealmRole(t *testing.T, creds driver.Credentials, role string) bool {
+	tok, err := s.driver.AcquireOIDCToken(t.Context(), creds)
+	s.Require().NoErrorf(err, "acquire token for %s", creds.Username)
+	rolesList, err := jwtRealmRoles(tok.AccessToken)
+	s.Require().NoErrorf(err, "decode realm roles for %s", creds.Username)
+	for _, r := range rolesList {
+		if r == role {
+			return true
 		}
 	}
-	return true // unset -> Kind default includes gateway:creator
+	return false
 }
 
 // deleteUnexpectedlyCreatedGateway removes a gateway that a create call made

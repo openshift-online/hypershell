@@ -3,7 +3,6 @@ package roleBindings
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -55,30 +54,22 @@ func NewRoleBindingService(
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
 	events services.EventService,
-	defaultRoles []string,
 ) RoleBindingService {
-	for _, r := range defaultRoles {
-		if !roles.JWTSyncedRoles[r] {
-			slog.Warn("RBAC_DEFAULT_ROLES role is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", "role", r)
-		}
-	}
 	return &sqlRoleBindingService{
-		lockFactory:  lockFactory,
-		rbDao:        rbDao,
-		roleDao:      roleDao,
-		events:       events,
-		defaultRoles: defaultRoles,
+		lockFactory: lockFactory,
+		rbDao:       rbDao,
+		roleDao:     roleDao,
+		events:      events,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory  db.LockFactory
-	rbDao        RoleBindingDao
-	roleDao      roles.RoleDao
-	events       services.EventService
-	defaultRoles []string
+	lockFactory db.LockFactory
+	rbDao       RoleBindingDao
+	roleDao     roles.RoleDao
+	events      services.EventService
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -121,16 +112,6 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
-		if roles.JWTSyncedRoles[r] {
-			jwtRoleSet[r] = true
-		}
-	}
-	// Default roles are always merged regardless of what the JWT carries.
-	// They represent the platform's baseline posture: every authenticated
-	// principal receives these capabilities unless explicitly disabled via
-	// RBAC_DEFAULT_ROLES=. Only roles in JWTSyncedRoles participate in the
-	// sync lifecycle (idempotent add, never revoked by JWT absence).
-	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}
