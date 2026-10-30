@@ -256,6 +256,10 @@ func (s *E2ESuite) SetupSuite() {
 	s.Require().NoError(err, "build admin API client")
 	s.admin = api
 
+	// Reap stale e2e gateways leaked by an abnormally terminated prior run before
+	// this run starts. Best-effort and non-fatal; see sweepStaleGateways.
+	s.sweepStaleGateways(s.ctx)
+
 	clusterID, err := s.discoverSeedIDs(s.ctx)
 	s.Require().NoError(err, "discover seeded cluster id")
 	s.clusterID = clusterID
