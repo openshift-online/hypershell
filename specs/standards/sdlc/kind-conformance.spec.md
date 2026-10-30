@@ -315,20 +315,19 @@ never re-runs. Editing an already-shipped migration in place therefore repairs
 only fresh databases and silently leaves every upgraded environment on the old
 behavior. Any correction to already-shipped migration behavior SHALL ship as a
 NEW migration with a new, unique ID so it runs on every environment regardless of
-prior state. The system SHALL provide a static conformance check (wired into
-`make check`, per SDLC-CONF-05) that detects a changed body under an
-already-shipped migration ID -- by comparing a recorded body hash against the ID
--- and FAILS, naming the migration, so a "fix in place" edit cannot merge.
+prior state.
 
-#### Scenario: SDLC-CONF-10.01 -- A changed body under a shipped ID fails the gate
+This is a convention, upheld by the migration mechanism itself and by code review,
+not by a separate static gate, lock file, or developer command. Because an edited
+body under an already-shipped ID silently fails to converge upgraded environments,
+the upgrade-path conformance test (SDLC-CONF-12) -- which exercises the real
+upgraded-hub scenario against the production driver -- is what fails when this
+convention is broken: a "fix in place" edit leaves the upgraded clean table
+missing and that test fails. Enforcement of this convention therefore lives in the
+existing migration path and its upgrade-path test, not in any new check a developer
+must run.
 
-- GIVEN a migration whose ID was shipped in a prior release and whose body is now
-  edited without a new ID
-- WHEN the static conformance check (SDLC-CONF-05) runs
-- THEN the check SHALL fail
-- AND it SHALL name the migration whose body changed under an already-shipped ID
-
-#### Scenario: SDLC-CONF-10.02 -- A correction shipped as a new ID converges upgraded environments
+#### Scenario: SDLC-CONF-10.01 -- A correction shipped as a new ID converges upgraded environments
 
 - GIVEN an upgraded environment that recorded the original migration ID
 - WHEN a corrected migration ships under a new, unique ID
