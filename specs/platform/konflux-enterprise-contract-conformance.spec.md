@@ -243,9 +243,24 @@ remaining downloads are vendored or built from source.
 
 - GIVEN `agent-runtime` or `agent-runtime-slim`, which builds `hsctl` from `components/cli`, `fullsend` from its pinned submodule, and `gh` from `components/agents/tools/gh`, and assembles its Python and Node tool closure plus the closed-source `acli` from SHA-256-locked downloads
 - WHEN its image is built
-- THEN every `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at each module directory (`components/cli`, `components/agents/third_party/fullsend`, `components/agents/tools/gh`)
+- THEN every `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at each module directory (`components/cli`, `components/agents/third_party/fullsend`, `components/agents/tools/gh`, `components/agents/tools/gitleaks`)
 - AND every remaining downloaded tool SHALL be verified against its published SHA-256 digest so no tool is unattributed or non-reproducible
 - AND the component SHALL NOT set `hermetic: "true"` until those remaining tool downloads are vendored for a hermetic build
+
+> Note: the agent runtime build context is the repository root. Konflux generates a
+> source SBOM by inventorying the `go.mod` modules it finds in that source tree and
+> merges it into the component image SBOM, so the image SBOM lists the Go modules of
+> every in-repo `go.mod` under the build context (including the
+> `components/agents/tools/*` tool modules), not only the modules of the binaries the
+> image builds. This is source inventory in the SBOM: the shipped image layers do
+> not physically bundle the repository source (the final stages copy only the
+> assembled rootfs, the tool closure, and the built `hsctl`/`fullsend`/`gh`
+> binaries). A `gomod` tool module that an agent image does not build (for example
+> `components/agents/tools/gitleaks`, built only into `fullsend-sandbox`) is
+> therefore still inventoried in that image's SBOM and SHALL be included in the agent
+> image `prefetch-input` so Hermeto attributes the inventoried module, exactly as a
+> built tool module is. Omitting it leaves an avoidable, source-available attribution
+> warning that Requirement CICD-ECC-07 does NOT accept.
 
 #### Scenario: CICD-ECC-02.08 -- Source-available tools are built from source, not downloaded as binaries
 
