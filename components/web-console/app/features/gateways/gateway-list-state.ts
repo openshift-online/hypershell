@@ -43,6 +43,12 @@ function sortFieldFrom(value: string | null) {
   }
 }
 
+function onlyMineFrom(value: string | null): boolean {
+  return value === "mine"
+    ? true
+    : (defaultGatewayListRequest.onlyMine ?? false);
+}
+
 export function parseGatewayListState(
   parameters: URLSearchParams,
 ): GatewayListRequest {
@@ -54,6 +60,7 @@ export function parseGatewayListState(
     size: sizeFrom(parameters.get("size")),
     sortDirection: sortDirectionFrom(direction),
     sortField: sortFieldFrom(sort),
+    onlyMine: onlyMineFrom(parameters.get("owner")),
   };
 }
 
@@ -75,6 +82,11 @@ export function serializeGatewayListState(
   }
   if (state.sortDirection !== defaultGatewayListRequest.sortDirection) {
     parameters.set("direction", state.sortDirection);
+  }
+  // Encode the ownership filter so the view is shareable and restored on reload
+  // (WEB-DATA-02); omit it when off to keep the default URL clean.
+  if (state.onlyMine) {
+    parameters.set("owner", "mine");
   }
   return parameters;
 }

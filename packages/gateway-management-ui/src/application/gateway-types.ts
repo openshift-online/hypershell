@@ -58,6 +58,11 @@ export interface GatewayListRequest {
   size: number;
   sortDirection: GatewaySortDirection;
   sortField: GatewaySortField;
+  // onlyMine restricts the list to gateways the signed-in user owns. The server
+  // applies it before pagination against the authoritative owner bindings
+  // (WEB-UIEX-07); the console never filters an already-paginated page. Optional
+  // so existing callers default to the full authorized list (off).
+  onlyMine?: boolean;
 }
 
 export const gatewayListPageSizes = [10, 20, 50, 100] as const;
@@ -67,8 +72,11 @@ export const defaultGatewayListRequest: Readonly<GatewayListRequest> =
     page: 1,
     search: "",
     size: gatewayListPageSizes[1],
-    sortDirection: "asc",
-    sortField: "name",
+    // Default to newest-first ordering: creation time descending. The API
+    // applies a stable identifier tiebreak before pagination (WEB-ARCH-02).
+    sortDirection: "desc",
+    sortField: "created",
+    onlyMine: false,
   });
 
 export interface GatewayPage<T> {
@@ -76,6 +84,12 @@ export interface GatewayPage<T> {
   page: number;
   size: number;
   total: number;
+  // hasOtherOwnedGateways reports whether the caller's full authorized list
+  // contains at least one gateway owned by someone else, so the UI can decide
+  // whether to show the "Show only my gateways" toggle (WEB-UIEX-07,
+  // WEB-API-01). It reflects the authorized set only (SEC-RBAC-10). Optional so
+  // existing page consumers default to hiding the toggle.
+  hasOtherOwnedGateways?: boolean;
 }
 
 export interface GatewayInvocationContext {
