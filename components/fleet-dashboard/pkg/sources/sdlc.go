@@ -445,8 +445,20 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		grouped := map[int][]SDLCPullRequest{}
 		var issueOrder []int
 		var others []SDLCPullRequest
+		// The SDLC matrix groups the bundle's APPLICATION pull requests only
+		// (rr.rel.PRs); GitOps deployment PRs are a Fleet Map bundle-details concern
+		// and never fold into the tracked-issue/other-PR groups (SDLC-VIS-03.06,
+		// FLT-BPR). Copy the shared fields explicitly: PR carries extra repository and
+		// environment identity that SDLCPullRequest does not, so a struct conversion
+		// no longer applies.
 		for _, pr := range rr.rel.PRs {
-			sp := SDLCPullRequest(pr)
+			sp := SDLCPullRequest{
+				Number:   pr.Number,
+				Title:    pr.Title,
+				URL:      pr.URL,
+				Author:   pr.Author,
+				MergedAt: pr.MergedAt,
+			}
 			if issNum, ok := issueByPR[pr.Number]; ok {
 				if _, seen := grouped[issNum]; !seen {
 					issueOrder = append(issueOrder, issNum)

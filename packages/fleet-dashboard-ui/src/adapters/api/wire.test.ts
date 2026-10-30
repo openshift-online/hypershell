@@ -199,6 +199,62 @@ describe("mapPromotion", () => {
     expect(epsilon.activeDigest).toBe("cccccccc");
   });
 
+  it("maps the application and GitOps PR groups with repository identity", () => {
+    const data = mapPromotion({
+      order: ["delta"],
+      environments: {
+        delta: {
+          active: { version: "v1", digest: "sha256:dig" },
+          activeGates: [],
+        },
+      },
+      releases: {
+        "sha256:dig": {
+          version: "v1",
+          digest: "sha256:dig",
+          prs: [
+            {
+              number: 10,
+              title: "App change",
+              url: "https://github.com/acme/app/pull/10",
+              repository: "acme/app",
+            },
+          ],
+          gitopsPrs: [
+            {
+              number: 10,
+              title: "Deploy change",
+              url: "https://github.com/acme/gitops-delivery/pull/10",
+              repository: "acme/gitops-delivery",
+              environments: ["prod", "stage"],
+            },
+          ],
+          gitopsStatus: "available",
+        },
+      },
+    });
+    const bundle = data.releaseByDigest["sha256:dig"];
+    if (!bundle) throw new Error("expected bundle");
+    expect(bundle.prs[0]?.repository).toBe("acme/app");
+    expect(bundle.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    expect(bundle.gitopsPrs?.[0]?.environments).toEqual(["prod", "stage"]);
+    expect(bundle.gitopsStatus).toBe("available");
+  });
+
+  it("maps an unavailable GitOps status and ignores unknown status strings", () => {
+    const data = mapPromotion({
+      releases: {
+        a: { version: "v1", digest: "a", gitopsStatus: "unavailable" },
+        b: { version: "v2", digest: "b", gitopsStatus: "bogus" },
+        c: { version: "v3", digest: "c" },
+      },
+    });
+    expect(data.releaseByDigest.a?.gitopsStatus).toBe("unavailable");
+    // An unrecognized status and an absent status both collapse to null (hidden).
+    expect(data.releaseByDigest.b?.gitopsStatus).toBeNull();
+    expect(data.releaseByDigest.c?.gitopsStatus).toBeNull();
+  });
+
   it("maps absent release versions to null", () => {
     const data = mapPromotion({
       order: ["gamma"],
