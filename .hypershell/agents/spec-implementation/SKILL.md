@@ -78,5 +78,21 @@ ELSE:
 
 ### Step 4: Update Issue State
 
-Remove label `agent/review-spec-rejected` from `$GITHUB_ISSUE_URL` if present.
-Place label `agent/reviewable-spec` on `$GITHUB_ISSUE_URL`.
+Advance the phase on `$GITHUB_ISSUE_URL`:
+- Place label `agent/reviewable-spec`.
+- Remove the prior PHASE labels this transition supersedes, if present:
+  `agent/workable` (the phase that triggered this step) and
+  `agent/review-spec-rejected` (a prior spec-review verdict). Removing a label
+  that is already absent is a no-op.
+
+**Protected labels (never remove).** `agent/review-spec-blocked` is NOT a phase
+label - it is an OPTIONAL human gate a person applies to force a human spec
+sign-off before any code is written. NEVER remove it in this step, even while
+normalizing phase state; removing it silently destroys a human's intent to gate
+the spec-to-code transition. The role markers are likewise NOT phase labels and
+MUST NOT be removed here: `agent/allowed` (authorization gate), `agent/scope/*`
+(scope selector), and `agent/execution-record` (canonical-link marker). The
+paused-state holds `agent/blocked`, `agent/needs-input`, and `agent/duplicate` are
+also NOT phase labels and MUST NOT be removed here; removing one would silently
+un-pause the item. This step removes ONLY the prior phase labels named above - it
+is not a license to remove everything but one label.
