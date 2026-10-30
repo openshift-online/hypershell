@@ -6,6 +6,8 @@ import type { FleetData } from "../../../domain/fleet";
 import type {
   PromotionData,
   PromotionEnvironment,
+  PullRequest,
+  ReleaseBundle,
 } from "../../../domain/promotion";
 import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 import { buildMapModel } from "../../../domain/map/model";
@@ -248,6 +250,130 @@ function renderNodeOverview(gatewayImage: string | null): void {
     </IntlProvider>,
   );
 }
+
+// Synthetic repo slugs: the fleet-identity firewall forbids the real GitOps slug in
+// the public fleet-dashboard sources, including tests. Identity grouping is by the
+// repository field, not any specific slug.
+const APP_REPO = "acme/app";
+const GITOPS_REPO = "acme/gitops-delivery";
+
+function releaseBundle(overrides?: Partial<ReleaseBundle>): ReleaseBundle {
+  return {
+    version: "v1",
+    digest: "sha256:abc",
+    tag: null,
+    date: null,
+    prs: [],
+    ...overrides,
+  };
+}
+
+function renderBundle(bundle: ReleaseBundle): void {
+  const digest = bundle.digest ?? bundle.version;
+  const releaseByDigest: Record<string, ReleaseBundle> = { [digest]: bundle };
+  const promotion: PromotionData = {
+    order: [],
+    environments: {},
+    releases: [bundle.version],
+    releaseByDigest,
+    frontier: null,
+  };
+  const model = buildMapModel(promotion, emptyFleet);
+  render(
+    <IntlProvider locale="en" defaultLocale="en">
+      <RouterProvider history={createMemoryHistory({ path: "/", search: "" })}>
+        <MapDetails
+          model={model}
+          releaseByDigest={releaseByDigest}
+          selection={{ kind: "bundle", id: digest }}
+          onClose={noop}
+          onSelectBundle={noop}
+          onSelectNode={noop}
+        />
+      </RouterProvider>
+    </IntlProvider>,
+  );
+}
+
+function pr(repository: string, number: number): PullRequest {
+  return {
+    number,
+    title: "change",
+    url: `https://github.com/${repository}/pull/${String(number)}`,
+    author: "a",
+    mergedAt: null,
+    repository,
+  };
+}
+
+function prLinks(): HTMLAnchorElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLAnchorElement>("a[href*='/pull/']"),
+  );
+}
+
+describe("MapDetails - bundle PRs by repository", () => {
+  // Verifies: FLT-BPR-01.01, FLT-BPR-11.02
+  it("shows application and GitOps groups each with its own PRs", () => {
+    renderBundle(
+      releaseBundle({
+        prs: [pr(APP_REPO, 10)],
+        gitopsPrs: [pr(GITOPS_REPO, 20)],
+        gitopsStatus: "available",
+      }),
+    );
+    expect(screen.getByText("In this bundle")).toBeTruthy();
+    expect(screen.getByText("Deployment changes (GitOps)")).toBeTruthy();
+    const hrefs = prLinks().map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain(`https://github.com/${APP_REPO}/pull/10`);
+    expect(hrefs).toContain(`https://github.com/${GITOPS_REPO}/pull/20`);
+  });
+
+  // Verifies: FLT-BPR-02.01, FLT-BPR-11.01
+  it("keeps the same PR number distinct across the two repositories", () => {
+    renderBundle(
+      releaseBundle({
+        prs: [pr(APP_REPO, 42)],
+        gitopsPrs: [pr(GITOPS_REPO, 42)],
+        gitopsStatus: "available",
+      }),
+    );
+    const hrefs = prLinks().map((a) => a.getAttribute("href"));
+    // Both #42 rows are present, each linking to its own repository.
+    expect(hrefs).toContain(`https://github.com/${APP_REPO}/pull/42`);
+    expect(hrefs).toContain(`https://github.com/${GITOPS_REPO}/pull/42`);
+    expect(prLinks()).toHaveLength(2);
+  });
+
+  // Verifies: FLT-BPR-10.02
+  it("shows a distinct empty state for a successful empty GitOps range", () => {
+    renderBundle(releaseBundle({ gitopsPrs: [], gitopsStatus: "available" }));
+    expect(
+      screen.getByText("No deployment changes in this range."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Deployment changes are unavailable for this bundle."),
+    ).toBeNull();
+  });
+
+  // Verifies: FLT-BPR-10.01, FLT-BPR-08.02
+  it("shows an unavailable state, not empty, when the GitOps range is unavailable", () => {
+    renderBundle(releaseBundle({ gitopsPrs: [], gitopsStatus: "unavailable" }));
+    expect(
+      screen.getByText("Deployment changes are unavailable for this bundle."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("No deployment changes in this range."),
+    ).toBeNull();
+  });
+
+  // The GitOps section is omitted entirely when the server does not report it.
+  it("omits the GitOps section when the server does not report GitOps grouping", () => {
+    renderBundle(releaseBundle({ gitopsStatus: null }));
+    expect(screen.getByText("In this bundle")).toBeTruthy();
+    expect(screen.queryByText("Deployment changes (GitOps)")).toBeNull();
+  });
+});
 
 describe("MapDetails - default gateway image", () => {
   // Verifies: FLT-CAP-07.01

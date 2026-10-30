@@ -714,6 +714,25 @@ export const messages = defineMessages({
     description:
       "Freshness indicator when the server is serving a last-good value.",
   },
+  gitopsNoPrs: {
+    id: "fleet.map.bundle.gitopsNoPrs",
+    defaultMessage: "No deployment changes in this range.",
+    description:
+      "Shown in the GitOps (deployment) group when the compare succeeded but found no pull requests.",
+  },
+  gitopsPrSummary: {
+    id: "fleet.map.bundle.gitopsPrSummary",
+    defaultMessage:
+      "{count, plural, one {# PR} other {# PRs}} · deployment changes",
+    description:
+      "Count of GitOps (deployment) pull requests associated with a release bundle.",
+  },
+  gitopsUnavailable: {
+    id: "fleet.map.bundle.gitopsUnavailable",
+    defaultMessage: "Deployment changes are unavailable for this bundle.",
+    description:
+      "Shown in the GitOps (deployment) group when the compare range could not be determined or failed.",
+  },
   historyAsOf: {
     id: "fleet.map.history.asOf",
     defaultMessage: "As of {time}",
@@ -946,6 +965,12 @@ export const messages = defineMessages({
     id: "fleet.map.bundle.prAuthoredBy",
     defaultMessage: "by {author}",
     description: "Hover tooltip on a pull-request link naming its author.",
+  },
+  prEnvironments: {
+    id: "fleet.map.bundle.prEnvironments",
+    defaultMessage: "Deployed to {environments}",
+    description:
+      "Hover tooltip line attributing a GitOps deployment PR to the environments whose revision includes it.",
   },
   promoBehind: {
     id: "fleet.promotion.state.behind",
@@ -1349,6 +1374,12 @@ export const messages = defineMessages({
     defaultMessage: "Gateways",
     description:
       "Heading above the gateway donut + phase breakdown in an instance's detail panel.",
+  },
+  sectionGitopsChanges: {
+    id: "fleet.section.gitopsChanges",
+    defaultMessage: "Deployment changes (GitOps)",
+    description:
+      "Heading above the GitOps delivery-repository deployment pull-request group in a release bundle's details.",
   },
   sectionInBundle: {
     id: "fleet.section.inBundle",

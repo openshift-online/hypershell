@@ -62,8 +62,12 @@ func run(logger *slog.Logger) error {
 	// the same FD_GITHUB_REPO: NewGitHubBundles returns nil when disabled, which
 	// NewPromotion treats as the no-op enricher.
 	var bundler sources.BundleEnricher
+	// Keep the concrete enricher so the lock resolver (below) can be wired in as its
+	// GitOps lock-history provenance source once both exist.
+	var githubBundles *sources.GitHubBundles
 	if gb := sources.NewGitHubBundles(cfg); gb != nil {
 		bundler = gb
+		githubBundles = gb
 		logger.Info("github bundle enrichment enabled", "repo", cfg.GitHubRepo)
 	}
 	// Resolve each environment's release by the versions-lock bundle it renders
@@ -80,6 +84,10 @@ func run(logger *slog.Logger) error {
 		versioner = lr
 		hydratedVersioner = lr
 		history = lr
+		// The lock resolver's commit timeline is also the GitOps PR group's
+		// deployment-revision provenance (FLT-BPR-04): wire it into the bundle
+		// enricher so bundle details show the GitOps delivery deployment changes.
+		githubBundles.WithLockHistory(lr)
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
 	// Capabilities and the default gateway image come from each control plane's

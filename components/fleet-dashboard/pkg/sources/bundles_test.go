@@ -2,10 +2,12 @@ package sources
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -186,6 +188,437 @@ func prNums(prs []PR) []int {
 		out[i] = p.Number
 	}
 	return out
+}
+
+// fakeLockHistory is a static LockHistoryProvider for GitOps-group tests.
+type fakeLockHistory struct{ commits []LockCommit }
+
+func (f fakeLockHistory) LockHistory(context.Context, int) []LockCommit { return f.commits }
+
+// TestComparePRsMergeCommitFormat confirms the extraction recognizes the non-squash
+// "Merge pull request #N from ..." subject (FLT-BPR-09.04) alongside the squash
+// "(#n)" trailer, taking the PR title from the merge commit's body.
+func TestComparePRsMergeCommitFormat(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/acme/gitops/compare/base...head" {
+			_, _ = w.Write([]byte(`{"total_commits":2,"commits":[
+				{"commit":{"message":"Merge pull request #77 from acme/feature\n\nAdd the feature","author":{"date":"2026-09-02T00:00:00Z"}},"author":{"login":"dev"}},
+				{"commit":{"message":"Squashed change (#78)","author":{"date":"2026-09-03T00:00:00Z"}},"author":{"login":"dev2"}}
+			]}`))
+			return
+		}
+		t.Errorf("unexpected call to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+	prs := g.comparePRs(context.Background(), "acme/gitops", "", "base", "head")
+	if len(prs) != 2 {
+		t.Fatalf("want 2 PRs, got %d: %+v", len(prs), prs)
+	}
+	byNum := map[int]PR{}
+	for _, p := range prs {
+		byNum[p.Number] = p
+	}
+	if byNum[77].Title != "Add the feature" {
+		t.Errorf("merge-commit PR title should come from the body: %q", byNum[77].Title)
+	}
+	if byNum[78].Title != "Squashed change" {
+		t.Errorf("squash PR title: %q", byNum[78].Title)
+	}
+	for _, n := range []int{77, 78} {
+		if byNum[n].Repository != "acme/gitops" {
+			t.Errorf("PR #%d repository = %q, want acme/gitops", n, byNum[n].Repository)
+		}
+	}
+}
+
+// TestComparePRsDedup confirms a PR appearing twice in a range (FLT-BPR-02.02) is
+// emitted once for that repository.
+func TestComparePRsDedup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/acme/hypershell/compare/base...head" {
+			_, _ = w.Write([]byte(`{"total_commits":2,"commits":[
+				{"commit":{"message":"Change (#90)","author":{"date":"2026-09-02T00:00:00Z"}},"author":{"login":"a"}},
+				{"commit":{"message":"Change again (#90)","author":{"date":"2026-09-03T00:00:00Z"}},"author":{"login":"a"}}
+			]}`))
+			return
+		}
+		t.Errorf("unexpected call to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	prs := g.comparePRs(context.Background(), "acme/hypershell", "", "base", "head")
+	if len(prs) != 1 || prs[0].Number != 90 {
+		t.Fatalf("want a single #90, got %v", prNums(prs))
+	}
+}
+
+// TestComparePRsPagination confirms a multi-page compare is followed to completion
+// (FLT-BPR-09.03): a full first page (per_page=100) triggers a second request.
+func TestComparePRsPagination(t *testing.T) {
+	// Page 1: 100 PR commits (#1000..#1099), full page -> continue. Page 2: one PR.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/gitops/compare/base...head" {
+			t.Errorf("unexpected call to %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		page := r.URL.Query().Get("page")
+		if page == "1" {
+			var b strings.Builder
+			b.WriteString(`{"total_commits":101,"commits":[`)
+			for i := 0; i < 100; i++ {
+				if i > 0 {
+					b.WriteByte(',')
+				}
+				fmt.Fprintf(&b, `{"commit":{"message":"Change (#%d)","author":{"date":"2026-09-01T00:00:00Z"}},"author":{"login":"a"}}`, 1000+i)
+			}
+			b.WriteString(`]}`)
+			_, _ = w.Write([]byte(b.String()))
+			return
+		}
+		_, _ = w.Write([]byte(`{"total_commits":101,"commits":[
+			{"commit":{"message":"Last (#2000)","author":{"date":"2026-09-02T00:00:00Z"}},"author":{"login":"b"}}
+		]}`))
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+	prs := g.comparePRs(context.Background(), "acme/gitops", "", "base", "head")
+	if len(prs) != 101 {
+		t.Fatalf("want 101 PRs across both pages, got %d", len(prs))
+	}
+	var found bool
+	for _, p := range prs {
+		if p.Number == 2000 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the page-2 PR #2000 was lost")
+	}
+}
+
+// TestGitHubBundlesGitOpsGroup exercises the GitOps deployment-change group: the
+// range is bounded by the recorded lock timeline (baseline = the commit before the
+// bundle's introduction), extended to the environment's current source commit so a
+// config-only PR shows without a new digest, read from the gitops repo with the
+// installation token, and tagged with the gitops repository (FLT-BPR-02/04/05/09).
+func TestGitHubBundlesGitOpsGroup(t *testing.T) {
+	var mu sync.Mutex
+	authByPath := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		authByPath[r.URL.Path] = r.Header.Get("Authorization")
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/repos/acme/gitops/compare/giti0001...giti0002":
+			// The introduction range: just the lock-update PR.
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Update release lock (#500)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		case "/repos/acme/gitops/compare/giti0001...gitcfg04":
+			// The prod environment extends to a config-only PR.
+			_, _ = w.Write([]byte(`{"total_commits":2,"commits":[
+				{"commit":{"message":"Update release lock (#500)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}},
+				{"commit":{"message":"Tune replicas (#501)","author":{"date":"2026-09-08T00:00:00Z"}},"author":{"login":"ops"}}
+			]}`))
+		default:
+			t.Errorf("unexpected call to %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tokFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokFile, []byte("inst-token-abc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	g := NewGitHubBundles(&config.Config{
+		GitHubRepo:      "acme/gitops",
+		UpstreamRepo:    "acme/hypershell",
+		GitHubAPIBase:   srv.URL,
+		GitHubTokenFile: tokFile,
+	}).WithLockHistory(fakeLockHistory{commits: []LockCommit{
+		{SHA: "giti0003", Digest: "dig-b"},
+		{SHA: "giti0002", Digest: "dig-a"},
+		{SHA: "giti0001", Digest: "dig-z"},
+	}})
+
+	rel := &Release{
+		Version: "v1",
+		Digest:  "dig-a",
+		Date:    "2026-09-05T00:00:00Z",
+		DeploymentRevisions: []DeploymentRevision{
+			{Env: "prod", DrySHA: "gitcfg04"},
+		},
+	}
+	releases := map[string]*Release{"dig-a": rel}
+	g.Enrich(context.Background(), releases)
+
+	if rel.GitOpsStatus != gitOpsAvailable {
+		t.Fatalf("GitOpsStatus = %q, want %q", rel.GitOpsStatus, gitOpsAvailable)
+	}
+	got := prNums(rel.GitOpsPRs)
+	if len(got) != 2 || got[0] != 501 || got[1] != 500 {
+		t.Fatalf("want GitOps PRs [501 500] (lock-update + config, newest first), got %v", got)
+	}
+	for _, p := range rel.GitOpsPRs {
+		if p.Repository != "acme/gitops" {
+			t.Errorf("GitOps PR #%d repository = %q, want acme/gitops", p.Number, p.Repository)
+		}
+	}
+	// The application group is untouched for a single bundle (no prior build).
+	if rel.PRs != nil {
+		t.Errorf("application PRs should stay nil for a single bundle, got %+v", rel.PRs)
+	}
+	// The gitops compare uses the installation token (unlike the public upstream).
+	if got := authByPath["/repos/acme/gitops/compare/giti0001...gitcfg04"]; got != "Bearer inst-token-abc" {
+		t.Errorf("gitops compare should forward the installation token, got %q", got)
+	}
+}
+
+// TestGitHubBundlesGitOpsDivergentEnvironments proves FLT-BPR-06: when two
+// environments on one bundle digest run different GitOps revisions, a PR present in
+// only one environment's range is attributed to that environment alone and not to
+// the one that lacks it.
+func TestGitHubBundlesGitOpsDivergentEnvironments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/gitops/compare/base0001...intro002":
+			// Introduction range: the shared lock-update PR.
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Update release lock (#600)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		case "/repos/acme/gitops/compare/base0001...stagehd":
+			// Staging extends to a config PR prod has not received.
+			_, _ = w.Write([]byte(`{"total_commits":2,"commits":[
+				{"commit":{"message":"Update release lock (#600)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}},
+				{"commit":{"message":"Staging-only tweak (#601)","author":{"date":"2026-09-07T00:00:00Z"}},"author":{"login":"ops"}}
+			]}`))
+		case "/repos/acme/gitops/compare/base0001...prodhd0":
+			// Prod is still at the introduction commit's content.
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Update release lock (#600)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		default:
+			t.Errorf("unexpected call to %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL}).
+		WithLockHistory(fakeLockHistory{commits: []LockCommit{
+			{SHA: "intro002", Digest: "dig-a"},
+			{SHA: "base0001", Digest: "dig-z"},
+		}})
+
+	rel := &Release{
+		Version: "v1",
+		Digest:  "dig-a",
+		Date:    "2026-09-05T00:00:00Z",
+		DeploymentRevisions: []DeploymentRevision{
+			{Env: "stage", DrySHA: "stagehd"},
+			{Env: "prod", DrySHA: "prodhd0"},
+		},
+	}
+	g.Enrich(context.Background(), map[string]*Release{"dig-a": rel})
+
+	byNum := map[int]PR{}
+	for _, p := range rel.GitOpsPRs {
+		byNum[p.Number] = p
+	}
+	// The shared lock-update PR reached both environments.
+	if got := byNum[600].Environments; len(got) != 2 || got[0] != "prod" || got[1] != "stage" {
+		t.Errorf("PR #600 environments = %v, want [prod stage]", got)
+	}
+	// The staging-only PR is attributed to staging alone; prod never claims it.
+	if got := byNum[601].Environments; len(got) != 1 || got[0] != "stage" {
+		t.Errorf("PR #601 environments = %v, want [stage] only", got)
+	}
+}
+
+// TestGitHubBundlesGitOpsUnavailableNoBaseline confirms that when a bundle is the
+// oldest on the recorded timeline (no older baseline commit), the GitOps range is
+// reported unavailable rather than invented (FLT-BPR-08.02), and no compare is made.
+func TestGitHubBundlesGitOpsUnavailableNoBaseline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("no HTTP call expected when no baseline exists, got %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL}).
+		WithLockHistory(fakeLockHistory{commits: []LockCommit{{SHA: "giti0001", Digest: "dig-a"}}})
+
+	rel := &Release{Digest: "dig-a", Date: "2026-09-05T00:00:00Z"}
+	releases := map[string]*Release{"dig-a": rel}
+	g.Enrich(context.Background(), releases)
+
+	if rel.GitOpsStatus != gitOpsUnavailable {
+		t.Errorf("GitOpsStatus = %q, want %q", rel.GitOpsStatus, gitOpsUnavailable)
+	}
+	if rel.GitOpsPRs != nil {
+		t.Errorf("no GitOps PRs expected when the range is unavailable, got %+v", rel.GitOpsPRs)
+	}
+}
+
+// TestGitHubBundlesGitOpsRollback proves FLT-BPR-08.03: when a digest is introduced,
+// replaced by another digest, and later rolled back to (reintroduced), the GitOps
+// range anchors to the MOST RECENT lock commit that selected the digest (the
+// reintroduction), not the first introduction. The range must therefore be bounded
+// to the reintroduction window and must NOT span the whole excursion -- it must not
+// surface the intervening digest's lock-update or configuration pull requests, and
+// must not compare from the pre-first-introduction baseline. The fake errors on any
+// compare anchored at the first-introduction baseline, so the old (oldest-occurrence)
+// behavior would fail this test.
+func TestGitHubBundlesGitOpsRollback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/gitops/compare/other004...reintro5":
+			// The reintroduction (rollback) lock-update PR shared by the current deployment.
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Roll back release lock (#700)","author":{"date":"2026-09-10T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		case "/repos/acme/gitops/compare/other004...cfgcur6":
+			// Prod extends to a config-only PR landed after the reintroduction.
+			_, _ = w.Write([]byte(`{"total_commits":2,"commits":[
+				{"commit":{"message":"Roll back release lock (#700)","author":{"date":"2026-09-10T00:00:00Z"}},"author":{"login":"promoter"}},
+				{"commit":{"message":"Tune after rollback (#701)","author":{"date":"2026-09-12T00:00:00Z"}},"author":{"login":"ops"}}
+			]}`))
+		default:
+			// Any compare anchored at the first-introduction baseline (base0002...) or
+			// spanning the intervening digest is the bug this test guards against.
+			t.Errorf("unexpected compare %s (range must anchor to the reintroduction, not the first introduction)", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL}).
+		WithLockHistory(fakeLockHistory{commits: []LockCommit{
+			{SHA: "reintro5", Digest: "dig-a"}, // most recent: rolled back to dig-a
+			{SHA: "other004", Digest: "dig-b"}, // intervening digest
+			{SHA: "intro003", Digest: "dig-a"}, // first introduction of dig-a
+			{SHA: "base0002", Digest: "dig-z"},
+		}})
+
+	rel := &Release{
+		Version: "v1",
+		Digest:  "dig-a",
+		Date:    "2026-09-12T00:00:00Z",
+		DeploymentRevisions: []DeploymentRevision{
+			{Env: "prod", DrySHA: "cfgcur6"},
+		},
+	}
+	g.Enrich(context.Background(), map[string]*Release{"dig-a": rel})
+
+	if rel.GitOpsStatus != gitOpsAvailable {
+		t.Fatalf("GitOpsStatus = %q, want %q", rel.GitOpsStatus, gitOpsAvailable)
+	}
+	got := prNums(rel.GitOpsPRs)
+	if len(got) != 2 || got[0] != 701 || got[1] != 700 {
+		t.Fatalf("want bounded rollback-window PRs [701 700], got %v (an excursion-spanning range leaks intervening PRs)", got)
+	}
+}
+
+// TestGitHubBundlesGitOpsPartialFailureUnavailable confirms a GitOps group is marked
+// unavailable, not available, when one environment's compare fails even though the
+// introduction compare succeeds (FLT-BPR-10). A partially-built group would omit the
+// failed environment's configuration PRs and attribution, so reporting "available"
+// would overstate completeness.
+func TestGitHubBundlesGitOpsPartialFailureUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/gitops/compare/giti0001...giti0002":
+			// The introduction compare succeeds.
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Update release lock (#800)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		case "/repos/acme/gitops/compare/giti0001...stagehd":
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"Update release lock (#800)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"promoter"}}
+			]}`))
+		case "/repos/acme/gitops/compare/giti0001...prodhd0":
+			// One environment's extension fails.
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			t.Errorf("unexpected call to %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL}).
+		WithLockHistory(fakeLockHistory{commits: []LockCommit{
+			{SHA: "giti0002", Digest: "dig-a"},
+			{SHA: "giti0001", Digest: "dig-z"},
+		}})
+
+	rel := &Release{
+		Version: "v1",
+		Digest:  "dig-a",
+		Date:    "2026-09-05T00:00:00Z",
+		DeploymentRevisions: []DeploymentRevision{
+			{Env: "stage", DrySHA: "stagehd"},
+			{Env: "prod", DrySHA: "prodhd0"},
+		},
+	}
+	g.Enrich(context.Background(), map[string]*Release{"dig-a": rel})
+
+	if rel.GitOpsStatus != gitOpsUnavailable {
+		t.Errorf("GitOpsStatus = %q, want %q (a partial failure must not report available)", rel.GitOpsStatus, gitOpsUnavailable)
+	}
+	if rel.GitOpsPRs != nil {
+		t.Errorf("no GitOps PRs expected when the group is unavailable, got %+v", rel.GitOpsPRs)
+	}
+}
+
+// TestGitHubBundlesGitOpsFailureIndependent confirms a failed GitOps compare marks
+// only the GitOps group unavailable and never clears the application PRs
+// (FLT-BPR-10.01).
+func TestGitHubBundlesGitOpsFailureIndependent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/hypershell/compare/oldrev0001...newrev0002":
+			_, _ = w.Write([]byte(`{"total_commits":1,"commits":[
+				{"commit":{"message":"App change (#101)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"alice"}}
+			]}`))
+		case "/repos/acme/gitops/compare/giti0001...giti0002":
+			// GitOps compare fails.
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{
+		GitHubRepo:    "acme/gitops",
+		UpstreamRepo:  "acme/hypershell",
+		GitHubAPIBase: srv.URL,
+	}).WithLockHistory(fakeLockHistory{commits: []LockCommit{
+		{SHA: "giti0002", Digest: "dig-a"},
+		{SHA: "giti0001", Digest: "dig-z"},
+	}})
+
+	older := &Release{Version: "v0", Digest: "dig-z", Date: "2026-09-01T00:00:00Z", ManifestsRev: "oldrev0001"}
+	newer := &Release{Version: "v1", Digest: "dig-a", Date: "2026-09-10T00:00:00Z", ManifestsRev: "newrev0002"}
+	releases := map[string]*Release{"dig-z": older, "dig-a": newer}
+	g.Enrich(context.Background(), releases)
+
+	if got := prNums(newer.PRs); len(got) != 1 || got[0] != 101 {
+		t.Errorf("application PRs should survive a GitOps failure, got %v", got)
+	}
+	if newer.GitOpsStatus != gitOpsUnavailable {
+		t.Errorf("GitOpsStatus = %q, want %q", newer.GitOpsStatus, gitOpsUnavailable)
+	}
 }
 
 // TestGitHubBundlesNoUpstreamRev confirms a bundle without upstream provenance

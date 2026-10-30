@@ -156,6 +156,15 @@ issues to bundles, and bundle contents SHALL NOT depend on a closing keyword par
 out of an individual PR body. The plane SHALL NOT stand up a duplicate
 bundle-resolution pipeline for this grouping.
 
+The tracked-issue and other-pull-request grouping SHALL operate over the bundle's
+**application** repository pull requests (`openshift-online/hypershell`). The GitOps
+deployment pull requests (`openshift-online/hypershell-gitops`) are a Fleet Map
+bundle-details concern specified in
+[`fleet-dashboard-bundle-pr-repository-split.spec.md`](fleet-dashboard-bundle-pr-repository-split.spec.md)
+(FLT-BPR); the SDLC release-by-hub-cluster matrix SHALL NOT fold GitOps pull requests
+into its tracked-issue or other-pull-request groups, so its release attribution stays
+driven by application changes.
+
 This hop SHALL live behind the `WorkItemPRResolver` port so the unit of work can change
 without a domain or matrix change: the GitHub adapter resolves an issue's linked pull
 requests (authoritatively via GraphQL `closedByPullRequestsReferences` when an upstream
@@ -200,6 +209,16 @@ re-resolution.
 - WHEN the SDLC plane groups the bundle's pull requests
 - THEN the linked pull request SHALL appear under its tracked issue
 - AND the unlinked pull request SHALL appear under the bundle's other pull requests
+
+#### Scenario: SDLC-VIS-03.06 -- GitOps pull requests stay out of the SDLC grouping
+
+- GIVEN a bundle with GitOps deployment pull requests (FLT-BPR) and application
+  pull requests
+- WHEN the SDLC plane groups the bundle's pull requests into tracked issues and
+  other pull requests
+- THEN only the application repository pull requests SHALL be grouped
+- AND the GitOps deployment pull requests SHALL NOT appear in the SDLC matrix's
+  tracked-issue or other-pull-request groups
 
 #### Scenario: SDLC-VIS-03.04 -- Tracked issue delivered by multiple PRs in one bundle
 

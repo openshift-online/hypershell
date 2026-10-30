@@ -76,6 +76,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
