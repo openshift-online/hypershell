@@ -7,12 +7,18 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerBindings"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 func TestMain(m *testing.M) {
 	flag.Parse()
+	// Enforcement follows authentication (SEC-RBAC-14), and the test
+	// environment authenticates with mocked JWT, so authorization would
+	// be enforced by default. These tests exercise plugin behavior, not
+	// authorization; test/authz and plugins/users run enforced.
+	rbac.SetEnforcementForTest(false)
 	slog.Info("Starting providerBindings integration test", "go_version", runtime.Version())
 	helper := test.NewHelper(&testing.T{})
 	exitCode := m.Run()

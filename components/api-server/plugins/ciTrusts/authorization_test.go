@@ -171,8 +171,8 @@ func TestTenancyAuthorizerRequiresIdentity(t *testing.T) {
 }
 
 func TestNilTenancyAuthorizerAllows(t *testing.T) {
-	// A nil authorizer means RBAC is not enforced (dev posture): the handler
-	// allows, mirroring the middleware's RBAC_ENFORCE gate.
+	// A nil authorizer means RBAC is not enforced (authentication off): the
+	// handler allows, mirroring the middleware's enforcement gate.
 	var a *tenancyAuthorizer
 	if svcErr := a.authorizeCreate(context.Background(), "gw-1"); svcErr != nil {
 		t.Errorf("nil authorizer must allow create; got %v", svcErr)

@@ -57,9 +57,9 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 			if len(jwtRoles) > 0 {
 				ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
 			}
-			// Always sync even when jwtRoles is empty: SyncJWTRoles applies
-			// configured default roles (e.g. gateway:creator) so that users with
-			// no Keycloak realm roles still receive their initial bindings.
+			// Always sync even when jwtRoles is empty, so that a role removed
+			// from the caller's Keycloak realm roles is also removed from its
+			// RoleBindings on the next request.
 			if syncer != nil {
 				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
 					slog.WarnContext(ctx, "JWT role sync failed", "username", payload.Username, "error", syncErr)

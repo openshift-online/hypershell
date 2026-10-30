@@ -1345,7 +1345,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 | WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
 | WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
 | WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
-| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement follows authentication) | ✅ Complete |
 | WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
 | WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
 | WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |

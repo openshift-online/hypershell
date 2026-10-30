@@ -90,7 +90,8 @@ type dedicatedRouteAuthorizer struct {
 
 // newDedicatedRouteAuthorizer builds the create gate. bindingLookup is the role
 // binding service (nil when that plugin is absent, which fails closed) and
-// enforceRBAC mirrors the RBAC middleware's RBAC_ENFORCE gate, so the gate is a
+// enforceRBAC mirrors the RBAC middleware's enforcement gate (rbac.Enforced),
+// so the gate is a
 // no-op exactly when request-level authorization is.
 func newDedicatedRouteAuthorizer(bindingLookup rbac.RoleBindingLookup, enforceRBAC bool) dedicatedRouteAuthorizer {
 	return dedicatedRouteAuthorizer{bindingLookup: bindingLookup, enforceRBAC: enforceRBAC}
