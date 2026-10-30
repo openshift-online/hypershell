@@ -19,6 +19,8 @@ import (
 
 const (
 	defaultSandboxAttentionInterval = 2 * time.Minute
+	oidcHealthInterval              = 30 * time.Second
+	oidcHealthTimeout               = 25 * time.Second
 	sandboxAttentionListTimeout     = 30 * time.Second
 	sandboxAttentionRPCTimeout      = 10 * time.Second
 )
@@ -30,14 +32,15 @@ const (
 //
 // See gateway-sandbox-attention-status.spec.md.
 type SandboxAttentionReconciler struct {
-	client        kubernetes.Interface
-	dynamicClient dynamic.Interface
-	grpcConn      *grpc.ClientConn
-	interval      time.Duration
-	clusterID     string
-	instance      string
-	now           func() time.Time
-	oidcInspector oidcClientInspector
+	client          kubernetes.Interface
+	dynamicClient   dynamic.Interface
+	grpcConn        *grpc.ClientConn
+	interval        time.Duration
+	clusterID       string
+	instance        string
+	now             func() time.Time
+	oidcInspector   oidcClientInspector
+	oidcLastSuccess time.Time
 
 	publish                        func(ctx context.Context, counts gateway.AttentionCounts)
 	liveNamespaces                 func(ctx context.Context) (map[string]struct{}, error)
@@ -99,6 +102,15 @@ func NewSandboxAttentionReconciler(
 
 // Run drives the attention reconciliation loop until the context is cancelled.
 func (r *SandboxAttentionReconciler) Run(ctx context.Context) error {
+	// OIDC health must advance independently of sandbox/certificate API failures.
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	healthDone := make(chan struct{})
+	go func() {
+		defer close(healthDone)
+		r.runOIDCHealth(healthCtx)
+	}()
+	defer func() { stopHealth(); <-healthDone }()
+
 	log.Printf("INFO sandbox attention reconciler started (interval=%s cluster_id=%q instance=%s)",
 		r.interval, r.clusterID, r.instance)
 	r.reconcileOnce(ctx)
@@ -178,7 +190,6 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 			r.publishCertificates(ctx, evaluateCertificateHealth(materials, r.now().UTC()))
 		}
 	}
-	r.observeOIDCHealth(listCtx)
 
 	live, err := r.liveNamespaces(listCtx)
 	if err != nil {
@@ -279,6 +290,35 @@ func (r *SandboxAttentionReconciler) exportOIDC(ctx context.Context, synced, exp
 	cpotel.RecordOIDCClientHealth(ctx, r.clusterID, synced, expected, connected)
 }
 
+// runOIDCHealth bounds every comparison and exports its completion time. A
+// timeout records failure; a stalled/missing producer is detected by freshness.
+func (r *SandboxAttentionReconciler) runOIDCHealth(ctx context.Context) {
+	ticker := time.NewTicker(oidcHealthInterval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, oidcHealthTimeout)
+		r.observeOIDCHealth(checkCtx)
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *SandboxAttentionReconciler) publishOIDCObservation(ctx context.Context, synced, expected int, connected bool) {
+	now := r.now().UTC()
+	if connected && synced == expected && expected >= 0 {
+		r.oidcLastSuccess = now
+	}
+	cpotel.RecordOIDCClientFreshness(ctx, r.clusterID, now, r.oidcLastSuccess)
+	r.publishOIDC(ctx, synced, expected, connected)
+}
+
 func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
 	if r.publishOIDC == nil || r.listGateways == nil {
 		return
@@ -286,12 +326,12 @@ func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
 	gateways, err := r.listGateways(ctx)
 	if err != nil {
 		log.Printf("WARN dashboard health: list desired OIDC clients: %v", err)
-		r.publishOIDC(ctx, 0, 0, false)
+		r.publishOIDCObservation(ctx, 0, 0, false)
 		return
 	}
 	clientIDs := desiredOIDCClientIDs(gateways)
 	if r.oidcInspector == nil {
-		r.publishOIDC(ctx, 0, len(clientIDs), false)
+		r.publishOIDCObservation(ctx, 0, len(clientIDs), false)
 		return
 	}
 	synced := 0
@@ -299,14 +339,14 @@ func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
 		inSync, inspectErr := r.oidcInspector.GatewayClientSynced(ctx, clientID)
 		if inspectErr != nil {
 			log.Printf("WARN dashboard health: compare desired OIDC clients: %v", inspectErr)
-			r.publishOIDC(ctx, synced, len(clientIDs), false)
+			r.publishOIDCObservation(ctx, synced, len(clientIDs), false)
 			return
 		}
 		if inSync {
 			synced++
 		}
 	}
-	r.publishOIDC(ctx, synced, len(clientIDs), true)
+	r.publishOIDCObservation(ctx, synced, len(clientIDs), true)
 }
 
 func (r *SandboxAttentionReconciler) listSandboxPods(ctx context.Context) ([]*corev1.Pod, error) {

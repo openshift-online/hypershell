@@ -33,6 +33,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousGatewayCertificateUnavailable := gatewayCertificateUnavailable
 	previousGatewayCertificateDaysToExpiryMin := gatewayCertificateDaysToExpiryMin
 	previousGatewayCertificateSourceAvailable := gatewayCertificateSourceAvailable
+	previousOIDCObserved := oidcClientObservedTimestamp
+	previousOIDCSuccess := oidcClientSuccessTimestamp
 	previousOIDCClientSynced := oidcClientSynced
 	previousOIDCClientExpected := oidcClientExpected
 	previousOIDCClientKeycloakConnected := oidcClientKeycloakConnected
@@ -68,6 +70,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewayCertificateUnavailable = nil
 	gatewayCertificateDaysToExpiryMin = nil
 	gatewayCertificateSourceAvailable = nil
+	oidcClientObservedTimestamp = nil
+	oidcClientSuccessTimestamp = nil
 	oidcClientSynced = nil
 	oidcClientExpected = nil
 	oidcClientKeycloakConnected = nil
@@ -107,6 +111,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		gatewayCertificateUnavailable = previousGatewayCertificateUnavailable
 		gatewayCertificateDaysToExpiryMin = previousGatewayCertificateDaysToExpiryMin
 		gatewayCertificateSourceAvailable = previousGatewayCertificateSourceAvailable
+		oidcClientObservedTimestamp = previousOIDCObserved
+		oidcClientSuccessTimestamp = previousOIDCSuccess
 		oidcClientSynced = previousOIDCClientSynced
 		oidcClientExpected = previousOIDCClientExpected
 		oidcClientKeycloakConnected = previousOIDCClientKeycloakConnected
@@ -929,4 +935,37 @@ func assertAttribute(t *testing.T, set attribute.Set, key, want string) {
 	if got := attributeString(t, set, key); got != want {
 		t.Fatalf("attribute %q = %q, want %q", key, got, want)
 	}
+}
+
+func TestOIDCHealthFreshnessUsesProducerTimes(t *testing.T) {
+	reader := testMetricsReader(t)
+	observed := time.Unix(1000, 0)
+	RecordOIDCClientFreshness(t.Context(), "cluster-a", observed, time.Time{})
+	assertTimes := func(wantObserved, wantSuccess int64) {
+		t.Helper()
+		var collected metricdata.ResourceMetrics
+		if err := reader.Collect(t.Context(), &collected); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]int64{"oidc.client.health.observed_timestamp_seconds": wantObserved, "oidc.client.health.success_timestamp_seconds": wantSuccess}
+		for _, scope := range collected.ScopeMetrics {
+			for _, item := range scope.Metrics {
+				if value, ok := want[item.Name]; ok {
+					points := item.Data.(metricdata.Gauge[int64]).DataPoints
+					if len(points) != 1 || points[0].Value != value {
+						t.Fatalf("%s = %v, want %d", item.Name, points, value)
+					}
+					delete(want, item.Name)
+				}
+			}
+		}
+		if len(want) != 0 {
+			t.Fatalf("missing metrics: %v", want)
+		}
+	}
+	assertTimes(1000, 0)
+	RecordOIDCClientFreshness(t.Context(), "cluster-a", observed.Add(time.Minute), observed)
+	assertTimes(1060, 1000)
+	// Re-exporting without another observation cannot renew freshness.
+	assertTimes(1060, 1000)
 }
