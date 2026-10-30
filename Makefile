@@ -242,6 +242,22 @@ check-dependency-pins: test-dependency-pin-policy
 check-ci-components:
 	python3 scripts/check_ci_components.py
 
+.PHONY: test-migration-bodies-policy
+test-migration-bodies-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_migration_bodies.py
+
+.PHONY: check-migration-bodies
+# Immutable-migration-body gate (SDLC-CONF-10): a shipped migration body must not
+# change under its already-shipped ID; corrections ship as a new convergence ID.
+check-migration-bodies: test-migration-bodies-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_migration_bodies.py
+
+.PHONY: update-migration-lock
+# Regenerate the migration body lock after adding a new migration ID (or removing
+# an unshipped one). Never run this to absorb a changed body under an existing ID.
+update-migration-lock:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_migration_bodies.py --update
+
 .PHONY: test-deploy-orphans-policy
 test-deploy-orphans-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_deploy_orphans.py
@@ -316,7 +332,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-kind-conformance check-migration-bodies check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
