@@ -1319,6 +1319,14 @@ binding SHALL be permitted when the caller holds `platform:admin` **or**
 binding for any other role (for example `platform:admin`, `gateway:creator`, or a
 gateway role); such attempts SHALL be denied.
 
+**ID resolution (read-only).** To perform the grant without `platform:admin`, the
+bootstrap must name the `ci-federation:admin` `role_id` and the seeder's `user_id`.
+`ci-federation:grantor` SHALL therefore also admit read-only access to the roles
+catalog (GET `roles`) and the users inventory (GET `users`) -- and nothing more:
+it SHALL NOT authorize writing a user, writing a role, or any non-GET method on
+those kinds. (Both kinds expose only GET endpoints; the grant itself is scoped by
+the create/delete gate above.)
+
 **Assignment (Keycloak-owned, JWT-synced).** Unlike `ci-federation:admin`, the
 grantor role SHALL be JWT-synced: it is assigned from a Keycloak realm role (so a
 gitops Terraform module can grant it to the bootstrap identity), the RoleBinding
@@ -1339,6 +1347,13 @@ idempotent migration with `built_in: true`.
 - WHEN the caller attempts to create a RoleBinding for any other role (for example `platform:admin` or a gateway role)
 - THEN the request SHALL be denied
 - AND the caller SHALL NOT thereby gain `ci_providers` authority (the grantor does not authorize the `ci_providers` ext kind itself)
+
+#### Scenario: SEC-RBAC-23.04 -- Grantor may read roles and users to resolve ids
+
+- GIVEN a caller holding only `ci-federation:grantor`
+- WHEN the caller issues GET `roles` or GET `users`
+- THEN the request SHALL be authorized (so it can resolve the `ci-federation:admin` role_id and the seeder's user_id)
+- AND a non-GET method on `users` or `roles` SHALL NOT be authorized by this role
 
 #### Scenario: SEC-RBAC-23.03 -- Grantor assignment is Keycloak-owned
 

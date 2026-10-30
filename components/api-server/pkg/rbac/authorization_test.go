@@ -1079,3 +1079,30 @@ func TestCanReadGatewayResources(t *testing.T) {
 		t.Error("an empty gateway id must never be readable")
 	}
 }
+
+func TestIsAuthorized_CIFederationGrantorCanReadRolesAndUsers(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "ci-federation:grantor", Scope: "global"}}
+	// It must resolve the ci-federation:admin role_id and the seeder user_id
+	// (SEC-RBAC-23), so GET roles and GET users are authorized.
+	if !isAuthorized(http.MethodGet, "roles", "", "", bindings, nil, false) {
+		t.Error("ci-federation:grantor should be allowed to GET roles")
+	}
+	if !isAuthorized(http.MethodGet, "users", "", "", bindings, nil, false) {
+		t.Error("ci-federation:grantor should be allowed to GET users")
+	}
+}
+
+func TestIsAuthorized_CIFederationGrantorReadsAreConfined(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "ci-federation:grantor", Scope: "global"}}
+	// No writes to users, and no authority over unrelated kinds (e.g. gateways POST).
+	if isAuthorized(http.MethodPost, "users", "", "", bindings, nil, false) {
+		t.Error("ci-federation:grantor must not write users")
+	}
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil, false) {
+		t.Error("ci-federation:grantor must not create gateways")
+	}
+	// It does not, by itself, authorize the ci_providers ext kind.
+	if isAuthorized(http.MethodPost, "ci_providers", "", "", bindings, nil, true) {
+		t.Error("ci-federation:grantor must not authorize ci_providers")
+	}
+}

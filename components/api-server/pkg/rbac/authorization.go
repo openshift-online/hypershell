@@ -293,6 +293,25 @@ func hasCIFederationAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+// roleCIFederationGrantor mirrors roles.RoleCIFederationGrantor; kept local to
+// avoid an import cycle with the roles plugin package.
+const roleCIFederationGrantor = "ci-federation:grantor"
+
+// hasCIFederationGrantor reports whether the caller holds the narrow bootstrap
+// grantor role (SEC-RBAC-23). Besides authorizing the ci-federation:admin
+// RoleBinding grant (enforced in the roleBindings service), it admits read-only
+// access to the roles and users inventories so the gitops bootstrap can resolve
+// the ci-federation:admin role_id and the seeder's user_id it must name in that
+// grant. It authorizes no writes to those kinds and no other access.
+func hasCIFederationGrantor(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleCIFederationGrantor {
+			return true
+		}
+	}
+	return false
+}
+
 // hasAnyGatewayBinding reports whether the caller holds any gateway-scoped
 // binding (owner, admin, or viewer on any gateway). It is the coarse admit gate
 // for ci_trusts, whose per-gateway tenancy is resolved and enforced in-handler.
@@ -554,7 +573,13 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "users" {
-		return hasUsersInventoryAccess(bindings, jwtRoles)
+		if hasUsersInventoryAccess(bindings, jwtRoles) {
+			return true
+		}
+		// The ci-federation:grantor bootstrap role may READ the user inventory to
+		// resolve the seeder's user_id for its ci-federation:admin grant (SEC-RBAC-23);
+		// it gets no write access (the users API is read-only) and nothing else.
+		return method == http.MethodGet && hasCIFederationGrantor(bindings)
 	}
 
 	if resource == "gateway_placement_availability" {
@@ -652,6 +677,16 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "role_bindings" {
 		return len(bindings) > 0
+	}
+
+	if resource == "roles" {
+		// Read-only role catalog. gateway:creator and platform:admin may read it
+		// (an owner/admin needs the role ids to grant), and so may the
+		// ci-federation:grantor bootstrap role, which must resolve the
+		// ci-federation:admin role_id for its grant (SEC-RBAC-23). No caller writes
+		// built-in roles through this API.
+		return method == http.MethodGet &&
+			(hasGatewayCreator(bindings) || hasPlatformAdmin(bindings) || hasCIFederationGrantor(bindings))
 	}
 
 	return hasGatewayCreator(bindings)
