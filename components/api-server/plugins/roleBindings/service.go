@@ -707,13 +707,18 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 // API-assignable ci-federation:admin role (SEC-RBAC-21/23): the caller must hold a
 // global-scope platform:admin OR ci-federation:grantor binding. The grantor is the
 // narrow, gitops-managed bootstrap role whose only power is this grant, so CI
-// federation can be set up declaratively without handing out platform:admin. As
-// with validateCallerOwnsGateway, an absent caller identity (server-initiated,
-// non-request context) is allowed -- internal grants carry no request principal.
+// federation can be set up declaratively without handing out platform:admin.
+//
+// ci-federation:admin is never granted by a server-initiated path (it is not in
+// JWTSyncedRoles and has no owner-bootstrap step); every grant and revoke is a
+// user-facing write. SEC-RBAC-24 therefore requires that a missing caller identity
+// never authorize the operation, matching validateCallerOwnsGateway: the service is
+// the authoritative gate and does not rely on the HTTP middleware having populated a
+// principal first.
 func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx context.Context) *errors.ServiceError {
 	callerUserID := rbac.GetUserIDFromContext(ctx)
 	if callerUserID == "" {
-		return nil
+		return errors.Forbidden("an authenticated caller is required to grant or revoke %s", roles.RoleCIFederationAdmin)
 	}
 
 	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)
