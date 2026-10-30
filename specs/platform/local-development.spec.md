@@ -86,7 +86,7 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin groups | `hypershell-admins`, `platform:admin` (dashboard-operator access requires `platform:admin`) |
 | User role | `hypershell-users` |
-| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role + `gateway:creator`, Kind only; see `ephemeral-test-credentials.spec.md` CICD-CRED-13) - password matches username (local dev only) |
+| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role, no `gateway:creator`; see `ephemeral-test-credentials.spec.md` CICD-CRED-13) - password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 

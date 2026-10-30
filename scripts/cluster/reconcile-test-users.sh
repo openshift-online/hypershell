@@ -19,11 +19,6 @@
 : "${TEST_USER_PASSWORD_SOURCE:=static}"
 : "${TEST_USER_SECRET_NAME:=hypershell-e2e-test-users}"
 : "${TEST_USER_OC:=oc}"
-# Comma-separated extra realm roles for the developer test-tier principal.
-# Kind sets this to gateway:creator so a Kind developer can create gateways
-# out of the box (ephemeral-test-credentials.spec.md, CICD-CRED-13). OpenShift
-# and PR environments leave it unset so the 403 path stays tested.
-: "${TEST_USER_DEVELOPER_EXTRA_ROLES:=}"
 
 TEST_TIER_USERNAMES=(admin developer platform-admin)
 
@@ -38,12 +33,7 @@ _test_user_curl() {
 _test_user_roles() {
   case "$1" in
     admin) printf '%s\n' hypershell-admins hypershell-users gateway:creator platform:admin ;;
-    developer)
-      printf '%s\n' hypershell-users
-      if [[ -n "${TEST_USER_DEVELOPER_EXTRA_ROLES:-}" ]]; then
-        printf '%s\n' "${TEST_USER_DEVELOPER_EXTRA_ROLES//,/$'\n'}"
-      fi
-      ;;
+    developer) printf '%s\n' hypershell-users ;;
     platform-admin) printf '%s\n' hypershell-users platform:admin ;;
     *) return 1 ;;
   esac

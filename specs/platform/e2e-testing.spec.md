@@ -827,7 +827,7 @@ without the expected count SHALL fail the step.
 
 ### Requirement: E2E-CORE-15 -- Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it does not necessarily hold `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow whether the `developer` user's own JWT carries `gateway:creator` in `realm_access.roles`: a token without the role MUST return `403 Forbidden`; a token with it MUST return 2xx. The suite SHALL decide the expected result by inspecting the developer's token's realm roles, not by reading API server Deployment configuration and not by branching on `E2E_INFRA_DRIVER`. On Kind the test-user seed assigns `developer` the `gateway:creator` realm role (`ephemeral-test-credentials.spec.md`), so the 2xx path is exercised there; on OpenShift and PR environments `developer` does not hold `gateway:creator`, so the 403 path is exercised there. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it does not necessarily hold `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow whether the `developer` user's own JWT carries `gateway:creator` in `realm_access.roles`: a token without the role MUST return `403 Forbidden`; a token with it MUST return 2xx. The suite SHALL decide the expected result by inspecting the developer's token's realm roles, not by reading API server Deployment configuration and not by branching on `E2E_INFRA_DRIVER`. The shared test-user seed omits `gateway:creator` from `developer` on Kind, OpenShift, and PR environments (`ephemeral-test-credentials.spec.md`, CICD-CRED-13), so the developer denial path is exercised everywhere. The seeded `admin` holds `gateway:creator` and exercises successful gateway creation on every environment. A caller-supplied developer identity with `gateway:creator` SHALL still exercise the 2xx branch based on its token. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
 
 #### Scenario: E2E-CORE-15.01 -- Developer Can Create a Sandbox on a Gateway Shared With It
 
@@ -841,7 +841,7 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: E2E-CORE-15.02 -- Developer Cannot Create a Gateway Without `gateway:creator`
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND that token's `realm_access.roles` do NOT include `gateway:creator` (OpenShift and PR environments; production isolation)
+- AND that token's `realm_access.roles` do NOT include `gateway:creator` (the seeded developer on every environment)
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
@@ -856,7 +856,7 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: E2E-CORE-15.04 -- Keycloak-Granted Creator Role Allows Gateway Create
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND that token's `realm_access.roles` include `gateway:creator` (Kind: granted through the test-user seed's Keycloak role assignment, `ephemeral-test-credentials.spec.md`)
+- AND that token's `realm_access.roles` include `gateway:creator` through an explicit Keycloak role assignment for a caller-supplied developer identity
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
 - THEN the API SHALL return 2xx
 - AND the test SHALL delete the created gateway

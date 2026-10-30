@@ -679,8 +679,8 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
 	// Developer gateway-create: follows whether the developer's own token
-	// carries gateway:creator (Kind's test-user seed grants it; OpenShift and
-	// PR environments do not, CICD-CRED-13).
+	// carries gateway:creator. The shared developer seed omits it on every
+	// environment so the denial path is exercised consistently (CICD-CRED-13).
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
