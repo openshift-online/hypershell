@@ -54,30 +54,29 @@ func placementSelector(t *testing.T, got map[string]any) []string {
 	return out
 }
 
-// A matrix suite targets every positive create at its selected cluster by the
-// cluster's server-assigned identity capability: the payload carries
-// placement.selector = [managed-cluster/<name>] and never cluster_id (PLAT-DATA-02,
-// E2E-CORE-30).
+// A matrix suite places every positive create by its one capability selector: the
+// payload carries placement.selector = [<capability>] and never cluster_id
+// (E2E-CORE-30).
 // Verifies: E2E-CORE-30.01
-func TestGatewayCreateRequestForSuiteIdentity(t *testing.T) {
-	s := &E2ESuite{driver: nameDriver{name: "kind"}, targetClusterName: "spoke-a", targetClusterID: "cluster-A"}
+func TestGatewayCreateRequestForSuiteCapability(t *testing.T) {
+	s := &E2ESuite{driver: nameDriver{name: "kind"}, matrixCapability: "provider/aws"}
 
 	req := s.gatewayCreateRequestForSuite("e2e-gw")
-	if req.Placement == nil || len(req.Placement.Selector) != 1 || req.Placement.Selector[0] != "managed-cluster/spoke-a" {
-		t.Fatalf("matrix request must place by the identity selector, got %+v", req.Placement)
+	if req.Placement == nil || len(req.Placement.Selector) != 1 || req.Placement.Selector[0] != "provider/aws" {
+		t.Fatalf("matrix request must place by its capability selector, got %+v", req.Placement)
 	}
 
 	got := decodeRequest(t, req)
 	if _, ok := got["cluster_id"]; ok {
 		t.Fatalf("matrix wire payload must not contain cluster_id: %v", got)
 	}
-	if sel := placementSelector(t, got); len(sel) != 1 || sel[0] != "managed-cluster/spoke-a" {
-		t.Fatalf("matrix wire selector = %v, want [managed-cluster/spoke-a]", sel)
+	if sel := placementSelector(t, got); len(sel) != 1 || sel[0] != "provider/aws" {
+		t.Fatalf("matrix wire selector = %v, want [provider/aws]", sel)
 	}
 }
 
-// A non-matrix suite (empty target) keeps the driver's requirement selector and
-// never sends cluster_id, preserving existing single-cluster and performance
+// A non-matrix suite (empty matrixCapability) keeps the driver's requirement selector
+// and never sends cluster_id, preserving existing single-cluster and performance
 // behavior.
 func TestGatewayCreateRequestForSuiteRequirement(t *testing.T) {
 	s := &E2ESuite{driver: nameDriver{name: "kind"}}
@@ -96,64 +95,67 @@ func TestGatewayCreateRequestForSuiteRequirement(t *testing.T) {
 	}
 }
 
-// identityGatewayCreateRequest carries only name + placement.selector with the
-// identity capability, never cluster_id.
-func TestIdentityGatewayCreateRequestShape(t *testing.T) {
-	got := decodeRequest(t, identityGatewayCreateRequest("e2e-gw", "spoke-b"))
+// capabilityGatewayCreateRequest carries only name + placement.selector with the one
+// capability, never cluster_id.
+func TestCapabilityGatewayCreateRequestShape(t *testing.T) {
+	got := decodeRequest(t, capabilityGatewayCreateRequest("e2e-gw", "network/public"))
 	if _, ok := got["cluster_id"]; ok {
-		t.Fatalf("identity request must not contain cluster_id: %v", got)
+		t.Fatalf("capability request must not contain cluster_id: %v", got)
 	}
-	if sel := placementSelector(t, got); len(sel) != 1 || sel[0] != "managed-cluster/spoke-b" {
-		t.Fatalf("identity selector = %v, want [managed-cluster/spoke-b]", sel)
+	if sel := placementSelector(t, got); len(sel) != 1 || sel[0] != "network/public" {
+		t.Fatalf("capability selector = %v, want [network/public]", sel)
 	}
 }
 
-// verifyResolvedCluster is a no-op for a non-matrix suite, passes when the gateway
-// resolved to the selected target, and fails with a diagnostic naming both ids when
-// it resolved elsewhere.
-// Verifies: E2E-CORE-30.01
-func TestVerifyResolvedCluster(t *testing.T) {
-	if err := verifyResolvedCluster("", "cluster-anything"); err != nil {
-		t.Fatalf("empty target must be a no-op, got %v", err)
+// assertLandedOnEligibleCluster is a no-op for a non-matrix suite, passes when the
+// gateway landed on a cluster that advertises the capability, fails when it landed on
+// no cluster or an ineligible one, and records only eligible landings for the matrix's
+// observational landed-cluster union.
+// Verifies: E2E-CORE-30.01, E2E-CORE-30.02
+func TestAssertLandedOnEligibleCluster(t *testing.T) {
+	nonMatrix := &E2ESuite{}
+	if err := nonMatrix.assertLandedOnEligibleCluster("cluster-anything"); err != nil {
+		t.Fatalf("non-matrix suite must be a no-op, got %v", err)
 	}
-	if err := verifyResolvedCluster("cluster-A", "cluster-A"); err != nil {
-		t.Fatalf("matching cluster must pass, got %v", err)
+
+	s := &E2ESuite{
+		matrixCapability:       "provider/aws",
+		matrixEligibleClusters: map[string]bool{"cluster-A": true, "cluster-B": true},
+		landed:                 &landedTracker{},
 	}
-	err := verifyResolvedCluster("cluster-A", "cluster-B")
+	if err := s.assertLandedOnEligibleCluster("cluster-A"); err != nil {
+		t.Fatalf("landing on an eligible cluster must pass, got %v", err)
+	}
+	if err := s.assertLandedOnEligibleCluster(""); err == nil {
+		t.Fatal("resolving to no cluster must fail")
+	}
+	err := s.assertLandedOnEligibleCluster("cluster-C")
 	if err == nil {
-		t.Fatal("mismatched cluster must fail")
+		t.Fatal("landing on an ineligible cluster must fail")
 	}
-	if !strings.Contains(err.Error(), "cluster-A") || !strings.Contains(err.Error(), "cluster-B") {
-		t.Fatalf("diagnostic must name both the target and the observed cluster, got %q", err.Error())
+	if !strings.Contains(err.Error(), "cluster-C") || !strings.Contains(err.Error(), "provider/aws") {
+		t.Fatalf("diagnostic must name the cluster and the capability, got %q", err.Error())
+	}
+	if got := s.landed.list(); len(got) != 1 || got[0] != "cluster-A" {
+		t.Fatalf("landed union records only eligible landings, got %v, want [cluster-A]", got)
 	}
 }
 
 // The P2.4 contract-negative and late-binding probes keep their own request shapes
-// and are never given the matrix target: the requirement/late-bound shape never
-// carries cluster_id or the identity capability (E2E-CORE-30.01 preservation clause).
+// and never carry cluster_id, so they exercise the placement-validation path
+// regardless of which capability a matrix suite targets.
 func TestContractNegativeProbesNotTargeted(t *testing.T) {
 	for _, driverName := range []string{"kind", "openshift"} {
 		got := decodeRequest(t, gatewayCreateRequestForDriver("e2e-probe", driverName))
 		if _, ok := got["cluster_id"]; ok {
 			t.Fatalf("%s placement probe must not carry cluster_id: %v", driverName, got)
 		}
-		for _, label := range placementSelector(t, got) {
-			if strings.HasPrefix(label, "managed-cluster/") {
-				t.Fatalf("%s placement probe must not carry an identity capability: %v", driverName, got)
-			}
-		}
 	}
 }
 
-// A selected cluster without an E2E_MANAGED_KUBECONTEXT_<name> mapping skips
-// Kubernetes checks and never falls back to another cluster's context, while a
-// mapped cluster runs them.
-// Verifies: E2E-CORE-30.03
-func TestManagedKubeContextSkip(t *testing.T) {
-	if !managedKubeContextSkip("") {
-		t.Fatal("missing kube context must skip Kubernetes checks")
-	}
-	if managedKubeContextSkip("kind-managed-b") {
-		t.Fatal("present kube context must not skip Kubernetes checks")
+// sanitizeCapability makes a capability label safe as a gateway-name segment.
+func TestSanitizeCapability(t *testing.T) {
+	if got := sanitizeCapability("provider/aws"); got != "provider-aws" {
+		t.Fatalf("sanitizeCapability(provider/aws) = %q, want provider-aws", got)
 	}
 }

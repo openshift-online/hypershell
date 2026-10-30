@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -68,22 +69,27 @@ type E2ESuite struct {
 	clusterID    string
 	sandboxImage string
 
-	// targetClusterName and targetClusterID, when set (by the matrix runner),
-	// target the suite at a specific cluster. Positive creates place by the
-	// cluster's server-assigned identity capability (managed-cluster/<name>), and
-	// the suite verifies the gateway resolved to targetClusterID via an
-	// admin-visible resolved-cluster read (E2E-CORE-30). A plain single-cluster or
-	// performance run leaves both empty and keeps the driver's requirement
-	// selector. nameSuffix is appended to the run id so each per-cluster suite's
-	// gateway names are unique.
-	targetClusterName string
-	targetClusterID   string
-	nameSuffix        string
-	kubeContext       string
-	skipKubeChecks    bool
+	// matrixCapability, when set (by the matrix runner), makes every positive
+	// workflow and provisioning create place by that one capability selector
+	// (placement.selector=[matrixCapability]) and assert the gateway lands on some
+	// eligible cluster that advertises it (E2E-CORE-30). matrixEligibleClusters is
+	// the set of cluster ids advertising the capability, used for that assertion;
+	// landed records the clusters positive creates resolved to so the matrix can
+	// report the observational landed-cluster union. A plain single-cluster or
+	// performance run leaves matrixCapability empty and keeps the driver's
+	// requirement selector. nameSuffix is appended to the run id so each
+	// per-capability suite's gateway names are unique.
+	matrixCapability       string
+	matrixEligibleClusters map[string]bool
+	landed                 *landedTracker
+	nameSuffix             string
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
+	// primaryRouteAddress is the API-published route_address of the primary gateway
+	// (grpcs://host:443), captured in P1.1. P1.4/P1.5 discover the gateway endpoint
+	// from it, so route discovery needs no Kubernetes context (E2E-CORE-39).
+	primaryRouteAddress string
 	// primaryWorkspaceMode is the primary gateway's OpenShell workspace mode,
 	// captured when the gateway reaches Running, so sandbox-wait helpers can
 	// locate its sandbox pods (managed mode runs them in per-workspace
@@ -106,6 +112,40 @@ type E2ESuite struct {
 type gatewayTracker struct {
 	mu  sync.Mutex
 	ids []string
+}
+
+// landedTracker records the distinct clusters a matrix suite's positive creates
+// resolved to, shared across step clones by pointer so the matrix can report the
+// observational landed-cluster union (E2E-CORE-30.02).
+type landedTracker struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func (l *landedTracker) record(id string) {
+	if l == nil || id == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ids == nil {
+		l.ids = map[string]bool{}
+	}
+	l.ids[id] = true
+}
+
+func (l *landedTracker) list() []string {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.ids))
+	for id := range l.ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type cliCache struct {
@@ -210,7 +250,7 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
-	if s.mode == modeLong && !s.skipKubeChecks {
+	if s.mode == modeLong {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
 		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
 		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
@@ -350,7 +390,11 @@ func (s *E2ESuite) TestPhases() {
 
 	// Phase P1 -- primary gateway up and reachable.
 	s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
-	s.gate("P1.2", "infra-verification", tagShort, s.p1_2InfraVerification)
+	// P1.2 is the kube-level internal-posture check; it is long-only because short
+	// mode is user-facing and SHALL NOT rely on a Kubernetes context (E2E-CORE-39).
+	// The route reachability of P1.5 and the sandbox exec of P2.1 functionally prove
+	// the Deployment, Service, and route in short mode.
+	s.gate("P1.2", "infra-verification", tagLong, s.p1_2InfraVerification)
 	s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
 	s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
 	s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
@@ -535,31 +579,33 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	// output is attributed to the correct step rather than guessed.
 	runner.SetLogger(logger)
 	clone := &E2ESuite{
-		logger:               logger,
-		driver:               s.driver,
-		clients:              s.clients,
-		runner:               runner,
-		reporter:             s.reporter,
-		mode:                 s.mode,
-		concurrency:          s.concurrency,
-		ctx:                  s.ctx,
-		runID:                s.runID,
-		startedAt:            s.startedAt,
-		apiHost:              s.apiHost,
-		admin:                api,
-		clusterID:            s.clusterID,
-		sandboxImage:         s.sandboxImage,
-		targetClusterName:    s.targetClusterName,
-		targetClusterID:      s.targetClusterID,
-		nameSuffix:           s.nameSuffix,
-		primary:              s.primary,
-		primaryGatewayToken:  s.primaryGatewayToken,
-		primaryLocalName:     s.primaryLocalName,
-		primaryWorkspaceMode: s.primaryWorkspaceMode,
-		serviceAccounts:      s.serviceAccounts,
-		gateways:             s.gateways,
-		cliCache:             s.cliCache,
-		orphan:               s.orphan,
+		logger:                 logger,
+		driver:                 s.driver,
+		clients:                s.clients,
+		runner:                 runner,
+		reporter:               s.reporter,
+		mode:                   s.mode,
+		concurrency:            s.concurrency,
+		ctx:                    s.ctx,
+		runID:                  s.runID,
+		startedAt:              s.startedAt,
+		apiHost:                s.apiHost,
+		admin:                  api,
+		clusterID:              s.clusterID,
+		sandboxImage:           s.sandboxImage,
+		matrixCapability:       s.matrixCapability,
+		matrixEligibleClusters: s.matrixEligibleClusters,
+		landed:                 s.landed,
+		nameSuffix:             s.nameSuffix,
+		primary:                s.primary,
+		primaryRouteAddress:    s.primaryRouteAddress,
+		primaryGatewayToken:    s.primaryGatewayToken,
+		primaryLocalName:       s.primaryLocalName,
+		primaryWorkspaceMode:   s.primaryWorkspaceMode,
+		serviceAccounts:        s.serviceAccounts,
+		gateways:               s.gateways,
+		cliCache:               s.cliCache,
+		orphan:                 s.orphan,
 	}
 	clone.SetT(t)
 	return clone

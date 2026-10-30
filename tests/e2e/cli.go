@@ -189,10 +189,7 @@ func (s *E2ESuite) cliEnv(t *testing.T) []string {
 // "" when E2E_KUBECONTEXT is unset (the wrapper then uses the current context, as
 // in CI). Cached for the suite lifetime.
 func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
-	ctxName := s.kubeContext
-	if ctxName == "" {
-		ctxName = os.Getenv("E2E_KUBECONTEXT")
-	}
+	ctxName := os.Getenv("E2E_KUBECONTEXT")
 	if ctxName == "" {
 		return ""
 	}

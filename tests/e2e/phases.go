@@ -32,18 +32,13 @@ import (
 func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err error) {
 	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", s.seedDefaults())
 
-	// The matrix runner targets a specific cluster by id.
-	if s.targetClusterID != "" {
-		clusterID = s.targetClusterID
-	}
-
 	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("list managed clusters: %w", err)
 	}
 	for _, c := range clusters.Items {
 		if clusterID != "" {
-			break // targeted by the matrix runner
+			break
 		}
 		if c.OidcSubject == "" {
 			continue // not registered
@@ -89,9 +84,6 @@ func (s *E2ESuite) p0_1Authentication(t *testing.T) {
 	})
 
 	s.longOnly("controller-grpc-auth", func(t *testing.T) {
-		if s.skipKubeChecks {
-			t.Skip("no per-cluster kube context; skipping controller log check")
-		}
 		s.assertNoUnauthenticatedControllerLogs(t)
 	})
 }
@@ -144,9 +136,6 @@ func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
 }
 
 func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping Kubernetes readiness checks")
-	}
 	ctx := t.Context()
 
 	// Platform dependencies are verified by their served API groups rather than
@@ -178,7 +167,7 @@ func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 // Verifies: E2E-CORE-13.02
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
-	if s.targetClusterName != "" {
+	if s.matrixCapability != "" {
 		prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
 	}
 	name := fmt.Sprintf("%s-%s", prefix, s.runID)
@@ -202,17 +191,15 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 		return conditionsErr == nil, nil
 	})
 	s.Require().NoError(conditionsWaitErr, "gateway provisioning conditions did not settle: %v", conditionsErr)
-	s.Logf("primary gateway %s (%s) Running in namespace %s", running.Name, running.ID, running.Namespace)
-	if !s.skipKubeChecks {
-		s.startOrphanReaper(t)
-	}
+	s.primaryRouteAddress = running.RouteAddress
+	s.Logf("primary gateway %s (%s) Running in namespace %s route=%s", running.Name, running.ID, running.Namespace, running.RouteAddress)
+	// The orphan reaper is a long-only kube assertion; startOrphanReaper no-ops
+	// outside long mode, where a kube context is always available.
+	s.startOrphanReaper(t)
 }
 
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping gateway infrastructure checks")
-	}
 	ctx := t.Context()
 	ns := s.primary.Namespace
 	s.Require().NotEmpty(ns, "primary gateway namespace")
@@ -377,49 +364,45 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	// the CLI consumes the same CA via SSL_CERT_FILE in P1.4/P1.5.
 }
 
-// p1_4RouteAndCLIRegistration waits for the gateway route, discovers the endpoint,
-// and registers the gateway with the openshell CLI (writes its per-gateway config).
+// p1_4RouteAndCLIRegistration discovers the gateway endpoint from the API-published
+// route_address (asserted present in P1.1) and registers the gateway with the
+// openshell CLI (writes its per-gateway config). It needs no Kubernetes context, so
+// it runs in short mode (E2E-CORE-39).
 func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping route and CLI registration")
-	}
-	s.requireGatewayRoute(t, s.primary, "wait for gateway route")
-	endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), s.primary)
-	s.Require().NoError(err, "discover gateway endpoint")
-	s.Logf("gateway endpoint: %s", endpoint)
+	endpoint, err := gatewayEndpointFromRouteAddress(s.primaryRouteAddress)
+	s.Require().NoError(err, "derive gateway endpoint from API route_address")
+	s.Logf("gateway endpoint (from route_address): %s", endpoint)
 
 	s.primaryLocalName = s.registerGateway(t, s.primary, endpoint, s.primaryGatewayToken.AccessToken)
 }
 
 // p1_5Connectivity verifies the openshell CLI connects and reports status over the
-// trusted TLS established in P1.3.
+// trusted TLS established in P1.3. Reaching the gateway over its route proves route
+// discovery, the Service, and the Deployment are functional without a kube context.
 func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping CLI connectivity")
-	}
 	s.Require().NotEmpty(s.primaryLocalName, "primary gateway registered with the CLI")
 	s.cliStatusConnected(t, s.primaryLocalName, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
 }
 
 // --- Phase P2 / P3 ---
 
-// p2_1SandboxLifecycle creates a sandbox via the CLI, waits for its pod to run,
-// execs into it, deletes it, and verifies the gateway's active_sandbox_count tracks
-// create/delete. Owns its own gateway so the count assertion is isolated.
+// p2_1SandboxLifecycle creates a sandbox via the CLI and execs into it (the CLI
+// `exec whoami` success is the user-facing readiness proof), deletes it, and
+// verifies the gateway's active_sandbox_count tracks create/delete through the API.
+// It owns its own gateway so the count assertion is isolated, and discovers the
+// gateway endpoint from the API-published route_address, so the user-facing path
+// needs no Kubernetes context (E2E-CORE-39). Long mode adds the pod-level readiness
+// wait before the CLI exec (E2E-CORE-13.05).
 // Verifies: E2E-CORE-13.05, E2E-CORE-14.01, E2E-CORE-14.02
 func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping sandbox lifecycle")
-	}
 	ctx := t.Context()
 
 	gw := s.createGateway(t, "e2e-sbx-"+s.runID)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
 	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
-	s.requireGatewayRoute(t, ref, "wait for sandbox gateway route")
-	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
-	s.Require().NoError(err, "discover sandbox gateway endpoint")
+	endpoint, err := gatewayEndpointFromRouteAddress(running.RouteAddress)
+	s.Require().NoError(err, "derive sandbox gateway endpoint from API route_address")
 
 	tok := s.requireGatewayToken(t, ctx, ref, "sandbox gateway admin token")
 	local := s.registerGateway(t, ref, endpoint, tok.AccessToken)
@@ -427,7 +410,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 
 	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
 	// Sandbox names have a 19-char maximum, so use a short unique token rather than
-	// the full run id (which carries a cluster suffix under the matrix runner).
+	// the full run id (which carries a capability suffix under the matrix runner).
 	name := fmt.Sprintf("sb-%06d", time.Now().UnixNano()%1000000)
 	names := []string{name}
 	if s.modeAllows(tagLong) {
@@ -435,33 +418,43 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	}
 	// `sandbox create` streams while the sandbox image pulls and can return a stream
 	// error ("missing grpc-status") even though the sandbox was created. Mirror the
-	// Bash suite: treat create as best-effort and rely on the pod reaching Running
-	// as the success signal rather than the command's exit status. Long mode starts
-	// both creates together to exercise the atomic concurrent-count path.
+	// Bash suite: treat create as best-effort and rely on the CLI exec (long mode:
+	// the pod reaching Running first) as the success signal rather than the command's
+	// exit status. Long mode starts both creates together to exercise the atomic
+	// concurrent-count path.
 	s.runSandboxCLIConcurrently(t, local, "create", names)
-	g, waitCtx := errgroup.WithContext(ctx)
-	g.SetLimit(max(1, min(s.concurrency, len(names))))
-	for _, sandboxName := range names {
-		sandboxName := sandboxName
-		g.Go(func() error {
-			if err := s.waitPodRunning(waitCtx, sandboxPodNamespace(running.WorkspaceMode, running.Namespace, "default"), sandboxPodName(running.WorkspaceMode, "default", sandboxName), sandboxTimeout); err != nil {
-				return fmt.Errorf("sandbox pod %s Running: %w", sandboxName, err)
-			}
-			return nil
-		})
-	}
-	s.Require().NoError(g.Wait(), "sandbox pods Running")
 
-	// The pod can be Running while the Sandbox CR is still provisioning, so poll a
-	// no-op exec for readiness before the real exec.
+	// The pod-level readiness wait is a kube-level check; it runs only in long mode
+	// and is verified BEFORE the CLI exec (E2E-CORE-13.05). Short mode has no
+	// pod-level wait and instead polls the CLI exec to eventual readiness below.
+	s.longOnly("sandbox-pod-running", func(t *testing.T) {
+		g, waitCtx := errgroup.WithContext(t.Context())
+		g.SetLimit(max(1, min(s.concurrency, len(names))))
+		for _, sandboxName := range names {
+			sandboxName := sandboxName
+			g.Go(func() error {
+				if err := s.waitPodRunning(waitCtx, sandboxPodNamespace(running.WorkspaceMode, running.Namespace, "default"), sandboxPodName(running.WorkspaceMode, "default", sandboxName), sandboxTimeout); err != nil {
+					return fmt.Errorf("sandbox pod %s Running: %w", sandboxName, err)
+				}
+				return nil
+			})
+		}
+		s.Require().NoError(g.Wait(), "sandbox pods Running")
+	})
+
+	// The CLI `sandbox exec whoami` success is the user-facing readiness proof: it is
+	// polled to eventual readiness in short mode (no pod-level wait), and returns
+	// quickly in long mode where the pod is already Running.
+	var whoami string
 	s.Require().NoError(pollNoCtx(sandboxTimeout, 5*time.Second, func() bool {
-		_, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "true")
-		return err == nil
-	}), "sandbox exec readiness")
-
-	out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "uname", "-a")
-	s.Require().NoError(err, "sandbox exec uname -a")
-	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "uname output")
+		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "whoami")
+		if err != nil {
+			return false
+		}
+		whoami = out
+		return true
+	}), "sandbox exec whoami readiness")
+	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(whoami)), "whoami output")
 	s.longOnly("workspace-listing", func(t *testing.T) {
 		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
 		if err != nil && strings.Contains(out, "No such file or directory") {
@@ -563,12 +556,9 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
-	// Developer gateway-create: environment-dependent on the RBAC default. The
-	// developer is not platform:admin and so cannot place by a cluster's identity
-	// capability (PLAT-DATA-02); this probe tests the gateway:creator permission, not
-	// cluster targeting, so it uses the driver's requirement selector and does not
-	// assert which cluster it resolved to. (A matrix suite's cluster targeting is
-	// exercised by the platform:admin positive creates below and in P1.)
+	// Developer gateway-create: environment-dependent on the RBAC default. This probe
+	// tests the gateway:creator permission, not cluster targeting, so it uses the
+	// driver's requirement selector and does not assert which cluster it resolved to.
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
@@ -580,18 +570,6 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
-		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
-	}
-
-	// A non-admin developer that places by a cluster's identity capability is
-	// rejected regardless of the gateway:creator default: identity selection is
-	// platform:admin-only (PLAT-DATA-02, PLAT-CLUS-14.04). Only exercised under the
-	// matrix, where a concrete target cluster name is known.
-	if s.targetClusterName != "" {
-		identityBody := identityGatewayCreateRequest("e2e-dev-identity-"+s.runID, s.targetClusterName)
-		st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", identityBody)
-		s.Require().NoError(err, "developer identity-selector POST /gateways")
-		s.Assert().Equalf(http.StatusForbidden, st, "non-admin identity-selector create must be 403 (body: %s)", string(body))
 		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
@@ -609,7 +587,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		var platformCreated sdktypes.Gateway
 		s.Require().NoError(json.Unmarshal(body, &platformCreated), "decode platform-admin-created gateway")
 		if platformCreated.ID != "" {
-			s.Assert().NoError(verifyResolvedCluster(s.targetClusterID, platformCreated.ClusterID), "platform-admin-created gateway must resolve to the selected cluster")
+			s.Assert().NoError(s.assertLandedOnEligibleCluster(platformCreated.ClusterID), "platform-admin-created gateway must land on an eligible cluster")
 			s.trackGateway(platformCreated.ID)
 		}
 	} else {
@@ -629,9 +607,6 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 // relies on the shortened GC timing SetupSuite applied.
 // Verifies: E2E-CORE-16.01, E2E-CORE-16.02, E2E-CORE-16.03, E2E-CORE-16.04, E2E-CORE-16.05
 func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping namespace garbage collection")
-	}
 	ctx := t.Context()
 
 	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
@@ -707,7 +682,10 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().NotEmpty(seeded.OidcSubject, "registered cluster has oidc_subject")
 	s.Assert().Equal(clusterName, seeded.Name, "seeded cluster name")
 	s.Require().NotNil(seeded.LastSeenAt, "registered cluster has last_seen_at")
-	s.Assert().WithinDuration(time.Now(), *seeded.LastSeenAt, durationSecondsEnv("E2E_MANAGED_HEALTHY_WINDOW", 5*time.Minute), "registered cluster is fresh")
+	// A registered control plane heartbeats roughly every 60s, so its last_seen_at is
+	// recent. This is a registration-liveness assertion for the seeded cluster, not a
+	// matrix health gate (the matrix applies no last_seen_at window; see E2E-CORE-30).
+	s.Assert().WithinDuration(time.Now(), *seeded.LastSeenAt, 5*time.Minute, "registered cluster is fresh")
 	lastSeenBefore := *seeded.LastSeenAt
 
 	// Registrar identity (client-credentials for the control-plane client).
@@ -919,11 +897,10 @@ type gatewayPlacementIntent struct {
 // GatewayCreateRequest: a name and a placement selector. Every other gateway field
 // (route, oidc, credential_driver, image, ...) is platform-managed and
 // control-plane-only; the strict create endpoint rejects a user caller that supplies
-// one (data-model.spec.md, PLAT-DATA-23). The matrix no longer pins a gateway by a
-// user-settable cluster_id; it places by the cluster's server-assigned identity
-// capability instead (E2E-CORE-30, PLAT-DATA-02). The cluster_id create path still
-// exists on the API and is exercised by the P2.4 contract-negative probe via a raw
-// request body.
+// one (data-model.spec.md, PLAT-DATA-23). The matrix places a gateway by a single
+// requirement-capability selector (E2E-CORE-30) and asserts it lands on some eligible
+// cluster. The cluster_id create path still exists on the API and is exercised by the
+// P2.4 contract-negative probe via a raw request body.
 type gatewayCreateRequest struct {
 	Name      string                  `json:"name"`
 	Placement *gatewayPlacementIntent `json:"placement,omitempty"`
@@ -946,43 +923,46 @@ func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest
 	}
 }
 
-// identityGatewayCreateRequest builds a create payload that targets a specific
-// cluster by its server-assigned identity capability (managed-cluster/<name>). Only
-// a platform:admin caller may place by identity; the matrix client holds it
-// (E2E-CORE-30, PLAT-DATA-02). The gateway resolves deterministically to that one
-// cluster and never falls back to requirement-only, random, or another cluster.
-func identityGatewayCreateRequest(name, clusterName string) gatewayCreateRequest {
+// capabilityGatewayCreateRequest builds a create payload that places a gateway by a
+// single requirement-capability selector (placement.selector = [capability]). The
+// API server resolves it by random selection among the eligible clusters that
+// advertise the capability (E2E-CORE-30, PLAT-DATA-02).
+func capabilityGatewayCreateRequest(name, capability string) gatewayCreateRequest {
 	return gatewayCreateRequest{
 		Name:      name,
-		Placement: &gatewayPlacementIntent{Selector: []string{"managed-cluster/" + clusterName}},
+		Placement: &gatewayPlacementIntent{Selector: []string{capability}},
 	}
 }
 
 // gatewayCreateRequestForSuite builds the positive-create payload for this suite. A
-// matrix suite (targetClusterName set) targets its selected cluster by the cluster's
-// server-assigned identity capability, so a positive-workflow gateway resolves to
-// exactly that cluster and never falls back to a requirement-only selector, random
-// placement, or another cluster. A plain single-cluster or performance run keeps the
+// matrix suite (matrixCapability set) places every positive-workflow gateway by that
+// one capability selector, so the gateway lands on some eligible cluster that
+// advertises the capability. A plain single-cluster or performance run keeps the
 // driver's requirement selector, preserving its existing late-binding behavior.
 func (s *E2ESuite) gatewayCreateRequestForSuite(name string) gatewayCreateRequest {
-	if s.targetClusterName != "" {
-		return identityGatewayCreateRequest(name, s.targetClusterName)
+	if s.matrixCapability != "" {
+		return capabilityGatewayCreateRequest(name, s.matrixCapability)
 	}
 	return gatewayCreateRequestForDriver(name, s.driver.Name())
 }
 
-// verifyResolvedCluster reports whether a positive create resolved to the suite's
-// selected cluster. For a non-matrix suite (empty target) it is a no-op, so
-// placement-based runs are unaffected. For a matrix suite it fails when the
-// gateway's resolved cluster_id (an admin-visible, server-assigned read) does not
-// equal the selected target, with a diagnostic naming both ids.
-func verifyResolvedCluster(targetClusterID, resolvedClusterID string) error {
-	if targetClusterID == "" {
+// assertLandedOnEligibleCluster reports whether a positive matrix create landed on a
+// cluster that advertises the suite's capability. For a non-matrix suite (empty
+// matrixCapability) it is a no-op, so placement-based runs are unaffected. For a
+// matrix suite it fails when the gateway resolved to no cluster or to a cluster that
+// does not advertise the capability, and records the landed cluster for the matrix's
+// observational landed-cluster union (E2E-CORE-30).
+func (s *E2ESuite) assertLandedOnEligibleCluster(resolvedClusterID string) error {
+	if s.matrixCapability == "" {
 		return nil
 	}
-	if resolvedClusterID != targetClusterID {
-		return fmt.Errorf("gateway resolved to cluster_id %q but this matrix suite targets %q: a positive create must resolve to its selected cluster", resolvedClusterID, targetClusterID)
+	if resolvedClusterID == "" {
+		return fmt.Errorf("gateway placed by capability %q resolved to no cluster: a positive matrix create must land on some eligible cluster", s.matrixCapability)
 	}
+	if !s.matrixEligibleClusters[resolvedClusterID] {
+		return fmt.Errorf("gateway placed by capability %q landed on cluster %q, which does not advertise that capability", s.matrixCapability, resolvedClusterID)
+	}
+	s.landed.record(resolvedClusterID)
 	return nil
 }
 
@@ -1032,11 +1012,11 @@ func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
 	var created sdktypes.Gateway
 	s.Require().NoError(json.Unmarshal(resp, &created), "unmarshal created gateway")
 	s.Require().NotEmpty(created.ID, "created gateway id")
-	// A matrix suite must resolve every positive create to its selected cluster; a
-	// mismatch stops the gateway's workflow immediately rather than continuing
-	// against a gateway on the wrong cluster. The resolved cluster_id is an
-	// admin-visible, server-assigned read, not a user-supplied value.
-	s.Require().NoError(verifyResolvedCluster(s.targetClusterID, created.ClusterID), "positive gateway create must resolve to the selected cluster")
+	// A matrix suite must land every positive create on some cluster that advertises
+	// its capability; a mismatch stops the gateway's workflow immediately rather than
+	// continuing against a gateway on an ineligible cluster. The resolved cluster_id
+	// is a server-assigned read, not a user-supplied value.
+	s.Require().NoError(s.assertLandedOnEligibleCluster(created.ClusterID), "positive gateway create must land on an eligible cluster")
 	return &created
 }
 
@@ -1072,22 +1052,6 @@ func (s *E2ESuite) waitGatewayRunning(t *testing.T, id string) *sdktypes.Gateway
 		s.Require().NoError(err, "gateway %s never reached Running (last phase %s)", id, phase)
 	}
 	return last
-}
-
-// requireGatewayRoute preserves both sides of a route-readiness failure: the
-// driver error reports the last GRPCRoute or parent Gateway observation, while
-// the suite diagnostic captures the management API state and controller log.
-func (s *E2ESuite) requireGatewayRoute(t *testing.T, ref driver.GatewayRef, message string) {
-	t.Helper()
-	err := s.driver.WaitForGatewayRoute(t.Context(), ref)
-	if err != nil {
-		gw, getErr := s.admin.Gateways().Get(t.Context(), ref.ID)
-		if getErr != nil {
-			s.Logf("DIAG gateway %s could not be read after route readiness failure: %v", ref.ID, getErr)
-		}
-		s.dumpGatewayDiagnostics(t, ref.ID, gw)
-	}
-	s.Require().NoError(err, message)
 }
 
 // waitGatewayNamespace waits only until reconciliation has assigned and created
@@ -1126,6 +1090,25 @@ func (s *E2ESuite) dumpGatewayDiagnostics(t *testing.T, id string, gw *sdktypes.
 	if logs, err := s.podLogs(context.Background(), s.driver.PlatformNamespace(), "app=hypershell-controller", 40); err == nil {
 		s.Logf("DIAG controller logs (tail):\n%s", logs)
 	}
+}
+
+// gatewayEndpointFromRouteAddress derives the CLI gateway endpoint from the
+// API-published route_address (the control plane writes grpcs://host:443), so route
+// discovery needs no Kubernetes context (E2E-CORE-39). The CLI dials TLS, so the
+// grpcs scheme maps to the https endpoint the CLI metadata records; an https address
+// passes through unchanged.
+func gatewayEndpointFromRouteAddress(routeAddress string) (string, error) {
+	addr := strings.TrimSpace(routeAddress)
+	if addr == "" {
+		return "", fmt.Errorf("gateway route_address is empty: the API has not published a route for this gateway")
+	}
+	if rest, ok := strings.CutPrefix(addr, "grpcs://"); ok {
+		return "https://" + rest, nil
+	}
+	if strings.HasPrefix(addr, "https://") {
+		return addr, nil
+	}
+	return "", fmt.Errorf("unexpected gateway route_address %q: want a grpcs:// or https:// address", addr)
 }
 
 // rawGet issues an unauthenticated-or-bearer GET through the CA-trusting default
