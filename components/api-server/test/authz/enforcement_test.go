@@ -2,7 +2,6 @@ package authz_test
 
 import (
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -68,17 +67,13 @@ func TestAuthOffMeansNotEnforced(t *testing.T) {
 	}
 }
 
-// Verifies: SEC-RBAC-14.01, SEC-RBAC-14.03
+// Verifies: SEC-RBAC-14.01
 //
-// Authentication on means enforced, and a stale RBAC_ENFORCE cannot disable
-// it: the server is built while RBAC_ENFORCE=false is set (a stale overlay
-// value from before enforcement followed authentication). Authentication
-// stays on, so an unauthenticated caller gets 401 and an authenticated caller
-// without bindings gets 403: the variable has no effect.
-func TestStaleEnforceEnvDoesNotDisableEnforcement(t *testing.T) {
+// Authentication on means enforced: on a server run with JWT on, an
+// unauthenticated caller gets 401 and an authenticated caller without
+// bindings gets 403.
+func TestAuthOnMeansEnforced(t *testing.T) {
 	h := test.NewHelper(t)
-	_ = os.Setenv("RBAC_ENFORCE", "false")
-	t.Cleanup(func() { _ = os.Unsetenv("RBAC_ENFORCE") })
 	base := newCandidateServer(t, h, true)
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -91,7 +86,7 @@ func TestStaleEnforceEnvDoesNotDisableEnforcement(t *testing.T) {
 		t.Fatalf("GET /gateways without a token on a JWT-on server: status = %d; want 401", response.StatusCode)
 	}
 
-	token := h.CreateJWTString(h.NewAccount("stale-enforce-roleless", "Stale Enforce", "stale-enforce@example.com"))
+	token := h.CreateJWTString(h.NewAccount("enforced-roleless", "Enforced Roleless", "enforced-roleless@example.com"))
 	request, err := http.NewRequest(http.MethodPost, base+"/gateways", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -103,6 +98,6 @@ func TestStaleEnforceEnvDoesNotDisableEnforcement(t *testing.T) {
 	}
 	defer func() { _ = createResponse.Body.Close() }()
 	if createResponse.StatusCode != http.StatusForbidden {
-		t.Fatalf("POST /gateways with a roleless token while RBAC_ENFORCE=false: status = %d; want 403 (enforced regardless of the stale variable)", createResponse.StatusCode)
+		t.Fatalf("POST /gateways with a roleless token on a JWT-on server: status = %d; want 403 (enforced)", createResponse.StatusCode)
 	}
 }

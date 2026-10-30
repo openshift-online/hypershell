@@ -1,10 +1,6 @@
 package rbac
 
 import (
-	"log/slog"
-	"os"
-	"sync"
-
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
@@ -12,17 +8,13 @@ import (
 // SetEnforcementForTest.
 var enforcementOverride *bool
 
-// staleEnforceWarnOnce guards the one-release startup warning for overlays
-// that still set RBAC_ENFORCE.
-var staleEnforceWarnOnce sync.Once
-
 // Enforced reports whether authorization is enforced. Enforcement follows
 // authentication (SEC-RBAC-14): it is on exactly when JWT authentication is on
 // in the resolved configuration (Config.Auth.EnableJWT, after API_ENV
 // overrides), and off when authentication is off (local development,
 // `make run-no-auth`), where there is no caller identity to evaluate. There is
-// no separate enforcement setting: RBAC_ENFORCE has no effect, and a stale
-// value logs a one-time startup warning so outdated overlays are noticed.
+// no separate enforcement setting: enforcement cannot be turned off while
+// authentication stays on.
 //
 // This is the single decision point shared by the REST authorization
 // middleware, the gRPC interceptor, and every handler-level authorization
@@ -31,11 +23,6 @@ var staleEnforceWarnOnce sync.Once
 // The decision is resolved once per wiring (route registration, gRPC service
 // registration), which happens after the environment is initialized.
 func Enforced() bool {
-	staleEnforceWarnOnce.Do(func() {
-		if _, set := os.LookupEnv("RBAC_ENFORCE"); set {
-			slog.Warn("RBAC_ENFORCE is set but has no effect: authorization is enforced whenever JWT authentication is enabled (SEC-RBAC-14). Remove it from the deployment configuration.")
-		}
-	})
 	if enforcementOverride != nil {
 		return *enforcementOverride
 	}

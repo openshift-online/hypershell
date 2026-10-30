@@ -1191,9 +1191,8 @@ The API server SHALL derive the enforcement decision from the resolved
 authentication configuration (after `API_ENV` overrides) in ONE place and expose
 that single decision to the REST authorization middleware, the gRPC interceptor,
 and every handler-level authorization check. The API server SHALL NOT read any
-separate enforcement environment variable: `RBAC_ENFORCE` SHALL have no effect,
-and the API server MAY log a startup warning for one release when it is still
-set, so stale overlays are noticed.
+separate enforcement environment variable; no environment variable other than
+the authentication configuration SHALL influence the enforcement decision.
 
 No database migration or CLI command is needed to bootstrap users -- built-in Role
 records are seeded via migration; RoleBindings are created dynamically from JWT claims
@@ -1213,13 +1212,6 @@ on every authenticated request. The first privileged users are provisioned by as
 - WHEN a caller hits the API without a JWT
 - THEN the request is not evaluated against bindings
 - AND the API works with no roles granted
-
-#### Scenario: SEC-RBAC-14.03 -- A stale enforcement variable has no effect
-
-- GIVEN a deployment that enables JWT authentication and still sets `RBAC_ENFORCE`
-- WHEN the API server starts
-- THEN the variable is ignored
-- AND authorization is enforced because authentication is on
 
 ### Requirement: SEC-RBAC-15 -- Database Migration
 
@@ -1433,7 +1425,7 @@ idempotent migration with `built_in: true`.
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` assigned exclusively via Keycloak | Every deployment sources the role only from Keycloak, directly or through the realm default role for a blanket grant (SEC-RBAC-13). The role cannot be self-assigned via the API. |
 | Removed the API server's blanket default-role environment variable entirely | It defaulted to "on" (`gateway:creator`) when unset, so a deployment that forgot to set it was open by default. Because `SyncJWTRoles` re-merged it on every request, Keycloak could never revoke a role that was also a default. It forced special cases in the authorization code, the e2e suite, and the specs, and the spec and the code disagreed about what the setting was for. Keycloak's realm default role (SEC-RBAC-13) covers the same initial-role need without any of those costs (HYPERSHELL-465). |
-| Removed the `RBAC_ENFORCE` variable; enforcement follows authentication | The variable failed open: an overlay that enabled JWT but forgot it let every signed-in caller do everything. JWT off with the variable set was an invalid combination that rejected every call with `401 missing identity`. Seven code sites read it independently and could disagree. Deriving enforcement from the resolved auth config in one place (SEC-RBAC-14) makes both failure modes impossible and removes the per-overlay setting (HYPERSHELL-466). |
+| Removed the API server's separate enforcement variable entirely; enforcement follows authentication | The variable failed open: an overlay that enabled JWT but forgot it let every signed-in caller do everything. JWT off with the variable set was an invalid combination that rejected every call with `401 missing identity`. Seven code sites read it independently and could disagree. Deriving enforcement from the resolved auth config in one place (SEC-RBAC-14) makes both failure modes impossible and removes the per-overlay setting (HYPERSHELL-466). |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
