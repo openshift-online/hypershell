@@ -16,10 +16,12 @@ its shell launcher, or its Go program (SDLC-HOOK-11).
 Each phase harness (`triage`, `spec-implementation`, `spec-review`,
 `code-implementation`, `code-review`) wires three hooks:
 
-1. `pre_script: scripts/pre-lifecycle.sh` - records the starting state and the
-   pull request head commit, confirms authorization, scope, and stage
-   prerequisites, and skips the run when a prerequisite no longer holds
-   (SDLC-HOOK-03).
+1. `pre_script: scripts/pre-lifecycle.sh` - records the starting state and, for a
+   phase that runs against an existing pull request, its head commit; confirms
+   authorization, scope, and stage prerequisites; and skips the run when a
+   prerequisite no longer holds (SDLC-HOOK-03). `spec-implementation` CREATES the
+   pull request, so the pre-script does not skip it for a missing pull request and
+   records the pull request only if one already exists.
 2. `validation_loop` with `scripts/validate-output-schema.sh` and the phase's
    `schemas/<phase>-result.schema.json` - read-only JSON Schema validation of the
    agent result before any label change (SDLC-HOOK-06, ADR 0022).
@@ -56,7 +58,10 @@ Permitted outcomes:
 
 The result never supplies label names, repository targets, or shell commands.
 The target repo and issue come from the trusted work-item URL; any `pr_number`
-the result names is checked against the pre-script's recorded value.
+the result names is checked against the pre-script's recorded value. For
+`spec-implementation` (which creates the pull request) on a fresh issue where no
+pull request was recorded, the agent's `pr_number` is accepted only after
+confirming it is an open pull request in this repo that closes this issue.
 
 ## Transition rules (SDLC-HOOK-01, SDLC-HOOK-02)
 
@@ -91,7 +96,12 @@ Before applying a transition the post-script re-reads GitHub and:
 
 - Rejects a review result as stale if the PR head moved since the pre-script
   recorded it, or if the agent's reviewed `head_sha` does not match.
-- Gates a code-review approval on the PR head's required checks being green.
+- Gates a code-review approval on the PR head's checks being green. When the base
+  branch defines required status checks in branch protection, the gate is scoped
+  to those contexts only (an advisory or always-pending non-required check does
+  not block, and a required context that has not reported yet is treated as
+  pending). When branch protection is unreadable or defines no required checks,
+  the gate falls back to requiring every reported signal green.
 - Counts prior rejections from the issue timeline (never from the result) since
   the most recent removal of `agent/blocked`, and adds `agent/blocked` when the
   count reaches 3 (spec) or 10 (code).
@@ -109,11 +119,26 @@ competing writer.
 
 ## Required runner tools and permissions
 
-The trusted runner needs `gh` (authenticated by `GH_TOKEN`), `jq`, the `fullsend`
-CLI (for the sticky `issues post-comment`), and `python3` with the `jsonschema`
-package (for validation; declared as `preflight_check`). `curl` is deliberately
-unavailable (base policy). The minted token uses the harness `role:` and needs
-permission to read and write issue labels and to read pull requests and checks.
+The tooling splits by hook:
+
+- The **pre-script and post-script** need `gh` (authenticated by `GH_TOKEN`),
+  `jq`, and (post-script only) the `fullsend` CLI for the sticky `issues
+  post-comment`. They do not use `python3`.
+- The **validation step** (`validate-output-schema.sh`) needs `python3` with the
+  `jsonschema` package, declared as the harness `preflight_check`. Validation runs
+  Python in isolated mode (`python3 -I`) so the untrusted output tree cannot
+  shadow the stdlib or the installed package.
+
+`curl` is deliberately unavailable (base policy). The minted token uses the
+harness `role:` and needs permission to read and write issue labels and to read
+pull requests and checks. Branch-protection read is optional: reading
+`required_status_checks` needs repository administration (read) permission, which
+a least-privilege runner token may lack. When the token can read it, the
+code-review approval gate is scoped to the required contexts; when it cannot (403)
+or the base branch has no required checks, the gate safely falls back to requiring
+every reported signal green, and that fallback is the operative gate. Grant the
+runner token branch-protection read if you need the scoped behavior in
+production.
 
 ## Recovery (SDLC-HOOK-10)
 

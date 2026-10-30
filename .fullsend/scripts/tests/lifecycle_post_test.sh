@@ -46,11 +46,16 @@ _decode() { printf '%s' "${1//\%2F//}"; }
 state="${MOCK_STATE}"
 case "${path}" in
   */commits/*/check-runs) printf '%s' "${MOCK_CHECKRUNS:-[]}"; exit 0;;
-  */commits/*/status) printf '%s\t%s' "${MOCK_STATUS_STATE:-success}" "${MOCK_STATUS_TOTAL:-1}"; exit 0;;
+  */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
+  */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
   */timeline) printf '%s' "${MOCK_TIMELINE:-[]}"; exit 0;;
   */pulls/*)
-    if [[ "${jqexpr}" == ".head.sha" ]]; then printf '%s' "${MOCK_HEAD_SHA:-}"; fi
-    if [[ "${jqexpr}" == ".state" ]]; then printf '%s' "${MOCK_PR_STATE:-open}"; fi
+    case "${jqexpr}" in
+      *base.ref*) printf '%s\t%s' "${MOCK_HEAD_SHA:-}" "${MOCK_BASE_REF:-main}";;
+      .head.sha)  printf '%s' "${MOCK_HEAD_SHA:-}";;
+      .state)     printf '%s' "${MOCK_PR_STATE:-open}";;
+      *body*)     printf '%s' "${MOCK_PR_BODY:-}";;
+    esac
     exit 0;;
 esac
 case "${method}:${path}" in
@@ -309,6 +314,102 @@ if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-c
   _ok "approval is not applied when no checks have reported"
 else
   _no "approval is not applied when no checks have reported" "$(cat "${WORK}/M.out")"
+fi
+
+# ---- Scenario N: spec-impl completed with a recorded PR (HOOK-01 bootstrap) --
+S="${WORK}/N.labels"
+_seed "${S}" agent/workable agent/allowed "${REPO_SCOPE}" agent/execution-record
+_run spec-implementation \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"spec pushed","pr_number":869,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=869 LIFECYCLE_PR_HEAD_SHA=abc1234 \
+  > "${WORK}/N.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-spec \
+   && ! _has_label "${S}" agent/workable \
+   && _has_label "${S}" agent/allowed && _has_label "${S}" "${REPO_SCOPE}"; then
+  _ok "spec-impl completed with a recorded PR opens spec review"
+else
+  _no "spec-impl completed with a recorded PR opens spec review" "rc=${rc} $(cat "${WORK}/N.out")"
+fi
+
+# ---- Scenario O: spec-impl completed on a fresh issue, agent PR verified ------
+# No recorded LIFECYCLE_PR_NUMBER (fresh issue the agent just opened a PR for);
+# the agent's pr_number is adopted after gh_pr_is_linked confirms it (HOOK-04.03).
+S="${WORK}/O.labels"
+_seed "${S}" agent/workable agent/allowed "${REPO_SCOPE}"
+_run spec-implementation \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"spec pushed","pr_number":869,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 MOCK_PR_STATE=open MOCK_PR_BODY="Closes #868" \
+  > "${WORK}/O.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-spec && ! _has_label "${S}" agent/workable; then
+  _ok "spec-impl completed on a fresh issue adopts the agent's verified PR"
+else
+  _no "spec-impl completed on a fresh issue adopts the agent's verified PR" "rc=${rc} $(cat "${WORK}/O.out")"
+fi
+
+# ---- Scenario P: spec-impl completed, agent PR not linked -> rejected ---------
+S="${WORK}/P.labels"
+_seed "${S}" agent/workable agent/allowed
+before="$(sort "${S}")"
+_run spec-implementation \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"x","pr_number":999,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 MOCK_PR_STATE=open MOCK_PR_BODY="unrelated body" \
+  > "${WORK}/P.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]]; then
+  _ok "spec-impl with an unverifiable PR fails without changing labels"
+else
+  _no "spec-impl with an unverifiable PR fails without changing labels" "rc=${rc} $(cat "${WORK}/P.out")"
+fi
+
+# ---- Scenario P2: spec-impl pr_number mismatches the recorded PR -> rejected --
+S="${WORK}/P2.labels"
+_seed "${S}" agent/workable agent/allowed
+before="$(sort "${S}")"
+_run spec-implementation \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"x","pr_number":999,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=869 LIFECYCLE_PR_HEAD_SHA=abc1234 \
+  > "${WORK}/P2.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]]; then
+  _ok "spec-impl pr_number mismatching the recorded PR fails without changing labels"
+else
+  _no "spec-impl pr_number mismatching the recorded PR fails without changing labels" "rc=${rc} $(cat "${WORK}/P2.out")"
+fi
+
+# ---- Scenario Q: a failing NON-required check does not block approval ---------
+# Required contexts from branch protection = {ci-required}. The advisory check is
+# failing but is not required, so the approval is still eligible (HOOK-07.02).
+S="${WORK}/Q.labels"
+_seed "${S}" agent/reviewable-code agent/review-spec-approved agent/allowed
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_BASE_REF=main MOCK_REQUIRED='ci-required' \
+  MOCK_CHECKRUNS='[{"name":"ci-required","id":2,"status":"completed","conclusion":"success"},{"name":"advisory","id":1,"status":"completed","conclusion":"failure"}]' \
+  > "${WORK}/Q.out" 2>&1
+if _has_label "${S}" agent/review-code-approved && ! _has_label "${S}" agent/reviewable-code; then
+  _ok "a failing non-required check does not block an approval"
+else
+  _no "a failing non-required check does not block an approval" "$(cat "${WORK}/Q.out")"
+fi
+
+# ---- Scenario R: a required check that has not reported blocks the approval ---
+S="${WORK}/R.labels"
+_seed "${S}" agent/reviewable-code agent/allowed
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_BASE_REF=main MOCK_REQUIRED='ci-required' \
+  MOCK_CHECKRUNS='[{"name":"advisory","id":1,"status":"completed","conclusion":"success"}]' \
+  > "${WORK}/R.out" 2>&1
+if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+  _ok "an unreported required check keeps an approval pending"
+else
+  _no "an unreported required check keeps an approval pending" "$(cat "${WORK}/R.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"

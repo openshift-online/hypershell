@@ -47,6 +47,14 @@ _expect pass code-review-result.schema.json "valid code-review result" \
   '{"schema_version":"1","phase":"code-review","outcome":"rejected","rationale":"ci red","pr_number":5,"head_sha":"abc1234","comment":"fix ci"}'
 _expect pass code-implementation-result.schema.json "valid code-implementation result" \
   '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc1234"}'
+_expect pass spec-implementation-result.schema.json "valid spec-implementation result" \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"spec pushed","pr_number":5,"head_sha":"abc1234"}'
+
+# completed spec-implementation requires PR evidence; blocked does not.
+_expect fail spec-implementation-result.schema.json "completed spec-impl requires evidence" \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"completed","rationale":"x"}'
+_expect pass spec-implementation-result.schema.json "blocked spec-impl needs no evidence" \
+  '{"schema_version":"1","phase":"spec-implementation","outcome":"blocked","rationale":"hard prereq failed"}'
 
 # Unsupported outcome (SDLC-HOOK-04.01).
 _expect fail spec-review-result.schema.json "spec-review rejects an unsupported outcome" \
