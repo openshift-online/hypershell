@@ -1,8 +1,6 @@
 package rbac
 
 import (
-	"os"
-
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -52,9 +50,8 @@ func useRBACMiddleware(router *mux.Router, envServices *environments.Services) {
 		router.Use(rbac.UserProvisioningMiddleware(provisioner, syncer))
 	}
 	if rbService != nil {
-		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		authzConfig := rbac.AuthzConfig{
-			EnforceRBAC:     enforceRBAC,
+			EnforceRBAC:     rbac.Enforced(),
 			ServiceAccounts: rbac.ServiceAccountsFromEnv(),
 		}
 		// nil when the managedClusters plugin is absent: registered-cluster

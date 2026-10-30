@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -170,7 +169,7 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		}
 
 		l.config = pkgrbac.AuthzConfig{
-			EnforceRBAC:     os.Getenv("RBAC_ENFORCE") == "true",
+			EnforceRBAC:     pkgrbac.Enforced(),
 			ServiceAccounts: pkgrbac.ServiceAccountsFromEnv(),
 		}
 	})
@@ -180,8 +179,8 @@ func init() {
 	lazy := &lazyRBACInterceptor{}
 
 	// The managed-cluster caller binding runs first, before role-binding
-	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist and
-	// RBAC_ENFORCE: a registered control plane may list or watch only its own
+	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist: a
+	// registered control plane may list or watch only its own
 	// cluster's gateways (managed-cluster-registration.spec.md, "Watch Stream
 	// Caller Binding"). Authorization then decides every hypershell.v1 method
 	// per caller kind (pkg/rbac/grpc_authorization.go): a registered cluster is a
