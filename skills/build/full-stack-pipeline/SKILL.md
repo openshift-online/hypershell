@@ -25,12 +25,24 @@ For `plugins/<kind>/` every one of these MUST exist:
 
 - `model.go`, `dao.go`, `service.go`, `handler.go`, `presenter.go`,
   `grpc_handler.go`, `grpc_presenter.go`, `plugin.go` (registers service, REST
-  routes, gRPC service, migration, controller), `mock_dao.go`.
-- `migration.go` that creates/evolves the table with **raw SQL via `tx.Exec`**
-  (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
-  **`AutoMigrate` is forbidden** - it fails closed on the production postgres
-  driver (`lib/pq` + `PreferSimpleProtocol`), poisons the transaction, and makes
-  every query on the table abort. The conformance gate rejects any `AutoMigrate`.
+  routes, gRPC service, migration, controller). (`mock_dao.go` is listed in the
+  prose manifest but no plugin in this repo uses one, so the gate does not
+  enforce it.)
+- `migration.go` that creates/evolves the table with **raw SQL, never
+  `AutoMigrate`**. Create the table with `dbmigrate.CreateTable(tx, &Model{})`
+  (`components/api-server/pkg/dbmigrate`): it renders the CREATE TABLE from the
+  GORM schema and runs it as raw SQL, guarded by `HasTable` for idempotency, with
+  no AutoMigrate column-diff introspection. Evolve it in a later migration with
+  raw `tx.Exec` `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. **`AutoMigrate` is
+  forbidden** - its column-diff introspection fails
+  closed under the test harness driver (`lib/pq` + `PreferSimpleProtocol`, the
+  protocol production also uses), poisons the transaction, and makes every query
+  on the table abort with `SQLSTATE 25P02`. The conformance gate
+  (`scripts/check_kind_conformance.py`) rejects any `AutoMigrate` call in any
+  plugin migration. A model whose Go type name contains an initialism (for
+  example `CIProvider`) MUST pin `TableName()` and column tags to the clean
+  snake_case name; GORM's default naming mangles them (`c_iproviders`) and
+  cross-reference DAOs break.
 
 Cross-cutting, per Kind:
 
@@ -69,15 +81,23 @@ Before any wave closes, run the conformance pass over **all** registered Kinds
 The pipeline MUST establish and keep green an automated gate so a non-conformant
 Kind cannot merge:
 
-- **Static check** wired into `make check` (runs in the `Checks CI Gate`):
-  enumerate every registered Kind and FAIL, naming each Kind and each missing
-  item - any manifest file, OpenAPI/SDK/CLI/`extKinds` entry, an `AutoMigrate` in
-  a migration, or the absence of a DB-backed integration test.
-- **Generic CRUD conformance test** wired into `make test` (testcontainers):
-  iterate every registered ext Kind and assert a full create -> get -> list ->
-  delete round-trip over the real stack. A broken migration or missing CRUD fails
-  CI. This operationalizes "100% of generated Kinds work" as an enforced
-  invariant, not a hope.
+- **Static check** `scripts/check_kind_conformance.py`, wired into `make check`
+  via `check-kind-conformance` (runs in the `Checks CI Gate`): enumerates every
+  registered ext Kind (from the plugin `RegisterPath` calls and the `extKinds`
+  allow-list) and FAILs, naming each Kind and each missing item - a manifest
+  plugin file, OpenAPI path, Go/TS SDK type, `extKinds` entry, an `AutoMigrate`
+  in any plugin migration, or the absence of a DB-backed integration test. CLI
+  verb conformance is enforced by the companion `check-cli-drift` gate (also in
+  `make check`), which owns the deliberately curated hsctl ext-command surface.
+- **Generic CRUD conformance test** `TestExtKindsCRUDConformance`
+  (`components/api-server/test/authz/ext_crud_conformance_test.go`), run by
+  `make test` (testcontainers, `API_ENV=integration_testing`): discovers Kinds
+  from `rbac.ExtKinds()` and asserts a full create -> get -> list -> delete
+  round-trip for each over the real HTTP+DB stack on the `lib/pq` +
+  `PreferSimpleProtocol` harness. A broken migration or missing CRUD fails CI; a
+  newly registered ext Kind with no fixture fails until one is added. This
+  operationalizes "100% of generated Kinds work" as an enforced invariant, not a
+  hope.
 
 If either gate is red, the wave is not done. Treat a Kind that the gate reports
 as incomplete as implementation work, exactly like a failing test.
