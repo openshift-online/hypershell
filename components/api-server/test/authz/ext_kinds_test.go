@@ -52,8 +52,8 @@ func submitSecretValue(t *testing.T, client *openapi.APIClient, caller principal
 func TestExtSecretSourcesAreGatewayScoped(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	spoke := registerSpoke(t, h, client)
-	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), nil)
-	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), nil)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles("platform:admin"))
 	gw := createGateway(t, client, owner, spoke.clusterID)
 
@@ -110,7 +110,7 @@ func TestExtSecretSourcesAreGatewayScoped(t *testing.T) {
 // Verifies: SEC-RBAC-19.01
 func TestExtSecretSourceUnknownRuntimeRejected(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
-	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 
 	// A submission naming an AgentRuntime that does not exist is rejected and
 	// writes nothing (no planting references on nonexistent runtimes).
@@ -123,8 +123,8 @@ func TestExtSecretSourceUnknownRuntimeRejected(t *testing.T) {
 func TestExtAgentRuntimesAreGatewayScoped(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	spoke := registerSpoke(t, h, client)
-	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), nil)
-	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), nil)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	gw := createGateway(t, client, owner, spoke.clusterID)
 
 	// An unbound creator cannot plant an AgentRuntime on another tenant's
@@ -156,10 +156,9 @@ func TestExtAgentRuntimesAreGatewayScoped(t *testing.T) {
 
 func TestExtRequestsProvisionUsersAndServeCreatorReads(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
-	user := newPrincipal(t, h, "extreader-"+strings.ToLower(api.NewID()), nil)
+	user := newPrincipal(t, h, "extreader-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 
-	// A creator (newPrincipal gives every test JWT gateway:creator, simulating
-	// the hub's Keycloak realm default role) may read the ext kinds...
+	// A caller explicitly granted gateway:creator may read the ext kinds...
 	_, httpResp, err := client.DefaultAPI.ListSecretSources(user.rest).Execute()
 	Expect(err).NotTo(HaveOccurred(), "creator list secret sources refused: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	_, httpResp, err = client.DefaultAPI.ListRepositories(user.rest).Execute()

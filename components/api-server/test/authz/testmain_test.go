@@ -38,13 +38,9 @@ import (
 // the bootstrap allowlist a hub ships with for its co-located control plane.
 const allowlistedAccount = "service-account-authz-allowlisted"
 
-// TestMain runs the api-server the way the GitOps hubs run it: RBAC enforced
-// and a one-entry control-plane allowlist. The API server merges no role of
-// its own (SEC-RBAC-13); every test principal that needs gateway:creator
-// carries it as a realm role on its JWT via newPrincipal, simulating the
-// hub's Keycloak realm default role (default-roles-hypershell already
-// includes gateway:creator). The environment must be set before the helper
-// starts the server, because the RBAC middleware reads it at startup.
+// TestMain enables RBAC and a one-entry control-plane allowlist. Tests supply
+// the roles each principal needs in its JWT; the helper adds no implicit role.
+// Set the environment before startup because the middleware reads it then.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	_ = os.Setenv("RBAC_ENFORCE", "true")

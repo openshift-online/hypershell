@@ -16,12 +16,9 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 )
 
-// These tests run under the hub configuration pinned in TestMain: RBAC enforced,
-// every authenticated principal holding gateway:creator (newPrincipal simulates
-// the hub's Keycloak realm default role), and role bindings synced from JWT
-// realm roles. They cover the body-dependent dedicated_route entitlement,
-// which is enforced in the create handlers rather than in the path authorization
-// middleware because the middleware cannot see a request body.
+// These tests enforce the body-dependent dedicated_route entitlement. Each
+// caller receives explicit JWT realm roles. The create handlers enforce this
+// entitlement because path authorization middleware cannot see the body.
 
 // uniqueName returns a name safe to reuse across principals and runs.
 func uniqueName(prefix string) string {
@@ -38,7 +35,7 @@ func gatewayCreateRequest(name, clusterID string, dedicatedRoute bool) openapi.G
 }
 
 // TestRESTDedicatedRouteRequiresEntitlement proves the REST create boundary: a
-// caller holding only the default gateway:creator role is rejected with a 403 that
+// caller holding only the gateway:creator role is rejected with a 403 that
 // names gateway:dedicated-route-creator and the rate-limit rationale, while a
 // caller granted that role and a platform:admin pass and get the dedicated route
 // opt-in applied. A create that does not request the flag is unaffected, so the
@@ -47,7 +44,7 @@ func TestRESTDedicatedRouteRequiresEntitlement(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	spoke := registerSpoke(t, h, client)
 
-	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator))
 
 	// A create without the flag needs no entitlement.
 	plainName := uniqueName("plain-route")
@@ -68,7 +65,7 @@ func TestRESTDedicatedRouteRequiresEntitlement(t *testing.T) {
 	expectNoGatewayNamedREST(t, client, creator, rejectedName)
 
 	// A caller granted the entitlement passes.
-	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayDedicatedRouteCreator))
+	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator))
 	created, httpResp, err := client.DefaultAPI.CreateGateway(granted.rest).
 		GatewayCreateRequest(gatewayCreateRequest(uniqueName("dedicated-granted"), spoke.clusterID, true)).Execute()
 	Expect(err).NotTo(HaveOccurred(), "granted caller: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
@@ -76,8 +73,8 @@ func TestRESTDedicatedRouteRequiresEntitlement(t *testing.T) {
 	Expect(created.GetDedicatedRoute()).To(BeTrue())
 	Expect(created.GetRoute()).To(ContainSubstring("certificate"))
 
-	// platform:admin passes as it does everywhere else.
-	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles(roles.RolePlatformAdmin))
+	// A creator with platform:admin also satisfies the dedicated-route entitlement.
+	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator, roles.RolePlatformAdmin))
 	adminCreated, httpResp, err := client.DefaultAPI.CreateGateway(admin.rest).
 		GatewayCreateRequest(gatewayCreateRequest(uniqueName("dedicated-admin"), spoke.clusterID, true)).Execute()
 	Expect(err).NotTo(HaveOccurred(), "platform:admin caller: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
@@ -95,7 +92,7 @@ func TestGRPCDedicatedRouteRequiresEntitlement(t *testing.T) {
 	spoke := registerSpoke(t, h, client)
 	ctx := context.Background()
 
-	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator))
 	_, err := pb.NewGatewayServiceClient(creator.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:           uniqueName("grpc-dedicated-rejected"),
 		ClusterId:      spoke.clusterID,
@@ -106,7 +103,7 @@ func TestGRPCDedicatedRouteRequiresEntitlement(t *testing.T) {
 	Expect(err.Error()).To(ContainSubstring(roles.RoleGatewayDedicatedRouteCreator))
 	Expect(err.Error()).To(ContainSubstring("rate-limited"))
 
-	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayDedicatedRouteCreator))
+	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator))
 	created, err := pb.NewGatewayServiceClient(granted.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:           uniqueName("grpc-dedicated-granted"),
 		ClusterId:      spoke.clusterID,
