@@ -93,6 +93,7 @@ import { DashboardPurpose } from "./dashboard-purpose";
 import "./dashboard-widget.css";
 import {
   GatewayReleasesCard,
+  DashboardMetricUnavailable,
   GatewayStatusCard,
   AttentionRequiredCard,
   ActiveSandboxesCard,
@@ -106,6 +107,8 @@ import {
   ProvisionReliabilityCard,
   ProvisioningSnapshotCard,
   ProvisionTimeCard,
+  ResourceReadinessCard,
+  CertificateHealthCard,
   SystemSummaryCard,
   SectionTitleCard,
   UsageSummaryCard,
@@ -116,7 +119,7 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v47";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v48";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -531,6 +534,46 @@ function createWidgetMapping(
         <ProvisioningSnapshotCard metrics={metrics.metrics} />
       ),
     },
+    "pod-and-sandbox-readiness": {
+      ...systemWidgetConfig(
+        messages.podAndSandboxReadinessWidget,
+        <CheckCircleIcon />,
+      ),
+      defaults: {
+        h: USAGE_SUMMARY_WIDGET_HEIGHT,
+        maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      renderWidget: () => {
+        const metric = metricById.get("pod-and-sandbox-readiness");
+        return metric ? (
+          <ResourceReadinessCard metric={metric} />
+        ) : (
+          <DashboardMetricUnavailable />
+        );
+      },
+    },
+    "certificate-health": {
+      ...systemWidgetConfig(
+        messages.certificateHealthWidget,
+        <ExclamationCircleIcon />,
+      ),
+      defaults: {
+        h: USAGE_SUMMARY_WIDGET_HEIGHT,
+        maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      renderWidget: () => {
+        const metric = metricById.get("certificate-health");
+        return metric ? (
+          <CertificateHealthCard metric={metric} />
+        ) : (
+          <DashboardMetricUnavailable />
+        );
+      },
+    },
     cpu: {
       defaults: {
         h: UTILIZATION_WIDGET_HEIGHT,
@@ -648,6 +691,7 @@ function createWidgetMapping(
     "provisioning-snapshot",
     "gateway-releases",
     "attention-required",
+    ...(isAdmin ? ["pod-and-sandbox-readiness", "certificate-health"] : []),
   ];
 
   return Object.fromEntries(
@@ -704,10 +748,22 @@ export function OperationalDashboardPage({
     metricsQuery.isError &&
     Boolean(metricsQuery.data) &&
     !metricsQuery.isFetching;
-  const localizedBaseTemplate = useMemo(
-    () => localizeDashboardLayoutTemplate(baseTemplate, intl),
-    [intl],
-  );
+  const localizedBaseTemplate = useMemo(() => {
+    const localized = localizeDashboardLayoutTemplate(baseTemplate, intl);
+    if (isAdmin === true) {
+      return localized;
+    }
+    return Object.fromEntries(
+      Object.entries(localized).map(([variant, items]) => [
+        variant,
+        items.filter(
+          (item) =>
+            item.widgetType !== "pod-and-sandbox-readiness" &&
+            item.widgetType !== "certificate-health",
+        ),
+      ]),
+    ) as ExtendedTemplateConfig;
+  }, [intl, isAdmin]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [gridLayoutKey, setGridLayoutKey] = useState(0);
   const [droppingWidgetType, setDroppingWidgetType] = useState<

@@ -9,7 +9,6 @@ import {
   SyncAltIcon,
   TachometerAltIcon,
 } from "@patternfly/react-icons";
-import { MockupShell } from "../shell/mockup-template";
 import {
   DashboardSummaryList,
   DashboardSparkline,
@@ -25,7 +24,7 @@ import {
 const reliabilityLayout: ExtendedTemplateConfig = {
   xl: [
     {
-      h: 4,
+      h: 6,
       i: "reliability-summary#1",
       title: "Reliability summary",
       w: 3,
@@ -39,7 +38,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API request rate",
       w: 1,
       x: 0,
-      y: 4,
+      y: 6,
       widgetType: "api-request-rate",
     },
     {
@@ -48,7 +47,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API error rate",
       w: 1,
       x: 1,
-      y: 4,
+      y: 6,
       widgetType: "api-error-rate",
     },
     {
@@ -57,7 +56,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API latency",
       w: 1,
       x: 2,
-      y: 4,
+      y: 6,
       widgetType: "api-latency",
     },
     {
@@ -66,7 +65,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API p95 latency",
       w: 1,
       x: 0,
-      y: 9,
+      y: 11,
       widgetType: "api-p95-latency",
     },
     {
@@ -75,7 +74,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "OIDC client sync",
       w: 1,
       x: 1,
-      y: 9,
+      y: 11,
       widgetType: "oidc-client-sync",
     },
     {
@@ -84,7 +83,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "State accuracy",
       w: 1,
       x: 2,
-      y: 9,
+      y: 11,
       widgetType: "state-accuracy",
     },
     {
@@ -93,7 +92,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation failures",
       w: 1,
       x: 0,
-      y: 14,
+      y: 16,
       widgetType: "reconciliation-failures",
     },
     {
@@ -102,7 +101,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation retries",
       w: 1,
       x: 1,
-      y: 14,
+      y: 16,
       widgetType: "reconciliation-retries",
     },
     {
@@ -111,7 +110,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation lag",
       w: 1,
       x: 2,
-      y: 14,
+      y: 16,
       widgetType: "reconciliation-lag",
     },
     {
@@ -120,7 +119,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Stale resource status",
       w: 1,
       x: 0,
-      y: 19,
+      y: 21,
       widgetType: "stale-resource-status-count",
     },
   ],
@@ -132,11 +131,10 @@ reliabilityLayout.lg = reliabilityLayout.xl;
 reliabilityLayout.md = reliabilityLayout.xl;
 reliabilityLayout.sm = reliabilityLayout.xl.map((item, index) => ({
   ...item,
+  h: index === 0 ? 8 : item.h,
   w: 1,
   x: 0,
-  y: reliabilityLayout.xl
-    .slice(0, index)
-    .reduce((sum, previous) => sum + previous.h, 0),
+  y: index === 0 ? 0 : 8 + 5 * (index - 1),
 }));
 
 const textStyle = { fontSize: 11 };
@@ -352,7 +350,11 @@ function ReconciliationRetries({
 export function ReliabilityDashboardPageSurface() {
   return (
     <>
-      <PageSection data-page-region="header" hasBodyWrapper={false}>
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
         <Content>
           <Title headingLevel="h1" size="2xl">
             Reliability
@@ -499,10 +501,4 @@ export function ReliabilityDashboardPageSurface() {
   );
 }
 
-export function ReliabilityDashboardMockup() {
-  return (
-    <MockupShell>
-      <ReliabilityDashboardPageSurface />
-    </MockupShell>
-  );
-}
+export { ReliabilityDashboardMockup } from "./reliability-dashboard-mockup";

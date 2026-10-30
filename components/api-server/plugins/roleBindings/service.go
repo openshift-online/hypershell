@@ -231,15 +231,16 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, err
 	}
 
-	// SEC-RBAC-23: default-deny write authorization shared by Create and Delete.
+	// SEC-RBAC-24: default-deny write authorization shared by Create and Delete.
 	// It rejects missing caller identity, Keycloak-owned and managed-cluster roles,
-	// gateway writes by a non-owner, and any role with no explicit rule, before any
-	// row or event is written.
+	// gateway writes by a non-owner, and any role with no explicit rule, and gates the
+	// API-assignable ci-federation:admin on platform:admin/ci-federation:grantor
+	// (SEC-RBAC-21), all before any row or event is written.
 	if err := s.authorizeWrite(ctx, opCreate, role.Name, rb); err != nil {
 		return nil, err
 	}
 
-	// SEC-RBAC-23 target validation: a create must name a valid, existing target
+	// SEC-RBAC-24 target validation: a create must name a valid, existing target
 	// user. Role and scope are validated above; gateway existence is enforced by
 	// the owner check in authorizeWrite (a nonexistent gateway has no owner).
 	if err := s.validateTargetUser(ctx, rb); err != nil {
@@ -289,9 +290,12 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 		defer unlock()
 	}
 
-	// SEC-RBAC-23: authorize the delete against the binding's STORED role, scope,
+	// SEC-RBAC-24: authorize the delete against the binding's STORED role, scope,
 	// and gateway using the same shared, default-deny policy as Create. A
 	// caller-supplied scope or gateway never decides which permissions apply.
+	// Revoking a ci-federation:admin binding is as privileged as granting it, so
+	// authorizeWrite applies the same platform:admin/ci-federation:grantor gate
+	// (SEC-RBAC-21) here.
 	if err := s.authorizeWrite(ctx, opDelete, role.Name, rb); err != nil {
 		return err
 	}
@@ -521,21 +525,25 @@ func (s *sqlRoleBindingService) FindByIDs(ctx context.Context, ids []string) (Ro
 	return bindings, nil
 }
 
-// write operations evaluated by the shared SEC-RBAC-23 authorization check.
+// write operations evaluated by the shared SEC-RBAC-24 authorization check.
 const (
 	opCreate = "create"
 	opDelete = "delete"
 )
 
-// gatewayAccessLockType and the "gateway-access-"+gatewayID lock id intentionally
-// mirror the access facade (plugins/gatewayAccess), so last-owner mutations on the
-// low-level resource serialize in the SAME per-gateway domain as the facade's
-// grant/revoke. SEC-RBAC-23 requires this resource not be a weaker (unserialized)
-// path to removing a gateway's last owner (GTW-ACC-07). The value must stay in
-// sync with gatewayAccess.accessLockType.
-const gatewayAccessLockType db.LockType = "gateway_access"
+// GatewayAccessLockType and GatewayAccessLockID define the single per-gateway
+// advisory-lock domain shared by this low-level resource and the access facade
+// (plugins/gatewayAccess), so last-owner mutations on either path serialize in the
+// SAME domain and cannot race. SEC-RBAC-24 requires this resource not be a weaker
+// (unserialized) path to removing a gateway's last owner (GTW-ACC-07). This package
+// owns the canonical definition because gatewayAccess already depends on it (the
+// reverse dependency would be a cycle); gatewayAccess references these exported
+// symbols rather than hand-copying the string, so the two paths cannot silently
+// diverge.
+const GatewayAccessLockType db.LockType = "gateway_access"
 
-func gatewayAccessLockID(gatewayID string) string {
+// GatewayAccessLockID returns the advisory-lock id for a gateway's access domain.
+func GatewayAccessLockID(gatewayID string) string {
 	return "gateway-access-" + gatewayID
 }
 
@@ -545,7 +553,7 @@ func (s *sqlRoleBindingService) acquireGatewayAccessLock(ctx context.Context, ga
 	if s.lockFactory == nil {
 		return func() {}, nil
 	}
-	owner, err := s.lockFactory.NewAdvisoryLock(ctx, gatewayAccessLockID(gatewayID), gatewayAccessLockType)
+	owner, err := s.lockFactory.NewAdvisoryLock(ctx, GatewayAccessLockID(gatewayID), GatewayAccessLockType)
 	if err != nil {
 		return nil, errors.GeneralError("unable to acquire gateway access lock: %s", err)
 	}
@@ -553,7 +561,7 @@ func (s *sqlRoleBindingService) acquireGatewayAccessLock(ctx context.Context, ga
 }
 
 // authorizeWrite is the single, default-deny authorization check shared by Create
-// and Delete on the low-level generic /role_bindings resource (SEC-RBAC-23). It
+// and Delete on the low-level generic /role_bindings resource (SEC-RBAC-24). It
 // evaluates the operation, the authenticated caller, the stored role, the scope,
 // and the target gateway, and runs before any row or event is written. A role for
 // which no rule grants the operation is denied, so adding a role to the database
@@ -581,11 +589,22 @@ func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, r
 			}
 		}
 		return nil
+	case roles.RoleCIFederationAdmin:
+		// ci-federation:admin is API-assignable (SEC-RBAC-21): authorization over
+		// ci_providers is HyperShell's own RBAC decision, not a Keycloak realm role,
+		// so it is NOT JWT-synced and a binding written here is not revoked by the
+		// recipient's next sign-in. Granting or revoking it requires the caller to
+		// hold platform:admin or the narrow ci-federation:grantor bootstrap role
+		// (SEC-RBAC-23); scope=global is enforced by validateScopeMatchesRole on
+		// create and by the stored binding on delete.
+		return s.validateCallerCanGrantCIFederationAdmin(ctx)
 	case roles.RolePlatformAdmin, roles.RoleGatewayCreator,
-		roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin:
+		roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationGrantor:
 		// Keycloak-owned platform entitlements: SyncJWTRoles reconciles these from
 		// the caller's JWT, so assignment and removal go through Keycloak, not this
 		// resource. A binding written here would not survive the next sign-in.
+		// ci-federation:grantor is itself bootstrapped from a Keycloak realm role
+		// (SEC-RBAC-23), not granted through this API.
 		return errors.Forbidden("%s is managed through Keycloak and cannot be assigned or removed through the role_bindings resource", roleName)
 	case roles.RoleManagedClusterRegistrar:
 		// Registration authority is JWT-controlled (SEC-RBAC-16); a database
@@ -598,7 +617,7 @@ func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, r
 	}
 }
 
-// validateTargetUser enforces the SEC-RBAC-23 target requirement for a create: the
+// validateTargetUser enforces the SEC-RBAC-24 target requirement for a create: the
 // binding must name a valid, existing target user. It runs after authorizeWrite so
 // a denied role fails closed with the policy decision rather than disclosing
 // whether a user exists.
@@ -607,7 +626,7 @@ func (s *sqlRoleBindingService) validateTargetUser(ctx context.Context, rb *Role
 		return errors.Validation("user_id is required")
 	}
 	if s.userDao == nil {
-		// Fail closed: the target-user check is a required SEC-RBAC-23 control and
+		// Fail closed: the target-user check is a required SEC-RBAC-24 control and
 		// must never be skipped silently if the dependency is unwired.
 		return errors.GeneralError("role binding service is misconfigured: target user validation is unavailable")
 	}
@@ -657,7 +676,7 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 
 	callerUserID := rbac.GetUserIDFromContext(ctx)
 	if callerUserID == "" {
-		// SEC-RBAC-23: a missing caller identity never grants permission. The
+		// SEC-RBAC-24: a missing caller identity never grants permission. The
 		// previous success-on-missing-identity path is removed; user-facing
 		// writes without an authenticated caller are rejected here even if the
 		// HTTP middleware did not run first.
@@ -684,9 +703,44 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 	return errors.Forbidden("caller must be gateway:owner on the target gateway to grant bindings")
 }
 
+// validateCallerCanGrantCIFederationAdmin authorizes granting or revoking the
+// API-assignable ci-federation:admin role (SEC-RBAC-21/23): the caller must hold a
+// global-scope platform:admin OR ci-federation:grantor binding. The grantor is the
+// narrow, gitops-managed bootstrap role whose only power is this grant, so CI
+// federation can be set up declaratively without handing out platform:admin. As
+// with validateCallerOwnsGateway, an absent caller identity (server-initiated,
+// non-request context) is allowed -- internal grants carry no request principal.
+func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx context.Context) *errors.ServiceError {
+	callerUserID := rbac.GetUserIDFromContext(ctx)
+	if callerUserID == "" {
+		return nil
+	}
+
+	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)
+	if err != nil {
+		return errors.GeneralError("unable to look up caller bindings: %s", err)
+	}
+
+	for _, b := range callerBindings {
+		if b.Scope != ScopeGlobal {
+			continue
+		}
+		role, roleErr := s.roleDao.Get(ctx, b.RoleID)
+		if roleErr != nil {
+			continue
+		}
+		if role.Name == roles.RolePlatformAdmin || role.Name == roles.RoleCIFederationGrantor {
+			return nil
+		}
+	}
+
+	return errors.Forbidden("caller must be platform:admin or %s to grant %s",
+		roles.RoleCIFederationGrantor, roles.RoleCIFederationAdmin)
+}
+
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}

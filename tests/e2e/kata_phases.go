@@ -27,6 +27,7 @@ func (s *E2ESuite) p2_9KataRuntime(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping kata runtime checks")
 	}
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	runtimeClass := envOrDefault("E2E_KATA_RUNTIME_CLASS", "kata-containers")
 	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)

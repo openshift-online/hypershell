@@ -147,6 +147,30 @@
     "defaultMessage": "Admin",
     "description": "Badge indicating an administrator resource scope."
   },
+  "app.dashboard.certificateHealth.ariaLabel": {
+    "defaultMessage": "Certificate health summary",
+    "description": "Accessible label for the certificate health summary."
+  },
+  "app.dashboard.certificateHealth.expired": {
+    "defaultMessage": "Expired certificates",
+    "description": "Label for expired certificates."
+  },
+  "app.dashboard.certificateHealth.help": {
+    "defaultMessage": "Certificate status is read from gateway and console TLS secrets; unreadable status shows unavailable.",
+    "description": "Explanatory text for certificate health metrics."
+  },
+  "app.dashboard.certificateHealth.soonestExpiry": {
+    "defaultMessage": "Days to expiry (soonest)",
+    "description": "Label for the soonest certificate expiry."
+  },
+  "app.dashboard.certificateHealth.unavailable": {
+    "defaultMessage": "Status unavailable",
+    "description": "Label for certificates with unavailable status."
+  },
+  "app.dashboard.certificateHealth.valid": {
+    "defaultMessage": "Valid certificates",
+    "description": "Label for valid certificates."
+  },
   "app.dashboard.description": {
     "defaultMessage": "A compact landing page for the current state of the resources you are allowed to operate.",
     "description": "Supporting text on the operational dashboard page."
@@ -218,6 +242,10 @@
   "app.dashboard.help.apiLatency": {
     "defaultMessage": "The current API latency is the median response time for API requests over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the median latency calculated from the 5 minutes immediately before that sample's timestamp.<br></br>Latency is shown in seconds. The median means that half of the requests were completed in less time and half took longer.",
     "description": "Help text for the API latency widget."
+  },
+  "app.dashboard.help.apiP95Latency": {
+    "defaultMessage": "The 95th-percentile API response time over the last 5 minutes. Target: 0.500 sec.",
+    "description": "Help text for the API p95 latency widget."
   },
   "app.dashboard.help.apiRequestRate": {
     "defaultMessage": "The current API request rate is the average number of requests per second over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is calculated from the 5 minutes immediately before that sample's timestamp.<br></br>The API request rate includes inbound requests to the HyperShell API endpoints.",
@@ -399,6 +427,26 @@
     "defaultMessage": "Ready",
     "description": "Legend label for ready nodes."
   },
+  "app.dashboard.oidcClientSync.ariaLabel": {
+    "defaultMessage": "OIDC client sync summary",
+    "description": "Accessible label for the OIDC client sync summary."
+  },
+  "app.dashboard.oidcClientSync.expected": {
+    "defaultMessage": "Expected clients",
+    "description": "Label for expected OIDC clients."
+  },
+  "app.dashboard.oidcClientSync.help": {
+    "defaultMessage": "Shows Unknown when expected clients or Keycloak status cannot be determined.",
+    "description": "Explanatory text for OIDC client sync metrics."
+  },
+  "app.dashboard.oidcClientSync.keycloakStatus": {
+    "defaultMessage": "Keycloak status",
+    "description": "Label for Keycloak connectivity status."
+  },
+  "app.dashboard.oidcClientSync.synced": {
+    "defaultMessage": "Synced clients",
+    "description": "Label for synced OIDC clients."
+  },
   "app.dashboard.partialLoadWarning.body": {
     "defaultMessage": "Some dashboard metrics could not be loaded. Available data is shown below; missing areas may be incomplete.",
     "description": "Recovery guidance when one or more operational dashboard metric sources fail."
@@ -511,9 +559,29 @@
     "defaultMessage": "95% of gateways were provisioned in under {duration} {unit}.",
     "description": "Context note explaining the 95th percentile gateway provision duration."
   },
+  "app.dashboard.provisionTime.p99": {
+    "defaultMessage": "P99",
+    "description": "Label for the 99th percentile gateway provision duration."
+  },
+  "app.dashboard.provisionTime.p99Note": {
+    "defaultMessage": "P99 target is 5 minutes; the warning state appears when P99 exceeds the target.",
+    "description": "Context note explaining the P99 gateway provision target."
+  },
+  "app.dashboard.provisionTime.p99TrendCaption": {
+    "defaultMessage": "Last {days} days - daily P99 time to ready",
+    "description": "Caption for the daily gateway provision P99 trend."
+  },
+  "app.dashboard.provisionTime.p99Warning": {
+    "defaultMessage": "P99 exceeds the 5-minute target",
+    "description": "Warning shown when P99 provision duration exceeds target."
+  },
   "app.dashboard.provisionTime.statsAriaLabel": {
     "defaultMessage": "Gateway provision duration statistics",
     "description": "Accessible label for the provision time statistics description list."
+  },
+  "app.dashboard.provisionTime.target": {
+    "defaultMessage": "Target",
+    "description": "Label for the gateway provision duration target."
   },
   "app.dashboard.provisioning.cpuUsed": {
     "defaultMessage": "CPU used",
@@ -640,7 +708,7 @@
     "description": "Title above the registered users login sparkline."
   },
   "app.dashboard.reliability.description": {
-    "defaultMessage": "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+    "defaultMessage": "API request rate, 5xx error rate, median latency, API p95 latency, OIDC client sync, and state accuracy with 24-hour hourly trends. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the reliability dashboard page."
   },
   "app.dashboard.reliability.loadError.body": {
@@ -706,6 +774,26 @@
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default layout",
     "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.resourceReadiness.ariaLabel": {
+    "defaultMessage": "Pod and sandbox readiness summary",
+    "description": "Accessible label for the readiness summary."
+  },
+  "app.dashboard.resourceReadiness.help": {
+    "defaultMessage": "Readiness is the percentage of resources whose Kubernetes Ready condition is true, not a count of running or pending pods.",
+    "description": "Explanatory text for pod and sandbox readiness metrics."
+  },
+  "app.dashboard.resourceReadiness.pods": {
+    "defaultMessage": "Pod readiness",
+    "description": "Label for pod readiness percentage."
+  },
+  "app.dashboard.resourceReadiness.sandboxes": {
+    "defaultMessage": "Sandbox readiness",
+    "description": "Label for sandbox readiness percentage."
+  },
+  "app.dashboard.resourceReadiness.unready": {
+    "defaultMessage": "Unready resources",
+    "description": "Label for the total unready resource count."
   },
   "app.dashboard.resourceSummary.help": {
     "defaultMessage": "Counts respect your fleet and environment access.",
@@ -775,6 +863,34 @@
     "defaultMessage": "Current stale-resource count",
     "description": "Value label shown with the current stale resource status metric."
   },
+  "app.dashboard.stateAccuracy.ariaLabel": {
+    "defaultMessage": "State accuracy summary",
+    "description": "Accessible label for the state accuracy summary."
+  },
+  "app.dashboard.stateAccuracy.help": {
+    "defaultMessage": "The raw stale-resource count remains visible on the Stale resource status widget.",
+    "description": "Explanatory text for reconciliation state accuracy."
+  },
+  "app.dashboard.stateAccuracy.matching": {
+    "defaultMessage": "Observed matching desired",
+    "description": "Label for resources whose observed state matches desired."
+  },
+  "app.dashboard.stateAccuracy.stale": {
+    "defaultMessage": "Stale resources",
+    "description": "Label for stale reconciliation resources."
+  },
+  "app.dashboard.status.connected": {
+    "defaultMessage": "Connected",
+    "description": "Connected status label."
+  },
+  "app.dashboard.status.disconnected": {
+    "defaultMessage": "Disconnected",
+    "description": "Disconnected status label."
+  },
+  "app.dashboard.status.unknown": {
+    "defaultMessage": "Unknown",
+    "description": "Unknown value or status label."
+  },
   "app.dashboard.statusDonut.dataLabel": {
     "defaultMessage": "{status}: {count}",
     "description": "Data label for a status donut chart segment."
@@ -783,9 +899,21 @@
     "defaultMessage": "{status}: {count}",
     "description": "Legend entry for a status donut chart segment."
   },
+  "app.dashboard.summary.accuracy": {
+    "defaultMessage": "Accuracy",
+    "description": "Label for an accuracy percentage."
+  },
+  "app.dashboard.summary.countOfTotal": {
+    "defaultMessage": "{count} / {total}",
+    "description": "A count displayed relative to a total count."
+  },
   "app.dashboard.summary.cpus": {
     "defaultMessage": "CPUs",
     "description": "Summary label for provisioned CPU capacity."
+  },
+  "app.dashboard.summary.daysValue": {
+    "defaultMessage": "{value} days",
+    "description": "A dashboard duration expressed in days."
   },
   "app.dashboard.summary.gateways": {
     "defaultMessage": "Gateways",
@@ -810,6 +938,10 @@
   "app.dashboard.summary.memory": {
     "defaultMessage": "Memory",
     "description": "Summary label for memory utilization."
+  },
+  "app.dashboard.summary.percentValue": {
+    "defaultMessage": "{value}%",
+    "description": "A dashboard percentage value."
   },
   "app.dashboard.summary.pods": {
     "defaultMessage": "Pods",
@@ -1079,6 +1211,10 @@
     "defaultMessage": "API latency",
     "description": "Title for the API median latency reliability widget."
   },
+  "app.dashboard.widget.apiP95Latency": {
+    "defaultMessage": "API p95 latency",
+    "description": "Title for the API p95 latency dashboard widget."
+  },
   "app.dashboard.widget.apiRequestRate": {
     "defaultMessage": "API request rate",
     "description": "Title for the API request rate reliability widget."
@@ -1086,6 +1222,10 @@
   "app.dashboard.widget.attentionRequired": {
     "defaultMessage": "Attention required",
     "description": "Title for the operational dashboard attention widget."
+  },
+  "app.dashboard.widget.certificateHealth": {
+    "defaultMessage": "Certificate health",
+    "description": "Title for the certificate health dashboard widget."
   },
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
@@ -1118,6 +1258,14 @@
   "app.dashboard.widget.nodes": {
     "defaultMessage": "Nodes",
     "description": "Title for the nodes dashboard widget."
+  },
+  "app.dashboard.widget.oidcClientSync": {
+    "defaultMessage": "OIDC client sync",
+    "description": "Title for the OIDC client sync widget."
+  },
+  "app.dashboard.widget.podAndSandboxReadiness": {
+    "defaultMessage": "Pod and sandbox readiness",
+    "description": "Title for the pod and sandbox readiness widget."
   },
   "app.dashboard.widget.pods": {
     "defaultMessage": "Pods",
@@ -1190,6 +1338,10 @@
   "app.dashboard.widget.staleResourceStatus": {
     "defaultMessage": "Stale resource status",
     "description": "Title for the stale resource status dashboard widget."
+  },
+  "app.dashboard.widget.stateAccuracy": {
+    "defaultMessage": "State accuracy",
+    "description": "Title for the reconciliation state accuracy widget."
   },
   "app.dashboard.widget.summary": {
     "defaultMessage": "Summary",

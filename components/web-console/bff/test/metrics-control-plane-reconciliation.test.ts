@@ -7,6 +7,7 @@ import {
   reconciliationFailureHourlyCountPromql,
   reconciliationFailureCountPromql,
   reconciliationLagP50SecondsPromql,
+  reconciliationResourcesTotalPromql,
   reconciliationRetryCountPromql,
   reconciliationRetryHourlyCountPromql,
   reconciliationSuccessHourlyCountPromql,
@@ -168,5 +169,50 @@ describe("queryControlPlaneReconciliation", () => {
     expect(metrics.hourly_reconciliation_successes_count).toHaveLength(2);
     expect(metrics.hourly_reconciliation_lag_p50_seconds).toHaveLength(2);
     expect(metrics.hourly_stale_resource_status_count).toHaveLength(2);
+  });
+
+  it("derives state accuracy only from a valid matching population", async () => {
+    server = createServer((request, response) => {
+      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const query = url.searchParams.get("query");
+      response.setHeader("content-type", "application/json");
+      if (url.pathname === "/api/v1/query_range") {
+        response.end(
+          JSON.stringify({ status: "success", data: { result: [] } }),
+        );
+        return;
+      }
+      const value =
+        query === staleResourceStatusCountPromql
+          ? "1"
+          : query === reconciliationResourcesTotalPromql
+            ? "4"
+            : query === reconciliationLagP50SecondsPromql
+              ? "NaN"
+              : "0";
+      response.end(
+        JSON.stringify({
+          status: "success",
+          data: { result: [{ value: ["1", value] }] },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server?.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string")
+      throw new Error("expected listener");
+
+    const metrics = await queryControlPlaneReconciliation(
+      `http://127.0.0.1:${String(address.port)}`,
+      5_000,
+    );
+    expect(metrics).toMatchObject({
+      reconciliation_resources_total: 4,
+      observed_matching_desired: 3,
+      stale_resource_status_count: 1,
+      state_accuracy_percent: 75,
+    });
   });
 });

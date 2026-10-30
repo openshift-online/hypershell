@@ -64,15 +64,42 @@ func (c *Client) Realm() string {
 }
 
 type keycloakClient struct {
-	ID         string            `json:"id,omitempty"`
-	ClientID   string            `json:"clientId"`
-	Enabled    bool              `json:"enabled"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	ID                        string            `json:"id,omitempty"`
+	ClientID                  string            `json:"clientId"`
+	Enabled                   bool              `json:"enabled"`
+	PublicClient              bool              `json:"publicClient"`
+	StandardFlowEnabled       bool              `json:"standardFlowEnabled"`
+	DirectAccessGrantsEnabled bool              `json:"directAccessGrantsEnabled"`
+	FullScopeAllowed          bool              `json:"fullScopeAllowed"`
+	Attributes                map[string]string `json:"attributes,omitempty"`
 }
 
 type keycloakRole struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
+}
+
+type protocolMapper struct {
+	ID             string            `json:"id,omitempty"`
+	Name           string            `json:"name"`
+	Protocol       string            `json:"protocol"`
+	ProtocolMapper string            `json:"protocolMapper"`
+	Config         map[string]string `json:"config"`
+}
+
+func desiredGatewayProtocolMappers(gatewayName string) []protocolMapper {
+	return []protocolMapper{
+		{Name: "audience", Protocol: "openid-connect", ProtocolMapper: "oidc-audience-mapper", Config: map[string]string{
+			"included.client.audience": gatewayName, "id.token.claim": "false", "access.token.claim": "true",
+		}},
+		{Name: "sub", Protocol: "openid-connect", ProtocolMapper: "oidc-sub-mapper", Config: map[string]string{
+			"access.token.claim": "true",
+		}},
+		{Name: "client-roles", Protocol: "openid-connect", ProtocolMapper: "oidc-usermodel-client-role-mapper", Config: map[string]string{
+			"claim.name": "hypershell.roles", "multivalued": "true", "jsonType.label": "String",
+			"id.token.claim": "true", "access.token.claim": "true", "usermodel.clientRoleMapping.clientId": gatewayName,
+		}},
+	}
 }
 
 type keycloakUser struct {
@@ -405,18 +432,7 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 		"defaultClientScopes": []string{
 			"profile", "email", "roles", "web-origins", "acr",
 		},
-		"protocolMappers": []map[string]interface{}{
-			{
-				"name":           "audience",
-				"protocol":       "openid-connect",
-				"protocolMapper": "oidc-audience-mapper",
-				"config": map[string]string{
-					"included.client.audience": gatewayName,
-					"id.token.claim":           "false",
-					"access.token.claim":       "true",
-				},
-			},
-		},
+		"protocolMappers": desiredGatewayProtocolMappers(gatewayName)[:1],
 	}
 
 	body, _ := json.Marshal(payload)
@@ -756,35 +772,13 @@ func (c *Client) createClientRoles(ctx context.Context, clientUUID string) error
 }
 
 func (c *Client) createProtocolMappers(ctx context.Context, clientUUID, gatewayName string) error {
-	mappers := []map[string]interface{}{
-		{
-			"name":           "sub",
-			"protocol":       "openid-connect",
-			"protocolMapper": "oidc-sub-mapper",
-			"config": map[string]string{
-				"access.token.claim": "true",
-			},
-		},
-		{
-			"name":           "client-roles",
-			"protocol":       "openid-connect",
-			"protocolMapper": "oidc-usermodel-client-role-mapper",
-			"config": map[string]string{
-				"claim.name":                           "hypershell.roles",
-				"multivalued":                          "true",
-				"jsonType.label":                       "String",
-				"id.token.claim":                       "true",
-				"access.token.claim":                   "true",
-				"usermodel.clientRoleMapping.clientId": gatewayName,
-			},
-		},
-	}
+	mappers := desiredGatewayProtocolMappers(gatewayName)[1:]
 
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, clientUUID)
 	for _, mapper := range mappers {
 		body, _ := json.Marshal(mapper)
 		if _, err := c.doRequest(ctx, http.MethodPost, path, body); err != nil {
-			return fmt.Errorf("create mapper %s: %w", mapper["name"], err)
+			return fmt.Errorf("create mapper %s: %w", mapper.Name, err)
 		}
 	}
 	return nil
@@ -1147,6 +1141,55 @@ func (c *Client) ConsoleClientExists(ctx context.Context, consoleClientID string
 	return clientUUID != "", nil
 }
 
+// GatewayClientSynced reports whether the desired gateway OIDC client is
+// present and still has the control plane's managed settings, roles, and
+// protocol mappers. Client representations and identifiers never enter metric
+// labels or values.
+func (c *Client) GatewayClientSynced(ctx context.Context, clientID string) (bool, error) {
+	client, err := c.getClient(ctx, clientID)
+	if err != nil {
+		return false, fmt.Errorf("look up gateway client: %w", err)
+	}
+	if client == nil {
+		return false, nil
+	}
+	if !client.Enabled || !client.PublicClient || !client.StandardFlowEnabled ||
+		!client.DirectAccessGrantsEnabled || client.FullScopeAllowed ||
+		client.Attributes["pkce.code.challenge.method"] != "S256" ||
+		client.Attributes[deviceAuthorizationGrantAttribute] != "true" {
+		return false, nil
+	}
+	roles, err := c.listClientRoles(ctx, client.ID)
+	if err != nil {
+		return false, fmt.Errorf("inspect gateway client roles: %w", err)
+	}
+	roleNames := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		roleNames[role.Name] = struct{}{}
+	}
+	for _, name := range []string{"openshell-admin", "openshell-user"} {
+		if _, ok := roleNames[name]; !ok {
+			return false, nil
+		}
+	}
+	mappers, err := c.listClientProtocolMapperModels(ctx, client.ID)
+	if err != nil {
+		return false, fmt.Errorf("inspect gateway client protocol mappers: %w", err)
+	}
+	for _, desired := range desiredGatewayProtocolMappers(clientID) {
+		actual, ok := mappers[desired.Name]
+		if !ok || actual.Protocol != desired.Protocol || actual.ProtocolMapper != desired.ProtocolMapper {
+			return false, nil
+		}
+		for key, value := range desired.Config {
+			if actual.Config[key] != value {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
 func (c *Client) createConsoleClient(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) (string, error) {
 	payload := map[string]interface{}{
 		"clientId":                  consoleClientID,
@@ -1275,21 +1318,30 @@ func (c *Client) ensureConsoleProtocolMappers(ctx context.Context, clientUUID, g
 // listClientProtocolMappers returns the existing protocol mappers on a client,
 // keyed by mapper name.
 func (c *Client) listClientProtocolMappers(ctx context.Context, clientUUID string) (map[string]string, error) {
+	mappers, err := c.listClientProtocolMapperModels(ctx, clientUUID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(mappers))
+	for name, mapper := range mappers {
+		out[name] = mapper.ID
+	}
+	return out, nil
+}
+
+func (c *Client) listClientProtocolMapperModels(ctx context.Context, clientUUID string) (map[string]protocolMapper, error) {
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, clientUUID)
 	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
-	var mappers []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
+	var mappers []protocolMapper
 	if err := json.Unmarshal(respBody, &mappers); err != nil {
 		return nil, fmt.Errorf("parse protocol mappers: %w", err)
 	}
-	out := make(map[string]string, len(mappers))
+	out := make(map[string]protocolMapper, len(mappers))
 	for _, m := range mappers {
-		out[m.Name] = m.ID
+		out[m.Name] = m
 	}
 	return out, nil
 }

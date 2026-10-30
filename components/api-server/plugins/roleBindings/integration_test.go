@@ -165,7 +165,7 @@ func TestRoleBindingList(t *testing.T) {
 
 	gatewayID := "gw-test-list"
 	// Seed a binding directly through the DAO: this fixture only needs a row to
-	// list, and the low-level Create path now enforces the SEC-RBAC-23 write
+	// list, and the low-level Create path now enforces the SEC-RBAC-24 write
 	// policy (caller ownership and a valid target user) which is out of scope here.
 	targetUser := "gw-test-list-user"
 	_, createErr := roleBindings.NewRoleBindingDao(
@@ -567,13 +567,13 @@ func TestDedicatedRouteCreatorRoleIsKeycloakAssigned(t *testing.T) {
 	Expect(rbac.CanRequestGatewayDedicatedRoute(bindings)).To(BeTrue())
 }
 
-// TestCIFederationAdminRoleIsKeycloakAssigned proves the new ci-federation:admin
-// entitlement behaves like its platform-wide siblings (SEC-RBAC-21): it is seeded
-// built-in, it requires global scope, it cannot be granted through the RoleBinding
-// API (Keycloak-owned; SyncJWTRoles would revoke a directly created binding on the
-// caller's next sign-in), and a JWT-carried realm role produces the global binding
-// the ci_providers gate checks.
-func TestCIFederationAdminRoleIsKeycloakAssigned(t *testing.T) {
+// TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin proves the
+// ci-federation:admin entitlement is granted by HyperShell's own RBAC rather than
+// delegated to Keycloak (SEC-RBAC-21): it is seeded built-in, it requires global
+// scope, it is assignable through the RoleBinding API but only by a platform:admin
+// caller, it is NOT JWT-synced (so a JWT carrying it grants nothing and an
+// API-created binding survives a later sign-in), and a non-admin caller is denied.
+func TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	roleService := roles.Service(&environments.Environment().Services)
@@ -581,6 +581,7 @@ func TestCIFederationAdminRoleIsKeycloakAssigned(t *testing.T) {
 	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:admin role must be seeded")
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
 
 	// Gateway scope is rejected: the entitlement is platform-wide (scope=global).
 	gatewayID := "gw-ci-federation-scope"
@@ -592,37 +593,135 @@ func TestCIFederationAdminRoleIsKeycloakAssigned(t *testing.T) {
 	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
 	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
 
-	// Direct assignment is rejected: the role is Keycloak-owned.
-	userID := "user-ci-federation-direct"
-	_, err = rbService.Create(context.Background(), &roleBindings.RoleBinding{
+	// A non-platform-admin caller cannot grant it: assignment is a platform-admin act.
+	targetUserID, targetErr := userService.UpsertByUsername(context.Background(), "ci-fed-target", nil, nil)
+	Expect(targetErr).NotTo(HaveOccurred())
+	nonAdminID, nonAdminErr := userService.UpsertByUsername(context.Background(), "ci-fed-nonadmin", nil, nil)
+	Expect(nonAdminErr).NotTo(HaveOccurred())
+	nonAdminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, nonAdminID)
+	_, err = rbService.Create(nonAdminCtx, &roleBindings.RoleBinding{
 		RoleID: ciRole.ID,
 		Scope:  roleBindings.ScopeGlobal,
-		UserID: &userID,
+		UserID: &targetUserID,
 	})
-	Expect(err).To(HaveOccurred(), "a Keycloak-owned role must not be assignable through the API")
+	Expect(err).To(HaveOccurred(), "a non-platform-admin caller must not be able to grant ci-federation:admin")
 	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
 
-	// A JWT-carried realm role syncs the global binding the ci_providers gate reads.
-	userService := users.Service(&environments.Environment().Services)
-	syncedUserID, userErr := userService.UpsertByUsername(context.Background(), "sync-ci-federation", nil, nil)
-	Expect(userErr).NotTo(HaveOccurred())
-	Expect(rbService.SyncJWTRoles(context.Background(), syncedUserID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	// A platform:admin caller can grant it through the API (scope=global).
+	adminID, adminErr := userService.UpsertByUsername(context.Background(), "ci-fed-granter-admin", nil, nil)
+	Expect(adminErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), adminID, []string{roles.RolePlatformAdmin})).To(Succeed())
+	adminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, adminID)
+	created, createErr := rbService.Create(adminCtx, &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &targetUserID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "platform:admin must be able to grant ci-federation:admin via the API")
+	Expect(created.ID).NotTo(BeEmpty())
 
-	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedUserID)
+	hasCIBinding := func(userID string) bool {
+		bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+		Expect(findErr).NotTo(HaveOccurred())
+		for _, b := range bindings {
+			if b.RoleName == roles.RoleCIFederationAdmin && b.Scope == roleBindings.ScopeGlobal {
+				return true
+			}
+		}
+		return false
+	}
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "the API-granted ci-federation:admin binding must exist")
+
+	// The role is not JWT-synced: a subsequent sign-in must NOT revoke the
+	// API-created binding, and a JWT carrying the realm role grants nothing.
+	Expect(rbService.SyncJWTRoles(context.Background(), targetUserID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "SyncJWTRoles must not revoke an API-created ci-federation:admin binding")
+
+	unsyncedID, unsyncedErr := userService.UpsertByUsername(context.Background(), "ci-fed-jwt-only", nil, nil)
+	Expect(unsyncedErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), unsyncedID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(unsyncedID)).To(BeFalse(), "a JWT realm role must NOT grant ci-federation:admin (not JWT-synced)")
+}
+
+// TestCIFederationGrantorRole proves the narrow bootstrap grantor (SEC-RBAC-23):
+// a caller holding only ci-federation:grantor may create and delete a global
+// ci-federation:admin RoleBinding, confers no other granting power, and the
+// grantor role is itself Keycloak-owned (JWT-synced, not API-assignable).
+func TestCIFederationGrantorRole(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ciAdminRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred())
+	grantorRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationGrantor)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:grantor role must be seeded")
+
+	// A bootstrap identity gets ci-federation:grantor from its JWT (Keycloak-owned).
+	grantorID, err := userService.UpsertByUsername(context.Background(), "ci-fed-bootstrap", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), grantorID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	grantorCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, grantorID)
+
+	seederID, err := userService.UpsertByUsername(context.Background(), "ci-fed-seeder", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	// (1) grantor creates a global ci-federation:admin binding for the seeder.
+	created, createErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ciAdminRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &seederID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "ci-federation:grantor must be able to grant ci-federation:admin")
+
+	// (2) grantor may delete that binding too.
+	Expect(rbService.Delete(grantorCtx, created.ID)).To(BeNil())
+
+	// (3) confinement: grantor confers no gateway-granting power.
+	ownerRole, roleErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	Expect(roleErr).NotTo(HaveOccurred())
+	gwID := "gw-grantor-confine"
+	_, gwErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ownerRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gwID, UserID: &seederID,
+	})
+	Expect(gwErr).To(HaveOccurred(), "ci-federation:grantor must not authorize granting gateway roles")
+	Expect(gwErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// (4) the grantor role is Keycloak-owned: not API-assignable (403), gateway scope 400.
+	otherID, otherErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-target", nil, nil)
+	Expect(otherErr).NotTo(HaveOccurred())
+	_, directErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &otherID,
+	})
+	Expect(directErr).To(HaveOccurred(), "ci-federation:grantor must not be API-assignable (Keycloak-owned)")
+	Expect(directErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	gw2 := "gw-grantor-scope"
+	_, scopeErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gw2,
+	})
+	Expect(scopeErr).To(HaveOccurred())
+	Expect(scopeErr.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// A JWT carrying the grantor realm role syncs the global binding the grant path reads.
+	syncedID, syncErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-sync", nil, nil)
+	Expect(syncErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedID)
 	Expect(findErr).NotTo(HaveOccurred())
 	granted := false
 	for _, b := range bindings {
-		if b.RoleName == roles.RoleCIFederationAdmin && b.Scope == roleBindings.ScopeGlobal {
+		if b.RoleName == roles.RoleCIFederationGrantor && b.Scope == roleBindings.ScopeGlobal {
 			granted = true
 		}
 	}
-	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationAdmin)
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationGrantor)
 }
 
 // seedGatewayBinding writes a gateway-scoped binding straight through the DAO,
-// bypassing the SEC-RBAC-23 write policy. Tests use it to stage a caller's
+// bypassing the SEC-RBAC-24 write policy. Tests use it to stage a caller's
 // pre-existing access (owner/viewer) before exercising an authorized write; the
-// write policy itself is covered by the dedicated SEC-RBAC-23 tests below.
+// write policy itself is covered by the dedicated SEC-RBAC-24 tests below.
 func seedGatewayBinding(roleID, userID, gatewayID string) error {
 	_, err := roleBindings.NewRoleBindingDao(
 		&environments.Environment().Database.SessionFactory,
@@ -654,7 +753,7 @@ func seedGlobalBinding(roleID, userID string) (string, error) {
 
 // An unrelated authenticated user cannot delete another user's Keycloak-owned or
 // global binding through the low-level resource.
-// Verifies: SEC-RBAC-23.03
+// Verifies: SEC-RBAC-24.03
 func TestRoleBindingDelete_UnrelatedUserCannotDeleteGlobalBinding(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -687,7 +786,7 @@ func TestRoleBindingDelete_UnrelatedUserCannotDeleteGlobalBinding(t *testing.T) 
 
 // The seeded managed-cluster-registrar role has no explicit write policy and is
 // denied for both create and delete.
-// Verifies: SEC-RBAC-23.06
+// Verifies: SEC-RBAC-24.06
 func TestRoleBindingWrite_ManagedClusterRegistrarDenied(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -728,7 +827,7 @@ func TestRoleBindingWrite_ManagedClusterRegistrarDenied(t *testing.T) {
 // A user-facing gateway-role write with no authenticated caller identity is
 // rejected; the ownership helper no longer treats a missing caller id as
 // permission.
-// Verifies: SEC-RBAC-23.07
+// Verifies: SEC-RBAC-24.07
 func TestRoleBindingCreate_MissingCallerIdentityRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -756,7 +855,7 @@ func TestRoleBindingCreate_MissingCallerIdentityRejected(t *testing.T) {
 
 // Last-owner protection: deleting a gateway's only owner binding is refused; once
 // a second owner exists the delete succeeds.
-// Verifies: SEC-RBAC-23.04
+// Verifies: SEC-RBAC-24.04
 func TestRoleBindingDelete_LastOwnerProtected(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -799,7 +898,7 @@ func TestRoleBindingDelete_LastOwnerProtected(t *testing.T) {
 
 // Delete authorizes against the binding's stored gateway; a caller who does not
 // own that gateway is refused even though it owns another gateway.
-// Verifies: SEC-RBAC-23.08
+// Verifies: SEC-RBAC-24.08
 func TestRoleBindingDelete_AuthorizesAgainstStoredGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 

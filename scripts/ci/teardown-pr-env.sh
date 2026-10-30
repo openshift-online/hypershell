@@ -81,6 +81,31 @@ delete_namespace() {
   return 1
 }
 
+# delete_namespaces_parallel deletes every given namespace concurrently and waits
+# for all of them, returning non-zero if any delete failed. Namespace deletion is
+# finalizer-bound and the namespaces are mutually independent, so issuing the
+# blocking `--wait` deletes in parallel bounds wall-clock by the slowest namespace
+# instead of their sum. Backgrounded deletes do not trip errexit; each exit code is
+# collected with wait.
+delete_namespaces_parallel() {
+  local ns rc=0
+  local pids=()
+  for ns in "$@"; do
+    [[ -n "${ns}" ]] || continue
+    delete_namespace "${ns}" &
+    pids+=("$!")
+  done
+  if [[ "${#pids[@]}" -gt 0 ]]; then
+    local pid
+    for pid in "${pids[@]}"; do
+      if ! wait "${pid}"; then
+        rc=1
+      fi
+    done
+  fi
+  return "${rc}"
+}
+
 delete_instance_managed() {
   local instance="$1"
   if [[ -z "${instance}" ]]; then
@@ -88,6 +113,7 @@ delete_instance_managed() {
     return 1
   fi
   local selector names ns
+  local to_delete=()
   selector="${PR_ENV_CP_MANAGED_LABEL}=${PR_ENV_CP_MANAGED_VALUE},${PR_ENV_CP_MANAGED_BY_LABEL}=${PR_ENV_CP_MANAGED_BY_VALUE},${PR_ENV_CP_INSTANCE_LABEL}=${instance}"
   names="$("${KUBECTL}" get namespace -l "${selector}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
@@ -95,29 +121,31 @@ delete_instance_managed() {
     log "  no instance-managed namespaces for ${instance}"
     return 0
   fi
-  local failed=0
   while IFS= read -r ns; do
     [[ -n "${ns}" ]] || continue
     if [[ "${ns}" == "${instance}" || "${ns}" == "${instance}-keycloak" ]]; then
       continue
     fi
     log "  instance workload ${ns} (instance=${instance})"
-    if ! delete_namespace "${ns}"; then
-      failed=1
-    fi
+    to_delete+=("${ns}")
   done <<< "${names}"
-  return "${failed}"
+  [[ "${#to_delete[@]}" -gt 0 ]] || return 0
+  delete_namespaces_parallel "${to_delete[@]}"
 }
 
 log "teardown ${platform_ns} (keycloak ${keycloak_ns}, dry_run=${DRY_RUN})"
 delete_cluster_rbac "${platform_ns}"
 failed=0
-if ! delete_namespace "${keycloak_ns}"; then
+# Tier 1: the control-plane namespace group (platform + its companion keycloak).
+# Delete it BEFORE the instance-managed gateway namespaces so the control plane
+# cannot recreate a gateway namespace from a still-live Gateway record while the
+# teardown is in flight. The two group namespaces are independent, so delete them
+# concurrently (ephemeral-pr-environments.spec.md CICD-PREN-02).
+if ! delete_namespaces_parallel "${keycloak_ns}" "${platform_ns}"; then
   failed=1
 fi
-if ! delete_namespace "${platform_ns}"; then
-  failed=1
-fi
+# Tier 2: instance-managed gateway/database namespaces, now that the control plane
+# is gone. They are mutually independent, so delete them concurrently too.
 if ! delete_instance_managed "${platform_ns}"; then
   failed=1
 fi

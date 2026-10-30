@@ -49,6 +49,23 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
+
+Scoped reconciliation of the approved operational and reliability dashboard
+spec changes. Added control-plane resource-readiness, certificate-health, OIDC
+client-sync, and exact reconciliation-population telemetry; BFF routes and
+derived SLI fields; and the corresponding role-aware dashboard cards, trends,
+targets, sources, fixtures, messages, and adapter coverage. API reliability now
+includes current and hourly P95 latency, gateway provisioning includes the
+seven-day P99 and 300-second target, and reconciliation state accuracy is only
+reported for a valid non-empty population. The approved reliability mockup was
+updated with a directly capturable parity surface and its full 11-item summary.
+
+Control-plane focused tests/vet/build, BFF tests, web-console and dashboard UI
+checks, adapter tests, i18n, mockup PatternFly checks, and Storybook builds are
+green. The mandatory UI build gate is Complete for both dashboards after
+production/mockup captures at 1440x900 and 390x844 were inspected and accepted.
+
 ### HYPERSHELL-445 -- Fleet-dashboard capability chips from the delivery annotation (done, issue #707)
 
 Scoped reconciliation of `specs/platform/fleet-dashboard-capability-chips.spec.md`

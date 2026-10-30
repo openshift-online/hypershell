@@ -170,6 +170,7 @@ function DashboardPreview({
       dashboard={
         dashboard ?? (metrics === undefined ? mockDashboard : stubDashboard)
       }
+      isAdmin
       navigation={stubNavigation}
     >
       <ReliabilityDashboardPage metrics={metrics} />

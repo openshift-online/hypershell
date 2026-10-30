@@ -96,7 +96,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 9 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -147,7 +147,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 14 |
+| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 16 |
 
 ### SDLC
 
@@ -162,7 +162,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 24 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
@@ -208,7 +208,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
-| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
+| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
 | `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |

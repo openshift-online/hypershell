@@ -40,9 +40,9 @@ const provisioningMetrics = {
       case "provisioned-gateways":
         return { ...metric, value: "42" };
       case "memory":
-        return { ...metric, total: "100", unit: "%", value: "68" };
+        return { ...metric, total: "237", unit: "GiB", value: "161" };
       case "cpu":
-        return { ...metric, total: "100", unit: "%", value: "54" };
+        return { ...metric, total: "60", unit: "cores", value: "32" };
       case "nodes":
         return { ...metric, status: { failed: 1, healthy: 11 }, value: "12" };
       case "pods":
@@ -66,6 +66,8 @@ const provisioningMetrics = {
             mean: "312",
             p50: "288",
             p95: "726",
+            p99: "872",
+            target: "300",
           },
         };
       case "provision-reliability":
@@ -75,6 +77,12 @@ const provisioningMetrics = {
             failureCount24h: "2",
             successCount24h: "52",
             successRatePercent: "96.2",
+          },
+          successRateTrend: {
+            points: [
+              { label: "2026-10-27", value: 91 },
+              { label: "2026-10-28", value: 96 },
+            ],
           },
           value: "96.2",
         };
