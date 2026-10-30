@@ -52,6 +52,18 @@ type Store struct {
 	path string
 }
 
+// Keep historical keys and active worker ownership while presenting shared names.
+func canonicalAgent(name string) string {
+	switch name {
+	case "funnel-ingest":
+		return "ingest"
+	case "funnel-reconcile":
+		return "reconcile"
+	default:
+		return name
+	}
+}
+
 func seconds() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 func hashString(s string) string {
 	b, _ := json.Marshal(s)
@@ -99,6 +111,7 @@ func (s *Store) rows() ([]Row, error) {
 		if err = json.Unmarshal([]byte(payload), &r.Job); err != nil {
 			return nil, err
 		}
+		r.Agent = canonicalAgent(r.Agent)
 		rows = append(rows, r)
 	}
 	return rows, rs.Err()
@@ -315,6 +328,7 @@ func (s *Store) history(issue Row) ([]Row, error) {
 		if row.Repo != issue.Repo {
 			continue
 		}
+		row.Agent = canonicalAgent(row.Agent)
 		row.Key = row.RunID
 		row.Status = "uncertain"
 		if code.Valid {

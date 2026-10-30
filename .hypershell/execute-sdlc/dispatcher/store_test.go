@@ -358,3 +358,33 @@ func TestConfirmedUnknownRetryRejectsStaleAndLiveRuns(t *testing.T) {
 		t.Fatal("duplicate confirmation accepted")
 	}
 }
+
+func TestLegacyLifecycleNamesPreserveOwnershipAndHistory(t *testing.T) {
+	s := testStore(t)
+	j := testJob()
+	j.Key, j.Agent = "1:funnel-reconcile", "funnel-reconcile"
+	id, err := s.start(j, "/tmp/legacy.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.rows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := j
+	current.Agent = "reconcile"
+	if rows[0].Agent != "reconcile" || rows[0].Key != j.Key || eligible(current, rows, seconds()) {
+		t.Fatal("rename changed ownership or display", rows)
+	}
+	if err := s.finish(j.Key, id, 0, 60, 3600); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = s.rows()
+	if eligible(current, rows, seconds()) {
+		t.Fatal("rename replayed successful job")
+	}
+	history, err := s.history(rows[0])
+	if err != nil || len(history) != 1 || history[0].Agent != "reconcile" {
+		t.Fatal(history, err)
+	}
+}

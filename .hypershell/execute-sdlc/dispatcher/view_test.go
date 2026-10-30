@@ -30,14 +30,14 @@ func TestActivityDoesNotExposeCommandContent(t *testing.T) {
 	if got := activity(path); got != "Working" {
 		t.Fatal(got)
 	}
-	os.WriteFile(path, []byte("→ Running agent: funnel-ingest\nLoading harness: secret\n"), 0600)
+	os.WriteFile(path, []byte("→ Running agent: ingest\nLoading harness: secret\n"), 0600)
 	if got := activity(path); got != "Preparing agent" {
 		t.Fatal(got)
 	}
 }
 func sampleModel() Model {
 	ctx, cancel := context.WithCancel(context.Background())
-	return Model{ctx: ctx, cancel: cancel, width: 100, height: 24, plainColor: true, engine: &Engine{c: Config{Scope: "agent/scope/test", Concurrency: 10}}, state: Snapshot{Gateway: "test", Connection: "Connected", Active: 1, Rows: []Row{{Job: Job{Key: "scope", Scope: "agent/scope/test", Agent: "funnel-ingest", Item: "agent/scope/test"}, Status: "running", Activity: "Working", Started: seconds()}, {Job: Job{Key: "42", Scope: "agent/scope/test", Item: "42", Title: "The issue title", Agent: "code-review"}, Status: "failed", Next: seconds() + 60}}}}
+	return Model{ctx: ctx, cancel: cancel, width: 100, height: 24, plainColor: true, engine: &Engine{c: Config{Scope: "agent/scope/test", Concurrency: 10}}, state: Snapshot{Gateway: "test", Connection: "Connected", Active: 1, Rows: []Row{{Job: Job{Key: "scope", Scope: "agent/scope/test", Agent: "ingest", Item: "agent/scope/test"}, Status: "running", Activity: "Working", Started: seconds()}, {Job: Job{Key: "42", Scope: "agent/scope/test", Item: "42", Title: "The issue title", Agent: "code-review"}, Status: "failed", Next: seconds() + 60}}}}
 }
 func TestViewUsesPlainLabelsAndNoRepeatedCounters(t *testing.T) {
 	m := sampleModel()
@@ -175,7 +175,7 @@ func TestIssueGroupingAndManifestNames(t *testing.T) {
 		t.Fatalf("grouping: %+v", rows)
 	}
 	view := m.View()
-	if strings.Count(view, "#42") != 1 || !strings.Contains(view, "funnel-ingest") || !strings.Contains(view, "code-review") {
+	if strings.Count(view, "#42") != 1 || !strings.Contains(view, "ingest") || !strings.Contains(view, "code-review") {
 		t.Fatal(view)
 	}
 	if strings.Contains(view, "Intake") || strings.Contains(view, "Review code") {
@@ -431,7 +431,7 @@ func TestTerminalPreviewFrames(t *testing.T) {
 		{Job: Job{Key: "840", Scope: m.engine.c.Scope, Item: "840", Title: "Glass: show bundle PRs separately for hypershell and hypershell-gitops", Agent: "code-implementation"}, Status: "running", Activity: "Working", Started: seconds() - 747},
 		{Job: Job{Key: "856", Scope: m.engine.c.Scope, Item: "856", Title: "Fleet dashboard: improve navigation and gateway configuration", Agent: "code-implementation"}, Status: "running", Activity: "Creating sandbox", Started: seconds() - 36},
 		{Job: Job{Key: "859", Scope: m.engine.c.Scope, Item: "859", Title: "Gateway configuration: validate route selection", Agent: "spec-review"}, Status: "failed", Next: seconds() + 45, Log: "/home/jsell/.local/state/hypershell/funnel/logs/spec-review-859.log", Error: "Agent exited with code 1 during validation."},
-		{Job: Job{Key: "832", Scope: m.engine.c.Scope, Item: "832", Title: "Tighten RoleBinding write authorization for authenticated users", Agent: "funnel-reconcile"}, Status: "succeeded", Finished: seconds() - 125},
+		{Job: Job{Key: "832", Scope: m.engine.c.Scope, Item: "832", Title: "Tighten RoleBinding write authorization for authenticated users", Agent: "reconcile"}, Status: "succeeded", Finished: seconds() - 125},
 	}
 	m.state.Active = 2
 	for _, screen := range []string{"overview", "logs", "details", "signin", "filter", "help"} {

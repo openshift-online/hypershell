@@ -105,7 +105,7 @@ func activity(path string) string {
 	return "Starting"
 }
 func title(r Row) string {
-	if r.Agent == "funnel-ingest" {
+	if r.Agent == "ingest" {
 		return "Find and link issues"
 	}
 	if r.Title == "" {

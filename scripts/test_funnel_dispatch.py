@@ -34,6 +34,42 @@ def pr(number=10, body='Fixes #1'):
                 body=body, state='open', head={'sha': 'abc'})
 
 
+class SharedAgentTests(unittest.TestCase):
+    def test_local_harness_keeps_shared_agents_and_hosted_config_unchanged(self):
+        from local_harness import prepare
+        import shutil
+        import yaml
+        source = ROOT/'.fullsend'
+        original = (source/'harness/ingest.yaml').read_bytes()
+        for agent in ('ingest', 'reconcile'):
+            directory = Path(prepare(source, agent))
+            try:
+                config = yaml.safe_load((directory/'config.yaml').read_text())
+                entries = [entry for entry in config['agents'] if entry['name'] == agent]
+                self.assertEqual(len(entries), 1)
+                harness = yaml.safe_load((directory/entries[0]['source']).read_text())
+                self.assertEqual(harness['agent'], f'agents/{agent}.md')
+                self.assertEqual(harness['trigger'], 'false')
+                self.assertEqual((directory/harness['agent']).read_bytes(),
+                                 (source/harness['agent']).read_bytes())
+                self.assertNotIn('JIRA_API_TOKEN', harness['env']['sandbox'])
+                self.assertEqual(harness['env']['sandbox']['JIRA_CREDENTIALS_FILE'], '/tmp/.jira-credentials.json')
+            finally:
+                shutil.rmtree(directory)
+        self.assertEqual((source/'harness/ingest.yaml').read_bytes(), original)
+        self.assertFalse((source/'agents/funnel-ingest.md').exists())
+
+    def test_agent_instructions_do_not_depend_on_execution_environment(self):
+        for path in (ROOT/'.fullsend/agents').glob('*.md'):
+            text = path.read_text()
+            for phrase in ('local dispatcher', 'FUNNEL_', '/tmp/funnel-',
+                           'OAuth refresh stays on the host', 'Sandbox checkout and build tools'):
+                self.assertNotIn(phrase, text, str(path))
+
+    def test_renamed_lifecycle_jobs_retain_persisted_keys(self):
+        self.assertEqual(funnel.make_job('scope', 'reconcile', issue())['key'], '1:funnel-reconcile')
+
+
 class InferenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -133,8 +169,7 @@ class DiscoveryTests(unittest.TestCase):
     @patch.object(funnel, 'json_command')
     def test_hosted_lifecycle_agents_are_not_dispatched_as_phases(self, run):
         run.return_value = [{'agent': agent} for agent in
-                            ('ingest', 'reconcile', 'funnel-ingest',
-                             'funnel-reconcile', 'code-implementation')]
+                            ('ingest', 'reconcile', 'code-implementation')]
         self.assertEqual(self.github.classify(issue()), ['code-implementation'])
 
     def test_pr_requires_exact_link_and_rejects_ambiguity(self):
@@ -409,7 +444,7 @@ class ReconcileScheduleTests(unittest.TestCase):
         legacy=self.job(1000)
         legacy.pop('source_fingerprint')
         legacy['fingerprint']=funnel.fingerprint([
-            funnel.make_job('agent/scope/test','funnel-reconcile',issue())['fingerprint'],[],None,1])
+            funnel.make_job('agent/scope/test','reconcile',issue())['fingerprint'],[],None,1])
         self.complete(legacy)
         self.assertEqual(self.job(4000)['fingerprint'],legacy['fingerprint'])
 
@@ -488,7 +523,7 @@ elif name=='fullsend':
         time.sleep(delays.get(os.environ.get('ISSUE_NUMBER'),0.05))
         if os.environ.get('MOCK_JIRA') and args[1]=='issue-triage':
             (root/('triaged-'+os.environ['ISSUE_NUMBER'])).touch()
-        if args[1] in ('funnel-ingest','funnel-reconcile'):
+        if args[1] in ('ingest','reconcile'):
             credentials=json.loads(Path(os.environ['FUNNEL_JIRA_CREDENTIALS_FILE']).read_text())
             assert credentials['version']==1 and credentials['authorization']
             assert 'refresh_token' not in credentials
@@ -498,7 +533,7 @@ elif name=='fullsend':
             if os.environ.get('MOCK_EXPECTED_JIRA_AUTH'):
                 assert credentials['mode']==os.environ['MOCK_EXPECTED_JIRA_AUTH']
         record('end')
-        sys.exit(int(os.environ.get('MOCK_RECONCILE_EXIT','0') if args[1]=='funnel-reconcile' else os.environ.get('MOCK_EXIT','0')))
+        sys.exit(int(os.environ.get('MOCK_RECONCILE_EXIT','0') if args[1]=='reconcile' else os.environ.get('MOCK_EXIT','0')))
 elif name=='hsctl':
     gateway=dict(id='gateway-test',name='test-gateway',phase='running',
                  route_address='grpcs://gateway.example.test:443',
@@ -546,6 +581,11 @@ class ProcessTests(unittest.TestCase):
         subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Test',
                         '-c', 'user.email=test@example.com', '-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-qm', 'initial'], check=True)
         (self.root/'.gitignore').write_text('*\n')
+        harnesses = self.root/'.fullsend/harness'
+        harnesses.mkdir(parents=True)
+        for agent in ('ingest', 'reconcile'):
+            (harnesses/f'local-{agent}.yaml').write_text(f'agent: agents/{agent}.md\ntrigger: "false"\n')
+
         bindir = self.root/'bin'
         bindir.mkdir()
         for name in ('gh', 'fullsend', 'openshell', 'acli', 'secret-tool', 'hsctl'):
@@ -869,12 +909,12 @@ class ProcessTests(unittest.TestCase):
                           JIRA_USER_EMAIL='test@example.test', JIRA_TOKEN='not-a-real-token')
         self.assertEqual(proc.wait(timeout=12), 0)
         runs=self.runs()
-        self.assertEqual(runs[0]['args'][1], 'funnel-ingest')
+        self.assertEqual(runs[0]['args'][1], 'ingest')
         for number in ('1','2'):
-            self.assertTrue(any(c['item']==number and c['args'][1]=='funnel-reconcile' for c in runs))
+            self.assertTrue(any(c['item']==number and c['args'][1]=='reconcile' for c in runs))
         phases=[c for c in runs if c['args'][1]=='issue-triage']
         self.assertEqual([c['item'] for c in phases], ['1'])
-        reconciles=[c for c in runs if c['item']=='1' and c['args'][1]=='funnel-reconcile']
+        reconciles=[c for c in runs if c['item']=='1' and c['args'][1]=='reconcile']
         self.assertEqual(len(reconciles), 2)
         self.assertLess(reconciles[0]['time'], phases[0]['time'])
         self.assertGreater(reconciles[1]['time'], phases[0]['time'])
@@ -885,7 +925,7 @@ class ProcessTests(unittest.TestCase):
                         JIRA_BASE_URL='https://test.atlassian.net', MOCK_EXPECTED_JIRA_URL='https://test.atlassian.net',
                         JIRA_USER_EMAIL='test@example.test', JIRA_TOKEN='fake')
         self.assertEqual(proc.wait(timeout=12), 1)
-        self.assertEqual(next(row['status'] for row in self.rows() if row['agent']=='funnel-ingest'), 'succeeded')
+        self.assertEqual(next(row['status'] for row in self.rows() if row['agent']=='ingest'), 'succeeded')
         self.assertFalse(any(c['args'][1]=='issue-triage' for c in self.runs()))
 
     def test_missing_jira_credentials_fail_before_any_external_command(self):
@@ -906,7 +946,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(proc.wait(timeout=12),0)
         self.assertTrue(self.calls('acli'))
         self.assertTrue(self.calls('secret-tool'))
-        self.assertTrue(any(c['args'][1]=='funnel-reconcile' for c in self.runs()))
+        self.assertTrue(any(c['args'][1]=='reconcile' for c in self.runs()))
         self.assertNotIn('NEVER-COPY-REFRESH',repr(self.rows()))
         self.assertNotIn('test-access-token',repr(self.rows()))
 

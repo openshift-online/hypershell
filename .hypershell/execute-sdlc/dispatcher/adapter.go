@@ -167,8 +167,9 @@ func workerMain(args []string) int {
 	return rc
 }
 func runWorker(job Job, a Adapter, root string, lock *os.File) int {
+	job.Agent = canonicalAgent(job.Agent)
 	env := map[string]string{"FULLSEND_WORK_ITEM_URL": job.URL, "ISSUE_NUMBER": job.Item, "REPOSITORY": job.Repo, "REPO_FULL_NAME": job.Repo, "LABEL_SCOPE": job.Scope, "DRY_RUN": envDefault("AGENT_DRY_RUN", "false"), "PR_NUMBER": job.PRNumber, "PR_URL": job.PRURL, "FUNNEL_PREVIOUS_PHASE": job.PreviousPhase, "FUNNEL_REPO_ROOT": root}
-	if job.Agent == "funnel-ingest" || job.Agent == "funnel-reconcile" {
+	if job.Agent == "ingest" || job.Agent == "reconcile" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		var credentials json.RawMessage
@@ -195,6 +196,28 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 		return 127
 	}
 	command := append([]string(nil), job.Command...)
+	if len(command) > 2 && command[1] == "run" {
+		command[2] = canonicalAgent(command[2])
+	}
+	if job.Agent == "ingest" || job.Agent == "reconcile" {
+		for i := 1; i+1 < len(command); i++ {
+			if command[i] != "--fullsend-dir" {
+				continue
+			}
+			helper := exec.Command("python3", filepath.Join(filepath.Dir(a.Path), "local_harness.py"), command[i+1], job.Agent)
+			helper.Stderr = os.Stderr
+			output, err := helper.Output()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "prepare local harness:", err)
+				return 127
+			}
+			directory := strings.TrimSpace(string(output))
+			defer os.RemoveAll(directory)
+			command[i+1] = directory
+			break
+		}
+	}
+
 	for i := 1; i+1 < len(command); i++ {
 		if command[i] != "--target-repo" {
 			continue
@@ -248,7 +271,7 @@ func (s *Store) launch(c Config, a Adapter, j Job) error {
 	if c.Model != "" {
 		j.Command = append(j.Command, "--model", c.Model)
 	}
-	if j.Agent == "funnel-ingest" || j.Agent == "funnel-reconcile" {
+	if j.Agent == "ingest" || j.Agent == "reconcile" {
 		j.Jira = c.Jira
 	}
 	log := filepath.Join(c.LogDir, fmt.Sprintf("%s-%s-%d.log", j.Agent, safeName(j.Item), time.Now().UnixNano()))

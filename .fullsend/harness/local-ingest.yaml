@@ -1,9 +1,9 @@
 ---
 # Local lifecycle job, scheduled explicitly by funnel-dispatch.
-agent: agents/funnel-reconcile.md
-description: "Local SDLC reconcile"
+agent: agents/ingest.md
+description: "Local SDLC ingest"
 role: triage
-slug: funnel-reconcile
+slug: fullsend-ingest
 image: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-fullsend-sandbox-main@sha256:373911325896e430b278a6d68885ac87a304542da58d03452f343a4500801fe1
 policy: policies/base.yaml
 providers:
@@ -15,12 +15,8 @@ openshell:
   profiles:
     - profiles/funnel-jira.yaml
 host_files:
-  - src: ${FUNNEL_REPO_ROOT}/.fullsend/scripts/jira-request.mjs
-    dest: /tmp/funnel-jira-request.mjs
   - src: ${FUNNEL_JIRA_CREDENTIALS_FILE}
-    dest: /tmp/.funnel-jira.json
-  - src: ${FUNNEL_REPO_ROOT}/.hypershell/agents/reconcile/SKILL.md
-    dest: /tmp/funnel-workflow.md
+    dest: /tmp/.jira-credentials.json
   - src: ${GOOGLE_APPLICATION_CREDENTIALS}
     dest: /tmp/.gcp-credentials.json
     optional: true
@@ -49,6 +45,7 @@ env:
     ISSUE_NUMBER: ${ISSUE_NUMBER}
     PREVIOUS_PHASE: ${FUNNEL_PREVIOUS_PHASE}
     JIRA_BASE_URL: ${JIRA_BASE_URL}
+    JIRA_CREDENTIALS_FILE: /tmp/.jira-credentials.json
 validation_loop:
   script: scripts/validate-lifecycle.sh
   max_iterations: 1

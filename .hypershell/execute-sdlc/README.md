@@ -77,15 +77,26 @@ also retried but do not start a browser login. Discovery and worker outcome
 tracking continue while an interactive login is pending. A failed worker is
 subject to work backoff; auth recovery never blindly replays a running job.
 
+## Shared agents and runtime configuration
+
+`ingest` and `reconcile` each have one agent definition in `.fullsend/agents/`.
+The local worker copies Fullsend configuration into a private temporary directory
+and selects `harness/local-ingest.yaml` or `harness/local-reconcile.yaml` under the
+same agent name. These harnesses supply credential files and result validation;
+the shared prompts describe inputs, tools, and workflow, not how they are launched.
+The hosted configuration and label-event triggers remain unchanged. Temporary
+configuration is removed when the worker exits. Historical job keys retain their
+old names to preserve ownership and deduplication across upgrades.
+
 ## Lifecycle modes
 
 The default `--lifecycle jira` runs the complete orchestration path:
 
-1. Run the `funnel-ingest` harness for the scope before selecting work. It follows
-   `.hypershell/agents/ingest/SKILL.md`, including both Jira and GitHub origins,
+1. Run the `ingest` harness for the scope before selecting work. It follows
+   `.fullsend/agents/ingest.md`, including both Jira and GitHub origins,
    exact canonical links, pagination, and the human `agent/allowed` gate.
 2. Discover authorized GitHub records, including closed records. Reconcile each
-   through `funnel-reconcile` before dispatching an eligible phase.
+   through `reconcile` before dispatching an eligible phase.
 3. Classify open records through the existing Fullsend CEL harness triggers.
    Run at most one phase per record at a time.
 4. Reconcile after completed attempts, including failures that may have made
@@ -139,7 +150,7 @@ workers. The sandbox receives a private credential file, never the desktop
 keyring, ACLI profile directory, or refresh token. Changing the active account
 requires restarting the dispatcher.
 
-The sandbox uses `node /tmp/funnel-jira-request.mjs` for both auth modes. This
+The sandbox uses `node .fullsend/scripts/jira-request.mjs` for both auth modes. This
 reuses ACLI's authenticated session without running the ACLI binary inside the
 sandbox. The helper sends Basic auth to the tenant for API-token mode, or Bearer
 auth to `api.atlassian.com/ex/jira/<cloud-id>` for OAuth. The local `funnel-jira`

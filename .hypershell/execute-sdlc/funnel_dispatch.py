@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 
+from local_harness import prepare as prepare_local_harness
 from jira_auth import JiraAuthError, selected_auth, snapshot
 from gateway_setup import GatewayManager, GatewaySetupError
 from terminal_ui import ui
@@ -212,8 +213,7 @@ class GitHub:
             # Lifecycle work is scheduled separately with local Jira credentials.
             # Hosted lifecycle harnesses must not also run as issue phases.
             agents.update(entry['agent'] for entry in (result or [])
-                          if entry['agent'] not in ('ingest', 'reconcile',
-                                                    'funnel-ingest', 'funnel-reconcile'))
+                          if entry['agent'] not in ('ingest', 'reconcile'))
         return sorted(agents)
 
     def linked_prs(self, item, prs):
@@ -369,7 +369,9 @@ def make_job(scope, agent, item, pr=None, rejection=None):
                    state=item['state'], pr=pr and [pr['number'], pr.get('head', {}).get('sha')])
     if rejection is not None:
         context['rejection_event'] = rejection
-    return dict(key=f'{item["number"]}:{agent}', scope=scope, agent=agent,
+    # Preserve existing storage identities when reusing the shared agent names.
+    storage_agent = 'funnel-reconcile' if agent == 'reconcile' else agent
+    return dict(key=f'{item["number"]}:{storage_agent}', scope=scope, agent=agent,
                 item=str(item['number']), title=item.get('title', ''), url=item['html_url'], fingerprint=fingerprint(context),
                 labels=GitHub.labels(item),
                 pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '')
@@ -379,14 +381,16 @@ def worker(db_path, key, run_id, lock_fd, base, cap):
     store = Store(db_path)
     row = store.get(key)
     job = json.loads(row['payload'])
+    job['agent'] = job['agent'].removeprefix('funnel-') if job['agent'] in ('funnel-ingest', 'funnel-reconcile') else job['agent']
     env = dict(os.environ, FULLSEND_WORK_ITEM_URL=job['url'], ISSUE_NUMBER=job['item'],
                REPOSITORY=job['repo'], REPO_FULL_NAME=job['repo'], LABEL_SCOPE=job['scope'],
                DRY_RUN=os.environ.get('AGENT_DRY_RUN', 'false'), PR_NUMBER=job['pr_number'], PR_URL=job['pr_url'],
                FUNNEL_PREVIOUS_PHASE=job.get('previous_phase', ''),
                FUNNEL_REPO_ROOT=str(Path(__file__).resolve().parents[2]))
     credentials = None
+    runtime_dir = None
     try:
-        if job['agent'] in ('funnel-ingest', 'funnel-reconcile'):
+        if job['agent'] in ('ingest', 'reconcile'):
             # Keep Jira secrets out of job payloads, command lines and logs.
             # The sandbox receives only this run's private credential file.
             auth_lock = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'hypershell/funnel/acli-auth.lock'
@@ -397,11 +401,19 @@ def worker(db_path, key, run_id, lock_fd, base, cap):
             env['FUNNEL_JIRA_CREDENTIALS_FILE'] = credentials.name
         # The CLI also inherits the lock: killing this supervisor cannot permit
         # another coordinator to duplicate a still-running Fullsend invocation.
-        rc = subprocess.call(job['command'], env=env, pass_fds=(lock_fd,))
-    except (OSError, JiraAuthError) as exc:
+        command = list(job['command'])
+        if job['agent'] in ('ingest', 'reconcile'):
+            command[2] = job['agent']
+            index = command.index('--fullsend-dir') + 1
+            runtime_dir = prepare_local_harness(command[index], job['agent'])
+            command[index] = runtime_dir
+        rc = subprocess.call(command, env=env, pass_fds=(lock_fd,))
+    except (OSError, ValueError, JiraAuthError) as exc:
         print(exc, flush=True)
         rc = 127
     finally:
+        if runtime_dir:
+            shutil.rmtree(runtime_dir)
         if credentials:
             credentials.close()
     store.finish(key, run_id, rc, base, cap)
@@ -478,16 +490,16 @@ class Coordinator:
 
     def intake_job(self):
         return dict(key=f'{self.args.scope}:funnel-ingest', scope=self.args.scope,
-                    item=self.args.scope, agent='funnel-ingest', url='', pr_number='', pr_url='',
+                    item=self.args.scope, agent='ingest', url='', pr_number='', pr_url='',
                     fingerprint=fingerprint(int(time.time() // self.args.lifecycle_interval)))
 
     def reconcile_job(self, item, prs):
-        job = make_job(self.args.scope, 'funnel-reconcile', item)
+        job = make_job(self.args.scope, 'reconcile', item)
         matches = self.github.linked_prs(item, prs)
         if len(matches) > 1:
             raise DispatchError(f'#{item["number"]}: multiple linked PRs; reconciliation and work are paused')
         last = self.store.db.execute('''SELECT run_id,payload FROM jobs WHERE item=?
-            AND agent NOT IN ('funnel-ingest','funnel-reconcile') AND finished IS NOT NULL
+            AND agent NOT IN ('ingest','reconcile','funnel-ingest','funnel-reconcile') AND finished IS NOT NULL
             ORDER BY finished DESC LIMIT 1''', (str(item['number']),)).fetchone()
         if last:
             previous = json.loads(last['payload']).get('labels', [])
@@ -518,18 +530,20 @@ class Coordinator:
         return job
 
     def authorized(self, job):
-        if job['agent'] == 'funnel-ingest':
+        if job['agent'] in ('funnel-ingest', 'funnel-reconcile'):
+            job = dict(job, agent=job['agent'].removeprefix('funnel-'))
+        if job['agent'] == 'ingest':
             return True  # The intake harness enforces the gate on both origins.
         item = self.github.current(job['item'])
         if not {self.args.scope, 'agent/allowed'} <= set(self.github.labels(item)):
             report(f'{job["key"]}: authorization or scope removed; skipping')
             return False
-        if job['agent'] != 'funnel-reconcile' and item['state'] != 'open':
+        if job['agent'] != 'reconcile' and item['state'] != 'open':
             return False
         if self.github.labels(item) != job['labels']:
             report(f'{job["key"]}: labels changed; rediscovering before launch')
             return False
-        if job['agent'] not in ('funnel-ingest', 'funnel-reconcile'):
+        if job['agent'] not in ('ingest', 'reconcile'):
             if self.github.phase_job(self.args.scope, job['agent'], item)['fingerprint'] != job['fingerprint']:
                 report(f'{job["key"]}: inputs changed; rediscovering before launch')
                 return False
@@ -557,7 +571,7 @@ class Coordinator:
 
     def launch(self, job):
         job = dict(job, repo=self.args.repo)
-        if job['agent'] in ('funnel-ingest', 'funnel-reconcile'):
+        if job['agent'] in ('ingest', 'reconcile'):
             job['jira_auth'] = self.args.jira_selection
         job['command'] = ['fullsend', 'run', job['agent'], '--fullsend-dir', self.args.fullsend_dir,
                           '--target-repo', self.args.target_repo]
@@ -624,7 +638,7 @@ class Coordinator:
         next_poll = 0
         attempted = set()
         def attempt_key(job):
-            return (job['key'], job['fingerprint']) if job['agent'] == 'funnel-reconcile' else job['key']
+            return (job['key'], job['fingerprint']) if job['agent'] == 'reconcile' else job['key']
         try:
             while True:
                 completed = self.reap()

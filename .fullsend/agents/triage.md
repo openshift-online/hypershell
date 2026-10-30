@@ -3,24 +3,9 @@ name: issue-triage
 description: "Triage and label new issues."
 ---
 
-## Runtime context (supplied by the harness as environment variables)
+## Inputs and tools
 
 Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
-
-### Sandbox checkout and build tools
-
-The local dispatcher supplies an independent Git checkout with the host's local
-edits, including non-ignored untracked files. Inspect `git status` before editing;
-keep unrelated local work out of your commits. Use this checkout instead of
-cloning a fresh copy to work around a linked-worktree path.
-
-The HyperShell sandbox image includes Go, Node, npm, Corepack, make, and GCC.
-Use `corepack pnpm` for frontend commands; it selects the version pinned in
-`package.json`. For Make targets that invoke pnpm, use
-`make PNPM='corepack pnpm' <target>`. Package registry access is provided through
-Fullsend's `package-registries` provider. Run relevant builds and unit tests in
-the sandbox. Tests requiring a container engine, cluster, or browser installation
-still need their documented infrastructure; report those limitations explicitly.
 
 ---
 
@@ -47,9 +32,9 @@ Supported arguments:
 
 ### Step 1: Read Issues
 
-When `GITHUB_ISSUE_URL` is supplied by the local dispatcher, read and classify
+When `GITHUB_ISSUE_URL` is supplied, read and classify
 only that issue. Re-check that it carries both `LABEL_SCOPE` and `agent/allowed`.
-Do not scan or modify other issues: they may have their own concurrent worker.
+Do not scan or modify other issues.
 The scope-wide discovery below applies only when no individual issue is supplied.
 
 Using the GitHub API, fetch the issues in `$GITHUB_REPO_URL` that have the

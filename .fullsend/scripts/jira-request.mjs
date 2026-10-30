@@ -25,9 +25,20 @@ export function requestOptions(credentials, method, path) {
   }};
 }
 
+export async function loadCredentials(env = process.env) {
+  if (env.JIRA_CREDENTIALS_FILE) {
+    return JSON.parse(await readFile(env.JIRA_CREDENTIALS_FILE, 'utf8'));
+  }
+  if (!env.JIRA_EMAIL || !env.JIRA_API_TOKEN || !env.JIRA_BASE_URL) {
+    throw new Error('Invalid Jira credential configuration');
+  }
+  return {version: 1, mode: 'api-token', api_base_url: env.JIRA_BASE_URL,
+    authorization: 'Basic ' + Buffer.from(env.JIRA_EMAIL + ':' + env.JIRA_API_TOKEN).toString('base64')};
+}
+
 async function main() {
   const [method, path, bodyFile] = process.argv.slice(2);
-  const credentials = JSON.parse(await readFile(process.env.FUNNEL_JIRA_CREDENTIALS_FILE || '/tmp/.funnel-jira.json', 'utf8'));
+  const credentials = await loadCredentials();
   const {url, options} = requestOptions(credentials, method, path);
   if (bodyFile) {
     if (method === 'GET') throw new Error('GET requests cannot have a body');

@@ -391,7 +391,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 		pending := false
 		for _, job := range candidates {
 			attempt := job.Key
-			if job.Agent == "funnel-reconcile" {
+			if job.Agent == "reconcile" {
 				attempt += "/" + job.Fingerprint
 			}
 			if !e.c.Watch && attempted[attempt] {
