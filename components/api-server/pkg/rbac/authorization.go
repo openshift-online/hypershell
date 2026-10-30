@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -339,6 +340,20 @@ var extKinds = map[string]bool{
 	"sandbox_templates":     true,
 	"secret_sources":        true,
 	"workspace_memberships": true,
+}
+
+// ExtKinds returns the registered Extension API kind plural names (the
+// extKinds allow-list keys), sorted. It is the single registration source the
+// Kind conformance gate and the generic CRUD conformance test enumerate from
+// (SDLC-CONF-01, SDLC-CONF-06), so a newly registered ext kind is covered
+// without editing either consumer.
+func ExtKinds() []string {
+	kinds := make([]string, 0, len(extKinds))
+	for kind := range extKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // extRequestSurface reports whether the request path targets the Extension
