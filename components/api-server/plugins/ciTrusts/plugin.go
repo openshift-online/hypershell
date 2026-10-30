@@ -73,4 +73,5 @@ func init() {
 	presenters.RegisterKind(&CITrust{}, "CITrust")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationConverge())
 }
