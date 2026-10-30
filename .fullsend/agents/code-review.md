@@ -5,7 +5,26 @@ description: "Review the code changes on the work item's pull request and record
 
 ## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for read-only GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`.
+
+You reach a verdict but you do NOT change any `agent/*` lifecycle label and you do NOT count prior rejections or apply a block. You write a structured result to `$FULLSEND_OUTPUT_DIR/agent-result.json`; a trusted post-script validates it, rejects it as stale if the PR head moved, gates an approval on required checks, counts prior rejections from the issue timeline to decide blocking, applies the verdict transition, posts your comment, and verifies the final state (see `specs/standards/sdlc/fullsend-lifecycle-label-hooks.spec.md`, SDLC-HOOK).
+
+Write exactly one JSON object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+
+```json
+{
+  "schema_version": "1",
+  "phase": "code-review",
+  "outcome": "approved | rejected",
+  "rationale": "short summary of the verdict",
+  "pr_number": 123,
+  "head_sha": "<40-hex head commit you reviewed>",
+  "comment": "the full review in simplified technical english (required)"
+}
+```
+
+`head_sha` MUST be the PR head commit you actually reviewed. `comment` is
+REQUIRED for both verdicts. Follow the workflow below.
 
 ---
 
@@ -57,49 +76,29 @@ Review must be rejected for any of the following reasons:
 - Merge conflicts
 - Needs rebase
 
-Verdict must be one of:
-- `agent/review-code-rejected`
-- `agent/review-code-approved`
+Verdict must be one of `approved` or `rejected`.
 
 Output: (`$VERDICT`, `$REJECTION_RATIONALE` (NULL or string))
 
 
-### Step 3: Communicate Outcome
+### Step 3: Write the Result
 
-_Note: If a label does not exist, create it._
+Write the result object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+- `outcome`: `approved` or `rejected`.
+- `pr_number`: the PR number. `head_sha`: the exact PR head commit you reviewed.
+- `rationale`: a short summary of the verdict.
+- `comment` (REQUIRED for both verdicts): the full review in
+  [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English).
+  An approved review MUST NOT be silent. The comment MUST state the verdict, a
+  substantive rationale (the strengths of the implementation, how it meets the
+  intent in `$ISSUE_CONTENTS`, and any non-blocking observations), and, for a
+  rejected verdict, the blocking reasons (`$REJECTION_RATIONALE`).
 
-Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
-
-**Always post the review as a comment on `$GITHUB_ISSUE_URL`, for BOTH an
-approved and a rejected verdict.** An approved review MUST NOT be silent: the
-record of the review must be visible. Write the comment in
-[simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English).
-The comment MUST state:
-- The verdict (`$VERDICT`).
-- A substantive rationale: the strengths of the implementation, how it meets the
-  intent in `$ISSUE_CONTENTS`, and any non-blocking observations.
-- For a rejected verdict, the blocking reasons (`$REJECTION_RATIONALE`), with
-  inline code review comments where they apply.
-
-IF `$VERDICT` == `agent/review-code-approved`:
-- Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-- Post the review comment described above, stating the strengths and any
-  non-blocking observations.
-- The PR is ready to merge. A human must perform the merge.
-
-IF `$VERDICT` == `agent/review-code-rejected`:
-- Count prior rejections: fetch the issue event timeline. Count how many times
-  `agent/review-code-rejected` has been applied **since the most recent removal
-  of `agent/blocked`** (or since the beginning of the timeline if `agent/blocked`
-  has never been removed). Include this rejection in the count.
-- If the rejection count is 10 or more:
-  - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-  - Apply label `agent/blocked` to `$GITHUB_ISSUE_URL` instead of re-queuing.
-  - Add a comment explaining the issue has been rejected 10 or more times and needs
-    human review before the agent retries. Tell the human to remove `agent/blocked`
-    and `agent/review-code-rejected` to resume the loop.
-  - STOP.
-- Otherwise:
-  - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-  - Post the review comment described above, communicating `$REJECTION_RATIONALE`,
-    that adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
+Do not apply, remove, or create any label, do not count prior rejections, and do
+not decide blocking. The trusted post-script reads this result, rejects it as
+stale if the PR head changed since the review started, applies the verdict
+transition (`agent/review-code-approved` only when the required checks are green,
+or `agent/review-code-rejected`, each removing the competing code-phase labels),
+adds `agent/blocked` when the timeline shows this is the tenth or later rejection
+since the last unblock, posts your `comment`, and verifies the final state. An
+approved PR is ready to merge; a human must perform the merge.

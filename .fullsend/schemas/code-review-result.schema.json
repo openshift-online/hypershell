@@ -1,0 +1,49 @@
+{
+  "$id": "https://fullsend.sh/schemas/code-review-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "code-review Agent Result",
+  "description": "Structured output from the code-review agent (SDLC-HOOK-04). The verdict is a fixed outcome; the post-script counts prior rejections from the issue timeline (SDLC-HOOK-12), not from this result, rejects the result as stale if the reviewed head_sha no longer matches the PR head (SDLC-HOOK-07), and gates an approval on required checks being green.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "phase",
+    "outcome",
+    "rationale",
+    "pr_number",
+    "head_sha",
+    "comment"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "phase": {
+      "const": "code-review"
+    },
+    "outcome": {
+      "enum": [
+        "approved",
+        "rejected"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pr_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "comment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    }
+  }
+}
