@@ -311,6 +311,10 @@ export function GatewaysPage({
         page: currentCollectionState.page,
         size: currentCollectionState.size,
         total: gateways.length,
+        // An externally supplied gateway list carries no server-computed
+        // authorized-set existence flag, so the ownership toggle stays hidden
+        // unless it is already enabled (WEB-UIEX-07, WEB-API-01).
+        hasOtherOwnedGateways: undefined as boolean | undefined,
       }
     : gatewayQuery.data;
   const placementClusterIds = [
@@ -507,9 +511,7 @@ export function GatewaysPage({
           filterControls={
             showOwnershipFilter ? (
               <ToggleGroup
-                aria-label={intl.formatMessage(
-                  messages.gatewayOwnershipFilter,
-                )}
+                aria-label={intl.formatMessage(messages.gatewayOwnershipFilter)}
               >
                 <ToggleGroupItem
                   buttonId="gateways-only-mine"
