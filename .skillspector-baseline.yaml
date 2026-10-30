@@ -169,7 +169,6 @@ rules:
   path: "*linux-capabilities/SKILL.md"
   reason: "Reference documentation describing Linux capability behavior - not an agent instruction override"
 
-fingerprints: []
 
 # Reviewed local dispatcher host-integration findings (PR #870).
 # Rule/file pairs only; execute-sdlc/SKILL.md and other findings remain scanned.
@@ -218,3 +217,5 @@ fingerprints: []
 - id: "PE3"
   path: ".hypershell/execute-sdlc/local_doctor.py"
   reason: "Read-only host setup checks inspect configured authentication and report readiness without displaying tokens."
+
+fingerprints: []
