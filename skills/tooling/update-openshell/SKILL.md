@@ -511,6 +511,68 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **v0.1.6-rhaiv.1 (2026-10-30, v0.1.5-rhaiv.3 -> v0.1.6-rhaiv.1, no-arg scheduled run):**
+  Mechanical bump, but two open PRs already targeted intermediate tags; this run superseded
+  both rather than stacking a third. Pins and chart updated. The Python policy checks that
+  make up `make check` (`check_forbidden_terms`, `check_dependency_pins`, `check_ci_components`,
+  `check_deploy_orphans`, `check_spec_ids`, `check_ci_impact_scopes`, `test_release_bundle`,
+  `test_coverage_report`, `sync_openshell_version` check mode) all pass run directly, each
+  via its underlying `python3 scripts/check_*.py` / `-m unittest` command rather than through
+  `make` (the Sandbox-limits entry below's gap 2 - `make` cannot spawn `/bin/sh` here - still
+  holds; confirmed again, no new information). `go build/vet/test` and `check-cli-drift`
+  could not run (gap 3, no Go toolchain) - the only `.go` file touched is
+  `tests/e2e/cli_test.go`, a string-literal image-tag bump, so this is a recorded gap for
+  CI/a human reviewer to close, not a blocker. `check-dependency-age` was also not run
+  (unrelated rh-trex-ai generator check; this bump touches no generator input). `quay.io`
+  remained unreachable (gap 1), confirmed again via a direct `curl -v` TCP-connect failure.
+  - **Step 0:** no open `needs-decision` issue had a human reply naming a version. #809
+    (gateway refuses to start without an auth mechanism, since `v0.1.5-rhaiv.4`) has only a
+    bot comment; #760/#752 are console-digest-only; #366 is stale/superseded. Resolved the
+    target directly from the `opendatahub-io/openshell` tag list (latest = `v0.1.6-rhaiv.1`).
+  - **Superseded two open PRs instead of opening a third.** #822 (`chore(deps): bump OpenShell
+    to v0.1.6-rhaiv.0`) was open and itself superseded the stale #810 (`v0.1.5-rhaiv.4`, which
+    predates `#823`'s removal of the gateway-version capability label - see below - and
+    conflicts with `main`). Comparing `v0.1.6-rhaiv.0...v0.1.6-rhaiv.1` on
+    `opendatahub-io/openshell` showed only 5 dependency-bump commits (rustls, RPM lockfile
+    refresh) - no NVIDIA-base change, no new files - so every triage finding in #822's PR body
+    (RBAC, console image, sandbox API version, config schema, the shared-supervisor-pool
+    opt-in feature, the reversed sandbox<->supervisor control-connection direction) was
+    independently re-verified against the `v0.1.6-rhaiv.1` chart and confirmed to still hold
+    unchanged. This run's PR supersedes both; asked a human reviewer to close #810 and #822.
+    **Lesson for next run:** before branching, check `gh pr list` for an already-open
+    `implementer/update-openshell-*` branch against an older tag in the same base-version
+    line: if the delta is dependency-only, re-verify and supersede rather than re-triaging
+    from scratch or stacking a third open PR.
+  - **Recovered a spec fix that was drafted but never landed.** The stale #810 branch had
+    added a "Known gap" note to `openshell-gateway.spec.md`'s Auth Section documenting that
+    gateways now refuse to start without an auth mechanism (the #809 finding), but #810 was
+    never merged and #822 did not carry that spec edit forward - so it was absent from `main`
+    despite the issue referencing it as already written. Added it now (adapted to confirm
+    the gap persists at `v0.1.6-rhaiv.1`). **Lesson:** when superseding a stale PR, diff its
+    spec/doc changes too, not just its version-pin changes - a drafted fix can be silently
+    lost if a later PR only carries the mechanical bump forward.
+  - **Overlay capability labels confirmed gone, not missed.** The footprint implied by #810's
+    diff (`deploy/{gitops/platform,ibm,kind,openshift}/kustomization.yaml` each carrying a
+    `gateway-version/v<tag>` entry in `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES`) no longer
+    exists on `main`: `refactor: remove the gateway-version capability and provisioning
+    version` (#823) deleted the mechanism entirely. Verified by grep before assuming it was
+    an omission - nothing to bump there now.
+  - **RBAC, config schema, console image:** unchanged from #822's findings (same NVIDIA base,
+    dependency-only patch delta). Re-confirmed directly against the vendored
+    `v0.1.6-rhaiv.1` chart rather than trusting the prior PR's description alone: the chart's
+    `clusterrole.yaml`/`role.yaml` grants are all already covered by `controller-rbac.yaml`;
+    `_toml.tpl`'s new `service_hostname_format`/`supervisor_pool`/
+    `openshell.supervisor.network` keys are additive and only populated when HyperShell sets
+    the opt-in values it does not set; `agents.x-k8s.io/v1beta1` is still the primary Sandbox
+    API version with `v1alpha1` as preflight fallback.
+  - **Needs-decision, unresolved (not fixed here, same as #822):**
+    1. #809 - gateway auth-gate startup refusal. Still open, still applies.
+    2. Sandbox<->supervisor control-connection direction reversal (NVIDIA/OpenShell#4656,
+       first in `v0.1.6-rhaiv.0`). No NetworkPolicy change made; flagged for live-cluster
+       verification on the next Kind/ROKS deploy, same as #822 noted.
+    3. Live cluster validation (Kind or ROKS) is still needed; only static/unit-level checks
+       ran in this environment.
+
 - **v0.1.5-rhaiv.3 (2026-10-27, v0.1.5-rhaiv.2 -> v0.1.5-rhaiv.3, no-arg scheduled run):**
   Clean mechanical bump. Pins and chart updated; the Python policy checks that make up
   `make check` (`check_forbidden_terms`, `check_dependency_pins`, `check_ci_components`,
