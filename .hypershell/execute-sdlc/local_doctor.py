@@ -7,6 +7,7 @@ import shutil
 import sys
 
 from funnel_dispatch import DispatchError, prepare_inference
+from local_harness import yaml_module
 from jira_auth import JiraAuthError, read_keyring, selected_auth
 
 
@@ -42,13 +43,14 @@ def main():
         print('Jira     Disabled: GitHub-only lifecycle selected')
     else:
         try:
+            yaml_module()
             auth = selected_auth(os.environ.get('JIRA_AUTH_MODE', 'auto'))
             if auth['mode'] == 'acli':
                 if not shutil.which('acli'):
                     raise JiraAuthError('acli is missing; install ACLI and run acli jira auth login --web')
                 read_keyring(auth)  # Verify compatibility without displaying any token.
             print(f'Jira     Ready: {auth["mode"]} at {auth["site_url"]}')
-        except JiraAuthError as exc:
+        except (JiraAuthError, ValueError) as exc:
             print(f'Jira     Needs setup: {exc}')
             failures += 1
     if shutil.which('hsctl'):

@@ -206,7 +206,7 @@ class GitHub:
                          entity=dict(kind='work_item', id=item['number'], url=item['html_url']),
                          source=dict(system='github', raw_type='issues', raw_action='labeled'),
                          transition=dict(kind='label_changed', label=dict(name=label, action='added')),
-                         actor=dict(id='funnel-dispatch', kind='human', role='write', is_entity_author=False),
+                         actor=dict(id='local-dispatch', kind='human', role='write', is_entity_author=False),
                          state=dict(labels=labels))
             result = json_command(['fullsend', 'dispatch', '--config-dir', self.fullsend_dir,
                                    '--input-driver', 'json', '--output-driver', 'json'], data=json.dumps(event))
@@ -385,8 +385,7 @@ def worker(db_path, key, run_id, lock_fd, base, cap):
     env = dict(os.environ, FULLSEND_WORK_ITEM_URL=job['url'], ISSUE_NUMBER=job['item'],
                REPOSITORY=job['repo'], REPO_FULL_NAME=job['repo'], LABEL_SCOPE=job['scope'],
                DRY_RUN=os.environ.get('AGENT_DRY_RUN', 'false'), PR_NUMBER=job['pr_number'], PR_URL=job['pr_url'],
-               FUNNEL_PREVIOUS_PHASE=job.get('previous_phase', ''),
-               FUNNEL_REPO_ROOT=str(Path(__file__).resolve().parents[2]))
+               PREVIOUS_PHASE=job.get('previous_phase', ''))
     credentials = None
     runtime_dir = None
     try:
@@ -395,10 +394,10 @@ def worker(db_path, key, run_id, lock_fd, base, cap):
             # The sandbox receives only this run's private credential file.
             auth_lock = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'hypershell/funnel/acli-auth.lock'
             auth = snapshot(job['jira_auth'], job['scope'], auth_lock)
-            credentials = tempfile.NamedTemporaryFile(mode='w', prefix='funnel-jira-', suffix='.json')
+            credentials = tempfile.NamedTemporaryFile(mode='w', prefix='local-dispatch-jira-', suffix='.json')
             json.dump(auth, credentials)
             credentials.flush()
-            env['FUNNEL_JIRA_CREDENTIALS_FILE'] = credentials.name
+            env['LOCAL_DISPATCH_JIRA_CREDENTIALS_FILE'] = credentials.name
         # The CLI also inherits the lock: killing this supervisor cannot permit
         # another coordinator to duplicate a still-running Fullsend invocation.
         command = list(job['command'])

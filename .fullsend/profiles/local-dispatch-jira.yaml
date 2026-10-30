@@ -1,6 +1,6 @@
 ---
-id: fullsend-funnel-jira
-display_name: Local funnel Jira
+id: local-dispatch-jira
+display_name: Local dispatcher Jira
 description: Jira tenant API and Atlassian OAuth API access for lifecycle workers
 category: data
 endpoints:

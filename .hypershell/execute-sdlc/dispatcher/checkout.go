@@ -22,7 +22,7 @@ func checkoutGit(dir string, args ...string) ([]byte, error) {
 // linked worktree's host-only .git pointer or copy its credentials/hooks/config.
 // The baseline index is HEAD; local staged and unstaged edits become unstaged.
 func prepareCheckout(source, repository string) (string, func(), error) {
-	parent, err := os.MkdirTemp("", "funnel-checkout-*")
+	parent, err := os.MkdirTemp("", "local-dispatch-checkout-*")
 	if err != nil {
 		return "", nil, err
 	}

@@ -81,8 +81,9 @@ subject to work backoff; auth recovery never blindly replays a running job.
 
 `ingest` and `reconcile` each have one agent definition in `.fullsend/agents/`.
 The local worker copies Fullsend configuration into a private temporary directory
-and selects `harness/local-ingest.yaml` or `harness/local-reconcile.yaml` under the
-same agent name. These harnesses supply credential files and result validation;
+and applies scheduling and credential transport overrides to the canonical
+`harness/ingest.yaml` or `harness/reconcile.yaml` under the same agent name.
+Image, role, model, timeout, inputs, and result validation stay canonical;
 the shared prompts describe inputs, tools, and workflow, not how they are launched.
 The hosted configuration and label-event triggers remain unchanged. Temporary
 configuration is removed when the worker exits. Historical job keys retain their
@@ -153,7 +154,7 @@ requires restarting the dispatcher.
 The sandbox uses `node .fullsend/scripts/jira-request.mjs` for both auth modes. This
 reuses ACLI's authenticated session without running the ACLI binary inside the
 sandbox. The helper sends Basic auth to the tenant for API-token mode, or Bearer
-auth to `api.atlassian.com/ex/jira/<cloud-id>` for OAuth. The local `funnel-jira`
+auth to `api.atlassian.com/ex/jira/<cloud-id>` for OAuth. The local `local-dispatch-jira`
 network profile permits these Jira endpoints for Node. Requests cannot supply
 arbitrary destination URLs and redirects are refused. This also supports Jira
 REST operations that ACLI does not expose, such as artifact remote links.

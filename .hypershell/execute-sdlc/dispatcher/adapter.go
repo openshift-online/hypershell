@@ -168,7 +168,7 @@ func workerMain(args []string) int {
 }
 func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 	job.Agent = canonicalAgent(job.Agent)
-	env := map[string]string{"FULLSEND_WORK_ITEM_URL": job.URL, "ISSUE_NUMBER": job.Item, "REPOSITORY": job.Repo, "REPO_FULL_NAME": job.Repo, "LABEL_SCOPE": job.Scope, "DRY_RUN": envDefault("AGENT_DRY_RUN", "false"), "PR_NUMBER": job.PRNumber, "PR_URL": job.PRURL, "FUNNEL_PREVIOUS_PHASE": job.PreviousPhase, "FUNNEL_REPO_ROOT": root}
+	env := map[string]string{"FULLSEND_WORK_ITEM_URL": job.URL, "ISSUE_NUMBER": job.Item, "REPOSITORY": job.Repo, "REPO_FULL_NAME": job.Repo, "LABEL_SCOPE": job.Scope, "DRY_RUN": envDefault("AGENT_DRY_RUN", "false"), "PR_NUMBER": job.PRNumber, "PR_URL": job.PRURL, "PREVIOUS_PHASE": job.PreviousPhase}
 	if job.Agent == "ingest" || job.Agent == "reconcile" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -177,7 +177,7 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 127
 		}
-		file, err := os.CreateTemp("", "funnel-jira-*.json")
+		file, err := os.CreateTemp("", "local-dispatch-jira-*.json")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 127
@@ -189,7 +189,7 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 			fmt.Fprintln(os.Stderr, "cannot write private Jira credential snapshot")
 			return 127
 		}
-		env["FUNNEL_JIRA_CREDENTIALS_FILE"] = file.Name()
+		env["LOCAL_DISPATCH_JIRA_CREDENTIALS_FILE"] = file.Name()
 	}
 	if len(job.Command) == 0 {
 		fmt.Fprintln(os.Stderr, "missing worker command")

@@ -53,11 +53,44 @@ class SharedAgentTests(unittest.TestCase):
                 self.assertEqual((directory/harness['agent']).read_bytes(),
                                  (source/harness['agent']).read_bytes())
                 self.assertNotIn('JIRA_API_TOKEN', harness['env']['sandbox'])
-                self.assertEqual(harness['env']['sandbox']['JIRA_CREDENTIALS_FILE'], '/tmp/.jira-credentials.json')
+                self.assertEqual(harness['env']['sandbox']['JIRA_CREDENTIALS_FILE'], '/tmp/.local-dispatch-jira.json')
             finally:
                 shutil.rmtree(directory)
         self.assertEqual((source/'harness/ingest.yaml').read_bytes(), original)
         self.assertFalse((source/'agents/funnel-ingest.md').exists())
+
+    def test_canonical_changes_flow_through_runtime_overrides(self):
+        import shutil
+        import yaml
+        from local_harness import prepare
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)/'source'
+            shutil.copytree(ROOT/'.fullsend', source)
+            path = source/'harness/reconcile.yaml'
+            canonical = yaml.safe_load(path.read_text())
+            canonical.update(model='new-model', timeout_minutes=91, role='custom-role',
+                             image='example/image:changed', effort='low')
+            canonical['providers'].append('custom-provider')
+            canonical['openshell'] = {'profiles': ['custom-profile']}
+            canonical['env']['sandbox']['CUSTOM_INPUT'] = '${CUSTOM_INPUT}'
+            path.write_text(yaml.safe_dump(canonical))
+            original = path.read_bytes()
+            target = Path(prepare(source, 'reconcile'))
+            try:
+                effective = yaml.safe_load((target/'harness/reconcile.yaml').read_text())
+                for field in ('model','timeout_minutes','role','image','effort','agent','validation_loop'):
+                    self.assertEqual(effective[field], canonical[field])
+                self.assertEqual(effective['env']['sandbox']['CUSTOM_INPUT'], '${CUSTOM_INPUT}')
+                self.assertEqual(effective['providers'], canonical['providers'] + ['providers/local-dispatch-jira.yaml'])
+                self.assertEqual(effective['openshell']['profiles'], ['custom-profile','profiles/local-dispatch-jira.yaml'])
+                provider = yaml.safe_load((target/'providers/local-dispatch-jira.yaml').read_text())
+                profile = yaml.safe_load((target/'profiles/local-dispatch-jira.yaml').read_text())
+                self.assertEqual(provider['type'], profile['id'])
+                self.assertEqual(provider['name'], 'local-dispatch-jira')
+                self.assertEqual(path.read_bytes(), original)
+            finally:
+                shutil.rmtree(target)
+        self.assertFalse(list((ROOT/'.fullsend/harness').glob('local-*.yaml')))
 
     def test_agent_instructions_do_not_depend_on_execution_environment(self):
         for path in (ROOT/'.fullsend/agents').glob('*.md'):
@@ -524,7 +557,7 @@ elif name=='fullsend':
         if os.environ.get('MOCK_JIRA') and args[1]=='issue-triage':
             (root/('triaged-'+os.environ['ISSUE_NUMBER'])).touch()
         if args[1] in ('ingest','reconcile'):
-            credentials=json.loads(Path(os.environ['FUNNEL_JIRA_CREDENTIALS_FILE']).read_text())
+            credentials=json.loads(Path(os.environ['LOCAL_DISPATCH_JIRA_CREDENTIALS_FILE']).read_text())
             assert credentials['version']==1 and credentials['authorization']
             assert 'refresh_token' not in credentials
             assert 'NEVER-COPY-REFRESH' not in json.dumps(credentials)
@@ -584,7 +617,7 @@ class ProcessTests(unittest.TestCase):
         harnesses = self.root/'.fullsend/harness'
         harnesses.mkdir(parents=True)
         for agent in ('ingest', 'reconcile'):
-            (harnesses/f'local-{agent}.yaml').write_text(f'agent: agents/{agent}.md\ntrigger: "false"\n')
+            (harnesses/f'{agent}.yaml').write_text(f'agent: agents/{agent}.md\ntrigger: "false"\n')
 
         bindir = self.root/'bin'
         bindir.mkdir()

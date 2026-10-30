@@ -45,7 +45,8 @@ your gateway. With `OPENSHELL_VERSION` set to that gateway release, run
 [installer](../../scripts/install-openshell.sh). Gateway setup offers to install `hsctl`
 from a GitHub release, selecting your OS/architecture and verifying checksums.
 
-ACLI mode also needs PyYAML in the Python used by `python3`, and OS keyring access:
+The Jira lifecycle needs PyYAML in the Python used by `python3`.
+ACLI mode also needs OS keyring access:
 `secret-tool` on Linux, or `security` on macOS. On Fedora these are provided by
 `python3-pyyaml` and `libsecret`; on Debian/Ubuntu, `python3-yaml` and
 `libsecret-tools`. Run from your logged-in desktop session so the keyring is
