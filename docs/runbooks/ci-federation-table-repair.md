@@ -33,9 +33,10 @@ was **skipped**, so the clean tables were never created and the stale
 Convergence therefore does **not** come from re-running the original IDs. It
 ships as **new** convergence migrations (`2026103000000001` /
 `2026103000000002`, SDLC-CONF-11) that run on every environment regardless of
-prior state: they create the clean table if missing, copy any rows off the stale
-mangled table, and drop it. A shipped body is immutable; a correction is always a
-new ID (SDLC-CONF-10).
+prior state. `CIProvider` / `CITrust` are unused Kinds and the mis-shipped
+mangled tables are empty, so convergence is the simplest correct fix:
+**drop the wrong table and create the clean one** - no row copying. A shipped
+body is immutable; a correction is always a new ID (SDLC-CONF-10).
 
 ## Repair
 
@@ -43,8 +44,8 @@ The primary repair is simply **deploy an API server image that includes the
 new-ID convergence migrations and let migrations run** (the API server runs
 `NewMigrateCommand` / `db.Migrate` on startup). Because convergence is a new
 migration ID, it runs even on hubs that already recorded the original IDs,
-creating the correctly named `ci_providers` / `ci_trusts` tables and dropping the
-stale `c_iproviders` / `c_itrusts` tables. No hand-typed SQL patch is required,
+dropping the stale `c_iproviders` / `c_itrusts` tables and creating the correctly
+named `ci_providers` / `ci_trusts` tables. No hand-typed SQL patch is required,
 and re-deploying is a no-op.
 
 Confirm the image carries the convergence migrations before relying on this:

@@ -32,9 +32,11 @@ import (
 //   - only the convergence migration IDs are removed, so re-running Migrate
 //     runs just the convergence step, as a redeploy of the fixed image would.
 //
-// After convergence it asserts the clean tables exist, a row seeded into the
-// stale table survived the copy, the stale tables are gone, and a full CRUD
-// round-trip over the real HTTP+DB stack succeeds for ci_providers and ci_trusts.
+// CIProvider/CITrust are unused Kinds and the mangled tables are empty, so
+// convergence is drop-and-recreate (no row copying). After convergence it
+// asserts the clean tables exist, the stale mangled tables are gone, and a full
+// CRUD round-trip over the real HTTP+DB stack succeeds for ci_providers and
+// ci_trusts.
 func TestExtKindsUpgradePathConformance(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	env := newConformanceEnv(t, h, client)
@@ -53,11 +55,6 @@ func TestExtKindsUpgradePathConformance(t *testing.T) {
 	Expect(hasTable(g2, "ci_trusts")).To(BeTrue(), "ci_trusts was not created by the convergence migration")
 	Expect(hasTable(g2, "c_iproviders")).To(BeFalse(), "stale c_iproviders was not dropped")
 	Expect(hasTable(g2, "c_itrusts")).To(BeFalse(), "stale c_itrusts was not dropped")
-
-	// The row seeded into the stale c_iproviders was copied into ci_providers.
-	var copied int64
-	Expect(g2.Raw(`SELECT count(*) FROM ci_providers WHERE id = ?`, seededProviderID).Scan(&copied).Error).To(Succeed())
-	Expect(copied).To(Equal(int64(1)), "row from the stale table was not migrated into ci_providers")
 
 	// A LIST over the real stack succeeds (no SQLSTATE 25P02) now that the clean
 	// table exists.
@@ -79,10 +76,6 @@ func TestExtKindsUpgradePathConformance(t *testing.T) {
 	Expect(status).To(Or(Equal(http.StatusOK), Equal(http.StatusNoContent)), "delete ci_provider after convergence: %s", body)
 }
 
-// seededProviderID is the id of the legacy row planted in the stale table so the
-// copy path (not just the create path) is asserted.
-const seededProviderID = "upgrade-path-legacy-ci-provider"
-
 // seedPreConvergenceState rewrites the database into the pre-convergence shape a
 // deployed pre-#853 hub had: mangled stale tables present, clean tables absent,
 // original migration IDs recorded, convergence IDs not yet recorded.
@@ -96,10 +89,6 @@ func seedPreConvergenceState(t *testing.T, g2 *gorm.DB) {
 	exec(t, g2, `ALTER TABLE ci_trusts RENAME TO c_itrusts`)
 	// The old CITrust had no column tag, so its FK column was mangled too.
 	exec(t, g2, `ALTER TABLE c_itrusts RENAME COLUMN ci_provider_id TO c_iprovider_id`)
-
-	// Plant a legacy row so the convergence row-copy is exercised and asserted.
-	exec(t, g2, `INSERT INTO c_iproviders (id, forge, issuer, jwks_url, audience)
-		VALUES (?, 'github', 'https://legacy.example/issuer', 'https://example.com/jwks', 'hypershell')`, seededProviderID)
 
 	// Drop only the convergence migration IDs so the suite re-runs just them; the
 	// original create IDs stay recorded and are skipped, exactly as on a hub.
