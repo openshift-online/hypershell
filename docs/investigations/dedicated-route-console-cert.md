@@ -1,9 +1,11 @@
 # Investigation: dedicated-route console certificate mismatch (hyp2-spoke1)
 
 **Date:** 2026-10-30
-**Status:** Root cause identified from external evidence + code review; control-plane
-fixes committed on `fix/dedicated-route-console-cert`. Live-gateway remediation and
-cluster-side confirmation still need read access to the spoke (see §6).
+**Status:** Root cause fully confirmed (external evidence + code review + spoke read
+access, 2026-10-30 ~17:00Z); control-plane fixes committed on
+`fix/dedicated-route-console-cert`; gitops IAM fix committed on
+`fix/acme-per-gateway-dedicated-route` in hypershell-gitops. Remediation is
+apply-and-wait: see §6.
 **Reported by:** user -- a gateway created with `--dedicated-route` does not serve its
 console with the per-gateway certificate.
 **Affected gateway:** `jhjaggars-dedicated-route-test`
@@ -16,7 +18,7 @@ console with the per-gateway certificate.
 | Host | Resolves to (DNS) | Certificate presented | HTTP |
 |---|---|---|---|
 | `console-openshell-e0ccb89a08d0598f.gw-openshell-e0ccb89a08d0598f.hyp2-spoke1.infra.hypershell.app` (the published `console_address`) | `e10672c3-us-east.lb.appdomain.cloud` (150.239.84.166, 150.239.83.1) | `CN=*.hyp2-spoke1.infra.hypershell.app` (Let's Encrypt YR1, issued Oct 7) -- **name mismatch**, curl: `SSL: no alternative certificate subject name matches target hostname` | -- |
-| `gw-openshell-e0ccb89a08d0598f.hyp2-spoke1.infra.hypershell.app` (the published `route_address`) | same LB | same shared spoke wildcard | HTTP/2 404 (no route claims the host on the shared Gateway) |
+| `gw-openshell-e0ccb89a08d0598f.hyp2-spoke1.infra.hypershell.app` (the published `route_address`) | same LB | same shared spoke wildcard | plain HTTP: 404; gRPC (`openshell sandbox list`): trailers-only `grpc-status: 12` UNIMPLEMENTED -- the shared Gateway has no route for the host after the (aborted) re-parent | 
 | `xyz123.gw-openshell-e0ccb89a08d0598f...` (any label under the per-gateway wildcard) | same LB | same shared spoke wildcard | -- |
 | `console-openshell-e0ccb89a08d0598f.hyp2-spoke1.infra.hypershell.app` (**shared-form** console host) | same LB | shared spoke wildcard (valid for this host) | **302 → Keycloak**; the console (oauth2-proxy) is alive here, with `redirect_uri` = the shared host |
 | `a.b.hyp2-spoke1.infra.hypershell.app` (unknown SNI) | same LB | shared spoke wildcard | -- |
@@ -52,18 +54,34 @@ or never issued.
 The gateway is in a **half-migrated state**: its *published addresses* follow the
 dedicated-route opt-in, but its *actual exposure* is on the shared path.
 
-1. **Provisioning built the shared path.** The console is demonstrably exposed at
-   the shared host on the shared Gateway (the 302/Keycloak redirect above proves
-   the oauth2-proxy, its `OAUTH2_PROXY_REDIRECT_URL`, and the Keycloak console
-   client all use `console-<ns>.<spoke>...`), and no per-gateway Certificate /
-   per-tenant Gateway / DNS records exist. A controller that parses
-   `route.certificate` (#790, merged Oct 27; image revs ≥ `0231ad5b` promoted to
-   `env/hyp2-spoke1` by Oct 29-30) would have taken the dedicated path and failed
-   provisioning if the certificate did not issue -- the gateway instead reached
-   Running with every condition Complete. The exact in-cluster reason (controller
-   version at provision time, a stuck Certificate, or an unconverged
-   `observed_generation(0) != generation(2)` that no event ever re-drove) needs
-   spoke access; see §6.
+1. **Provisioning took the dedicated path and is stuck on the external
+certificate.** Confirmed on the spoke (read-only, 2026-10-30 ~17:00Z): the
+`openshell-gateway-external` Certificate **exists** with `Ready=False`, its
+CertificateRequest `openshell-gateway-external-1` created, the ACME Order and
+both DNS-01 Challenges **pending** for 96 minutes with reason:
+
+   ```
+   failed to change Route 53 record set: operation error Route 53:
+   ChangeResourceRecordSets ... StatusCode: 403 ... AccessDenied: User:
+   arn:aws:iam::451971655738:user/hypershell/hypc-ibm-03-cert-manager-dns01 is
+   not authorized to perform: route53:ChangeResourceRecordSets on resource:
+   arn:aws:route53:::hostedzone/Z03431841SAX65X5TEJTB because no identity-based
+   policy allows the route53:ChangeResourceRecordSets action
+   ```
+
+   (cert-manager logs, ns `cert-manager`). The gitops IAM policy for the
+   per-cluster DNS-01 user (`clusters/hypc-ibm-03/1-terraform/route53-acme.tf`)
+allow-lists TXT records at `_acme-challenge.<hub label>` and
+   `_acme-challenge.<gateway domain>` -- the shared-wildcard challenge names it
+   was built for. The dedicated route's challenges live at
+   `_acme-challenge.gw-<ns>.<gateway domain>`, two labels deeper, and are denied.
+   The controller is in its 30s reconcile-retry loop over exactly this
+   (`wait for external TLS secret ... the dedicated gateway certificate was not
+   issued in time`), so the per-tenant Gateway, the re-parented GRPCRoute (the
+   GRPCRoute does not exist at all -- the dedicated path aborts before creating
+   it), and the sandbox HTTPRoute were never created. The console exposure on
+   the shared Gateway is the health loop's doing -- point 3 below -- not a
+   shared-path provisioning decision.
 2. **The health loop then published the dedicated URL anyway.**
    `syncConsoleAddress` (reconciler.go) derives the console URL from the parsed
    `route.certificate` -- correctly -- but its readiness gate
@@ -117,6 +135,17 @@ Three changes, all in the control plane:
 Spec: `OSG-CON-09` (openshell-gateway-console.spec.md) now requires the exposure
 to serve the derived host, with new scenario `OSG-CON-09.02`.
 
+**Gitops fix (separate repo, branch `fix/acme-per-gateway-dedicated-route` in
+hypershell-gitops, commit "fix(dns): allow per-gateway dedicated-route ACME
+challenges in Route53 DNS-01 IAM"):** the cert-manager DNS-01 IAM identities
+gain one StringLike wildcard per gateway domain,
+`_acme-challenge.gw-*.<gateway domain>`, on every IBM ROKS cluster
+(`route53-acme.tf`; hypc-ibm-infra already allows `_acme-challenge.*`) and the
+AWS clusters (`identities.tf`); the hysh-aws-01 IRSA role is zone-scoped
+without name conditions and needs nothing; the external-dns identities already
+cover per-gateway names (`*.<domain>` StringLike matches across labels). The
+`topology.tftest.hcl` assertions pin the exact lists and gain the same entries.
+
 With these, after deploy: the affected gateway's `console_address` is retracted
 (honest: no dead link, no cert error), and its console self-heal converges the
 exposure onto the dedicated host. Because the per-tenant Gateway / Certificate /
@@ -134,14 +163,19 @@ path -- see §6.
   gateways at seed time (`forceSeedRecovery`) is a behavioral change worth its
   own discussion.
 - external-dns scope on the spokes publishes only LoadBalancer *Services* under
-  the controller domain. Whether the per-tenant Gateway's generated Service (the
-  OpenShift Gateway API implementation propagates `spec.infrastructure`
-  annotations to it, as proven by the shared Gateway's TXT record) is annotated
-  and LoadBalancer-typed in the tenant namespace needs spoke access to confirm;
-  if it is, records appear automatically once the per-tenant Gateway exists.
+  the controller domain. The OpenShift Gateway API implementation propagates
+  `spec.infrastructure` annotations to the generated Service (proven by the
+  shared Gateway's TXT record naming
+  `service/openshift-ingress/openshell-grpc-gateway-openshift-default`), and
+  external-dns watches Services cluster-wide, so records should appear
+  automatically once the per-tenant Gateway exists and its Envoy Service gets
+  an address. Verify after the IAM fix applies (§5).
 - `waitForSecret` allows only 60s for DNS-01 issuance; first issuance of a
-  two-SAN order can exceed that, which would fail provisioning (by design, but
-  worth a longer window if dedicated gateways flap at provision time).
+  two-SAN order can exceed that. This only *delays* convergence -- the
+  controller's 30s retry loop re-enters the pass and finds the Secret already
+  present once cert-manager finishes -- but a longer window would avoid a
+  guaranteed first-pass failure (and the Failed-ish phase flapping) for every
+  new dedicated gateway.
 
 ## 5. Verification after deploy
 
@@ -162,26 +196,48 @@ path -- see §6.
 3. Negative check: a non-dedicated gateway keeps
    `console-<ns>.<spoke>...` and the shared wildcard (valid for that host).
 
-## 6. Open questions for the user / follow-ups
+## 6. Resolution and remediation (spoke access obtained 2026-10-30 ~17:00Z)
 
-- **Spoke read access**: the IBM contexts on this host are expired. To confirm
-  the in-cluster state (does `gw-openshell-e0ccb89a08d0598f` exist? does the
-  `openshell-gateway-external` Certificate exist and what is its status? what
-  does the console HTTPRoute actually reference? what does the controller log
-  say happened at 13:21–13:52?), run `ibmcloud login --sso` +
-  `ibmcloud ks cluster config` for hypc-ibm-03, or run these read-only commands:
-  ```
-  oc -n openshell-e0ccb89a08d0598f get gateway,gw,httproute,grpcroute,certificate,deploy,svc
-  oc -n openshell-e0ccb89a08d0598f get certificate openshell-gateway-external -o yaml
-  oc -n openshell-e0ccb89a08d0598f get httproute openshell-console -o yaml
-  oc -n openshell-e0ccb89a08d0598f get svc | grep gw-
-  ```
-- **Live gateway remediation** (needs a user decision; production, and
-  `route.certificate` is create-only): delete and re-create the gateway with
-  `--dedicated-route` on a controller that includes #790/#815 and
-  `GATEWAY_EXTERNAL_ISSUER` (all confirmed present in `env/hyp2-spoke1` as of
-  Oct 30 11:20), and verify per §5. Alternatively force a reconcile
-  (any spec change bumps generation; the convergence gate re-provisions).
+All §6 open questions from the first pass are answered:
+
+- **Spoke read access**: obtained. `kubectl get gateway -A` shows only the
+  shared `openshell-grpc-gateway` (Programmed, address
+  `e10672c3-us-east.lb.appdomain.cloud`); the per-tenant
+  `gw-openshell-e0ccb89a08d0598f` does not exist. The tenant namespace has the
+  gateway and console Deployments/Services, the four gateway chart
+  Certificates (all Ready except `openshell-gateway-external`), the console
+  HTTPRoute (shared host, shared-Gateway parent, Accepted), and **no
+  GRPCRoute**. The controller (ns `hyp2-spoke1`) logs the 30s retry loop over
+  the external-TLS wait. The Certificate/Order/Challenge status and the
+  cert-manager AccessDenied are quoted in §2.1.
+- **The "no per-gateway DNS records" observation stands**: every lookup that
+  appeared to resolve `gw-<ns>...` (and even `foo--bar.gw-<ns>...`) is the
+  shared `*.hyp2-spoke1` wildcard synthesizing answers at any depth; the
+  external-dns TXT probes are shadowed the same way, so their absence is not
+  evidence of manual records. No cleanup of stray per-gateway DNS records is
+  needed.
+
+**Remediation is apply-and-wait; no gateway delete/re-create is needed** (the
+earlier suggestion is superseded):
+
+1. Merge and apply the gitops IAM fix
+   (`fix/acme-per-gateway-dedicated-route`). Terraform updates the inline IAM
+   user policy in place; no key rotation, no Secret churn.
+2. cert-manager retries the pending challenge with backoff. If the Challenge
+   does not present within a few minutes of the policy applying, delete the
+   stuck ACME Order (or the CertificateRequest) to force a fresh one -- a
+   one-line live action for the operator.
+3. The controller's existing 30s retry loop then completes the dedicated path
+   on its own: Secret appears (possibly on the second pass -- see §4's 60s
+   window note), per-tenant Gateway is created, Istio's automated deployment
+   brings up its Envoy + LoadBalancer Service carrying the external-dns
+   annotation, external-dns publishes `gw-<ns>` and `*.gw-<ns>` pointing at
+   the per-tenant LB (a different `*.lb.appdomain.cloud` name than the shared
+   one), and the GRPCRoute re-parents.
+4. Deploy this branch's controller build: the console self-heal re-parents the
+   console onto the per-tenant Gateway's `sandbox` listener at
+   `console-<ns>.gw-<ns>...`, and `console_address` is only published once the
+   exposure actually serves that host. Verify per §5.
 - DNS TTL / Route53 multi-depth wildcard behavior is what turns "no record"
   into "silently wrong LB": consider a guard or documentation note
   that per-gateway names must never resolve through the spoke wildcard.
