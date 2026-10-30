@@ -34,6 +34,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
 | `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
+| `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -75,6 +76,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
@@ -154,7 +156,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
-| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 9 |
+| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 12 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 14 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
 

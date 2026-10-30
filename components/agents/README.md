@@ -11,8 +11,16 @@ Build context: repository root. Containerfiles: `Containerfile.agent-runtime` an
 | Node.js 24, npm and pnpm 11.15.1 | | yes |
 | GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes |
 
-Both variants bake the same reviewed, SHA-256-locked CLI tools -- including the
-`fullsend` CLI -- via `install-tools.py`, so tooling never drifts between images.
+Both variants bake the same reviewed, SHA-256-locked CLI tools via
+`install-tools.py`, so tooling never drifts between images. The `fullsend` CLI is
+the exception: it is built from pinned clean source (the
+`third_party/fullsend` submodule at tag `v0.49.0`) in a Go builder stage, because
+the upstream release archive is stamped `+dirty` (a non-reproducible binary) and
+is not Hermeto-attributed. Building from a clean checkout yields a reproducible
+binary, and its Go dependency closure is prefetched and attributed through Hermeto
+via the pipeline `prefetch-input` (see
+`specs/platform/konflux-enterprise-contract-conformance.spec.md`, CICD-ECC-02 and
+CICD-ECC-04).
 
 ## Fullsend sandbox image
 

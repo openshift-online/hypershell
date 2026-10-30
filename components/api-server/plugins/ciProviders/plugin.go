@@ -73,4 +73,5 @@ func init() {
 	presenters.RegisterKind(&CIProvider{}, "CIProvider")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationConverge())
 }

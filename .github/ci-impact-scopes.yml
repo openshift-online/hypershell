@@ -377,6 +377,9 @@ scopes:
       - .github/ci-impact-scopes.yml
       - Makefile
       - .dockerignore
+      - .npmrc
+      - .gitmodules
+      - prefetch/**
       - .github/component-paths.json
       - .github/scripts/**
       - .github/actions/detect-konflux-components/**

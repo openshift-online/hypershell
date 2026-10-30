@@ -87,7 +87,30 @@ type Release struct {
 	// (openshift-online/hypershell) -- the changes the bundle actually ships -- not
 	// the gitops lock-bump PR that promoted it. Populated by a BundleEnricher; nil
 	// when GitHub enrichment is disabled or there is no prior build to diff against.
+	// This is the APPLICATION group (FLT-BPR-03); its membership and freshness
+	// semantics are unchanged by the GitOps group below.
 	PRs []PR `json:"prs,omitempty"`
+	// GitOpsPRs is the deployment (GitOps) pull-request group for this bundle: the
+	// merged pull requests in the GitOps delivery repository (supplied at runtime,
+	// never compiled in) across the bundle's bounded deployment-revision range,
+	// including the lock-update PR and configuration-only PRs (FLT-BPR-04). These are deployment
+	// changes, not changes embedded in the application artifact. nil when the range
+	// is unavailable or GitOps grouping is disabled; see GitOpsStatus to tell an
+	// unavailable range from a successful empty one.
+	GitOpsPRs []PR `json:"gitopsPrs,omitempty"`
+	// GitOpsStatus reports the GitOps group's range state so the UI can render an
+	// error state distinctly from an empty-but-successful one (FLT-BPR-10): "" means
+	// GitOps grouping was not attempted (feature off / no lock-history provenance,
+	// so the UI hides the section), "available" means the bounded compare succeeded
+	// (an empty GitOpsPRs is then a genuine "no deployment changes"), and
+	// "unavailable" means no baseline could be bounded or the compare failed.
+	GitOpsStatus string `json:"gitopsStatus,omitempty"`
+	// DeploymentRevisions records the gitops source (dry) commits and the
+	// environments that resolved to this bundle digest, retained BEFORE releases are
+	// grouped by digest (FLT-BPR-05) so the GitOps range can extend to each
+	// environment's current source commit (FLT-BPR-04.02). Internal only (not
+	// serialized): the UI consumes the resulting GitOpsPRs.
+	DeploymentRevisions []DeploymentRevision `json:"-"`
 	// ManifestsRev is the PUBLIC product source revision the bundle's manifests
 	// were built from (the lock's bundle.manifests.git.revision). The
 	// BundleEnricher diffs consecutive bundles' ManifestsRev over the upstream repo
@@ -95,6 +118,16 @@ type Release struct {
 	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
 	// provenance.
 	ManifestsRev string `json:"-"`
+}
+
+// DeploymentRevision is one environment's current gitops source (dry) commit for a
+// bundle digest, retained before digest grouping so GitOps ranges can extend to the
+// relevant environment's source commit (FLT-BPR-05). Env is the environment key;
+// DrySHA is the full source commit SHA (not shortened, so a GitHub compare can use
+// it) and is a source commit, never a hydrated artifact (FLT-BPR-07).
+type DeploymentRevision struct {
+	Env    string
+	DrySHA string
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.
@@ -264,6 +297,15 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		// enrichment too, with no second pass.
 		av := p.canonicalRelease(ctx, activeSHA, payload.Releases)
 		pv := p.canonicalRelease(ctx, proposedSHA, payload.Releases)
+
+		// Retain this environment's active source (dry) commit against its bundle
+		// BEFORE the digest grouping collapses SHAs (FLT-BPR-05), so the GitOps range
+		// can extend to the environment's current source commit (FLT-BPR-04.02). av
+		// is the shared *Release for the digest, so every environment on the same
+		// bundle contributes its revision.
+		if av != nil && activeSHA != "" {
+			av.DeploymentRevisions = append(av.DeploymentRevisions, DeploymentRevision{Env: key, DrySHA: activeSHA})
+		}
 
 		// analysisUrl is keyed on the active HYDRATED sha (the promoted,
 		// rendered commit the analysis check-run actually ran against), matching

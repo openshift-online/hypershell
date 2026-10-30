@@ -1,0 +1,3 @@
+[submodule "components/agents/third_party/fullsend"]
+	path = components/agents/third_party/fullsend
+	url = https://github.com/fullsend-ai/fullsend.git

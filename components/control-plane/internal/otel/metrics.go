@@ -33,6 +33,8 @@ var (
 	gatewayCertificateUnavailable      metric.Int64Gauge
 	gatewayCertificateDaysToExpiryMin  metric.Float64Gauge
 	gatewayCertificateSourceAvailable  metric.Int64Gauge
+	oidcClientObservedTimestamp        metric.Int64Gauge
+	oidcClientSuccessTimestamp         metric.Int64Gauge
 	oidcClientSynced                   metric.Int64Gauge
 	oidcClientExpected                 metric.Int64Gauge
 	oidcClientKeycloakConnected        metric.Int64Gauge
@@ -223,6 +225,15 @@ func registerMetrics() error {
 		return err
 	}
 	gatewayCertificateSourceAvailable, err = meter.Int64Gauge("gateway.certificate.source.available", metric.WithDescription("Whether the gateway and console certificate source completed successfully"))
+	if err != nil {
+		return err
+	}
+
+	oidcClientObservedTimestamp, err = meter.Int64Gauge("oidc.client.health.observed_timestamp_seconds", metric.WithUnit("s"), metric.WithDescription("Unix time of the last completed OIDC health observation, including failures"))
+	if err != nil {
+		return err
+	}
+	oidcClientSuccessTimestamp, err = meter.Int64Gauge("oidc.client.health.success_timestamp_seconds", metric.WithUnit("s"), metric.WithDescription("Unix time of the last fully synchronized OIDC observation; zero until first success"))
 	if err != nil {
 		return err
 	}
@@ -577,6 +588,22 @@ func RecordOIDCClientHealth(ctx context.Context, clusterID string, synced, expec
 			value = 1
 		}
 		oidcClientKeycloakConnected.Record(ctx, value, attrs)
+	}
+}
+
+// RecordOIDCClientFreshness records producer event times, not export/scrape times.
+// A stalled producer leaves these values unchanged even if a collector replays them.
+func RecordOIDCClientFreshness(ctx context.Context, clusterID string, observed, successful time.Time) {
+	attrs := clusterMetricAttributes(clusterID)
+	if oidcClientObservedTimestamp != nil {
+		oidcClientObservedTimestamp.Record(ctx, observed.Unix(), attrs)
+	}
+	if oidcClientSuccessTimestamp != nil {
+		value := int64(0)
+		if !successful.IsZero() {
+			value = successful.Unix()
+		}
+		oidcClientSuccessTimestamp.Record(ctx, value, attrs)
 	}
 }
 
