@@ -33,8 +33,9 @@ import (
 )
 
 type ServiceLocator struct {
-	gateway func() GatewayService
-	list    services.GenericService
+	gateway   func() GatewayService
+	list      services.GenericService
+	ownership GatewayOwnershipLookup
 }
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
@@ -50,7 +51,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				gatewayBindingCleaner(&env.Services),
 			)
 		},
-		list: newGatewayListService(&env.Database.SessionFactory),
+		list:      newGatewayListService(&env.Database.SessionFactory),
+		ownership: newGatewayOwnershipDao(&env.Database.SessionFactory),
 	}
 }
 
@@ -123,6 +125,17 @@ func listService(s *environments.Services) services.GenericService {
 	if obj := s.GetService("Gateways"); obj != nil {
 		locator := obj.(ServiceLocator)
 		return locator.list
+	}
+	return nil
+}
+
+func ownershipLookup(s *environments.Services) GatewayOwnershipLookup {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("Gateways"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator.ownership
 	}
 	return nil
 }
@@ -340,7 +353,7 @@ func init() {
 		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		placement := newRegisteredPlacementService(envServices)
 		gatewayService := Service(envServices)
-		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, ownershipLookup(envServices), bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
 
 		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
 			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)

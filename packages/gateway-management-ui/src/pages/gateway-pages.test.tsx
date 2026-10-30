@@ -1141,6 +1141,7 @@ describe("gateway shell pages", () => {
     );
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "",
         size: 20,
@@ -1153,6 +1154,7 @@ describe("gateway shell pages", () => {
     await user.click(within(table).getByRole("button", { name: "Created by" }));
     expect(onCollectionStateChange).toHaveBeenLastCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "",
         size: 20,
@@ -1170,6 +1172,7 @@ describe("gateway shell pages", () => {
     );
     expect(onCollectionStateChange).toHaveBeenLastCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "East cluster",
         size: 20,
@@ -1276,6 +1279,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "created",
@@ -1307,6 +1311,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "activeSandboxes",
@@ -1726,6 +1731,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "version",

@@ -402,6 +402,12 @@ export const messages = defineMessages({
     defaultMessage: "Gateway name",
     description: "Label for a gateway name form field.",
   },
+  gatewayOwnershipFilter: {
+    id: "app.page.gateways.ownershipFilter",
+    defaultMessage: "Gateway ownership filter",
+    description:
+      "Accessible label for the toolbar control holding the show-only-my-gateways toggle.",
+  },
   gatewayProvisionError: {
     id: "app.page.gatewayProvision.error.title",
     defaultMessage: "Gateway could not be provisioned",
@@ -501,6 +507,19 @@ export const messages = defineMessages({
     id: "app.page.gateways.noResults.body",
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
+  },
+  noOwnedGatewaysBody: {
+    id: "app.page.gateways.noOwned.body",
+    defaultMessage:
+      "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
+    description:
+      "Guidance when the ownership filter is on but the user owns no gateways.",
+  },
+  noOwnedGatewaysTitle: {
+    id: "app.page.gateways.noOwned.title",
+    defaultMessage: "No gateways you own",
+    description:
+      "Heading when the ownership filter is on but the user owns no gateways.",
   },
   notAvailable: {
     id: "app.value.notAvailable",
@@ -758,6 +777,12 @@ export const messages = defineMessages({
     id: "app.gateway.cluster.select",
     defaultMessage: "Select a cluster",
     description: "Accessible label and placeholder for the cluster selector.",
+  },
+  showOnlyMyGateways: {
+    id: "app.page.gateways.showOnlyMine",
+    defaultMessage: "Show only my gateways",
+    description:
+      "Toggle label that filters the gateway list to only the signed-in user's gateways.",
   },
   status: {
     id: "app.table.column.status",

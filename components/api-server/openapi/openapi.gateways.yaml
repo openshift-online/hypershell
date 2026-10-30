@@ -38,6 +38,7 @@ paths:
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/mine'
     post:
       operationId: createGateway
       summary: Create a new gateway
@@ -514,6 +515,19 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Gateway'
+            has_other_owned_gateways:
+              type: boolean
+              description: >-
+                Browser-safe existence flag reporting whether the caller's full
+                authorized gateway list (before search, optional filters, and the
+                `mine` ownership filter) contains at least one gateway the caller
+                does not own. It is computed server-side with a bounded
+                authorization-scoped existence query rather than by enumerating
+                pages, so a console can decide whether to show the "Show only my
+                gateways" toggle without downloading every page. It is evaluated
+                only over the caller's authorized gateways and never discloses the
+                existence of gateways the caller is not authorized to see
+                (SEC-RBAC-10).
     # NEW SCHEMA START
     GatewayPatchRequest:
     # NEW SCHEMA END
@@ -601,7 +615,11 @@ components:
           ```
 
           If the parameter isn't provided, or if the value is empty, then
-          no explicit ordering will be applied.
+          the gateway list defaults to newest-first ordering: creation time
+          descending with a stable secondary order by gateway identifier,
+          applied before pagination so the first page holds the newest
+          accessible gateways overall and equal creation timestamps are
+          deterministic across pages.
         schema:
           type: string
       fields:
@@ -619,3 +637,18 @@ components:
           ```
         schema:
           type: string
+      mine:
+        name: mine
+        in: query
+        required: false
+        description: |-
+          When `true`, restricts the list to gateways the authenticated caller
+          owns (the caller holds `gateway:owner`), matched by the caller's stable
+          identity against the authoritative owner bindings rather than a display
+          name. The filter is applied before pagination, so the returned items,
+          total, and page count reflect the filtered set, and it composes with
+          the search query and ordering. It operates only over the caller's
+          authorized gateways and never discloses gateways the caller is not
+          authorized to see (see `has_other_owned_gateways` and SEC-RBAC-10).
+        schema:
+          type: boolean

@@ -93,6 +93,8 @@ Resource collections SHALL use a shared PatternFly table pattern with client-sid
 
 The gateway collection SHALL expose the Created by column as an authoritative sortable column. The console SHALL preserve this sort in URL collection state and request creator username ordering from the API. The API SHALL apply creator ordering before pagination so that each page is part of one globally ordered result set.
 
+The gateway collection SHALL default to newest-first ordering. When the user has not chosen a sort, the API SHALL order the complete visible collection by creation time descending, with a stable secondary order by gateway identifier so that equal creation timestamps produce a deterministic order across pages. This default SHALL be applied before pagination so the first page contains the newest accessible gateways overall. A user-chosen sort (such as the Created by column) SHALL override the default while it is active, and clearing it SHALL restore newest-first. The API contract for this default order and its stable tiebreak is defined in WEB-API-01.
+
 #### Scenario: WEB-ARCH-02.01 -- Sort Gateways by Creator
 
 - GIVEN the gateway collection contains gateways created by different users
@@ -100,6 +102,14 @@ The gateway collection SHALL expose the Created by column as an authoritative so
 - THEN the console SHALL request the corresponding creator sort direction
 - AND the API SHALL order the complete visible gateway collection by creator username before selecting the requested page
 - AND the console SHALL preserve the creator sort field and direction in the collection URL
+
+#### Scenario: WEB-ARCH-02.02 -- Gateways default to newest first across pages
+
+- GIVEN the visible gateway collection spans several pages and the user has not chosen a sort
+- WHEN the user opens the gateway list
+- THEN the API SHALL order the complete visible collection by creation time descending before selecting the requested page
+- AND the first page SHALL contain the newest accessible gateways overall
+- AND gateways with equal creation timestamps SHALL appear in a stable order by gateway identifier so ordering does not vary between pages
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
@@ -288,7 +298,7 @@ The production BFF SHALL forward the gateway management UI package's `/api/hyper
 
 TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
 
-Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. Incremental gateway search SHALL debounce rapid input for 300 milliseconds so one typing burst produces one authoritative request. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded. Related placement names for the visible page SHALL be resolved with at most one additional managed-cluster list request after non-empty cluster identifiers have been normalized and deduplicated. The collection SHALL NOT issue one managed-cluster request per gateway row.
+Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. Incremental gateway search SHALL debounce rapid input for 300 milliseconds so one typing burst produces one authoritative request. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded. Deciding whether to show the "Show only my gateways" toggle (WEB-UIEX-07) SHALL likewise use the single authorized-set existence flag from the gateway list response (WEB-API-01) and SHALL NOT enumerate pages to determine whether another user's gateway exists. Related placement names for the visible page SHALL be resolved with at most one additional managed-cluster list request after non-empty cluster identifiers have been normalized and deduplicated. The collection SHALL NOT issue one managed-cluster request per gateway row.
 
 Gateway placement searches SHALL debounce rapid input for 300 milliseconds and request exactly one authoritative managed-cluster API page for the normalized search value. Placement search and detail results SHALL remain fresh for 60 seconds so reopening the selector or remounting a placement name within that window does not issue another request. Search text SHALL retain literal semantics for API filter quotation, wildcard, and escape characters. The placement selector SHALL NOT call an all-pages helper or exhaust the managed-cluster collection before rendering. When more matching clusters exist than the returned page, the interface SHALL tell the user to refine the search rather than presenting the page as the complete result set.
 
@@ -300,7 +310,7 @@ Query and mutation functions SHALL call application use cases through the narrow
 
 ### Requirement: WEB-DATA-02 -- URL and Local State
 
-Pagination, filtering, search, sorting, selected gateway, and other shareable view state SHALL be encoded in validated URL path or search parameters. Ephemeral interaction state SHALL remain local to the narrowest component. Context SHALL be limited to stable cross-cutting services such as session, locale, feature flags, and the Query client.
+Pagination, filtering, search, sorting, the "Show only my gateways" ownership filter, selected gateway, and other shareable view state SHALL be encoded in validated URL path or search parameters. Ephemeral interaction state SHALL remain local to the narrowest component. Context SHALL be limited to stable cross-cutting services such as session, locale, feature flags, and the Query client.
 
 Sensitive values, server response caches, bearer tokens, and unsanitized operational data SHALL NOT be persisted in `localStorage`, `sessionStorage`, URL parameters, or an initial service-worker cache.
 
@@ -406,6 +416,8 @@ Users with the `platform:admin` role SHALL see all gateways in the platform thro
 The gateway list SHALL:
 
 - Display all gateways visible to the authenticated user (scoped per RBAC as defined in `security/rbac-enforcement.spec.md`)
+- Default to newest-first ordering (creation time descending with a stable secondary order by gateway identifier) when the user has not chosen a sort, as defined in WEB-ARCH-02 and WEB-API-01
+- Offer a "Show only my gateways" ownership filter under the conditions defined in WEB-UIEX-07
 - Default to 20 items per page
 - Allow page size selection up to 100 items per page
 - Include a search input that filters by gateway name or ID
@@ -467,6 +479,58 @@ Platform administrators (and gateway owners, for gateways they own) SHALL be abl
 - AND the delete action for gw-1 (where `can_delete` is true) SHALL be enabled
 - AND the delete action for gw-2 (where `can_delete` is false) SHALL be disabled with an accessible explanation
 - AND the server SHALL reject a delete of gw-2 by user A with `403` regardless of the affordance
+
+### Requirement: WEB-UIEX-07 -- Show Only My Gateways Filter
+
+The gateway list SHALL offer a "Show only my gateways" ownership filter so a user who can see gateways owned by other people can focus on the gateways they own without losing access to the full authorized list. "My gateways" means gateway ownership (the signed-in user holds `gateway:owner` on the gateway, per `platform/gateway-access-management.spec.md`); it does not mean ownership of the cluster hosting the gateway.
+
+**Presentation.** The filter SHALL be a clearly labeled, localized toggle placed near the list's existing filters (for example a PatternFly toggle control in the collection toolbar), with a clear selected state and accessible keyboard and screen-reader behavior per `standards/ui/accessibility.spec.md`. It SHALL default to off (showing every gateway the user is authorized to see).
+
+**Filter behavior.** When enabled, the list SHALL show only gateways the signed-in user owns, matched by the user's stable identity against the gateway's authoritative owner (`gateway:owner`) bindings, never by display name. The console SHALL request this ownership filter from the API so the server applies it before pagination and returns matching results and an accurate total and page count (WEB-API-01); the console SHALL NOT filter an already-paginated page on the client (consistent with WEB-ARCH-02). Toggling the filter SHALL reset the collection to its first page. The filter SHALL combine with the active search, other filters, and the current sort, and its state SHALL be encoded in URL collection state per WEB-DATA-02 so the view is shareable and restored on reload.
+
+**Conditional visibility.** The toggle SHALL be shown only when the user's full authorized gateway list contains at least one gateway the user does not own, determined before search, optional filters, and the ownership filter itself. The console SHALL base this decision on the API existence flag defined in WEB-API-01 and SHALL NOT enumerate every page to decide (WEB-DATA-01, `standards/ui/trust-performance.spec.md`). The toggle SHALL be hidden when every accessible gateway belongs to the signed-in user or the accessible list is empty. A user who can see only other people's gateways SHALL still see the toggle, and enabling it SHALL present a localized empty state that explains the result and lets the user turn the filter off. The toggle SHALL remain visible while enabled so the user can restore the full authorized list.
+
+**Authorization boundary.** The ownership filter and its visibility flag SHALL operate only over the caller's authorized gateways and SHALL NOT reveal the existence of gateways the user is not authorized to see (`security/rbac-enforcement.spec.md`, SEC-RBAC-10). Filtering SHALL NOT change access permissions; the API remains the authorization boundary.
+
+**Verification:** With gateways spanning several pages, verify the toggle is visible when another user's gateway exists only on a later page and hidden when all accessible gateways belong to the signed-in user. Verify enabling the toggle returns only the user's gateways across all pages with correct totals, resets pagination, and combines with search and sort. Verify the toggle state is encoded in the URL and restored on reload. Verify a user who can see only other people's gateways sees the toggle and a clear empty state when it is enabled, and can turn it off. Verify unauthorized gateways never affect toggle visibility or appear in results.
+
+#### Scenario: WEB-UIEX-07.01 -- Toggle visible when another owner's gateway exists on a later page
+
+- GIVEN the signed-in user's authorized gateway list spans several pages
+- AND a gateway owned by another user appears only on a later page
+- WHEN the user opens the gateway list
+- THEN the console SHALL read the API existence flag for the full authorized list without enumerating every page
+- AND the "Show only my gateways" toggle SHALL be visible
+
+#### Scenario: WEB-UIEX-07.02 -- Toggle hidden when the user owns every visible gateway
+
+- GIVEN every gateway the signed-in user is authorized to see is owned by that user
+- WHEN the user opens the gateway list
+- THEN the "Show only my gateways" toggle SHALL NOT be shown
+
+#### Scenario: WEB-UIEX-07.03 -- Enabling the toggle returns only the user's gateways across pages
+
+- GIVEN the toggle is visible and currently off
+- AND the user owns gateways that span more than one page of the authorized list
+- WHEN the user enables "Show only my gateways"
+- THEN the console SHALL request the ownership filter from the API applied before pagination
+- AND the list SHALL show only gateways the user owns, with the total and page count reflecting the filtered results
+- AND the collection SHALL reset to its first page
+- AND any active search and sort SHALL remain applied together with the ownership filter
+
+#### Scenario: WEB-UIEX-07.04 -- User who owns no visible gateway sees a clear empty state
+
+- GIVEN the user is authorized to see only gateways owned by other people
+- WHEN the user enables "Show only my gateways"
+- THEN the list SHALL present a localized empty state explaining there are no gateways the user owns
+- AND the toggle SHALL remain visible so the user can turn the filter off and restore the full authorized list
+
+#### Scenario: WEB-UIEX-07.05 -- Unauthorized gateways do not affect the toggle or results
+
+- GIVEN gateways exist that the signed-in user is not authorized to see
+- WHEN the user opens the gateway list and toggles "Show only my gateways"
+- THEN those unauthorized gateways SHALL NOT influence whether the toggle is shown
+- AND they SHALL NOT appear in the filtered or unfiltered results
 
 ### Requirement: WEB-UIEX-04 -- Gateway Placement Selection
 
@@ -679,7 +743,10 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, creation timestamp, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name or ID), sort field and direction, and response metadata (page, size, total count);
-- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings;
+- a default list order of creation timestamp descending with a stable secondary order by gateway identifier, applied before pagination and used whenever the request specifies no explicit sort, so that each page belongs to one globally ordered newest-first result set and equal creation timestamps are deterministic across pages;
+- a "my gateways" ownership filter parameter that, when set, restricts the list to gateways the authenticated caller owns (the caller holds `gateway:owner`), matched by the caller's stable identity against the authoritative owner bindings rather than a display name, applied before pagination so the returned items, total, and page count reflect the filtered set, and composable with the search query and sort;
+- a browser-safe existence flag in the gateway list response metadata that reports whether the caller's full authorized gateway list (before search, optional filters, and the ownership filter) contains at least one gateway the caller does not own, computed server-side with a bounded authorization-scoped existence query rather than by enumerating pages, so the console can decide whether to show the "Show only my gateways" toggle (WEB-UIEX-07) without downloading every page;
+- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings; the ownership filter and the existence flag SHALL operate only over this authorized set and SHALL NOT disclose the existence of gateways the caller is not authorized to see (`security/rbac-enforcement.spec.md`, SEC-RBAC-10);
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - gateway-scoped service-account list, create, get, revoke, and delete contracts;
@@ -696,7 +763,7 @@ The API server scopes gateway visibility by per-gateway RoleBindings and the pla
 
 The gateway table SHALL display each gateway's backend-resolved managed-cluster name in a sortable Cluster column. The provisioning form SHALL submit only a gateway name and a placement intent as defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01); it SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`, and the backend SHALL resolve and assign the concrete cluster identifier, or late-bind the gateway when no cluster matches the selector yet (WEB-PLC-07). The form SHALL NOT collect a Kubernetes namespace because the API server owns its assignment. The gateway provisioning contract has no fleet, release, or database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or fleet, release, or namespace fields.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, the default newest-first order with its stable identifier tiebreak applied before pagination, the "my gateways" ownership filter applied before pagination with accurate totals and composed with search and sort, the authorized-set existence flag computed without enumerating pages and without disclosing unauthorized gateways, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or fleet, release, or namespace fields.
 
 ## Initial Delivery Sequence
 

@@ -2819,6 +2819,14 @@
     "defaultMessage": "Filter by name, cluster, status, or endpoint",
     "description": "Placeholder and accessible label for gateway search."
   },
+  "app.page.gateways.noOwned.body": {
+    "defaultMessage": "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
+    "description": "Guidance when the ownership filter is on but the user owns no gateways."
+  },
+  "app.page.gateways.noOwned.title": {
+    "defaultMessage": "No gateways you own",
+    "description": "Heading when the ownership filter is on but the user owns no gateways."
+  },
   "app.page.gateways.noResults.body": {
     "defaultMessage": "Adjust or clear the filter to see gateways.",
     "description": "Guidance when no gateways match the current filter."
@@ -2826,6 +2834,14 @@
   "app.page.gateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
+  },
+  "app.page.gateways.ownershipFilter": {
+    "defaultMessage": "Gateway ownership filter",
+    "description": "Accessible label for the toolbar control holding the show-only-my-gateways toggle."
+  },
+  "app.page.gateways.showOnlyMine": {
+    "defaultMessage": "Show only my gateways",
+    "description": "Toggle label that filters the gateway list to only the signed-in user's gateways."
   },
   "app.page.homepage.description": {
     "defaultMessage": "Gateway health, quick gateway creation, dashboards, support, and learning resources.",

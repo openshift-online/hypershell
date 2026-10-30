@@ -33,6 +33,9 @@ export type {{.Resource.Name}} = ObjectReference & {
 
 export type {{.Resource.Name}}List = ListMeta & {
   items: {{.Resource.Name}}[];
+{{- range .Resource.ListExtraFields}}
+  {{.Name}}{{if not .Required}}?{{end}}: {{.TSType}};
+{{- end}}
 };
 
 export type {{.Resource.Name}}CreateRequest = {

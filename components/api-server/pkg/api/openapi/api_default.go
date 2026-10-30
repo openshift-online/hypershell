@@ -7802,6 +7802,7 @@ type ApiListGatewaysRequest struct {
 	search     *string
 	orderBy    *string
 	fields     *string
+	mine       *bool
 }
 
 // Page number of record list when record list exceeds specified page size
@@ -7831,6 +7832,12 @@ func (r ApiListGatewaysRequest) OrderBy(orderBy string) ApiListGatewaysRequest {
 // Supplies a comma-separated list of fields to be returned
 func (r ApiListGatewaysRequest) Fields(fields string) ApiListGatewaysRequest {
 	r.fields = &fields
+	return r
+}
+
+// Restricts the list to gateways the authenticated caller owns
+func (r ApiListGatewaysRequest) Mine(mine bool) ApiListGatewaysRequest {
+	r.mine = &mine
 	return r
 }
 
@@ -7893,6 +7900,9 @@ func (a *DefaultAPIService) ListGatewaysExecute(r ApiListGatewaysRequest) (*Gate
 	}
 	if r.fields != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "fields", r.fields, "form", "")
+	}
+	if r.mine != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "mine", r.mine, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
