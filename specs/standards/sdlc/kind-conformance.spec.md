@@ -344,9 +344,10 @@ stale mangled table, or both -- for example `ci_providers` missing while a mangl
 (SDLC-CONF-10) that, using the raw-SQL / `dbmigrate.CreateTable` path and the
 Kind's pinned `TableName()` (SDLC-CONF-02):
 
-- Creates the clean table if it is missing.
-- Migrates any rows from the stale mangled table into the clean table, then drops
-  the stale table.
+- Drops the stale mangled table with `DROP TABLE IF EXISTS` and creates the clean
+  table. For a mis-shipped table of an unused Kind the stale table holds no rows,
+  so the migration SHALL NOT copy rows out of it; the drop-and-recreate is the
+  complete convergence.
 - Is fully idempotent: on an already-healthy environment (clean table present,
   stale table absent) it makes no change and does not error, and it SHALL NOT use
   `AutoMigrate` or poison the transaction on the production driver (`lib/pq` with
@@ -363,8 +364,7 @@ convergence by this pattern. The audit SHALL NOT assume only `ci_providers` and
 - GIVEN an upgraded environment where the clean table is missing and a stale
   mangled table (for example `c_iproviders`) remains
 - WHEN the new-ID convergence migration runs
-- THEN the clean table SHALL exist, any rows SHALL be migrated into it, and the
-  stale mangled table SHALL be dropped
+- THEN the stale mangled table SHALL be dropped and the clean table SHALL exist
 - AND no query SHALL abort with `SQLSTATE 25P02`
 
 #### Scenario: SDLC-CONF-11.02 -- No-op on a healthy environment
