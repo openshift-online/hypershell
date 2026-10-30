@@ -45,6 +45,28 @@ for _, item := range items {
 return errors.Join(errs...)
 ```
 
+## Database migrations are raw SQL, never AutoMigrate
+
+Every plugin migration creates and evolves its table with raw SQL through
+`tx.Exec`, using idempotent statements (`CREATE TABLE IF NOT EXISTS`,
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). GORM `AutoMigrate` is forbidden: it
+can fail closed on the production PostgreSQL driver and protocol (`lib/pq` with
+`PreferSimpleProtocol`), which poisons the transaction and aborts every
+subsequent query on the table (`SQLSTATE 25P02`). The rule is uniform across all
+Kinds; the Kind conformance gate rejects `AutoMigrate`. See
+`standards/sdlc/kind-conformance.spec.md` (SDLC-CONF-02).
+
+**Pattern to avoid**:
+```go
+db.AutoMigrate(&Resource{}) // BAD: fails closed on lib/pq + PreferSimpleProtocol
+```
+
+**Correct pattern**:
+```go
+tx.Exec(`CREATE TABLE IF NOT EXISTS resources (...)`)
+tx.Exec(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS field text`)
+```
+
 ## Restricted SecurityContext on all containers
 
 All containers in manifests must set:

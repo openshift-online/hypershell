@@ -222,6 +222,14 @@ test-forbidden-terms-policy:
 check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
 
+.PHONY: test-kind-conformance-policy
+test-kind-conformance-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_kind_conformance.py
+
+.PHONY: check-kind-conformance
+check-kind-conformance: test-kind-conformance-policy
+	python3 scripts/check_kind_conformance.py
+
 .PHONY: test-dependency-pin-policy
 test-dependency-pin-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_pins.py
@@ -308,7 +316,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks

@@ -2,6 +2,7 @@ package serviceAccounts
 
 import (
 	"github.com/go-gormigrate/gormigrate/v2"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"gorm.io/gorm"
 )
@@ -33,7 +34,7 @@ func migration() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026082115000001",
 		Migrate: func(tx *gorm.DB) error {
-			if err := tx.AutoMigrate(&OpenShellGatewayServiceAccount{}, &AuditEvent{}); err != nil {
+			if err := dbmigrate.CreateTable(tx, &OpenShellGatewayServiceAccount{}, &AuditEvent{}); err != nil {
 				return err
 			}
 			if err := db.CreateFK(tx,
