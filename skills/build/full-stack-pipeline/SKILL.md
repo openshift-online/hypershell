@@ -11,6 +11,77 @@ description: >
 
 Implement spec-driven changes across all HyperShell platform components using a wave-based pipeline.
 
+## Kind Completeness: mandatory manifest, idempotent fill, enforced gate
+
+A Kind is not "done" because its happy path compiles. **Every registered Kind
+MUST have every artifact in the manifest below.** Do not rely on the implementer
+to remember the list - it is stated here so nothing is left to memory or
+inference. This section is the guarantee that a generated Kind actually works and
+that an incomplete one fails the FIRST PR, not production.
+
+### The Kind Completeness Manifest (every Kind, v1 and ext)
+
+For `plugins/<kind>/` every one of these MUST exist:
+
+- `model.go`, `dao.go`, `service.go`, `handler.go`, `presenter.go`,
+  `grpc_handler.go`, `grpc_presenter.go`, `plugin.go` (registers service, REST
+  routes, gRPC service, migration, controller), `mock_dao.go`.
+- `migration.go` that creates/evolves the table with **raw SQL via `tx.Exec`**
+  (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
+  **`AutoMigrate` is forbidden** - it fails closed on the production postgres
+  driver (`lib/pq` + `PreferSimpleProtocol`), poisons the transaction, and makes
+  every query on the table abort. The conformance gate rejects any `AutoMigrate`.
+
+Cross-cutting, per Kind:
+
+- **OpenAPI**: `openapi/openapi.<kinds>.yaml` with schema + every path, wired into
+  `openapi.yaml`; `required[]` matches the spec ERD field-by-field.
+- **SDK**: Go type+client in `components/sdk-go/` and TS type+client in
+  `components/sdk-typescript/`, produced by the generator (never hand-edited).
+- **CLI**: `hsctl create`/`get`/`list`/`delete`/`apply` for the Kind plus its
+  `urls` path. A Kind absent from a spec CLI table still gets all five.
+- **RBAC**: ext Kinds MUST be in `pkg/rbac` `extKinds` (absence = fail-closed 403
+  for every caller) AND have an explicit authorization rule; v1 Kinds have their
+  rule. Tenancy (per-gateway, etc.) enforced where the spec requires.
+- **Proto/CP**: proto message + RPCs regenerated; if the control plane watches the
+  Kind, the watcher subscription and reconciler handle it.
+- **Tests (MANDATORY, not optional)**: a **DB-backed integration test**
+  (testcontainers, `API_ENV=integration_testing`) that drives
+  create -> get -> list -> delete over the real HTTP+DB stack, and an
+  authorization test. Mock-only grpc tests do NOT satisfy this - they never touch
+  the migration or schema, which is precisely how broken Kinds have shipped.
+
+### Conformance pass (idempotent - run it every time)
+
+Before any wave closes, run the conformance pass over **all** registered Kinds
+(not just the ones this change touched):
+
+1. Enumerate every Kind from the plugin registrations (`main.go` side-effect
+   imports / `RegisterPrefixedRoutes`), the `extKinds` map, and `urls`.
+2. For each Kind, diff it against the manifest above.
+3. For every missing artifact, generate and add it. This is **additive and
+   idempotent**: a Kind that already conforms produces no change; a second run of
+   the pipeline yields an empty diff. Re-running the pipeline is how pre-existing
+   incomplete Kinds get filled in - never a one-off hand fix to a single Kind.
+
+### Conformance gate (the thing that stops the surprise)
+
+The pipeline MUST establish and keep green an automated gate so a non-conformant
+Kind cannot merge:
+
+- **Static check** wired into `make check` (runs in the `Checks CI Gate`):
+  enumerate every registered Kind and FAIL, naming each Kind and each missing
+  item - any manifest file, OpenAPI/SDK/CLI/`extKinds` entry, an `AutoMigrate` in
+  a migration, or the absence of a DB-backed integration test.
+- **Generic CRUD conformance test** wired into `make test` (testcontainers):
+  iterate every registered ext Kind and assert a full create -> get -> list ->
+  delete round-trip over the real stack. A broken migration or missing CRUD fails
+  CI. This operationalizes "100% of generated Kinds work" as an enforced
+  invariant, not a hope.
+
+If either gate is red, the wave is not done. Treat a Kind that the gate reports
+as incomplete as implementation work, exactly like a failing test.
+
 ## UI completion contract
 
 For a new or materially changed production page with an approved mockup,
@@ -124,10 +195,15 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - Acceptance: `go build ./...` clean in sdk-go; TypeScript compiles
 
 **Wave 4 -- BE + gRPC** (parallel after Wave 3)
-- BE: migrations, DAOs, service logic, gRPC presenters
+- BE: migrations (raw SQL, never `AutoMigrate`), DAOs, service logic, presenters
 - gRPC: proto updates, `make proto`, handler/presenter implementation
+- Tests: the mandatory DB-backed integration test (create/get/list/delete over the
+  real stack) and authorization test for every Kind in this change
+- RBAC: ext Kinds registered in `pkg/rbac` `extKinds` with an explicit rule
 - Security gate: all handler paths check user token (when auth enabled); no tokens in logs
-- Acceptance: `make test`, `go vet ./... && golangci-lint run` clean
+- **Run the idempotent conformance pass over ALL Kinds** and make the conformance
+  gate green (see "Kind Completeness" above)
+- Acceptance: `make test`, `make check`, `go vet ./... && golangci-lint run` clean
 
 **Wave 5 -- CLI** (parallel after Wave 3)
 - Implement all planned commands from spec CLI table
@@ -201,6 +277,22 @@ go run ./scripts/generator.go \
   --library github.com/openshift-online/rh-trex-ai/components/api-server
 ```
 
+The generator is a starting point, not the finish line. After running it you MUST
+bring the Kind to full conformance with the Kind Completeness Manifest above:
+
+- **Rewrite the generated migration to raw SQL** (`tx.Exec` `CREATE TABLE` /
+  `ALTER TABLE ... IF NOT EXISTS`). If the generator emitted `AutoMigrate`, it is
+  wrong - replace it. The conformance gate rejects `AutoMigrate`.
+- **Add the DB-backed integration test and the authorization test** - the
+  generator does not produce them, and their absence is the exact gap that let
+  broken Kinds ship. A Kind without them is incomplete.
+- **Register the ext Kind in `pkg/rbac` `extKinds`** and add its authorization
+  rule, or it fails closed (403) for every caller.
+- **Add the CLI `create`/`get`/`list`/`delete`/`apply`** and regenerate the SDKs.
+
+Then run the conformance pass (it is idempotent) and confirm the conformance gate
+is green before the wave closes.
+
 ## Build and Deploy
 
 ### Image Builds
@@ -268,4 +360,7 @@ Template files:
 - **Spec is frozen during execution**: queue changes for next cycle
 - **PRs are atomic per wave per component**: one PR per wave
 - **SDK regeneration is mandatory**: after any OpenAPI change, regenerate SDKs before touching BE/CLI
+- **Kind conformance is mandatory and enforced**: every registered Kind MUST satisfy the Kind Completeness Manifest; the conformance gate (`make check` static + `make test` CRUD round-trip) MUST be green. A non-conformant Kind is an incomplete feature, not a follow-up.
+- **The conformance pass is idempotent**: running the pipeline fills in every missing artifact for every Kind and, run twice, produces no diff. Never hand-fix one Kind in isolation - fix the pipeline and let it fill in all Kinds.
+- **No `AutoMigrate`**: migrations are raw SQL via `tx.Exec`; the gate rejects `AutoMigrate`.
 - **Tests cite the scenario they prove**: put `// Verifies: <scenario-ID>` (or `# Verifies:`) on the line above each test that asserts a spec scenario's THEN clause. The format is in `specs/standards/platform/spec-identifiers.spec.md` (STD-IDS-07). `make check` rejects unknown IDs; `make traceability` shows coverage.
