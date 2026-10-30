@@ -827,7 +827,7 @@ without the expected count SHALL fail the step.
 
 ### Requirement: E2E-CORE-15 -- Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it does not necessarily hold `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow whether the `developer` user's own JWT carries `gateway:creator` in `realm_access.roles`: a token without the role MUST return `403 Forbidden`; a token with it MUST return 2xx. The suite SHALL decide the expected result by inspecting the developer's token's realm roles, not by reading API server Deployment configuration and not by branching on `E2E_INFRA_DRIVER`. On Kind the test-user seed assigns `developer` the `gateway:creator` realm role (`ephemeral-test-credentials.spec.md`), so the 2xx path is exercised there; on OpenShift and PR environments `developer` does not hold `gateway:creator`, so the 403 path is exercised there. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
 
 #### Scenario: E2E-CORE-15.01 -- Developer Can Create a Sandbox on a Gateway Shared With It
 
@@ -841,7 +841,7 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: E2E-CORE-15.02 -- Developer Cannot Create a Gateway Without `gateway:creator`
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator` (OpenShift sets the env to empty; production isolation)
+- AND that token's `realm_access.roles` do NOT include `gateway:creator` (OpenShift and PR environments; production isolation)
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
@@ -849,22 +849,22 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: E2E-CORE-15.03 -- Developer Can List Gateways
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND either `RBAC_DEFAULT_ROLES` posture
+- AND regardless of whether that token's `realm_access.roles` include `gateway:creator`
 - WHEN the developer calls `GET /api/hypershell/v1/gateways`
 - THEN the API SHALL return 200 with a body whose `kind` is `GatewayList`
 
-#### Scenario: E2E-CORE-15.04 -- Default Creator Binding Allows Gateway Create
+#### Scenario: E2E-CORE-15.04 -- Keycloak-Granted Creator Role Allows Gateway Create
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND `RBAC_DEFAULT_ROLES` is unset on the API server (Kind; the process default is `gateway:creator`)
+- AND that token's `realm_access.roles` include `gateway:creator` (Kind: granted through the test-user seed's Keycloak role assignment, `ephemeral-test-credentials.spec.md`)
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
-- THEN the API SHALL return 2xx (HYPERSHELL-262 default-role bootstrap)
+- THEN the API SHALL return 2xx
 - AND the test SHALL delete the created gateway
 
 #### Scenario: E2E-CORE-15.05 -- Unexpected Success Is a Failure
 
 - GIVEN the `developer` user attempts to create a gateway
-- AND `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
+- AND that token's `realm_access.roles` do NOT include `gateway:creator`
 - WHEN the API returns a 2xx status despite the missing `gateway:creator` role
 - THEN the test SHALL record a failure (RBAC not enforced)
 - AND the test SHALL delete the erroneously-created gateway to leave a clean state
