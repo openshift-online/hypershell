@@ -121,9 +121,9 @@ competing writer.
 
 The post-script posts the agent's `comment` through the repository's
 sticky-comment primitive, `fullsend issues post-comment` (the same tool
-`post-update-openshell.sh` uses), keyed by the `<!-- fullsend:<phase>-agent -->`
-marker so a reapplied result edits the one comment in place instead of posting a
-duplicate.
+`post-update-openshell.sh` uses), keyed by a per-phase HTML-comment marker
+(`fullsend:<phase>-agent`) so a reapplied result edits the one comment in place
+instead of posting a duplicate.
 
 The comment is posted BEFORE any label change. For a review phase the comment is
 the required review record (the result schema requires a non-empty `comment`), so
