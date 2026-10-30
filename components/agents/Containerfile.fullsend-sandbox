@@ -53,11 +53,11 @@ ARG TARGETARCH
 WORKDIR /gh-src
 COPY components/agents/tools/gh/go.mod components/agents/tools/gh/go.sum ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    go build -buildvcs=false -ldflags="-s -w" -o /usr/local/bin/gh github.com/cli/cli/v2/cmd/gh
+    go build -mod=mod -buildvcs=false -ldflags="-s -w" -o /usr/local/bin/gh github.com/cli/cli/v2/cmd/gh
 WORKDIR /gitleaks-src
 COPY components/agents/tools/gitleaks/go.mod components/agents/tools/gitleaks/go.sum ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    go build -buildvcs=false \
+    go build -mod=mod -buildvcs=false \
       -ldflags="-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1" \
       -o /usr/local/bin/gitleaks github.com/zricethezav/gitleaks/v8
 

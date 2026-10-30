@@ -39,7 +39,7 @@ WORKDIR /gh-src
 COPY components/agents/tools/gh/go.mod components/agents/tools/gh/go.sum ./
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    go build -buildvcs=false -ldflags="-s -w" -o /gh github.com/cli/cli/v2/cmd/gh
+    go build -mod=mod -buildvcs=false -ldflags="-s -w" -o /gh github.com/cli/cli/v2/cmd/gh
 
 FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
 FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
