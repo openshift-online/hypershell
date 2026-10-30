@@ -22,7 +22,11 @@ const (
 	TierUser  = "user"
 )
 
-const accessLockType db.LockType = "gateway_access"
+// The per-gateway advisory-lock domain is owned by the roleBindings package
+// (roleBindings.GatewayAccessLockType / GatewayAccessLockID) so this facade and the
+// low-level /role_bindings resource serialize last-owner mutations in one domain
+// (SEC-RBAC-24, GTW-ACC-07). Reference the shared symbols rather than re-declaring
+// the string here, so the two paths cannot diverge.
 
 func tierToRoleName(tier string) string {
 	switch tier {
@@ -401,7 +405,7 @@ func (s *service) lock(ctx context.Context, gatewayID string) (func(), *APIError
 	if s.locks == nil {
 		return func() {}, nil
 	}
-	owner, err := s.locks.NewAdvisoryLock(ctx, "gateway-access-"+gatewayID, accessLockType)
+	owner, err := s.locks.NewAdvisoryLock(ctx, roleBindings.GatewayAccessLockID(gatewayID), roleBindings.GatewayAccessLockType)
 	if err != nil {
 		return nil, serverError("unable to acquire access lock")
 	}

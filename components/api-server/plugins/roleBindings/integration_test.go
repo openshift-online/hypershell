@@ -82,6 +82,7 @@ func TestRoleBindingCreate_GatewayOwner(t *testing.T) {
 	rbInput := openapi.RoleBinding{
 		RoleId:    ownerRole.ID,
 		Scope:     "gateway",
+		UserId:    &callerID,
 		GatewayId: &gatewayID,
 	}
 
@@ -138,6 +139,7 @@ func TestRoleBindingDelete(t *testing.T) {
 	rb, createErr := rbService.Create(ownerCtx, &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerID,
 		GatewayID: &gatewayID,
 	})
 	Expect(createErr).NotTo(HaveOccurred())
@@ -162,10 +164,16 @@ func TestRoleBindingList(t *testing.T) {
 	Expect(svcErr).NotTo(HaveOccurred())
 
 	gatewayID := "gw-test-list"
-	rbService := roleBindings.Service(&environments.Environment().Services)
-	_, createErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+	// Seed a binding directly through the DAO: this fixture only needs a row to
+	// list, and the low-level Create path now enforces the SEC-RBAC-24 write
+	// policy (caller ownership and a valid target user) which is out of scope here.
+	targetUser := "gw-test-list-user"
+	_, createErr := roleBindings.NewRoleBindingDao(
+		&environments.Environment().Database.SessionFactory,
+	).Create(context.Background(), &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &targetUser,
 		GatewayID: &gatewayID,
 	})
 	Expect(createErr).NotTo(HaveOccurred())
@@ -224,19 +232,14 @@ func TestGrantValidation_OwnerCanGrantViewerOnSameGateway(t *testing.T) {
 
 	gatewayID := "gw-grant-test"
 
-	_, ownerErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
-		RoleID:    ownerRole.ID,
-		Scope:     roleBindings.ScopeGateway,
-		UserID:    &callerUser,
-		GatewayID: &gatewayID,
-	})
-	Expect(ownerErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(ownerRole.ID, callerUser, gatewayID)).To(Succeed())
 
 	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
 
 	_, viewerErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
 		GatewayID: &gatewayID,
 	})
 	Expect(viewerErr).NotTo(HaveOccurred())
@@ -257,19 +260,14 @@ func TestGrantValidation_OwnerCanGrantOwnerOnSameGateway(t *testing.T) {
 
 	gatewayID := "gw-grant-owner-test"
 
-	_, ownerErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
-		RoleID:    ownerRole.ID,
-		Scope:     roleBindings.ScopeGateway,
-		UserID:    &callerUser,
-		GatewayID: &gatewayID,
-	})
-	Expect(ownerErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(ownerRole.ID, callerUser, gatewayID)).To(Succeed())
 
 	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
 
 	_, grantErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
 		RoleID:    ownerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
 		GatewayID: &gatewayID,
 	})
 	Expect(grantErr).NotTo(HaveOccurred())
@@ -290,19 +288,14 @@ func TestGrantValidation_NonOwnerCannotGrantOnGateway(t *testing.T) {
 
 	gatewayID := "gw-grant-fail-test"
 
-	_, viewerErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
-		RoleID:    viewerRole.ID,
-		Scope:     roleBindings.ScopeGateway,
-		UserID:    &callerUser,
-		GatewayID: &gatewayID,
-	})
-	Expect(viewerErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(viewerRole.ID, callerUser, gatewayID)).To(Succeed())
 
 	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
 
 	_, grantErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
 		GatewayID: &gatewayID,
 	})
 	Expect(grantErr).To(HaveOccurred())
@@ -326,19 +319,14 @@ func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	gwOwned := "gw-owned"
 	gwOther := "gw-other"
 
-	_, createErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
-		RoleID:    ownerRole.ID,
-		Scope:     roleBindings.ScopeGateway,
-		UserID:    &callerUser,
-		GatewayID: &gwOwned,
-	})
-	Expect(createErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(ownerRole.ID, callerUser, gwOwned)).To(Succeed())
 
 	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
 
 	_, crossGWErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
 		GatewayID: &gwOther,
 	})
 	Expect(crossGWErr).To(HaveOccurred())
@@ -366,13 +354,7 @@ func TestGrantValidation_AdminSelfGrantRejected(t *testing.T) {
 	gwTarget := "gw-admin-target"
 
 	// Caller holds only a viewer binding on an unrelated gateway.
-	_, viewerErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
-		RoleID:    viewerRole.ID,
-		Scope:     roleBindings.ScopeGateway,
-		UserID:    &callerUser,
-		GatewayID: &gwOwned,
-	})
-	Expect(viewerErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(viewerRole.ID, callerUser, gwOwned)).To(Succeed())
 
 	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
 
@@ -734,4 +716,265 @@ func TestCIFederationGrantorRole(t *testing.T) {
 		}
 	}
 	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationGrantor)
+}
+
+// seedGatewayBinding writes a gateway-scoped binding straight through the DAO,
+// bypassing the SEC-RBAC-24 write policy. Tests use it to stage a caller's
+// pre-existing access (owner/viewer) before exercising an authorized write; the
+// write policy itself is covered by the dedicated SEC-RBAC-24 tests below.
+func seedGatewayBinding(roleID, userID, gatewayID string) error {
+	_, err := roleBindings.NewRoleBindingDao(
+		&environments.Environment().Database.SessionFactory,
+	).Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    roleID,
+		Scope:     roleBindings.ScopeGateway,
+		UserID:    &userID,
+		GatewayID: &gatewayID,
+	})
+	return err
+}
+
+// seedGlobalBinding writes a global-scoped binding straight through the DAO,
+// bypassing the write policy, and returns its id. Used to stage another user's
+// existing global binding that the low-level resource must refuse to delete.
+func seedGlobalBinding(roleID, userID string) (string, error) {
+	rb, err := roleBindings.NewRoleBindingDao(
+		&environments.Environment().Database.SessionFactory,
+	).Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: roleID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &userID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return rb.ID, nil
+}
+
+// An unrelated authenticated user cannot delete another user's Keycloak-owned or
+// global binding through the low-level resource.
+// Verifies: SEC-RBAC-24.03
+func TestRoleBindingDelete_UnrelatedUserCannotDeleteGlobalBinding(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	adminRole, svcErr := roleService.GetByName(context.Background(), roles.RolePlatformAdmin)
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	// User B holds a global platform:admin binding (as JWT sync would create).
+	userB, bErr := userService.UpsertByUsername(context.Background(), "rbac24-victim", nil, nil)
+	Expect(bErr).NotTo(HaveOccurred())
+	bindingID, seedErr := seedGlobalBinding(adminRole.ID, userB)
+	Expect(seedErr).NotTo(HaveOccurred())
+
+	// User A is an unrelated authenticated caller.
+	userA, aErr := userService.UpsertByUsername(context.Background(), "rbac24-attacker", nil, nil)
+	Expect(aErr).NotTo(HaveOccurred())
+	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, userA)
+
+	delErr := rbService.Delete(callerCtx, bindingID)
+	Expect(delErr).To(HaveOccurred())
+	Expect(delErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// The binding is untouched.
+	_, getErr := rbService.Get(context.Background(), bindingID)
+	Expect(getErr).NotTo(HaveOccurred())
+}
+
+// The seeded managed-cluster-registrar role has no explicit write policy and is
+// denied for both create and delete.
+// Verifies: SEC-RBAC-24.06
+func TestRoleBindingWrite_ManagedClusterRegistrarDenied(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	registrarRole, svcErr := roleService.GetByName(context.Background(), roles.RoleManagedClusterRegistrar)
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	userA, aErr := userService.UpsertByUsername(context.Background(), "rbac24-registrar-caller", nil, nil)
+	Expect(aErr).NotTo(HaveOccurred())
+	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, userA)
+
+	// Create is denied.
+	_, createErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
+		RoleID: registrarRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &userA,
+	})
+	Expect(createErr).To(HaveOccurred())
+	Expect(createErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// Delete of an existing registrar binding is denied; the row remains.
+	userB, bErr := userService.UpsertByUsername(context.Background(), "rbac24-registrar-holder", nil, nil)
+	Expect(bErr).NotTo(HaveOccurred())
+	bindingID, seedErr := seedGlobalBinding(registrarRole.ID, userB)
+	Expect(seedErr).NotTo(HaveOccurred())
+
+	delErr := rbService.Delete(callerCtx, bindingID)
+	Expect(delErr).To(HaveOccurred())
+	Expect(delErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	_, getErr := rbService.Get(context.Background(), bindingID)
+	Expect(getErr).NotTo(HaveOccurred())
+}
+
+// A user-facing gateway-role write with no authenticated caller identity is
+// rejected; the ownership helper no longer treats a missing caller id as
+// permission.
+// Verifies: SEC-RBAC-24.07
+func TestRoleBindingCreate_MissingCallerIdentityRejected(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ownerRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	userA, aErr := userService.UpsertByUsername(context.Background(), "rbac24-anon-target", nil, nil)
+	Expect(aErr).NotTo(HaveOccurred())
+
+	gatewayID := "gw-rbac24-anon"
+	// context.Background() carries no caller identity.
+	_, createErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    ownerRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		UserID:    &userA,
+		GatewayID: &gatewayID,
+	})
+	Expect(createErr).To(HaveOccurred())
+	Expect(createErr.HttpCode).To(Equal(http.StatusForbidden))
+}
+
+// The API-assignable ci-federation:admin role (SEC-RBAC-21) is still gated by the
+// shared write check: a create or delete with no authenticated caller identity is
+// rejected, so the service is the authoritative gate even for the role that is not
+// Keycloak-owned. The previous success-on-missing-identity path is removed.
+// Verifies: SEC-RBAC-24.01, SEC-RBAC-24.07
+func TestRoleBindingWrite_CIFederationAdminMissingIdentityRejected(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ciRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	target, tErr := userService.UpsertByUsername(context.Background(), "rbac24-cifed-anon-target", nil, nil)
+	Expect(tErr).NotTo(HaveOccurred())
+
+	// Create with no caller identity is refused (context.Background() carries none).
+	_, createErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &target,
+	})
+	Expect(createErr).To(HaveOccurred())
+	Expect(createErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// Delete of an existing ci-federation:admin binding with no identity is refused;
+	// the row remains.
+	bindingID, seedErr := seedGlobalBinding(ciRole.ID, target)
+	Expect(seedErr).NotTo(HaveOccurred())
+	delErr := rbService.Delete(context.Background(), bindingID)
+	Expect(delErr).To(HaveOccurred())
+	Expect(delErr.HttpCode).To(Equal(http.StatusForbidden))
+	_, getErr := rbService.Get(context.Background(), bindingID)
+	Expect(getErr).NotTo(HaveOccurred())
+}
+
+// Last-owner protection: deleting a gateway's only owner binding is refused; once
+// a second owner exists the delete succeeds.
+// Verifies: SEC-RBAC-24.04
+func TestRoleBindingDelete_LastOwnerProtected(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ownerRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	owner1, o1Err := userService.UpsertByUsername(context.Background(), "rbac24-lastowner-1", nil, nil)
+	Expect(o1Err).NotTo(HaveOccurred())
+
+	gatewayID := "gw-rbac24-lastowner"
+	Expect(seedGatewayBinding(ownerRole.ID, owner1, gatewayID)).To(Succeed())
+
+	list, listErr := rbService.BindingsForGateway(context.Background(), gatewayID)
+	Expect(listErr).NotTo(HaveOccurred())
+	var owner1BindingID string
+	for _, b := range list {
+		if b.UserID != nil && *b.UserID == owner1 {
+			owner1BindingID = b.ID
+		}
+	}
+	Expect(owner1BindingID).NotTo(BeEmpty())
+
+	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, owner1)
+
+	// Removing the only owner is refused (GTW-ACC-07).
+	delErr := rbService.Delete(callerCtx, owner1BindingID)
+	Expect(delErr).To(HaveOccurred())
+	Expect(delErr.HttpCode).To(Equal(http.StatusConflict))
+
+	// With a second owner present, the delete is allowed.
+	owner2, o2Err := userService.UpsertByUsername(context.Background(), "rbac24-lastowner-2", nil, nil)
+	Expect(o2Err).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(ownerRole.ID, owner2, gatewayID)).To(Succeed())
+	Expect(rbService.Delete(callerCtx, owner1BindingID)).NotTo(HaveOccurred())
+}
+
+// Delete authorizes against the binding's stored gateway; a caller who does not
+// own that gateway is refused even though it owns another gateway.
+// Verifies: SEC-RBAC-24.08
+func TestRoleBindingDelete_AuthorizesAgainstStoredGateway(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ownerRole, _ := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	viewerRole, _ := roleService.GetByName(context.Background(), roles.RoleGatewayViewer)
+
+	gwTarget := "gw-rbac24-stored-target"
+	gwOwned := "gw-rbac24-stored-owned"
+
+	// A viewer binding exists on gwTarget for user B.
+	userB, bErr := userService.UpsertByUsername(context.Background(), "rbac24-stored-victim", nil, nil)
+	Expect(bErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(viewerRole.ID, userB, gwTarget)).To(Succeed())
+
+	list, listErr := rbService.BindingsForGateway(context.Background(), gwTarget)
+	Expect(listErr).NotTo(HaveOccurred())
+	var viewerBindingID string
+	for _, b := range list {
+		if b.UserID != nil && *b.UserID == userB {
+			viewerBindingID = b.ID
+		}
+	}
+	Expect(viewerBindingID).NotTo(BeEmpty())
+
+	// User A owns a different gateway, not gwTarget.
+	userA, aErr := userService.UpsertByUsername(context.Background(), "rbac24-stored-caller", nil, nil)
+	Expect(aErr).NotTo(HaveOccurred())
+	Expect(seedGatewayBinding(ownerRole.ID, userA, gwOwned)).To(Succeed())
+	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, userA)
+
+	delErr := rbService.Delete(callerCtx, viewerBindingID)
+	Expect(delErr).To(HaveOccurred())
+	Expect(delErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	_, getErr := rbService.Get(context.Background(), viewerBindingID)
+	Expect(getErr).NotTo(HaveOccurred())
 }

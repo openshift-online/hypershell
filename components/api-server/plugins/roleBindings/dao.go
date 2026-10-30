@@ -24,6 +24,11 @@ type RoleBindingDao interface {
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
 	All(ctx context.Context) (RoleBindingList, error)
 	CountGatewayOwnerUsers(ctx context.Context) (int64, error)
+	// CountOwnersByGatewayID returns the number of distinct users holding
+	// gateway:owner on the gateway. It is the single query behind last-owner
+	// protection (GTW-ACC-07) on the low-level resource, matching the access
+	// facade's distinct-owner semantics.
+	CountOwnersByGatewayID(ctx context.Context, gatewayID string) (int64, error)
 }
 
 var _ RoleBindingDao = &sqlRoleBindingDao{}
@@ -170,6 +175,21 @@ func (d *sqlRoleBindingDao) CountGatewayOwnerUsers(ctx context.Context) (int64, 
 	`, roles.RoleGatewayOwner).Scan(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("count gateway owner users: %w", err)
+	}
+	return count, nil
+}
+
+func (d *sqlRoleBindingDao) CountOwnersByGatewayID(ctx context.Context, gatewayID string) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	err := g2.Raw(`
+		SELECT COUNT(DISTINCT bindings.user_id)
+		FROM role_bindings bindings
+		JOIN roles role ON role.id = bindings.role_id AND role.deleted_at IS NULL
+		WHERE bindings.gateway_id = ? AND bindings.scope = ? AND role.name = ? AND bindings.deleted_at IS NULL
+	`, gatewayID, ScopeGateway, roles.RoleGatewayOwner).Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count gateway owners for %s: %w", gatewayID, err)
 	}
 	return count, nil
 }
