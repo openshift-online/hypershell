@@ -254,7 +254,7 @@ The operational dashboard package SHALL update Storybook fixtures and `mockOpera
 
 #### Scenario: PLAT-USR-08.01 -- CI exercises authorization and mapping
 
-- GIVEN the integration test suite runs with RBAC enforcement enabled
+- GIVEN the integration test suite runs with JWT authentication on (so RBAC enforcement is on)
 - WHEN user inventory and activity tests execute
 - THEN they SHALL cover both allow and deny paths
 - AND the dashboard adapter unit tests SHALL assert metric ID, stringified totals, optional adoption fields, and degraded omission behavior

@@ -50,8 +50,8 @@ func TestManageAuthorizerRequiresIdentity(t *testing.T) {
 }
 
 func TestManageAuthorizerNilAllows(t *testing.T) {
-	// A nil authorizer means RBAC is not enforced (dev posture): the handler
-	// allows, mirroring the middleware's RBAC_ENFORCE gate.
+	// A nil authorizer means RBAC is not enforced (authentication off): the
+	// handler allows, mirroring the middleware's enforcement gate.
 	var a *manageAuthorizer
 	if svcErr := a.authorizeManageGateway(context.Background(), "gw-1"); svcErr != nil {
 		t.Errorf("nil authorizer must allow; got %v", svcErr)

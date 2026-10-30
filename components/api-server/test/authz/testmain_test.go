@@ -38,12 +38,12 @@ import (
 // the bootstrap allowlist a hub ships with for its co-located control plane.
 const allowlistedAccount = "service-account-authz-allowlisted"
 
-// TestMain enables RBAC and a one-entry control-plane allowlist. Tests supply
-// the roles each principal needs in its JWT; the helper adds no implicit role.
-// Set the environment before startup because the middleware reads it then.
+// TestMain configures a one-entry control-plane allowlist. Enforcement needs
+// no opt-in: it follows the mocked JWT authentication the helper enables
+// (SEC-RBAC-14). Tests supply the roles each principal needs in its JWT; the
+// helper adds no implicit role.
 func TestMain(m *testing.M) {
 	flag.Parse()
-	_ = os.Setenv("RBAC_ENFORCE", "true")
 	_ = os.Setenv("RBAC_SERVICE_ACCOUNTS", allowlistedAccount)
 	// The ext regression tests exercise secret value submission; the in-memory
 	// store lets those writes succeed without an external secret manager.
