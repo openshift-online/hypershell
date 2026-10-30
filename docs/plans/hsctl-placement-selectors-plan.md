@@ -117,10 +117,11 @@ short-circuit flag building entirely, as today.
      is used): the availability endpoint evaluates required labels only
      (`plugin.go:287-313` builds `PlacementIntent{Selector: ...}` with no
      exclusions); excluded labels are enforced at create time.
-   - **`--local-kind`:** the response carries a top-level `local_kind`
-     boolean (`openapi.gateways.yaml:496-508`). Print
-     `local-kind placement available` / `local-kind placement unavailable
-     (Kind development environment required)`. Exit 0 either way.
+   - **`--local-kind`:** make no availability request (the endpoint's
+     contract requires at least one capability selector, which a local-kind
+     intent does not declare); print that local-kind placement resolves only
+     in the Kind development environment and is validated server-side at
+     create. Exit 0.
    - **`--cluster-id`:** dry-run prints `pinned to cluster <id>; the server
      validates the cluster reference at create time` and makes no API call
      (availability is selector-based). No cluster lookup in v1.
@@ -204,8 +205,10 @@ generated command).
     `request["placement"] = intent`.
 - Update `Long` help and examples (both shapes, region example, dry-run
   example, awaiting-placement explanation).
-- `components/cli/pkg/urls/urls.go`: add
-  `GatewaysPlacementAvailabilityPath = GatewaysPath + "/placement-availability"`.
+- `components/cli/pkg/urls/ext.go`: add
+  `GatewaysPlacementAvailabilityPath = GatewaysPath + "/placement-availability"`
+  (hand-maintained path helpers live in `ext.go`; `urls.go` is generator-owned
+  and `make check-cli-drift` reverts hand edits to it).
 
 ### Phase 3: tests
 
