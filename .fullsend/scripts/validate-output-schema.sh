@@ -34,17 +34,21 @@ if [[ ! -f "${RESULT_FILE}" ]]; then
 fi
 echo "Validating: ${RESULT_FILE} against ${FULLSEND_OUTPUT_SCHEMA}"
 
-if ! python3 -m json.tool "${RESULT_FILE}" > /dev/null 2>&1; then
+# Run Python in isolated mode (-I): do not put the iteration directory (the cwd)
+# or user site-packages on the import path, so a planted json.py / jsonschema.py
+# in the untrusted output tree cannot be imported in place of the stdlib or the
+# installed package.
+if ! python3 -I -m json.tool "${RESULT_FILE}" > /dev/null 2>&1; then
   echo "FAIL: ${RESULT_FILE} is not valid JSON"
   exit 1
 fi
 
-if ! python3 -c "import jsonschema" 2>/dev/null; then
+if ! python3 -I -c "import jsonschema" 2>/dev/null; then
   echo "FAIL: python3 jsonschema package is not installed (required by ADR 0022)"
   exit 1
 fi
 
-if ! python3 -c "
+if ! python3 -I -c "
 import json, sys
 from jsonschema import validate, ValidationError
 

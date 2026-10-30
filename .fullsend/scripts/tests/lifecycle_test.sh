@@ -100,6 +100,25 @@ lifecycle_is_protected_label "agent/scope/jsell/fullsend" && _ok "scope label is
 lifecycle_is_protected_label "agent/execution-record" && _ok "execution-record is protected" || _no "execution-record is protected"
 lifecycle_is_protected_label "agent/workable" || _ok "phase label is not protected"
 
+# ---- PR dependency classification (SDLC-HOOK-07) --------------------------
+# spec-implementation CREATES the PR; it must not be classified as needing one,
+# or the funnel can never bootstrap a fresh issue.
+lifecycle_phase_creates_pr spec-implementation && _ok "spec-implementation creates the PR" || _no "spec-implementation creates the PR"
+lifecycle_phase_needs_pr spec-implementation && _no "spec-implementation does not need an existing PR" || _ok "spec-implementation does not need an existing PR"
+# A phase is never both needs and creates.
+{
+  overlap=""
+  for p in triage spec-implementation spec-review code-implementation code-review; do
+    if lifecycle_phase_needs_pr "${p}" && lifecycle_phase_creates_pr "${p}"; then overlap="${p}"; fi
+  done
+  [[ -z "${overlap}" ]] && _ok "no phase both needs and creates a PR" || _no "no phase both needs and creates a PR" "${overlap}"
+}
+# The phases that run against an existing PR still need one.
+for p in spec-review code-implementation code-review; do
+  lifecycle_phase_needs_pr "${p}" && _ok "${p} needs an existing PR" || _no "${p} needs an existing PR"
+done
+lifecycle_phase_needs_pr triage && _no "triage needs no PR" || _ok "triage needs no PR"
+
 # ---- Outcome enum (SDLC-HOOK-04.01) --------------------------------------
 lifecycle_outcome_valid spec-review approved && _ok "approved is valid for spec-review" || _no "approved valid spec-review"
 lifecycle_outcome_valid spec-review bogus && _no "bogus rejected for spec-review" || _ok "bogus outcome rejected for spec-review"

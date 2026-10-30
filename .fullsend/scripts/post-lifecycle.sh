@@ -123,6 +123,7 @@ read -r REPO NUMBER _kind < <(lifecycle_parse_issue_url "${ISSUE_URL}") || {
 # Verify any identifier the agent returned against the trusted recorded value.
 # The pre-script records LIFECYCLE_PR_NUMBER; the review harnesses also pass the
 # forge-resolved PR_NUMBER, used as a trusted fallback if the relay is absent.
+trusted_pr=""
 if lifecycle_phase_needs_pr "${PHASE}"; then
   trusted_pr="${LIFECYCLE_PR_NUMBER:-${PR_NUMBER:-}}"
   if [[ -z "${trusted_pr}" ]]; then
@@ -132,6 +133,26 @@ if lifecycle_phase_needs_pr "${PHASE}"; then
   if [[ -n "${r_pr_number}" && "${r_pr_number}" != "${trusted_pr}" ]]; then
     echo "post-lifecycle: result pr_number ${r_pr_number} does not match recorded ${trusted_pr}" >&2
     exit 1
+  fi
+elif lifecycle_phase_creates_pr "${PHASE}"; then
+  # This phase created the pull request. Prefer a value the pre-script recorded
+  # (the pull request already existed - an update or a rerun). When none was
+  # recorded (a fresh issue the agent just opened a pull request for), accept the
+  # agent-reported pr_number only after verifying it is a genuine open pull
+  # request in this repository that closes this issue (SDLC-HOOK-04.03).
+  trusted_pr="${LIFECYCLE_PR_NUMBER:-${PR_NUMBER:-}}"
+  if [[ -n "${trusted_pr}" ]]; then
+    if [[ -n "${r_pr_number}" && "${r_pr_number}" != "${trusted_pr}" ]]; then
+      echo "post-lifecycle: result pr_number ${r_pr_number} does not match recorded ${trusted_pr}" >&2
+      exit 1
+    fi
+  elif [[ -n "${r_pr_number}" ]]; then
+    if gh_pr_is_linked "${REPO}" "${r_pr_number}" "${NUMBER}"; then
+      trusted_pr="${r_pr_number}"
+    else
+      echo "post-lifecycle: result pr_number ${r_pr_number} is not a verified open pull request that closes ${REPO}#${NUMBER}" >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -159,7 +180,9 @@ if lifecycle_phase_is_review "${PHASE}"; then
   # available (relay lost / manual reapply without it) freshness cannot be
   # verified, so the verdict is not applied.
   recorded_head="${LIFECYCLE_PR_HEAD_SHA:-}"
-  current_head="$(gh_pr_head_sha "${REPO}" "${trusted_pr}")"
+  # Capture a failed head read instead of letting set -e abort before the
+  # graceful "cannot verify freshness" path below runs.
+  current_head="$(gh_pr_head_sha "${REPO}" "${trusted_pr}" 2>/dev/null || true)"
   if [[ -z "${recorded_head}" || -z "${current_head}" ]]; then
     echo "post-lifecycle: no trusted recorded pull request head; cannot verify freshness, not applying verdict" >&2
     exit 0

@@ -121,7 +121,8 @@ _relay LIFECYCLE_REPO "${REPO}"
 _relay LIFECYCLE_ISSUE_NUMBER "${NUMBER}"
 _relay LIFECYCLE_START_LABELS "$(tr '\n' ',' <<< "${labels}" | sed 's/,$//')"
 
-# For PR phases, record the linked pull request and its head commit.
+# For phases that run against an existing pull request, require the linked pull
+# request and record its head commit; skip when it is missing.
 if lifecycle_phase_needs_pr "${PHASE}"; then
   pr_number="${PR_NUMBER:-}"
   if [[ -z "${pr_number}" ]]; then
@@ -130,12 +131,30 @@ if lifecycle_phase_needs_pr "${PHASE}"; then
   if [[ -z "${pr_number}" ]]; then
     _skip "no open linked pull request for a ${PHASE} run"
   fi
-  head_sha="$(gh_pr_head_sha "${REPO}" "${pr_number}")"
+  # Capture a failed head read instead of letting set -e abort: an unresolved
+  # head is a skip ("cannot verify"), not a pre-script failure.
+  head_sha="$(gh_pr_head_sha "${REPO}" "${pr_number}" 2>/dev/null || true)"
   if [[ -z "${head_sha}" ]]; then
     _skip "could not resolve the pull request head commit"
   fi
   _relay LIFECYCLE_PR_NUMBER "${pr_number}"
   _relay LIFECYCLE_PR_HEAD_SHA "${head_sha}"
+elif lifecycle_phase_creates_pr "${PHASE}"; then
+  # This phase CREATES the pull request, so on a fresh issue none exists yet.
+  # Do NOT skip for a missing pull request: that would stop the funnel from ever
+  # bootstrapping. Record the pull request only when one already exists (an
+  # update to an existing pull request, or an idempotent rerun), so the
+  # post-script has a trusted number and head to check against.
+  pr_number="${PR_NUMBER:-}"
+  if [[ -z "${pr_number}" ]]; then
+    pr_number="$(gh_linked_pr_number "${REPO}" "${NUMBER}")"
+  fi
+  if [[ -n "${pr_number}" ]]; then
+    _relay LIFECYCLE_PR_NUMBER "${pr_number}"
+    # Best-effort head record: a failed read must not abort under set -e.
+    head_sha="$(gh_pr_head_sha "${REPO}" "${pr_number}" 2>/dev/null || true)"
+    [[ -n "${head_sha}" ]] && _relay LIFECYCLE_PR_HEAD_SHA "${head_sha}"
+  fi
 fi
 
 echo "pre-lifecycle: ${PHASE} prerequisites satisfied for ${REPO}#${NUMBER}" >&2

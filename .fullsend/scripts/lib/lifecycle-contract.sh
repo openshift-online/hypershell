@@ -137,11 +137,29 @@ lifecycle_transition() {
   printf 'close=%s\n' "${close}"
 }
 
-# True when a phase result requires a linked pull request and a head commit as
-# evidence (SDLC-HOOK-07). Triage operates on an issue only.
+# True when a phase result requires a linked pull request that ALREADY exists as
+# evidence (SDLC-HOOK-07). These phases run against a pull request the
+# spec-implementation phase created earlier, so the pre-script skips when none is
+# linked and the post-script requires a trusted pull request number. Triage
+# operates on an issue only; spec-implementation CREATES the pull request (see
+# lifecycle_phase_creates_pr) rather than requiring an existing one.
 lifecycle_phase_needs_pr() {
   case "$1" in
-    spec-implementation | spec-review | code-implementation | code-review) return 0 ;;
+    spec-review | code-implementation | code-review) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# True when a phase CREATES the linked pull request rather than requiring one to
+# already exist (SDLC-HOOK-07). The spec-implementation agent opens the work
+# item's pull request, so on a fresh issue there is no pull request when the
+# pre-script runs: the pre-script must NOT skip for a missing pull request, and
+# the post-script accepts the agent-reported pull request number as the trusted
+# target only after verifying it is an open pull request in this repository that
+# closes this issue. A phase is never both "needs" and "creates".
+lifecycle_phase_creates_pr() {
+  case "$1" in
+    spec-implementation) return 0 ;;
     *) return 1 ;;
   esac
 }
