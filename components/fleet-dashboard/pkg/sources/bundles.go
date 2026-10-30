@@ -301,17 +301,23 @@ func (g *GitHubBundles) enrichGitOps(ctx context.Context, releases map[string]*R
 	}
 }
 
-// gitopsBaseline finds a bundle digest's bounded introduction range on the recorded
-// lock timeline (FLT-BPR-08): intro is the first (oldest) lock commit that selected
-// this digest and base is the lock commit immediately older than it. Using the
-// oldest occurrence anchors the range to recorded history rather than ordering
-// commits by application build date, so rollbacks and divergent histories are
-// handled explicitly (FLT-BPR-08.03). ok is false when the digest is absent from
-// the recorded timeline or has no older baseline commit, so the caller reports the
-// range unavailable instead of inventing one.
+// gitopsBaseline finds a bundle digest's bounded deployment range on the recorded
+// lock timeline (FLT-BPR-08). history is newest-first, so intro is the MOST RECENT
+// lock commit that selected this digest -- the commit the current deployment is on
+// -- and base is the lock commit immediately older than it. Anchoring to the most
+// recent selection (not the first introduction) keeps the range bounded when a
+// digest is introduced, replaced, and later rolled back to: without it, base would
+// point before the first introduction and the environment extension in gitopsPRsFor
+// (base...currentEnvDrySHA) would span the whole excursion and surface the lock-
+// update and configuration pull requests of the intervening digests on this card.
+// Using the recorded most-recent occurrence handles rollbacks and divergent
+// histories explicitly, never by ordering commits by application build date
+// (FLT-BPR-08.03). ok is false when the digest is absent from the recorded timeline
+// or has no older baseline commit, so the caller reports the range unavailable
+// instead of inventing one.
 func gitopsBaseline(history []LockCommit, digest string) (base, intro string, ok bool) {
 	i := -1
-	for j := len(history) - 1; j >= 0; j-- {
+	for j := 0; j < len(history); j++ {
 		if history[j].Digest == digest {
 			i = j
 			break
@@ -331,10 +337,13 @@ func gitopsBaseline(history []LockCommit, digest string) (base, intro string, ok
 // source (dry) commit extends the range so configuration-only PRs appear without a
 // new digest (FLT-BPR-04.02). A pull request that only one environment's range
 // contains is attributed to that environment alone, so the display never implies a
-// change reached an environment that lacks it. ok is false only when EVERY compare
-// failed (unavailable); a partial failure still returns the ranges that succeeded,
-// and a successful set with no PRs returns (nil, true) (empty, not unavailable --
-// FLT-BPR-10).
+// change reached an environment that lacks it. ok is false when ANY compare target
+// failed: a partially-built group would omit some environment's configuration pull
+// requests and leave that environment unattributed while still reporting
+// "available", which overstates completeness, so an incomplete result is surfaced as
+// unavailable rather than a misleadingly-partial success (FLT-BPR-10). A set in which
+// every compare succeeded but found no pull requests returns (nil, true) (empty, not
+// unavailable).
 func (g *GitHubBundles) gitopsPRsFor(ctx context.Context, base, intro string, revisions []DeploymentRevision) ([]PR, bool) {
 	// One compare target per distinct head: the introduction commit plus each
 	// environment's source commit. The intro target carries no environment (its PRs
@@ -355,13 +364,15 @@ func (g *GitHubBundles) gitopsPRsFor(ctx context.Context, base, intro string, re
 	byNum := map[int]*PR{}
 	var order []int // first-seen order, refined by the sort below
 	envs := map[int]map[string]bool{}
-	anyOK := false
 	for _, t := range targets {
 		prs, ok := g.comparePRsStatus(ctx, g.repo, g.tokenFile, base, t.head)
 		if !ok {
-			continue
+			// A failed target leaves the group incomplete (a missing environment's
+			// configuration PRs and attribution). Reporting "available" on an
+			// incomplete group would overstate completeness, so surface the whole
+			// group as unavailable rather than a misleadingly-partial success.
+			return nil, false
 		}
-		anyOK = true
 		for i := range prs {
 			pr := prs[i]
 			if _, seen := byNum[pr.Number]; !seen {
@@ -377,9 +388,6 @@ func (g *GitHubBundles) gitopsPRsFor(ctx context.Context, base, intro string, re
 				envs[pr.Number][t.env] = true
 			}
 		}
-	}
-	if !anyOK {
-		return nil, false
 	}
 
 	out := make([]PR, 0, len(order))
