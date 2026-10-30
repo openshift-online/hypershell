@@ -20,15 +20,16 @@ var _ MappedNullable = &GatewayList{}
 
 // GatewayList struct for GatewayList
 type GatewayList struct {
-	Kind      *string    `json:"kind,omitempty"`
-	Page      *int32     `json:"page,omitempty"`
-	Size      *int32     `json:"size,omitempty"`
-	Total     *int32     `json:"total,omitempty"`
-	Id        *string    `json:"id,omitempty"`
-	Href      *string    `json:"href,omitempty"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
-	Items     []Gateway  `json:"items,omitempty"`
+	Kind                  *string    `json:"kind,omitempty"`
+	Page                  *int32     `json:"page,omitempty"`
+	Size                  *int32     `json:"size,omitempty"`
+	Total                 *int32     `json:"total,omitempty"`
+	Id                    *string    `json:"id,omitempty"`
+	Href                  *string    `json:"href,omitempty"`
+	CreatedAt             *time.Time `json:"created_at,omitempty"`
+	UpdatedAt             *time.Time `json:"updated_at,omitempty"`
+	Items                 []Gateway  `json:"items,omitempty"`
+	HasOtherOwnedGateways *bool      `json:"has_other_owned_gateways,omitempty"`
 }
 
 // NewGatewayList instantiates a new GatewayList object
@@ -336,6 +337,38 @@ func (o *GatewayList) SetItems(v []Gateway) {
 	o.Items = v
 }
 
+// GetHasOtherOwnedGateways returns the HasOtherOwnedGateways field value if set, zero value otherwise.
+func (o *GatewayList) GetHasOtherOwnedGateways() bool {
+	if o == nil || IsNil(o.HasOtherOwnedGateways) {
+		var ret bool
+		return ret
+	}
+	return *o.HasOtherOwnedGateways
+}
+
+// GetHasOtherOwnedGatewaysOk returns a tuple with the HasOtherOwnedGateways field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayList) GetHasOtherOwnedGatewaysOk() (*bool, bool) {
+	if o == nil || IsNil(o.HasOtherOwnedGateways) {
+		return nil, false
+	}
+	return o.HasOtherOwnedGateways, true
+}
+
+// HasHasOtherOwnedGateways returns a boolean if a field has been set.
+func (o *GatewayList) HasHasOtherOwnedGateways() bool {
+	if o != nil && !IsNil(o.HasOtherOwnedGateways) {
+		return true
+	}
+
+	return false
+}
+
+// SetHasOtherOwnedGateways gets a reference to the given bool and assigns it to the HasOtherOwnedGateways field.
+func (o *GatewayList) SetHasOtherOwnedGateways(v bool) {
+	o.HasOtherOwnedGateways = &v
+}
+
 func (o GatewayList) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -372,6 +405,9 @@ func (o GatewayList) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Items) {
 		toSerialize["items"] = o.Items
+	}
+	if !IsNil(o.HasOtherOwnedGateways) {
+		toSerialize["has_other_owned_gateways"] = o.HasOtherOwnedGateways
 	}
 	return toSerialize, nil
 }
