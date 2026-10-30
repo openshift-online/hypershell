@@ -1149,7 +1149,8 @@ Permissions). The overlay SHALL NOT define custom SCC objects. A component swap 
 ephemeral-namespace deployment SHALL NOT relax this posture.
 
 The OpenShift deployment SHALL enforce RBAC the same way the production overlay
-does, with `RBAC_ENFORCE=true` and the control-plane service account in the RBAC
+does, with JWT authentication on (so enforcement follows -- `security/rbac-enforcement.spec.md`
+SEC-RBAC-14) and the control-plane service account in the RBAC
 bypass list. The e2e suite on OpenShift SHALL validate the same RBAC scenarios that
 the Kind suite validates, including the developer role enforcement and the
 platform admin role.
@@ -1164,7 +1165,7 @@ platform admin role.
 
 #### Scenario: DEV-OCP-13.02 -- RBAC is enforced on OpenShift
 
-- GIVEN the OpenShift deployment runs with `RBAC_ENFORCE=true`
+- GIVEN the OpenShift deployment runs with JWT authentication on (so RBAC enforcement is on)
 - WHEN a developer without the required role calls a protected API
 - THEN the API denies the request
 - AND the e2e suite validates the denial the same way it does on Kind

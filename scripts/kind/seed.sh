@@ -104,7 +104,8 @@ info "Obtaining API token from Keycloak..."
 # Keycloak is accessible via HTTPRoute at keycloak.hypershell.localhost.
 #
 # Seed with the admin resource-owner (password) token, NOT the control-plane
-# client-credentials token. The kind overlay enables RBAC_ENFORCE=true, and the
+# client-credentials token. The kind overlay runs with JWT authentication on
+# (authorization always enforced), and the
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
