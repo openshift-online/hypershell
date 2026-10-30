@@ -38,15 +38,16 @@ import (
 // the bootstrap allowlist a hub ships with for its co-located control plane.
 const allowlistedAccount = "service-account-authz-allowlisted"
 
-// TestMain runs the api-server the way the GitOps hubs run it: RBAC enforced,
-// RBAC_DEFAULT_ROLES unset (so every authenticated principal holds
-// gateway:creator, as the deployed realm's default role also grants), and a
-// one-entry control-plane allowlist. The environment must be set before the
-// helper starts the server, because the RBAC middleware reads it at startup.
+// TestMain runs the api-server the way the GitOps hubs run it: RBAC enforced
+// and a one-entry control-plane allowlist. The API server merges no role of
+// its own (SEC-RBAC-13); every test principal that needs gateway:creator
+// carries it as a realm role on its JWT via newPrincipal, simulating the
+// hub's Keycloak realm default role (default-roles-hypershell already
+// includes gateway:creator). The environment must be set before the helper
+// starts the server, because the RBAC middleware reads it at startup.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	_ = os.Setenv("RBAC_ENFORCE", "true")
-	_ = os.Unsetenv("RBAC_DEFAULT_ROLES")
 	_ = os.Setenv("RBAC_SERVICE_ACCOUNTS", allowlistedAccount)
 	// The ext regression tests exercise secret value submission; the in-memory
 	// store lets those writes succeed without an external secret manager.

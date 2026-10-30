@@ -17,8 +17,9 @@ import (
 )
 
 // These tests run under the hub configuration pinned in TestMain: RBAC enforced,
-// every authenticated principal holding gateway:creator, and role bindings synced
-// from JWT realm roles. They cover the body-dependent dedicated_route entitlement,
+// every authenticated principal holding gateway:creator (newPrincipal simulates
+// the hub's Keycloak realm default role), and role bindings synced from JWT
+// realm roles. They cover the body-dependent dedicated_route entitlement,
 // which is enforced in the create handlers rather than in the path authorization
 // middleware because the middleware cannot see a request body.
 

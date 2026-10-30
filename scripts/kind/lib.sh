@@ -618,6 +618,10 @@ reconcile_keycloak_seed_users() {
   fi
   KEYCLOAK_CURL_INSECURE=true
   TEST_USER_PASSWORD_SOURCE=static
+  # Kind grants developer gateway:creator directly (ephemeral-test-credentials.spec.md,
+  # CICD-CRED-13) now that the API server has no RBAC_DEFAULT_ROLES fallback
+  # (rbac-enforcement.spec.md, SEC-RBAC-13).
+  TEST_USER_DEVELOPER_EXTRA_ROLES=gateway:creator
   if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Reconciling Keycloak seed users via ${KIND_KEYCLOAK_URL}..."
   else

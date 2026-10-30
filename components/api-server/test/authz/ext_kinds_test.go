@@ -158,8 +158,8 @@ func TestExtRequestsProvisionUsersAndServeCreatorReads(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	user := newPrincipal(t, h, "extreader-"+strings.ToLower(api.NewID()), nil)
 
-	// A creator (the authz suite runs with the gateway:creator default, as the
-	// deployed hubs do) may read the ext kinds...
+	// A creator (newPrincipal gives every test JWT gateway:creator, simulating
+	// the hub's Keycloak realm default role) may read the ext kinds...
 	_, httpResp, err := client.DefaultAPI.ListSecretSources(user.rest).Execute()
 	Expect(err).NotTo(HaveOccurred(), "creator list secret sources refused: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	_, httpResp, err = client.DefaultAPI.ListRepositories(user.rest).Execute()

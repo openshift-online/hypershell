@@ -1165,6 +1165,9 @@ reconcile_openshift_test_users() {
   header "Test-tier principals"
   KEYCLOAK_BASE_URL="${OPENSHIFT_KC_HOSTNAME}"
   KEYCLOAK_CURL_INSECURE=true
+  # OpenShift and PR environments do not grant developer gateway:creator, so the
+  # 403 path stays tested (ephemeral-test-credentials.spec.md, CICD-CRED-13).
+  TEST_USER_DEVELOPER_EXTRA_ROLES=
   if is_ci_owned_pr_environment; then
     TEST_USER_PASSWORD_SOURCE=secret
     TEST_USER_SECRET_NAMESPACE="${OPENSHIFT_KEYCLOAK_NAMESPACE}"

@@ -28,6 +28,11 @@ import (
 // cluster-scoped gRPC writes under the GitOps hub configuration (see
 // TestMain): every authenticated principal holds gateway:creator, spokes are
 // registered control planes, and one account is on the bootstrap allowlist.
+//
+// The API server itself merges no default role (SEC-RBAC-13); newPrincipal
+// adds gateway:creator to every JWT it mints, simulating the hub's Keycloak
+// realm default role (default-roles-hypershell already includes
+// gateway:creator for every signed-in user, HYPERSHELL-465).
 
 type bearer struct{ token string }
 
@@ -46,7 +51,7 @@ type principal struct {
 func newPrincipal(t *testing.T, h *test.Helper, username string, extra jwt.MapClaims) principal {
 	t.Helper()
 	account := h.NewAccount(username, username, "")
-	token := h.CreateJWTStringWithClaims(account, extra)
+	token := h.CreateJWTStringWithClaims(account, withHubRealmDefaultRole(extra))
 	conn, err := grpc.NewClient(h.GRPCAddress(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(bearer{token: token}))
@@ -66,6 +71,28 @@ func realmRoles(roles ...string) jwt.MapClaims {
 		values[i] = r
 	}
 	return jwt.MapClaims{"realm_access": map[string]interface{}{"roles": values}}
+}
+
+// withHubRealmDefaultRole merges gateway:creator into extra's realm_access.roles
+// (creating that claim if extra has none), so every minted test JWT carries it
+// the way a real hub's Keycloak realm default role would. The API server no
+// longer merges any role of its own (SEC-RBAC-13), so test fixtures must
+// supply it explicitly to keep simulating the hub's actual grant.
+func withHubRealmDefaultRole(extra jwt.MapClaims) jwt.MapClaims {
+	merged := jwt.MapClaims{}
+	for k, v := range extra {
+		merged[k] = v
+	}
+	var existingRoles []interface{}
+	if ra, ok := merged["realm_access"].(map[string]interface{}); ok {
+		if rs, ok := ra["roles"].([]interface{}); ok {
+			existingRoles = rs
+		}
+	}
+	merged["realm_access"] = map[string]interface{}{
+		"roles": append(append([]interface{}{}, existingRoles...), "gateway:creator"),
+	}
+	return merged
 }
 
 // spoke is a registered control plane: a client_credentials principal holding
