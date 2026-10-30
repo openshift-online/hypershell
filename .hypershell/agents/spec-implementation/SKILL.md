@@ -53,7 +53,11 @@ file or directory you set out to edit. Before finishing:
 
 ### Step 3: Commit and Push
 
-Commit the specification changes.
+Commit the specification changes as a single `docs(spec): ...` commit. This is the
+FIRST commit of the work item's one funnel pull request (one PR carries both the
+spec and code phases; see "Pull request and commit model" in
+`../../execute-sdlc/SKILL.md`). The code phase later adds per-component commits to
+this same PR, so do not open or expect a separate code PR.
 
 IF `$EXISTING_PR` IS NOT NULL:
 - Push to existing PR's branch
