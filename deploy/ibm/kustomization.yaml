@@ -73,8 +73,8 @@ patches:
                     # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
                     value: openshell.ibm.example.com
                   - name: GATEWAY_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.1.5-rhaiv.3
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.1.6-rhaiv.1
                   - name: GATEWAY_SUPERVISOR_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.1.5-rhaiv.3
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.1.6-rhaiv.1
                   - name: GATEWAY_SANDBOX_RUNTIME_IMAGE
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-runtime:v0.1.5-rhaiv.3
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-runtime:v0.1.6-rhaiv.1
