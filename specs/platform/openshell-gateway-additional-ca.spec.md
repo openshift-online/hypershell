@@ -101,7 +101,7 @@ ConfigMap.
 
 ## Requirements
 
-### Requirement: Per-gateway additional destination CA bundle
+### Requirement: OSG-ACA-01 -- Per-gateway additional destination CA bundle
 
 The Gateway API resource SHALL have an optional `additional_ca_bundle` string
 field (inline PEM), part of the REST and gRPC create and update contracts, the
@@ -115,7 +115,7 @@ name space is `openshell-gateway-*` (fullname-prefixed), so a control-plane
 owned `gateway-additional-ca` cannot collide with chart-adopted objects -- the
 same separation the `gateway-trusted-ca` ConfigMap already relies on.
 
-#### Scenario: bundle set at create
+#### Scenario: OSG-ACA-01.01 -- bundle set at create
 
 - GIVEN a Gateway create request with `additional_ca_bundle` containing one or
   more PEM certificate blocks
@@ -128,7 +128,7 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
   `[openshell.supervisor.network] additional_ca_bundle` pointing at the staged
   mount
 
-#### Scenario: bundle absent
+#### Scenario: OSG-ACA-01.02 -- bundle absent
 
 - GIVEN a Gateway with `additional_ca_bundle` unset or empty
 - WHEN the GatewayReconciler provisions or reconciles the gateway
@@ -137,7 +137,7 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
 - AND gateway startup and sandbox egress SHALL use default trust roots only
   (no failure, no rendered mount)
 
-#### Scenario: bundle rejected at the API boundary
+#### Scenario: OSG-ACA-01.03 -- bundle rejected at the API boundary
 
 - GIVEN a Gateway create or update request with `additional_ca_bundle` that is
   not one or more PEM certificate blocks (empty after trim, DER bytes, private
@@ -147,7 +147,7 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
   and the reason, WITHOUT persisting the gateway change
 - AND the error SHALL NOT echo the bundle contents
 
-#### Scenario: invalid materialized bundle (defense in depth)
+#### Scenario: OSG-ACA-01.04 -- invalid materialized bundle (defense in depth)
 
 - GIVEN a gateway's materialized `ca.crt` contains material the gateway rejects
   (possible only if the API validation was bypassed, e.g. direct DB writes)
@@ -157,7 +157,7 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
 - AND the control plane SHALL surface the gateway's degraded state through
   existing gateway health checks (`openshell-gateway-health.spec.md`)
 
-### Requirement: rotation updates the running gateway
+### Requirement: OSG-ACA-02 -- rotation updates the running gateway
 
 Updating `additional_ca_bundle` SHALL rotate the gateway's trust: the control
 plane SHALL re-materialize the ConfigMap and, because the chart's
@@ -175,7 +175,7 @@ Running sandboxes retain their trust generation until stopped; stop/start of a
 sandbox reconciles it to the new generation while preserving sandbox identity
 and durable workspace contents (upstream lifecycle behavior).
 
-#### Scenario: operator or user rotates the bundle
+#### Scenario: OSG-ACA-02.01 -- operator or user rotates the bundle
 
 - GIVEN a gateway is running with trust generation N
 - WHEN the Gateway's `additional_ca_bundle` is updated via the API and the
@@ -189,14 +189,14 @@ and durable workspace contents (upstream lifecycle behavior).
 - AND stop/start of a sandbox SHALL reconcile it to N+1 while preserving sandbox
   identity and durable workspace contents
 
-### Requirement: clearing the bundle removes the trust
+### Requirement: OSG-ACA-03 -- clearing the bundle removes the trust
 
 Removing the bundle SHALL be declarative (follow-source semantics): clearing
 `additional_ca_bundle` (set to null/empty) SHALL cause the control plane to
 delete the tenant `gateway-additional-ca` ConfigMap and stop setting the chart
 value, rolling the gateway back to default trust roots on the next reconcile.
 
-#### Scenario: bundle cleared
+#### Scenario: OSG-ACA-03.01 -- bundle cleared
 
 - GIVEN a gateway is running with a materialized additional CA bundle
 - WHEN the Gateway's `additional_ca_bundle` is cleared via the API and the
@@ -313,7 +313,15 @@ therefore be implemented and merged before upstream merges.
    stop/start affected sandboxes to reconcile them to the new generation. The
    gateway roll is automatic (Phase 2 item 5); only the sandbox stop/start is a
    manual/agent-driven step.
-2. Web-console gateway provisioning form exposure of the field is a follow-up
+2. CLI ergonomics: the `additional_ca_bundle` properties in
+   `openapi.gateways.yaml` carry `x-file-input: true`, so once the pinned
+   rh-trex-ai cli-generator ships the file-input extension (branch
+   `feat/cli-file-input` in the generator repo) and the pin is bumped, hsctl
+   gains `--additional-ca-bundle-file <path>` on create and update alongside
+   the raw-value switch. The annotation is inert under the current pinned
+   generator (verified: no CLI or TUI drift). Until the pin bump, the
+   ergonomic path is `hsctl create gateway --body request.json`.
+3. Web-console gateway provisioning form exposure of the field is a follow-up
    (requires a mockup and the ui-build-gate per web-console conventions); the
    API + hsctl surface is the initial cut.
 

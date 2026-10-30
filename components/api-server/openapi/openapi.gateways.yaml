@@ -310,6 +310,7 @@ components:
             additional_ca_bundle:
               type: string
               description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception)
+              x-file-input: true
             server_dns_names:
               type: array
               items:
@@ -451,6 +452,7 @@ components:
         additional_ca_bundle:
           type: string
           description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception)
+          x-file-input: true
     GatewayPlacementIntent:
       type: object
       description: >-
@@ -537,6 +539,7 @@ components:
         additional_ca_bundle:
           type: string
           description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception)
+          x-file-input: true
   parameters:
       id:
         name: id
