@@ -32,11 +32,39 @@
 # upstream fullsend sandbox so behavior matches. All downloads are SHA256
 # verified so a compromised mirror cannot inject a binary.
 
+# Native multi-arch build: TARGETARCH is populated per platform by the build
+# system. Declared globally so the per-arch go tool-builder base images below can
+# interpolate it.
+ARG TARGETARCH=amd64
+
+# ---- Stage 0: gh + gitleaks built from source (Hermeto-attributed) ----
+# gh and gitleaks are source-available, so they are built from the pinned tool
+# modules (components/agents/tools/gh at gh v2.100.0 -- the newest release within
+# the go1.26.7 build toolchain; components/agents/tools/gitleaks at gitleaks
+# v8.30.1) instead of downloading upstream release binaries. The sandbox pipeline
+# prefetch-input attributes their gomod closures through Hermeto (CICD-ECC-02), so
+# they are no longer unattributed baked binaries. `-buildvcs=false` keeps the
+# binaries reproducible. The Go builder base images are digest-pinned per arch,
+# matching the agent runtime images.
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-tools-amd64
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-tools-arm64
+FROM go-tools-${TARGETARCH} AS go-tools-builder
+ARG TARGETARCH
+WORKDIR /gh-src
+COPY components/agents/tools/gh/go.mod components/agents/tools/gh/go.sum ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -buildvcs=false -ldflags="-s -w" -o /usr/local/bin/gh github.com/cli/cli/v2/cmd/gh
+WORKDIR /gitleaks-src
+COPY components/agents/tools/gitleaks/go.mod components/agents/tools/gitleaks/go.sum ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -buildvcs=false \
+      -ldflags="-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1" \
+      -o /usr/local/bin/gitleaks github.com/zricethezav/gitleaks/v8
+
 # ---- Stage 1: verified toolchain downloads ----
 FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:48393e4261b2544f652c915b3e052256ddf66ee95cd04dc0362191f302c4e94a AS builder
 
 ARG TARGETARCH
-ARG GH_VERSION=2.58.0
 ARG GO_VERSION=1.26.7
 ARG NODE_VERSION=24.21.0
 ARG SHELLCHECK_VERSION=0.10.0
@@ -73,12 +101,6 @@ RUN set -eux; \
     echo "${NODE_SHA}  /tmp/node.tar.xz" | sha256sum -c -; \
     mkdir -p /usr/local/node; \
     tar -C /usr/local/node --strip-components=1 -xJf /tmp/node.tar.xz; \
-    \
-    # --- gh (GitHub CLI) ---
-    curl -fsSLo /tmp/gh.tar.gz \
-      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz"; \
-    tar -C /tmp -xzf /tmp/gh.tar.gz; \
-    install -m0755 "/tmp/gh_${GH_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh; \
     \
     # --- shellcheck ---
     SC_ARCH="${ARCH}"; \
@@ -133,8 +155,10 @@ RUN set -eux; \
 # --- toolchains from the builder stage ---
 COPY --from=builder /usr/local/go /usr/local/go
 COPY --from=builder /usr/local/node /usr/local/node
-COPY --from=builder /usr/local/bin/gh /usr/local/bin/gh
 COPY --from=builder /usr/local/bin/shellcheck /usr/local/bin/shellcheck
+# gh and gitleaks are built from source (Hermeto-attributed) in go-tools-builder.
+COPY --from=go-tools-builder /usr/local/bin/gh /usr/local/bin/gh
+COPY --from=go-tools-builder /usr/local/bin/gitleaks /usr/local/bin/gitleaks
 
 ENV PATH="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -174,22 +198,8 @@ RUN set -eux; \
     chmod 0755 /usr/local/bin/tirith; \
     rm -f /tmp/tirith.tar.gz
 
-# --- gitleaks (secret scanner) ---
-ARG GITLEAKS_VERSION=8.30.1
-ARG GITLEAKS_SHA256_amd64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-ARG GITLEAKS_SHA256_arm64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in \
-      amd64) GL_ARCH=x64;   GL_SHA="${GITLEAKS_SHA256_amd64}" ;; \
-      arm64) GL_ARCH=arm64; GL_SHA="${GITLEAKS_SHA256_arm64}" ;; \
-      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSLo /tmp/gitleaks.tar.gz \
-      "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${GL_ARCH}.tar.gz"; \
-    echo "${GL_SHA}  /tmp/gitleaks.tar.gz" | sha256sum -c -; \
-    tar xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks; \
-    chmod 0755 /usr/local/bin/gitleaks; \
-    rm -f /tmp/gitleaks.tar.gz
+# gitleaks is built from source in the go-tools-builder stage (CICD-ECC-02) and
+# copied in below, so it is no longer downloaded as a prebuilt release binary.
 
 # --- ripgrep + fd (search backends; static musl builds) ---
 ARG RIPGREP_VERSION=15.2.0

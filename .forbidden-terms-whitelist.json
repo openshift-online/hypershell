@@ -10,6 +10,11 @@
     "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
+    "filename": "components/agents/tools/gh/go.sum",
+    "line": 507,
+    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
+  },
+  {
     "filename": "scripts/openapi-ir/go.sum",
     "line": 32,
     "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."

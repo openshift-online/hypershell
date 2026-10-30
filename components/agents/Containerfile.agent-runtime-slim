@@ -27,6 +27,20 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -buildvcs=false -ldflags="-s -w" -o /fullsend ./cmd/fullsend
 
+# Build the GitHub CLI (gh) from pinned source instead of downloading the upstream
+# release binary. gh is source-available, so building it from the pinned
+# components/agents/tools/gh tool module attributes its full gomod closure through
+# Hermeto (CICD-ECC-02) rather than shipping an unattributed baked binary. The
+# tool module pins gh v2.100.0 (the newest release within the go1.26.7 build
+# toolchain; see that module's go.mod). The pipeline prefetch-input attributes the
+# module's gomod closure; `-buildvcs=false` keeps the binary reproducible.
+FROM go-${TARGETARCH} AS gh-builder
+WORKDIR /gh-src
+COPY components/agents/tools/gh/go.mod components/agents/tools/gh/go.sum ./
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -buildvcs=false -ldflags="-s -w" -o /gh github.com/cli/cli/v2/cmd/gh
+
 FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
 FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
 USER 0
@@ -50,6 +64,7 @@ COPY --from=assembler /rootfs/ /
 COPY --from=tools /tools/ /usr/local/bin/
 COPY --from=hsctl-builder /hsctl /usr/local/bin/hsctl
 COPY --from=fullsend-builder /fullsend /usr/local/bin/fullsend
+COPY --from=gh-builder /gh /usr/local/bin/gh
 ENV HOME=/home/agent \
     XDG_CONFIG_HOME=/home/agent/.config \
     XDG_CACHE_HOME=/home/agent/.cache \

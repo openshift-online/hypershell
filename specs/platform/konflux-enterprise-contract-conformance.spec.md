@@ -33,27 +33,40 @@ repository. Each has three pipeline files,
 | `cli` | `components/cli/Dockerfile` | Go (gomod, `components/cli`) |
 | `web-console` | `components/web-console/Dockerfile` | Node (pnpm, shared root workspace lockfile) |
 | `fleet-dashboard` | `components/fleet-dashboard/Dockerfile` | Go (gomod, `components/fleet-dashboard`) + Node (pnpm, shared root workspace lockfile) |
-| `agent-runtime` | `components/agents/Containerfile.agent-runtime` | Go (gomod, `hsctl` from `components/cli`); tool closure SHA-256-locked |
-| `agent-runtime-slim` | `components/agents/Containerfile.agent-runtime-slim` | Go (gomod, `hsctl` from `components/cli`); tool closure SHA-256-locked |
-| `fullsend-sandbox` | `components/agents/Containerfile.fullsend-sandbox` | None from source (self-contained UBI9 image; checksum-pinned downloads) |
+| `agent-runtime` | `components/agents/Containerfile.agent-runtime` | Go (gomod: `hsctl` from `components/cli`, `fullsend` from the pinned submodule, `gh` from `components/agents/tools/gh`); remaining tool closure SHA-256-locked |
+| `agent-runtime-slim` | `components/agents/Containerfile.agent-runtime-slim` | Go (gomod: `hsctl` from `components/cli`, `fullsend` from the pinned submodule, `gh` from `components/agents/tools/gh`); remaining tool closure SHA-256-locked |
+| `fullsend-sandbox` | `components/agents/Containerfile.fullsend-sandbox` | Go (gomod: `gh` from `components/agents/tools/gh`, `gitleaks` from `components/agents/tools/gitleaks`); remaining toolchain checksum-pinned downloads |
 
 `fullsend-sandbox` is a HyperShell-owned, self-contained image built on Red Hat
-UBI9 (`registry.access.redhat.com/ubi9/ubi`, digest-pinned). It builds no
-repository module from source: it assembles its toolchain and the `tirith`
-security-hook binary from checksum-verified downloads. It therefore has no
-Hermeto-resolvable from-source ecosystem, and its dependency attribution and
-hermetic migration are addressed by Requirement CICD-ECC-02's checksum-pinned
-path rather than by a `gomod`/`npm`/`pip` prefetch.
+UBI9 (`registry.access.redhat.com/ubi9/ubi`, digest-pinned). It builds its
+source-available Go tools -- `gh` and `gitleaks` -- from pinned tool modules
+(`components/agents/tools/gh`, `components/agents/tools/gitleaks`) so their gomod
+closures are resolved through Hermeto, and it assembles its remaining toolchain
+(Go, Node, shellcheck, ripgrep, fd), the `tirith` security-hook binary, and the
+closed-source Atlassian CLI (`acli`) from checksum-verified downloads. Its gomod
+ecosystem is therefore attributed through Hermeto prefetch, while its
+non-from-source inputs are attributed through Requirement CICD-ECC-02's
+checksum-pinned path.
 
-The two agent runtime images build one repository module from source through
-Hermeto, the `hsctl` CLI from `components/cli` (`gomod`), but they do not resolve
-Python or Node dependencies from a repository `pip` or `npm` manifest. Their tool
-closures are versioned, SHA-256-locked downloads assembled by
+The two agent runtime images build their source-available Go tools from source
+through Hermeto -- the `hsctl` CLI from `components/cli`, the `fullsend` CLI from
+its pinned submodule, and `gh` from `components/agents/tools/gh` (all `gomod`) --
+but they do not resolve Python or Node dependencies from a repository `pip` or
+`npm` manifest. Their remaining tool closure (including the closed-source `acli`,
+whose source is not published) is versioned, SHA-256-locked downloads assembled by
 `components/agents/install-tools.py`, consistent with
 [`agent-runtime-images.spec.md`](./agent-runtime-images.spec.md), which already
 requires downloaded tools to be SHA-256-locked and checksum-verified. Those
 downloads are attributed through Requirement CICD-ECC-02's checksum-pinned path,
-the same way `fullsend-sandbox` attributes its downloads.
+the same way `fullsend-sandbox` attributes its non-from-source downloads.
+
+A source-available tool SHALL be built from source through Hermeto (as `gh` and
+`gitleaks` now are), so its dependency closure is fully attributed, rather than
+shipped as a prebuilt binary attributed only by checksum. The checksum-pinned path
+is reserved for inputs with no published source to build from -- most notably the
+closed-source `acli` -- and for prebuilt non-Go toolchain binaries. The residual
+`hermeto_attribution_required` warnings that remain for those source-unavailable
+binaries are addressed by Requirement CICD-ECC-07.
 
 The Konflux build particulars of the two agent runtime images (staged builds,
 native multi-arch, Trusted Artifacts from clone and prefetch) are specified in
@@ -173,19 +186,21 @@ per-architecture base images SHALL stay single-architecture until it does, rathe
 than add an architecture it cannot build natively.
 
 Some components also pull inputs that Hermeto cannot prefetch. `fullsend-sandbox`
-has no Hermeto-resolvable from-source ecosystem at all: it assembles its toolchain
-and the `tirith` binary from checksum-pinned downloads. The `agent-runtime` and
-`agent-runtime-slim` images resolve their `gomod` ecosystem (the `hsctl` build)
-through Hermeto, but assemble their Python and Node tool closures from
-SHA-256-locked downloads through `components/agents/install-tools.py`. For every
-such input the build SHALL verify it against its published SHA-256 digest so no
-input is unattributed or non-reproducible, and the image SHALL still satisfy
-Requirements CICD-ECC-03 through CICD-ECC-05. A component whose build still fetches
-any such input over the network SHALL NOT set `hermetic: "true"`, because network
-isolation would break that fetch; vendoring those downloads into prefetch so the
+builds its source-available Go tools (`gh`, `gitleaks`) through Hermeto from their
+tool modules, and assembles its remaining toolchain and the `tirith` binary from
+checksum-pinned downloads. The `agent-runtime` and `agent-runtime-slim` images
+resolve their `gomod` ecosystem (the `hsctl`, `fullsend`, and `gh` builds) through
+Hermeto, but assemble their Python and Node tool closures and the closed-source
+`acli` from SHA-256-locked downloads through
+`components/agents/install-tools.py`. For every such input the build SHALL verify
+it against its published SHA-256 digest so no input is unattributed or
+non-reproducible, and the image SHALL still satisfy Requirements CICD-ECC-03
+through CICD-ECC-05. A component whose build still fetches any such input over the
+network SHALL NOT set `hermetic: "true"`, because network isolation would break
+that fetch; vendoring the remaining checksum-pinned downloads into prefetch so the
 component can build hermetically is a deferred goal of this specification. This
 applies to `fullsend-sandbox` and to the agent runtime tool closures until their
-downloads are vendored.
+remaining downloads are vendored or built from source.
 
 #### Scenario: CICD-ECC-02.01 -- Single-ecosystem Go component prefetches gomod
 
@@ -216,21 +231,29 @@ downloads are vendored.
 - THEN that input SHALL be supplied through Hermeto prefetch
 - AND the hermetic build SHALL succeed without a live network fetch
 
-#### Scenario: CICD-ECC-02.05 -- Checksum-pinned component attributes its downloads
+#### Scenario: CICD-ECC-02.05 -- Checksum-pinned downloads are attributed by digest
 
-- GIVEN a component with no Hermeto-resolvable from-source ecosystem (for example `fullsend-sandbox`)
-- WHEN its image is built from checksum-pinned downloaded toolchains and binaries
+- GIVEN a component that pulls inputs with no published source to build from (for example `fullsend-sandbox`'s Go/Node toolchain, `tirith`, `acli`, ripgrep, fd)
+- WHEN its image is built from those checksum-pinned downloaded toolchains and binaries
 - THEN every downloaded input SHALL be verified against its published SHA-256 digest
 - AND no input SHALL appear in the SBOM as unattributed or non-reproducible
 - AND the component SHALL NOT set `hermetic: "true"` until those downloads are vendored for a hermetic build
 
-#### Scenario: CICD-ECC-02.06 -- Agent runtime attributes gomod through Hermeto and tools by digest
+#### Scenario: CICD-ECC-02.06 -- Agent images build source-available tools and attribute gomod through Hermeto
 
-- GIVEN `agent-runtime` or `agent-runtime-slim`, which builds `hsctl` from `components/cli` and assembles its Python and Node tool closure from SHA-256-locked downloads
+- GIVEN `agent-runtime` or `agent-runtime-slim`, which builds `hsctl` from `components/cli`, `fullsend` from its pinned submodule, and `gh` from `components/agents/tools/gh`, and assembles its Python and Node tool closure plus the closed-source `acli` from SHA-256-locked downloads
 - WHEN its image is built
-- THEN the `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at `components/cli`
-- AND every downloaded tool SHALL be verified against its published SHA-256 digest so no tool is unattributed or non-reproducible
-- AND the component SHALL NOT set `hermetic: "true"` until those tool downloads are vendored for a hermetic build
+- THEN every `gomod` ecosystem SHALL be attributed through Hermeto with a `prefetch-input` entry pointing at each module directory (`components/cli`, `components/agents/third_party/fullsend`, `components/agents/tools/gh`)
+- AND every remaining downloaded tool SHALL be verified against its published SHA-256 digest so no tool is unattributed or non-reproducible
+- AND the component SHALL NOT set `hermetic: "true"` until those remaining tool downloads are vendored for a hermetic build
+
+#### Scenario: CICD-ECC-02.08 -- Source-available tools are built from source, not downloaded as binaries
+
+- GIVEN a source-available Go tool an agent image ships (for example `gh` or `gitleaks`)
+- WHEN its image is built
+- THEN the tool SHALL be built from a pinned tool module whose gomod closure is resolved through Hermeto (a `prefetch-input` entry pointing at that tool module directory)
+- AND the tool SHALL NOT be shipped as a prebuilt release binary attributed only by checksum
+- AND the tool version SHALL be pinned to a release buildable with the repository's Go build toolchain
 
 #### Scenario: CICD-ECC-02.07 -- Trusted Artifacts Go component builds a native multi-arch index
 
@@ -355,3 +378,57 @@ CICD-ECC-03) and SHALL be digest-pinned.
 - WHEN its required checks pass
 - THEN the bump SHALL be merged promptly
 - AND the component images SHALL NOT accumulate unapplied base-image fixes
+
+### Requirement: CICD-ECC-07 -- Accepted Residual Attribution For Source-Unavailable Binaries
+
+**Verification:** Inspection -- the combined `enterprise-contract` report is
+reviewed for the residual `hermeto_attribution_required` warnings and their
+source, against the checksum-pinned inputs declared by CICD-ECC-02.
+
+Some shipped binaries have no published source to build from and so cannot have
+their dependency closure resolved through Hermeto. The clearest case is the
+closed-source Atlassian CLI (`acli`, `pkg:golang/atlassian.com/cli`), which the
+agent images require for Jira access and which Atlassian ships only as a prebuilt
+binary. Such binaries are attributed by their published SHA-256 digest and upstream
+provenance (CICD-ECC-02's checksum-pinned path), which pins exactly what ships but
+does not reconstruct the per-dependency SBOM that Hermeto would produce from
+source. Conforma's `sbom_spdx.hermeto_attribution_required` rule therefore emits a
+`WARNING` for each such binary's embedded module metadata.
+
+The platform ACCEPTS these residual warnings as a known repository risk, for the
+source-unavailable binaries only. This acceptance is deliberately narrow:
+
+- It covers ONLY binaries with no published source (for example `acli`). It does
+  NOT cover any source-available tool; those SHALL be built from source so their
+  closure is attributed (Requirement CICD-ECC-02, Scenario CICD-ECC-02.08). A new
+  attribution warning traceable to a source-available tool is a defect to fix by
+  building it from source, not a warning this requirement accepts.
+- It is a repository-side acceptance of residual risk, recorded here and in the
+  pull request, NOT a formal Konflux tenant-policy exception. The platform SHALL
+  NOT modify the tenant Conforma policy
+  (`rhtap-releng-tenant/app-interface-standard`), SHALL NOT suppress or exclude the
+  warnings, and SHALL NOT represent the missing Hermeto attribution as present.
+- The `hermeto_attribution_required` rule is a non-enforced `WARNING` in Konflux
+  today (the `enterprise-contract` check result is `WARNING`, not a failure, and
+  the release gate is not blocked by it). The acceptance records residual risk for
+  visibility and peace of mind; it does not assert the attribution gap is closed.
+
+The evidence for this acceptance -- the combined `enterprise-contract` report, its
+`successes`/`failures`/`warnings` counts, and the per-tool breakdown distinguishing
+the accepted source-unavailable binaries from any other warning -- SHALL be kept
+visible in the pull request and the reconcile checkpoint.
+
+#### Scenario: CICD-ECC-07.01 -- Source-unavailable binary residual is accepted, not hidden
+
+- GIVEN a shipped binary with no published source (for example `acli`)
+- WHEN Conforma emits `sbom_spdx.hermeto_attribution_required` warnings for its embedded module metadata
+- THEN the binary SHALL be attributed by its published SHA-256 digest and upstream provenance
+- AND the residual warnings SHALL be accepted as a recorded repository risk rather than suppressed, excluded, or resolved by a tenant-policy change
+- AND the `enterprise-contract` result SHALL remain a non-failing `WARNING`
+
+#### Scenario: CICD-ECC-07.02 -- A source-available tool's warning is not covered by the acceptance
+
+- GIVEN an attribution warning traceable to a source-available tool (for example `gh` or `gitleaks`)
+- WHEN the warning is triaged
+- THEN it SHALL NOT be treated as an accepted residual under this requirement
+- AND it SHALL be resolved by building that tool from source through Hermeto (Scenario CICD-ECC-02.08)
