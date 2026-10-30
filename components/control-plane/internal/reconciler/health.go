@@ -584,7 +584,18 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 		GatewayID:     gatewayID,
 		GatewayName:   gw.GetName(),
 	}
-	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), gateway.NamespaceConfig{Name: namespace}, opts); err != nil {
+	// The self-heal must key on the same route config the console-address
+	// publisher uses (consoleRouteConfig). Passing a bare NamespaceConfig here
+	// drops the gateway's dedicated-route opt-in, so the self-heal of a
+	// dedicated-certificate gateway would re-parent its console onto the shared
+	// ingress -- shared host, shared Gateway, shared-host Keycloak redirect --
+	// while console_address keeps advertising the dedicated host, leaving the
+	// console button pointing at a URL no listener serves.
+	nsConfig := gateway.NamespaceConfig{
+		Name:    namespace,
+		Gateway: gateway.GatewayConfig{Route: consoleRouteConfig(gw)},
+	}
+	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), nsConfig, opts); err != nil {
 		log.Printf("WARN console self-heal in %s: %v", namespace, err)
 		return
 	}

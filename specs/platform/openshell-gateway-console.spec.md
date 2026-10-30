@@ -355,11 +355,11 @@ The reconciler must treat the console Keycloak work (client, mappers, secret) as
 
 The reconciler must PATCH the console URL into a read-only `consoleAddress` field on the gateway. The management web-console and the CLI use this field to link to the console.
 
-- Format: `https://console-<ns>.<base-domain>`.
+- Format: `https://console-<ns>.<base-domain>` for gateways on the shared ingress; `https://console-<ns>.gw-<ns>.<base-domain>` for gateways opted in to the dedicated per-gateway certificate (`route.certificate`, see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) OSG-ROUT-12).
 - The reconciler sets it only once the console Deployment (dashboard + oauth2-proxy) is observed Ready, so the web-console's console button never appears before the console pod can serve.
-- The reconciler sets it only when the exposure resource for the selected ingress mode is Ready. An HTTPRoute is Ready when one parent reports `Accepted=True` and `ResolvedRefs=True`. An OpenShift Route is Ready when one router reports `Admitted=True`.
-- The reconciler clears it when the console pod is not Ready, when the console is removed, or when the base domain is unknown (for example, `GATEWAY_API_BASE_DOMAIN` is unset). A console that later goes unready has its address retracted, hiding the button.
-- Readiness is observed both during provisioning (a prompt check once the gateway's route is ready) and continuously by the health reconciler, so the field self-heals as the console pod's readiness changes.
+- The reconciler sets it only when the exposure resource for the selected ingress mode is Ready **and serves the console host derived from the gateway's route config**. An HTTPRoute is Ready when one parent reports `Accepted=True` and `ResolvedRefs=True`, its hostname is the derived console host, and its parentRef targets the Gateway that host is served by (the per-tenant Gateway's `sandbox` listener for a dedicated-route gateway, the shared Gateway's HTTP listener otherwise). An OpenShift Route is Ready when one router reports `Admitted=True` and its `spec.host` is the derived console host. An exposure that is Accepted but serves a different host is not Ready: its URL resolves to a Gateway with no listener for it and presents a name-mismatched certificate, so advertising it would hand every browser a TLS error.
+- The reconciler clears it when the console pod is not Ready, when the console is removed, when the base domain is unknown (for example, `GATEWAY_API_BASE_DOMAIN` is unset), or when the console exposure does not serve the derived console host. A console that later goes unready has its address retracted, hiding the button.
+- Readiness is observed both during provisioning (a prompt check once the gateway's route is ready) and continuously by the health reconciler, so the field self-heals as the console pod's readiness changes. The health reconciler's console self-heal derives the console host from the same parsed route config as the address publisher, so a dedicated-route gateway's console is re-parented onto the per-tenant Gateway (never onto the shared ingress) when it self-heals.
 
 #### Scenario: OSG-CON-09.01 -- Console button gated on console readiness
 
@@ -367,6 +367,14 @@ The reconciler must PATCH the console URL into a read-only `consoleAddress` fiel
 - THEN `consoleAddress` stays empty and the web-console does not offer the console button
 - WHEN the console Deployment and its selected exposure resource become Ready
 - THEN the reconciler sets `consoleAddress` to `https://console-<ns>.<base-domain>` and the button appears
+
+#### Scenario: OSG-CON-09.02 -- Dedicated-route console exposure serving the shared host is not servable
+
+- GIVEN a gateway opted in to the dedicated per-gateway certificate (`route.certificate`)
+- AND its console Deployment is Ready
+- AND its console exposure is Accepted but serves the shared host `console-<ns>.<base-domain>` on the shared Gateway (for example, a console provisioned before the controller learned the opt-in)
+- THEN the reconciler must not report the console servable and must not publish (or must retract) `consoleAddress`
+- AND the console self-heal must reconcile the console exposure onto the dedicated host `console-<ns>.gw-<ns>.<base-domain>` and the per-tenant Gateway's `sandbox` listener
 
 ---
 
