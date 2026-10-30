@@ -84,6 +84,33 @@ fan those subtasks out concurrently, one subtask per in-scope work item. Under
 `USE_HEADLESS=true` the same steps run one item at a time, because serial CLI
 shell-outs are the only safe option there.
 
+## Pull request and commit model
+
+Each execution record has exactly ONE funnel pull request that carries BOTH the
+spec and code phases (1:1 issue<->PR; see `One Pull Request Across Spec and Code
+Phases` in `specs/standards/sdlc/jira-github-sync.spec.md`). Never open a second
+PR for the code phase: the code phase pushes onto the existing PR's branch.
+
+Within that single PR, commits are structured for review as **one PR, many
+commits**:
+
+- The **spec phase** lands the specification changes as their own commit (the
+  first commit on the branch): a single `docs(spec): ...` commit.
+- The **code phase** lands implementation as **one commit per component**, not one
+  squashed blob. Use the same component boundaries the full-stack-pipeline waves
+  use: separate conventional-commit commits for api-server, CLI, SDK (Go/TS),
+  proto/gRPC, control-plane, tests, and docs, as applicable. A reviewer reads the
+  PR commit-by-commit along those boundaries.
+
+So the branch reads top to bottom as: spec commit, then one commit per touched
+component. Because `main` takes squashed merges (one conventional commit per PR),
+these fine-grained commits are a review aid, not the final history - they are
+squashed on merge, so do not fear "too many" commits.
+
+The sub-skills honor this model: `spec-implementation` makes the spec its own
+first commit on the one funnel PR; `code-implementation` adds per-component
+commits to that same PR and never opens a second PR.
+
 ## Workflow Steps
 
 Mechanically execute the following steps.
