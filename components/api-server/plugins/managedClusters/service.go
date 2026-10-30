@@ -3,6 +3,7 @@ package managedClusters
 import (
 	"context"
 	stderrors "errors"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
@@ -65,21 +65,18 @@ type sqlManagedClusterService struct {
 }
 
 func (s *sqlManagedClusterService) OnUpsert(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-
 	managedCluster, err := s.managedClusterDao.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	logger.Infof("Do idempotent somethings with this managedCluster: %s", managedCluster.ID)
+	slog.InfoContext(ctx, "Do idempotent somethings with this managedCluster", "managed_cluster_id", managedCluster.ID)
 
 	return nil
 }
 
 func (s *sqlManagedClusterService) OnDelete(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-	logger.Infof("This managedCluster has been deleted: %s", id)
+	slog.InfoContext(ctx, "This managedCluster has been deleted", "managed_cluster_id", id)
 	return nil
 }
 
@@ -174,18 +171,6 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 
 var capabilitySegmentRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
-// gatewayVersionValueRE relaxes the value segment for the gateway-version
-// namespace only: a gateway version tag carries dots and a release suffix (for
-// example v0.1.2-rhaiv.7), which is not a DNS label. The value is a lowercase
-// string of alphanumerics, dots, and hyphens that both begins and ends with an
-// alphanumeric. The namespace segment stays DNS-label strict (capabilitySegmentRE).
-// See managed-cluster-registration.spec.md, "Self-Declared Capability Labels".
-var gatewayVersionValueRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
-
-// gatewayVersionNamespace is the single-valued namespace through which a control
-// plane advertises the gateway version it provisions onto new gateways.
-const gatewayVersionNamespace = "gateway-version"
-
 // providerNamespace and regionNamespace are the single-valued namespaces the
 // inventory metric derives its provider/region buckets from (see inventory.go).
 const (
@@ -193,24 +178,8 @@ const (
 	regionNamespace   = "region"
 )
 
-// gatewayVersionValueMaxLen bounds the gateway-version value segment. The relaxed
-// value regex accepts dots and hyphens but is otherwise unbounded, so a long
-// label could otherwise be persisted into the JSONB capability set. A version tag
-// such as v0.1.2-rhaiv.7 is far shorter; 128 is a generous ceiling.
-const gatewayVersionValueMaxLen = 128
-
-var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true, gatewayVersionNamespace: true}
-var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true, gatewayVersionNamespace: true}
-
-// capabilityValueValid reports whether value is a valid value segment for the
-// given namespace. Every namespace stays DNS-label strict except gateway-version,
-// whose value accepts a dotted, suffixed version tag up to gatewayVersionValueMaxLen.
-func capabilityValueValid(namespace, value string) bool {
-	if namespace == gatewayVersionNamespace {
-		return len(value) <= gatewayVersionValueMaxLen && gatewayVersionValueRE.MatchString(value)
-	}
-	return capabilitySegmentRE.MatchString(value)
-}
+var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true}
+var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true}
 
 // capabilityValue returns the value advertised through the given single-valued
 // capability namespace, or "" when the set declares none. Inputs are assumed
@@ -223,12 +192,6 @@ func capabilityValue(capabilities []string, namespace string) string {
 		}
 	}
 	return ""
-}
-
-// GatewayVersionCapability returns the version advertised through the
-// single-valued gateway-version capability, or "" when the set declares none.
-func GatewayVersionCapability(capabilities []string) string {
-	return capabilityValue(capabilities, gatewayVersionNamespace)
 }
 
 // NormalizeCapabilities validates capability labels and returns a stable,
@@ -254,7 +217,7 @@ func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicate
 	result := make([]string, 0, len(labels))
 	for _, label := range labels {
 		parts := strings.Split(label, "/")
-		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilityValueValid(parts[0], parts[1]) {
+		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilitySegmentRE.MatchString(parts[1]) {
 			return nil, errors.Validation("invalid capability label %q: expected a recognized namespace and lowercase DNS-label value", label)
 		}
 		if seen[label] {

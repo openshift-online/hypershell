@@ -111,11 +111,13 @@ func TestEnforceImportOwnership(t *testing.T) {
 			t.Fatalf("want nil, got %v", err)
 		}
 	})
+	// Verifies: SEC-RBAC-09.07
 	t.Run("different owner refused", func(t *testing.T) {
 		if status.Code(EnforceImportOwnership(importCtx("repo-1"), &repo2)) != codes.PermissionDenied {
 			t.Fatalf("want PermissionDenied")
 		}
 	})
+	// Verifies: SEC-RBAC-09.07
 	t.Run("unowned resource refused in import context", func(t *testing.T) {
 		if status.Code(EnforceImportOwnership(importCtx("repo-1"), nil)) != codes.PermissionDenied {
 			t.Fatalf("want PermissionDenied")

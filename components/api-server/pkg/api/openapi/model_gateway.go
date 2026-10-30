@@ -31,17 +31,22 @@ type Gateway struct {
 	// Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available.
 	ClusterId string `json:"cluster_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
-	Namespace   string  `json:"namespace"`
+	Namespace string `json:"namespace"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
 	ExternalDns *string `json:"external_dns,omitempty"`
-	TlsMode     *string `json:"tls_mode,omitempty"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
+	TlsMode *string `json:"tls_mode,omitempty"`
+	// Platform-managed; set by the control plane (PLAT-DATA-23)
 	ServiceType *string `json:"service_type,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Phase       *string `json:"phase,omitempty"`
-	// Container image for the gateway deployment
+	// Control-plane-observed operational status (PLAT-DATA-23)
+	Status *string `json:"status,omitempty"`
+	// Control-plane-observed lifecycle phase (PLAT-DATA-23)
+	Phase *string `json:"phase,omitempty"`
+	// Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23)
 	Image *string `json:"image,omitempty"`
-	// Container image for the supervisor sidecar
+	// Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
 	SupervisorImage *string `json:"supervisor_image,omitempty"`
-	// DNS names for TLS certificate SANs
+	// DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23)
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
 	RouteAddress *string `json:"route_address,omitempty"`
@@ -49,16 +54,16 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
-	// Gateway version the gateway's cluster advertises provisioning onto new gateways, derived from that cluster's single-valued gateway-version capability. Empty when the cluster advertises no provisioning version.
-	ProvisioningVersion *string `json:"provisioning_version,omitempty"`
-	// Whether this gateway pins an explicit image and therefore need not track its cluster's provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default.
-	ImagePinned *bool `json:"image_pinned,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
-	// JSON-encoded route configuration
+	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
 	Route *string `json:"route,omitempty"`
-	// JSON-encoded credential storage driver configuration
+	// Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation.
+	DedicatedRoute *bool `json:"dedicated_route,omitempty"`
+	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Null (legacy gateways) keeps the chart's \"shared\" default.
+	WorkspaceMode *string `json:"workspace_mode,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
 	// Ordered list of provisioning conditions describing sub-phase progress
@@ -683,70 +688,6 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
-// GetProvisioningVersion returns the ProvisioningVersion field value if set, zero value otherwise.
-func (o *Gateway) GetProvisioningVersion() string {
-	if o == nil || IsNil(o.ProvisioningVersion) {
-		var ret string
-		return ret
-	}
-	return *o.ProvisioningVersion
-}
-
-// GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetProvisioningVersionOk() (*string, bool) {
-	if o == nil || IsNil(o.ProvisioningVersion) {
-		return nil, false
-	}
-	return o.ProvisioningVersion, true
-}
-
-// HasProvisioningVersion returns a boolean if a field has been set.
-func (o *Gateway) HasProvisioningVersion() bool {
-	if o != nil && !IsNil(o.ProvisioningVersion) {
-		return true
-	}
-
-	return false
-}
-
-// SetProvisioningVersion gets a reference to the given string and assigns it to the ProvisioningVersion field.
-func (o *Gateway) SetProvisioningVersion(v string) {
-	o.ProvisioningVersion = &v
-}
-
-// GetImagePinned returns the ImagePinned field value if set, zero value otherwise.
-func (o *Gateway) GetImagePinned() bool {
-	if o == nil || IsNil(o.ImagePinned) {
-		var ret bool
-		return ret
-	}
-	return *o.ImagePinned
-}
-
-// GetImagePinnedOk returns a tuple with the ImagePinned field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetImagePinnedOk() (*bool, bool) {
-	if o == nil || IsNil(o.ImagePinned) {
-		return nil, false
-	}
-	return o.ImagePinned, true
-}
-
-// HasImagePinned returns a boolean if a field has been set.
-func (o *Gateway) HasImagePinned() bool {
-	if o != nil && !IsNil(o.ImagePinned) {
-		return true
-	}
-
-	return false
-}
-
-// SetImagePinned gets a reference to the given bool and assigns it to the ImagePinned field.
-func (o *Gateway) SetImagePinned(v bool) {
-	o.ImagePinned = &v
-}
-
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -811,6 +752,38 @@ func (o *Gateway) SetRoute(v string) {
 	o.Route = &v
 }
 
+// GetDedicatedRoute returns the DedicatedRoute field value if set, zero value otherwise.
+func (o *Gateway) GetDedicatedRoute() bool {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		var ret bool
+		return ret
+	}
+	return *o.DedicatedRoute
+}
+
+// GetDedicatedRouteOk returns a tuple with the DedicatedRoute field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetDedicatedRouteOk() (*bool, bool) {
+	if o == nil || IsNil(o.DedicatedRoute) {
+		return nil, false
+	}
+	return o.DedicatedRoute, true
+}
+
+// HasDedicatedRoute returns a boolean if a field has been set.
+func (o *Gateway) HasDedicatedRoute() bool {
+	if o != nil && !IsNil(o.DedicatedRoute) {
+		return true
+	}
+
+	return false
+}
+
+// SetDedicatedRoute gets a reference to the given bool and assigns it to the DedicatedRoute field.
+func (o *Gateway) SetDedicatedRoute(v bool) {
+	o.DedicatedRoute = &v
+}
+
 // GetCredentialDriver returns the CredentialDriver field value if set, zero value otherwise.
 func (o *Gateway) GetCredentialDriver() string {
 	if o == nil || IsNil(o.CredentialDriver) {
@@ -841,6 +814,38 @@ func (o *Gateway) HasCredentialDriver() bool {
 // SetCredentialDriver gets a reference to the given string and assigns it to the CredentialDriver field.
 func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
+}
+
+// GetWorkspaceMode returns the WorkspaceMode field value if set, zero value otherwise.
+func (o *Gateway) GetWorkspaceMode() string {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		var ret string
+		return ret
+	}
+	return *o.WorkspaceMode
+}
+
+// GetWorkspaceModeOk returns a tuple with the WorkspaceMode field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetWorkspaceModeOk() (*string, bool) {
+	if o == nil || IsNil(o.WorkspaceMode) {
+		return nil, false
+	}
+	return o.WorkspaceMode, true
+}
+
+// HasWorkspaceMode returns a boolean if a field has been set.
+func (o *Gateway) HasWorkspaceMode() bool {
+	if o != nil && !IsNil(o.WorkspaceMode) {
+		return true
+	}
+
+	return false
+}
+
+// SetWorkspaceMode gets a reference to the given string and assigns it to the WorkspaceMode field.
+func (o *Gateway) SetWorkspaceMode(v string) {
+	o.WorkspaceMode = &v
 }
 
 // GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
@@ -1160,20 +1165,20 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
 	}
-	if !IsNil(o.ProvisioningVersion) {
-		toSerialize["provisioning_version"] = o.ProvisioningVersion
-	}
-	if !IsNil(o.ImagePinned) {
-		toSerialize["image_pinned"] = o.ImagePinned
-	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
 	}
 	if !IsNil(o.Route) {
 		toSerialize["route"] = o.Route
 	}
+	if !IsNil(o.DedicatedRoute) {
+		toSerialize["dedicated_route"] = o.DedicatedRoute
+	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.WorkspaceMode) {
+		toSerialize["workspace_mode"] = o.WorkspaceMode
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount

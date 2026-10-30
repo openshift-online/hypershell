@@ -251,6 +251,11 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 		// aware coalescing in the queue ensures a live event and its seed
 		// counterpart converge to the newest state regardless of arrival order.
 
+		// Begin the metric seed transaction before the receiver goroutine starts.
+		// This closes the scheduler window where a live event could update the
+		// population immediately before seedGateways began and then be overwritten
+		// by its LIST snapshot.
+		cpotel.BeginGatewayPopulationSeed(clusterID)
 		streamErr := make(chan error, 1)
 		go func() {
 			defer close(streamErr)
@@ -274,6 +279,11 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 					return
 				}
 				heartbeat()
+				cpotel.UpdateGatewayPopulation(ctx, clusterID, cpotel.GatewayPopulationState{
+					ResourceID:         event.ResourceId,
+					Generation:         event.Gateway.GetGeneration(),
+					ObservedGeneration: event.Gateway.ObservedGeneration,
+				}, toEventType(event.Type) == EventDeleted)
 				rq.enqueue(Event[*pb.Gateway]{
 					Type:       toEventType(event.Type),
 					ResourceID: event.ResourceId,
@@ -417,10 +427,26 @@ var _ gatewaySeedSink = (*reconcileQueue[*pb.Gateway])(nil)
 // synthesizing a delete here. Absence is only trusted after a successful list:
 // any page error aborts before pruning.
 func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gatewaySeedSink, clusterID string) error {
+	seedCompleted := false
+	defer func() {
+		if !seedCompleted {
+			cpotel.CancelGatewayPopulationSeed(clusterID)
+		}
+	}()
 	inventory, err := listGatewaysStable(ctx, client, clusterID)
 	if err != nil {
 		return err
 	}
+	population := make([]cpotel.GatewayPopulationState, 0, len(inventory))
+	for id, gw := range inventory {
+		population = append(population, cpotel.GatewayPopulationState{
+			ResourceID:         id,
+			Generation:         gw.GetGeneration(),
+			ObservedGeneration: gw.ObservedGeneration,
+		})
+	}
+	cpotel.ReplaceGatewayPopulation(ctx, clusterID, population)
+	seedCompleted = true
 	var forced int
 	for _, gw := range inventory {
 		if enqueueSeed(sink, gw) {
@@ -467,7 +493,13 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 		// event to correct a stale payload. Enqueuing the current state keeps the
 		// reconcile driving the right desired state (and version-aware coalescing
 		// discards it as a no-op if the tracked payload is already newer).
-		enqueueSeed(sink, resp.GetGateway())
+		current := resp.GetGateway()
+		enqueueSeed(sink, current)
+		cpotel.UpdateGatewayPopulation(ctx, clusterID, cpotel.GatewayPopulationState{
+			ResourceID:         id,
+			Generation:         current.GetGeneration(),
+			ObservedGeneration: current.ObservedGeneration,
+		}, false)
 	}
 
 	log.Printf("INFO seeded %d gateway(s) into reconcile queue on watch (re)connect (%d forced past the phase gate for recovery, %d absent retries pruned)", seeded, forced, pruned)
@@ -726,7 +758,7 @@ var _ roleBindingSeedSink = (*reconcileQueue[*pb.RoleBinding])(nil)
 // surviving bindings, so an absence cannot be distinguished from a binding the
 // list simply did not return, and the stream remains the authority for deletions
 // (and thus for revoking roles a deleted binding no longer backs). The resync only
-// restores missing assignments; the per-event union reconcile (GAM-02) makes every
+// restores missing assignments; the per-event union reconcile (GTW-ACC-02) makes every
 // enqueue idempotent, so re-seeding bindings already reflected in Keycloak is a
 // no-op. See specs/platform/control-plane.spec.md ("Role Binding Resync").
 func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, sink roleBindingSeedSink, clusterID string) error {
@@ -895,6 +927,11 @@ func isMissingKeycloakClient(err error) bool {
 	return errors.As(err, &notFound)
 }
 
+func isMissingKeycloakUser(err error) bool {
+	var notFound *keycloak.UserNotFoundError
+	return errors.As(err, &notFound)
+}
+
 func isMissingGateway(err error) bool {
 	for err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
@@ -919,16 +956,77 @@ func isKeycloakHTTPNotFound(err error) bool {
 }
 
 // isRoleBindingRetryable reports whether a RoleBinding reconcile failure should
-// be retried. Missing client, generic Keycloak 404 (half-provisioned roles),
-// and unresolved username/role are provisioning races. Missing-gateway,
-// auth, and config errors are terminal.
+// be retried. Missing client, missing user, generic Keycloak 404
+// (half-provisioned roles), and unresolved username/role are provisioning
+// races. Missing-gateway, auth, and config errors are terminal.
 func isRoleBindingRetryable(err error) bool {
 	if err == nil || isMissingGateway(err) {
 		return false
 	}
 	return isMissingKeycloakClient(err) ||
+		isMissingKeycloakUser(err) ||
 		isUnresolvedRoleBindingIdentity(err) ||
 		isKeycloakHTTPNotFound(err)
+}
+
+// WatchCIProviders streams CIProvider events and drives each through the handler.
+// CIProvider is a platform-level resource (not cluster-scoped), so the watch takes
+// no cluster filter, mirroring WatchManagedClusters and WatchRepositories.
+func WatchCIProviders(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CIProvider], idleTimeout time.Duration) error {
+	client := pb.NewCIProviderServiceClient(conn)
+	return watchLoop(ctx, "CIProvider", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchCIProviders(ctx, &pb.WatchCIProvidersRequest{})
+		if err != nil {
+			return fmt.Errorf("starting CI provider watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving CI provider event: %w", err)
+			}
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.CIProvider]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.CiProvider,
+			}); err != nil {
+				log.Printf("ERROR handling CI provider %s: %v", event.ResourceId, err)
+			}
+		}
+	})
+}
+
+// WatchCITrusts streams CITrust events and drives each through the handler.
+// CITrust is a platform-level resource (not cluster-scoped), so the watch takes
+// no cluster filter, mirroring WatchManagedClusters and WatchRepositories.
+func WatchCITrusts(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CITrust], idleTimeout time.Duration) error {
+	client := pb.NewCITrustServiceClient(conn)
+	return watchLoop(ctx, "CITrust", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		stream, err := client.WatchCITrusts(ctx, &pb.WatchCITrustsRequest{})
+		if err != nil {
+			return fmt.Errorf("starting CI trust watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving CI trust event: %w", err)
+			}
+			heartbeat()
+			if err := handler.Handle(ctx, Event[*pb.CITrust]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.CiTrust,
+			}); err != nil {
+				log.Printf("ERROR handling CI trust %s: %v", event.ResourceId, err)
+			}
+		}
+	})
 }
 
 // watchLoop connects a watch stream, drives connectAndRecv, and reconnects with

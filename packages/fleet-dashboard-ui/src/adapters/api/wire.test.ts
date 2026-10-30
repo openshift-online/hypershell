@@ -7,12 +7,15 @@ import {
 } from "../../domain/promotion";
 import {
   mapE2eRunDetail,
+  mapE2eRunLogPage,
   mapE2eRuns,
   mapE2eStreamEvent,
+  mapE2eStreamLog,
   mapFleet,
   mapInstances,
   mapPromotion,
   mapSdlc,
+  mapSdlcAgents,
   mapTopology,
 } from "./wire";
 
@@ -92,6 +95,60 @@ describe("mapPromotion", () => {
     expect(data.releases).toEqual([]);
   });
 
+  it("threads capabilities through unchanged, empty when absent", () => {
+    // FLT-CAP-01.01 / 01.02: the wire set is carried verbatim and in order; an
+    // environment that omits it carries an empty set rather than erroring.
+    const data = mapPromotion({
+      order: ["withCaps", "noCaps"],
+      environments: {
+        withCaps: {
+          active: { version: "v1" },
+          capabilities: ["provider/aws", "runtime/kata", "network/vpn"],
+        },
+        noCaps: { active: { version: "v1" } },
+      },
+    });
+    expect(data.environments.withCaps?.capabilities).toEqual([
+      "provider/aws",
+      "runtime/kata",
+      "network/vpn",
+    ]);
+    expect(data.environments.noCaps?.capabilities).toEqual([]);
+  });
+
+  it("drops empty/non-string capability entries", () => {
+    const data = mapPromotion({
+      order: ["x"],
+      environments: {
+        x: {
+          active: { version: "v1" },
+          capabilities: ["runtime/kata", "", 7, null],
+        },
+      },
+    });
+    expect(data.environments.x?.capabilities).toEqual(["runtime/kata"]);
+  });
+
+  it("carries the default gateway image, null when absent or empty", () => {
+    // FLT-CAP-07.01 / 07.02
+    const data = mapPromotion({
+      order: ["img", "none", "blank"],
+      environments: {
+        img: {
+          active: { version: "v1" },
+          gatewayImage: "quay.io/example/gateway:v0.1.5",
+        },
+        none: { active: { version: "v1" } },
+        blank: { active: { version: "v1" }, gatewayImage: "" },
+      },
+    });
+    expect(data.environments.img?.gatewayImage).toBe(
+      "quay.io/example/gateway:v0.1.5",
+    );
+    expect(data.environments.none?.gatewayImage).toBeNull();
+    expect(data.environments.blank?.gatewayImage).toBeNull();
+  });
+
   it("prefers the bundle digest over the gitops SHA for release identity", () => {
     const data = mapPromotion({
       order: ["delta"],
@@ -140,6 +197,62 @@ describe("mapPromotion", () => {
     const epsilon = data.environments.epsilon;
     if (!epsilon) throw new Error("expected epsilon environment");
     expect(epsilon.activeDigest).toBe("cccccccc");
+  });
+
+  it("maps the application and GitOps PR groups with repository identity", () => {
+    const data = mapPromotion({
+      order: ["delta"],
+      environments: {
+        delta: {
+          active: { version: "v1", digest: "sha256:dig" },
+          activeGates: [],
+        },
+      },
+      releases: {
+        "sha256:dig": {
+          version: "v1",
+          digest: "sha256:dig",
+          prs: [
+            {
+              number: 10,
+              title: "App change",
+              url: "https://github.com/acme/app/pull/10",
+              repository: "acme/app",
+            },
+          ],
+          gitopsPrs: [
+            {
+              number: 10,
+              title: "Deploy change",
+              url: "https://github.com/acme/gitops-delivery/pull/10",
+              repository: "acme/gitops-delivery",
+              environments: ["prod", "stage"],
+            },
+          ],
+          gitopsStatus: "available",
+        },
+      },
+    });
+    const bundle = data.releaseByDigest["sha256:dig"];
+    if (!bundle) throw new Error("expected bundle");
+    expect(bundle.prs[0]?.repository).toBe("acme/app");
+    expect(bundle.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    expect(bundle.gitopsPrs?.[0]?.environments).toEqual(["prod", "stage"]);
+    expect(bundle.gitopsStatus).toBe("available");
+  });
+
+  it("maps an unavailable GitOps status and ignores unknown status strings", () => {
+    const data = mapPromotion({
+      releases: {
+        a: { version: "v1", digest: "a", gitopsStatus: "unavailable" },
+        b: { version: "v2", digest: "b", gitopsStatus: "bogus" },
+        c: { version: "v3", digest: "c" },
+      },
+    });
+    expect(data.releaseByDigest.a?.gitopsStatus).toBe("unavailable");
+    // An unrecognized status and an absent status both collapse to null (hidden).
+    expect(data.releaseByDigest.b?.gitopsStatus).toBeNull();
+    expect(data.releaseByDigest.c?.gitopsStatus).toBeNull();
   });
 
   it("maps absent release versions to null", () => {
@@ -542,5 +655,152 @@ describe("mapE2eStreamEvent", () => {
   it("returns null for an unknown event name so the frame is skipped", () => {
     expect(mapE2eStreamEvent({ event: "mystery", sequence: 1 })).toBeNull();
     expect(mapE2eStreamEvent(null)).toBeNull();
+  });
+});
+
+describe("mapE2eRunLogPage", () => {
+  it("maps entries, cursor, and hasMore (E2E-LOG-19)", () => {
+    const page = mapE2eRunLogPage({
+      entries: [
+        { sequence: 1, timestamp: "t1", message: "a" },
+        {
+          sequence: 2,
+          timestamp: "t2",
+          message: "b",
+          stepId: "s",
+          truncated: true,
+        },
+      ],
+      nextCursor: "42",
+      hasMore: true,
+    });
+    expect(page.entries.map((l) => l.sequence)).toEqual([1, 2]);
+    expect(page.entries[1]?.stepId).toBe("s");
+    expect(page.entries[1]?.truncated).toBe(true);
+    expect(page.nextCursor).toBe("42");
+    expect(page.hasMore).toBe(true);
+    expect(page.boundaryTruncated).toBe(false);
+  });
+
+  it("maps the locally-limited same-nanosecond boundary signal (E2E-LOG-26)", () => {
+    const page = mapE2eRunLogPage({
+      entries: [{ sequence: 1, timestamp: "t1", message: "a" }],
+      nextCursor: "",
+      hasMore: false,
+      boundaryTruncated: true,
+    });
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+    expect(page.boundaryTruncated).toBe(true);
+  });
+
+  it("defaults a stale/empty page to no entries, no cursor, no more", () => {
+    const page = mapE2eRunLogPage(undefined);
+    expect(page.entries).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+    expect(page.hasMore).toBe(false);
+    expect(page.boundaryTruncated).toBe(false);
+  });
+});
+
+describe("mapE2eStreamLog", () => {
+  it("maps a live log frame into a reduced line (E2E-LOG-21)", () => {
+    const line = mapE2eStreamLog({
+      sequence: 7,
+      timestamp: "t7",
+      stepId: "s",
+      message: "live",
+      truncated: false,
+    });
+    expect(line).not.toBeNull();
+    expect(line?.sequence).toBe(7);
+    expect(line?.message).toBe("live");
+  });
+
+  it("returns null for a missing frame so the stream is not dropped", () => {
+    expect(mapE2eStreamLog(null)).toBeNull();
+    expect(mapE2eStreamLog(undefined)).toBeNull();
+  });
+});
+
+describe("mapSdlcAgents", () => {
+  // Verifies: SDLC-AGT-02.01
+  it("projects the full plane shape (camelCase wire -> domain)", () => {
+    const data = mapSdlcAgents({
+      envs: ["integration", "production"],
+      agents: [
+        {
+          name: "spec-review",
+          env: "integration",
+          replicasOn: 2,
+          replicasTotal: 3,
+          queueDepth: 5,
+          itemsProcessed: 120,
+          itemsFailed: 1,
+          provisionSeconds: 45.5,
+          lastReportedAt: 1700000000,
+          series: {
+            times: [100, 200],
+            queueDepth: [4, 5],
+            itemsProcessed: [118, 120],
+            itemsFailed: [0, 1],
+            provisionSeconds: [40, 45.5],
+          },
+        },
+      ],
+    });
+
+    expect(data.envs).toEqual(["integration", "production"]);
+    expect(data.agents).toHaveLength(1);
+    expect(data.agents[0]).toEqual({
+      name: "spec-review",
+      env: "integration",
+      replicasOn: 2,
+      replicasTotal: 3,
+      queueDepth: 5,
+      itemsProcessed: 120,
+      itemsFailed: 1,
+      provisionSeconds: 45.5,
+      lastReportedAt: 1700000000,
+      series: {
+        times: [100, 200],
+        queueDepth: [4, 5],
+        itemsProcessed: [118, 120],
+        itemsFailed: [0, 1],
+        provisionSeconds: [40, 45.5],
+      },
+    });
+  });
+
+  // Verifies: SDLC-AGT-02.02
+  it('defaults missing fields to "" / 0 / [] rather than throwing', () => {
+    const data = mapSdlcAgents({ agents: [{}] });
+
+    expect(data.envs).toEqual([]);
+    expect(data.agents).toEqual([
+      {
+        name: "",
+        env: "",
+        replicasOn: 0,
+        replicasTotal: 0,
+        queueDepth: 0,
+        itemsProcessed: 0,
+        itemsFailed: 0,
+        provisionSeconds: 0,
+        lastReportedAt: 0,
+        series: {
+          times: [],
+          queueDepth: [],
+          itemsProcessed: [],
+          itemsFailed: [],
+          provisionSeconds: [],
+        },
+      },
+    ]);
+  });
+
+  it("tolerates a null/non-record payload", () => {
+    expect(mapSdlcAgents(null)).toEqual({ envs: [], agents: [] });
+    expect(mapSdlcAgents(undefined)).toEqual({ envs: [], agents: [] });
   });
 });

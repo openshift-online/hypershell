@@ -37,13 +37,21 @@ and coordinates the deletion requirements defined in:
   - per-gateway database and role cleanup on the gateway database server, and
     the `PostgreSQLDatabase` orphan signal.
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
-  - credential-namespace RBAC cleanup, and purge of the gateway's provider-credential
-    Vault KV path, with the `VaultCredentialPath` orphan signal.
+  - credential-namespace RBAC cleanup. Vault-backed provider credentials are not an
+    owned-resource class for deletion: they live at a flat, unguessable, un-listable KV
+    path and are left inert on delete (see that spec's Provider Credential Lifecycle on
+    Deletion).
 
 Where a per-resource spec already defines a resource's cleanup behavior, that
 spec remains authoritative for that resource. This spec defines the enumeration
 that binds them together, the resume-on-disconnect contract, and the
 finalization and no-silent-orphan guarantees that span all of them.
+
+This spec refines the durable-deletion and fail-closed guarantees of the
+control-plane reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-07, STD-RCON-08, STD-RCON-09); it refines that contract and does not
+weaken it.
 
 ## Domain Vocabulary
 
@@ -98,16 +106,24 @@ resource classes is:
    controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
-6. For a Vault-backed gateway, the provider secrets stored under the gateway's
-   Vault KV path (`secret/data/openshell/<tenant-namespace>/*` and its metadata) on
-   the per-cluster provider Vault, purged by authenticating as the gateway's own
-   identity before the ServiceAccount and namespace are removed (see
-   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)).
+6. For a Vault-backed gateway, the gateway's per-tenant provider-secret KV mount
+   (`openshell-gw/<namespace>`) on the per-cluster provider Vault.
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
 be reconciled explicitly on the delete-event path, because the namespace cascade
 cannot reach it.
+
+A Vault-backed gateway's provider secrets are reclaimed by deleting the gateway's
+**per-tenant KV mount**. Each gateway has its own KV v2 mount (`openshell-gw/<namespace>`)
+on the per-cluster provider Vault; the control plane deletes that mount through its scoped
+provisioner identity, which removes every provider-credential entry in one operation, with
+no enumeration and no handle needed. Mount deletion is best-effort and idempotent: a
+failure (for example Vault unreachable at teardown) is a non-fatal signal a later reconcile
+retries, and a left-behind mount holds only entries that are already unreferenced (the
+gateway database is dropped above) and un-listable from any tenant identity. See
+[`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
+(Provider Credential Lifecycle on Deletion).
 
 #### Scenario: GTW-DEL-01.01 -- Normal deletion reclaims all owned resource classes
 
@@ -325,15 +341,22 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   (recovery per the runbook in
   [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
 
-#### Scenario: GTW-DEL-07.03 -- Failed Vault KV purge is recorded as a VaultCredentialPath orphan
+#### Scenario: GTW-DEL-07.03 -- Vault-backed provider credentials are reclaimed by mount deletion
 
-- GIVEN a Vault-backed Gateway delete whose KV purge cannot complete (the provider
-  Vault is unreachable, or the gateway identity is already gone)
-- WHEN the control plane returns the error for retry
-- THEN it SHALL record a durable, operator-visible `VaultCredentialPath` orphan
-  signal in the control-plane namespace naming the tenant namespace and the reason
-- AND the signal SHALL NOT contain any provider secret value
-- AND the delete SHALL NOT be reported complete while the KV path remains reclaimable
+- GIVEN a Vault-backed Gateway whose runtime stored provider secrets under its per-tenant
+  mount `openshell-gw/<namespace>/data/openshell/provider-credentials/*`
+- WHEN the control plane tears the gateway down
+- THEN it SHALL delete the gateway's per-tenant KV mount through the scoped provisioner
+  identity, removing every entry in one operation without enumeration
+- AND a failed mount deletion SHALL be a non-fatal signal that a later reconcile retries,
+  not a fatal teardown error
+- AND it SHALL NOT record a `VaultCredentialPath` orphan
+- AND this SHALL hold even when the gateway was created with **no** `credential_driver`
+  (stored NULL): it still resolves to vault by default, so it has a per-tenant mount to
+  reclaim - the delete path keys off the resolved driver, not a non-null field
+- AND if the namespace is instead reclaimed by the namespace garbage collector (orphaned past
+  grace, its Gateway record already gone), the reaper SHALL also delete the per-tenant mount,
+  best-effort, so no engine leaks on that path either
 
 #### Scenario: GTW-DEL-07.04 -- Invalid stored identity does not silently orphan the client
 
@@ -365,6 +388,23 @@ recreate any owned resource.
 - GIVEN a Gateway delete whose managed namespace is already terminating
 - WHEN the control plane processes the delete
 - THEN it SHALL treat the terminating namespace as success and SHALL NOT error
+
+### Requirement: GTW-DEL-09 -- Platform Role Bindings Are Deleted With Their Gateway
+
+The API server SHALL soft-delete every platform RoleBinding scoped to a Gateway
+(any user, any role) in the same transaction that soft-deletes the Gateway row.
+It SHALL emit one RoleBinding DELETED event per removed binding. A RoleBinding
+SHALL NOT outlive its Gateway. A surviving binding is still delivered to the
+control plane on every RoleBinding resync, and the control plane then looks up
+the missing gateway on every pass.
+
+#### Scenario: GTW-DEL-09.01 -- Gateway delete removes only that gateway's bindings
+
+- GIVEN a Gateway with an owner binding and a viewer binding for two users
+- AND a second Gateway with its own binding
+- WHEN the first Gateway is deleted
+- THEN both of its bindings SHALL be soft-deleted
+- AND the second Gateway's binding SHALL remain
 
 ## Design Decisions
 

@@ -6,35 +6,22 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
-// newSandboxCountClient spins up the integration server and returns an
-// authenticated gateway gRPC client plus the authenticated context.
+// newSandboxCountClient spins up the integration server and returns a gateway gRPC
+// client authenticated as a control-plane identity, plus a call context. The sandbox
+// count and the phase/status fields exercised here are all control-plane-owned
+// (PLAT-DATA-23), so the writer must be the control plane; a user may not set them.
 func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Context) {
 	t.Helper()
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	return pb.NewGatewayServiceClient(conn), ctx
+	client, _ := newControlPlaneGatewayClient(t, h)
+	return client, context.Background()
 }
 
 func sandboxCountClusterID() string {
@@ -77,6 +64,7 @@ func TestGRPCAdjustActiveSandboxCount(t *testing.T) {
 	Expect(got.Gateway.GetActiveSandboxCount()).To(Equal(int32(1)))
 }
 
+// Verifies: OSG-SBX-02.02
 func TestGRPCActiveSandboxCountFloorsAtZero(t *testing.T) {
 	client, ctx := newSandboxCountClient(t)
 	gw := createGatewayForSandboxCount(ctx, client, "floor-count")
@@ -116,6 +104,7 @@ func TestGRPCSetActiveSandboxCount(t *testing.T) {
 	Expect(resp.ActiveSandboxCount).To(Equal(int32(0)))
 }
 
+// Verifies: OSG-SBX-02.01
 func TestGRPCConcurrentActiveSandboxIncrements(t *testing.T) {
 	client, ctx := newSandboxCountClient(t)
 	gw := createGatewayForSandboxCount(ctx, client, "concurrent-count")

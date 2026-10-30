@@ -13,7 +13,7 @@ import (
 )
 
 // accessRow is one enriched access grant, assembled server-side by joining
-// role_bindings to users and roles (GAM-03: no per-row user lookup).
+// role_bindings to users and roles (GTW-ACC-03: no per-row user lookup).
 type accessRow struct {
 	RoleBindingID string    `gorm:"column:role_binding_id"`
 	UserID        string    `gorm:"column:user_id"`
@@ -112,7 +112,7 @@ func (d *dao) getForUser(ctx context.Context, gatewayID, userID string) (accessR
 }
 
 // ownerUserIDs returns the distinct user_ids holding gateway:owner on the
-// gateway. Used for last-owner protection (GAM-07).
+// gateway. Used for last-owner protection (GTW-ACC-07).
 func (d *dao) ownerUserIDs(ctx context.Context, gatewayID string) ([]string, error) {
 	var ids []string
 	err := (*d.sessionFactory).New(ctx).

@@ -10,6 +10,8 @@ The HyperShell control plane is a Go service that watches the API server via gRP
 
 Every control plane is a registered spoke of exactly one hub. There is one control plane per managed cluster, it runs inside that cluster, and it reconciles only the gateways assigned to its own `cluster_id`. The control plane co-located with the hub API server is not special: it registers, filters, and dials the hub exactly like a control plane on a remote cluster.
 
+The reconcilers specified here refine the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-01 through STD-RCON-11, with the STD-RCON-12 exception mechanism and the STD-RCON-13 review rule), which is the single normative behavior contract for every reconciler. This spec refines that contract and does not weaken it; the one recorded exception is the `RepositoryReconciler` import loop (CTRL-CORE-06), noted in the contract under STD-RCON-12.
+
 ## Architecture
 
 ```
@@ -802,6 +804,48 @@ The import writer SHALL:
 - GIVEN a late-bound Gateway the API server has resolved and assigned a `cluster_id`, whose `.hypershell` manifest still declares only a `placement` and no `cluster_id`
 - WHEN the import reconciles that Gateway again with no other field changed
 - THEN the writer SHALL NOT treat the server-assigned `cluster_id` as drift and SHALL make no create or update write
+
+### Requirement: CTRL-CORE-15 -- Import Omits Platform-Managed Gateway Fields
+
+The declarative `.hypershell` import is a NON-privileged writer of Gateway desired
+state: an import write authenticates as the control plane but carries user-authored git
+content. For Gateway field policy it is therefore treated exactly like a direct user and
+is restricted to `name` + placement, per
+[`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23) and
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) ("Requirement:
+Gateway Field Write Policy", SEC-RBAC-18).
+
+When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
+
+- Send ONLY `name` and placement (the `cluster_id` or `placement` mapping of
+  CTRL-CORE-14) in the gRPC create. It SHALL NOT send any platform-managed field
+  (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
+  `service_type`, `external_dns`, `credential_driver`, `dev_build`,
+  `dev_build_metadata`), so an imported Gateway carries the same writable surface as a
+  direct user create.
+- Validate the rendered manifest BEFORE writing: when a `.hypershell` Gateway manifest
+  declares any platform-managed field, the writer SHALL fail the import of that Gateway
+  with a clear error that names the field ("field `<x>` is platform-managed and cannot
+  be declared in a `.hypershell` Gateway manifest"), rather than silently dropping it.
+  This surfaces the git author's mistake early; the server-side rejection (SEC-RBAC-18)
+  is the authoritative backstop even if the writer is bypassed. The error SHALL be
+  collected like any other per-resource import error and SHALL NOT abort the rest of
+  the import.
+
+#### Scenario: CTRL-CORE-15.01 -- Manifest declaring a platform-managed field fails the import
+
+- GIVEN a `.hypershell` Gateway manifest that declares `image` (or `oidc`, `route`, `tls_mode`, etc.)
+- WHEN the import writer reconciles that Gateway
+- THEN it SHALL fail that Gateway's import with an error naming the platform-managed field
+- AND SHALL NOT send a create or update that carries the field
+- AND the error SHALL be collected so the rest of the import still runs
+
+#### Scenario: CTRL-CORE-15.02 -- A valid import sends only name and placement
+
+- GIVEN a `.hypershell` Gateway manifest that declares only `name` and a `placement` selector
+- WHEN the import writer creates the Gateway
+- THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
 
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 

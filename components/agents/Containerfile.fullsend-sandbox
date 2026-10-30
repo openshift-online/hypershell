@@ -1,0 +1,314 @@
+# HyperShell Fullsend sandbox image.
+#
+# The IMAGE a Fullsend harness runs the agent in (not the runner). Fullsend
+# itself (the engine) lives in the agent-runtime image and is side-loaded /
+# invoked from the runner side; this image only has to be a correct agent
+# EXECUTION environment.
+#
+# This image is HyperShell-owned and self-contained: it builds on Red Hat UBI9
+# rather than extending the upstream `ghcr.io/fullsend-ai/fullsend-sandbox`
+# (itself built on `ghcr.io/nvidia/openshell-community/sandboxes/base`). Basing
+# on a non-Red-Hat registry made every application snapshot fail enterprise
+# contract (base_image_registries + SBOM/Hermeto attribution), which blocked
+# releases for every component. See the PR that introduced this file.
+#
+# What a Fullsend agent actually needs in the sandbox (verified against
+# .fullsend/harness/*.yaml and .fullsend/agents/*.md):
+#   - Claude Code  -- the only runtime our harnesses use (model claude-sonnet-5,
+#     CLAUDE_CODE_USE_VERTEX=1). pi / codex / opencode are upstream stubs that no
+#     harness selects, so they are intentionally NOT installed.
+#   - tirith       -- the PreToolUse security-hook binary; without it every Bash
+#     hook fails. This is the one fullsend-specific binary the sandbox must carry.
+#   - the hypershell make-check toolchain: Go, Node + pnpm, python3, make/gcc,
+#     git, gh, jq, shellcheck -- so `reconcile` / `make check` run in-sandbox.
+#   - the skill CLIs the agents call: acli (Jira), gitleaks, pre-commit, gitlint,
+#     ripgrep + fd.
+# The OpenShell `.agents/skills` scaffold is NOT copied in: our agents carry
+# their own instructions (gh REST-only etc.) and load skills from the cloned
+# repo by path, so nothing reads /sandbox/.claude/skills.
+#
+# Toolchain versions are pinned to what hypershell requires (go.mod toolchain,
+# package.json engines/packageManager); tool versions + checksums mirror the
+# upstream fullsend sandbox so behavior matches. All downloads are SHA256
+# verified so a compromised mirror cannot inject a binary.
+
+# Native multi-arch build: TARGETARCH is populated per platform by the build
+# system. Declared globally so the per-arch go tool-builder base images below can
+# interpolate it.
+ARG TARGETARCH=amd64
+
+# ---- Stage 0: gh + gitleaks built from source (Hermeto-attributed) ----
+# gh and gitleaks are source-available, so they are built from the pinned tool
+# modules (components/agents/tools/gh at gh v2.100.0 -- the newest release within
+# the go1.26.7 build toolchain; components/agents/tools/gitleaks at gitleaks
+# v8.30.1) instead of downloading upstream release binaries. The sandbox pipeline
+# prefetch-input attributes their gomod closures through Hermeto (CICD-ECC-02), so
+# they are no longer unattributed baked binaries. `-buildvcs=false` keeps the
+# binaries reproducible. The Go builder base images are digest-pinned per arch,
+# matching the agent runtime images.
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-tools-amd64
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-tools-arm64
+FROM go-tools-${TARGETARCH} AS go-tools-builder
+ARG TARGETARCH
+WORKDIR /gh-src
+COPY components/agents/tools/gh/go.mod components/agents/tools/gh/go.sum ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -mod=mod -buildvcs=false -ldflags="-s -w" -o /usr/local/bin/gh github.com/cli/cli/v2/cmd/gh
+WORKDIR /gitleaks-src
+COPY components/agents/tools/gitleaks/go.mod components/agents/tools/gitleaks/go.sum ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -mod=mod -buildvcs=false \
+      -ldflags="-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1" \
+      -o /usr/local/bin/gitleaks github.com/zricethezav/gitleaks/v8
+
+# ---- Stage 1: verified toolchain downloads ----
+FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:48393e4261b2544f652c915b3e052256ddf66ee95cd04dc0362191f302c4e94a AS builder
+
+ARG TARGETARCH
+ARG GO_VERSION=1.26.7
+ARG NODE_VERSION=24.21.0
+ARG SHELLCHECK_VERSION=0.10.0
+
+# Per-arch checksums for the release tarballs. Downloads that do not match are
+# rejected. (Go/Node match the gitops implementer sandbox + go.mod toolchain.)
+ARG GO_SHA256_amd64=ffb5f8de10c62550dfddab66b36b57030721e0a44a3218e9e1181d7b59f121ca
+ARG GO_SHA256_arm64=5a4ec883379d51ee9ce1040d5e87f8d35e20387574dd8c947feb01eabc3c1b37
+ARG NODE_SHA256_amd64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+ARG NODE_SHA256_arm64=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
+
+RUN set -eux; \
+    dnf -y install --setopt=install_weak_deps=False --nodocs \
+        curl-minimal ca-certificates tar gzip xz; \
+    ARCH="${TARGETARCH:-amd64}"; \
+    \
+    # --- Go (official tarball, matches go.mod toolchain pin) ---
+    case "${ARCH}" in \
+      amd64) GO_ARCH=amd64; GO_SHA="${GO_SHA256_amd64}";; \
+      arm64) GO_ARCH=arm64; GO_SHA="${GO_SHA256_arm64}";; \
+      *) echo "unsupported arch ${ARCH}" >&2; exit 1;; \
+    esac; \
+    curl -fsSLo /tmp/go.tar.gz "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"; \
+    echo "${GO_SHA}  /tmp/go.tar.gz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tar.gz; \
+    \
+    # --- Node (official tarball, engines >=24.11) ---
+    case "${ARCH}" in \
+      amd64) NODE_ARCH=x64;   NODE_SHA="${NODE_SHA256_amd64}";; \
+      arm64) NODE_ARCH=arm64; NODE_SHA="${NODE_SHA256_arm64}";; \
+    esac; \
+    curl -fsSLo /tmp/node.tar.xz \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"; \
+    echo "${NODE_SHA}  /tmp/node.tar.xz" | sha256sum -c -; \
+    mkdir -p /usr/local/node; \
+    tar -C /usr/local/node --strip-components=1 -xJf /tmp/node.tar.xz; \
+    \
+    # --- shellcheck ---
+    SC_ARCH="${ARCH}"; \
+    [ "${SC_ARCH}" = "amd64" ] && SC_ARCH=x86_64; \
+    [ "${SC_ARCH}" = "arm64" ] && SC_ARCH=aarch64; \
+    curl -fsSLo /tmp/shellcheck.tar.xz \
+      "https://github.com/koalaman/ShellCheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.${SC_ARCH}.tar.xz"; \
+    tar -C /tmp -xJf /tmp/shellcheck.tar.xz; \
+    install -m0755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck; \
+    \
+    rm -rf /tmp/*
+
+# ---- Stage 2: final sandbox image ----
+FROM registry.access.redhat.com/ubi9/ubi:9.8@sha256:48393e4261b2544f652c915b3e052256ddf66ee95cd04dc0362191f302c4e94a
+
+ARG TARGETARCH
+ARG GIT_REVISION=unknown
+ARG GIT_VERSION=development
+LABEL org.opencontainers.image.title="HyperShell fullsend-sandbox" \
+      org.opencontainers.image.description="HyperShell-owned Fullsend agent sandbox (Claude Code + tirith + Go/Node/pnpm/python toolchain) on Red Hat UBI9" \
+      org.opencontainers.image.source="https://github.com/openshift-online/hypershell" \
+      org.opencontainers.image.url="https://github.com/openshift-online/hypershell" \
+      org.opencontainers.image.documentation="https://github.com/openshift-online/hypershell/tree/main/components/agents" \
+      org.opencontainers.image.vendor="Red Hat, Inc." \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="registry.access.redhat.com/ubi9/ubi:9.8" \
+      org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.version="${GIT_VERSION}" \
+      name="hypershell/fullsend-sandbox" \
+      summary="HyperShell Fullsend agent sandbox (Claude Code + tirith + Go/Node/python)" \
+      description="Fullsend sandbox base (tirith, Claude Code, pi, codex, hooks) extended with the Go toolchain + make for in-sandbox build/test" \
+      io.k8s.description="Fullsend sandbox base extended with Go toolchain and make for in-sandbox build/test" \
+      url="https://github.com/openshift-online/hypershell" \
+      vendor="Red Hat, Inc." \
+      version="${GIT_VERSION}" \
+      release="1" \
+      com.redhat.component="hypershell-fullsend-sandbox" \
+      distribution-scope="public" \
+      io.k8s.display-name="HyperShell fullsend-sandbox" \
+      io.openshift.tags="hypershell,agents,fullsend,sandbox"
+
+# --- runtime system packages ---
+RUN set -eux; \
+    dnf -y install --setopt=install_weak_deps=False --nodocs \
+        git openssh-clients ca-certificates shadow-utils \
+        python3.12 python3.12-pip \
+        make gcc jq findutils which tar gzip xz diffutils \
+        curl-minimal rsync procps-ng; \
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 2; \
+    dnf clean all; rm -rf /var/cache/dnf
+
+# --- toolchains from the builder stage ---
+COPY --from=builder /usr/local/go /usr/local/go
+COPY --from=builder /usr/local/node /usr/local/node
+COPY --from=builder /usr/local/bin/shellcheck /usr/local/bin/shellcheck
+# gh and gitleaks are built from source (Hermeto-attributed) in go-tools-builder.
+COPY --from=go-tools-builder /usr/local/bin/gh /usr/local/bin/gh
+COPY --from=go-tools-builder /usr/local/bin/gitleaks /usr/local/bin/gitleaks
+
+ENV PATH="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# --- Claude Code (pinned) + pnpm ---
+# Claude Code is the only runtime our harnesses use. Pin it via npm and assert
+# the version so an upstream move is visible in a renovate PR rather than silent.
+# pnpm is pinned to packageManager in package.json (verify-pnpm hard-fails below).
+ARG CLAUDE_CODE_VERSION=2.1.306
+ARG PNPM_VERSION=11.15.1
+RUN set -eux; \
+    node --version; go version; \
+    npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
+    npm install -g "pnpm@${PNPM_VERSION}"; \
+    npm cache clean --force; \
+    NPM_CLAUDE="$(npm prefix -g)/bin/claude"; \
+    test -x "${NPM_CLAUDE}"; \
+    ln -sf "${NPM_CLAUDE}" /usr/local/bin/claude; \
+    GOT="$(claude --version | awk '{print $1}')"; \
+    [ "${GOT}" = "${CLAUDE_CODE_VERSION}" ] || { echo "claude on PATH is ${GOT}, expected ${CLAUDE_CODE_VERSION}" >&2; exit 1; }; \
+    pnpm --version
+
+# --- tirith (PreToolUse security-hook binary) ---
+# Version + checksums mirror the upstream fullsend sandbox.
+ARG TIRITH_VERSION=0.4.2
+ARG TIRITH_SHA256_amd64=efa6bf414a83dba385d4f13137e8677f850ced9102fe74ebb14c72f31df0dc77
+ARG TIRITH_SHA256_arm64=c550b1bfb0c8c872ab3421cd6ef756f260f7cf4981a18cedd49f141fa2d77569
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) TI_ARCH=x86_64;  TI_SHA="${TIRITH_SHA256_amd64}" ;; \
+      arm64) TI_ARCH=aarch64; TI_SHA="${TIRITH_SHA256_arm64}" ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/tirith.tar.gz \
+      "https://github.com/sheeki03/tirith/releases/download/v${TIRITH_VERSION}/tirith-${TI_ARCH}-unknown-linux-gnu.tar.gz"; \
+    echo "${TI_SHA}  /tmp/tirith.tar.gz" | sha256sum -c -; \
+    tar xzf /tmp/tirith.tar.gz -C /usr/local/bin tirith; \
+    chmod 0755 /usr/local/bin/tirith; \
+    rm -f /tmp/tirith.tar.gz
+
+# gitleaks is built from source in the go-tools-builder stage (CICD-ECC-02) and
+# copied in below, so it is no longer downloaded as a prebuilt release binary.
+
+# --- ripgrep + fd (search backends; static musl builds) ---
+ARG RIPGREP_VERSION=15.2.0
+ARG RIPGREP_SHA256_amd64=33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c
+ARG RIPGREP_SHA256_arm64=800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915
+ARG FD_VERSION=10.5.0
+ARG FD_SHA256_amd64=761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7
+ARG FD_SHA256_arm64=d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) RS_ARCH=x86_64;  RG_SHA="${RIPGREP_SHA256_amd64}"; FD_SHA="${FD_SHA256_amd64}" ;; \
+      arm64) RS_ARCH=aarch64; RG_SHA="${RIPGREP_SHA256_arm64}"; FD_SHA="${FD_SHA256_arm64}" ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/ripgrep.tar.gz \
+      "https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-${RS_ARCH}-unknown-linux-musl.tar.gz"; \
+    echo "${RG_SHA}  /tmp/ripgrep.tar.gz" | sha256sum -c -; \
+    tar xzf /tmp/ripgrep.tar.gz -C /usr/local/bin --strip-components=1 \
+      "ripgrep-${RIPGREP_VERSION}-${RS_ARCH}-unknown-linux-musl/rg"; \
+    curl -fsSLo /tmp/fd.tar.gz \
+      "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${RS_ARCH}-unknown-linux-musl.tar.gz"; \
+    echo "${FD_SHA}  /tmp/fd.tar.gz" | sha256sum -c -; \
+    tar xzf /tmp/fd.tar.gz -C /usr/local/bin --strip-components=1 \
+      "fd-v${FD_VERSION}-${RS_ARCH}-unknown-linux-musl/fd"; \
+    chmod 0755 /usr/local/bin/rg /usr/local/bin/fd; \
+    rm -f /tmp/ripgrep.tar.gz /tmp/fd.tar.gz; \
+    rg --version | grep -q "^ripgrep ${RIPGREP_VERSION} "; \
+    fd --version | grep -q "^fd ${FD_VERSION}$"
+
+# --- acli (Atlassian CLI for Jira) ---
+ARG ACLI_VERSION=1.3.18-stable
+ARG ACLI_SHA256_amd64=4ad4badc481ac1eff452f531c405a20422eb57513cc898d2a1f8ea945d6c24f6
+ARG ACLI_SHA256_arm64=ac71711da43649854689ad0f74e44f18b0da3fd0ee776ceb4307ae7eb1e5da85
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) ACLI_SHA="${ACLI_SHA256_amd64}" ;; \
+      arm64) ACLI_SHA="${ACLI_SHA256_arm64}" ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    ARCH="${TARGETARCH:-amd64}"; \
+    curl -fsSLo /tmp/acli.tar.gz \
+      "https://acli.atlassian.com/linux/${ACLI_VERSION}/acli_${ACLI_VERSION}_linux_${ARCH}.tar.gz"; \
+    echo "${ACLI_SHA}  /tmp/acli.tar.gz" | sha256sum -c -; \
+    tar xzf /tmp/acli.tar.gz -C /tmp; \
+    mv "/tmp/acli_${ACLI_VERSION}_linux_${ARCH}/acli" /usr/local/bin/acli; \
+    chmod 0755 /usr/local/bin/acli; \
+    rm -rf "/tmp/acli.tar.gz" "/tmp/acli_${ACLI_VERSION}_linux_${ARCH}"
+
+# --- pre-commit + gitlint (repo hook runner + commit-message validator) ---
+ARG PRECOMMIT_VERSION=4.5.1
+ARG GITLINT_VERSION=0.19.1
+ARG JSONSCHEMA_VERSION=4.23.0
+RUN python3.12 -m pip install --no-cache-dir \
+      "pre-commit==${PRECOMMIT_VERSION}" \
+      "gitlint-core==${GITLINT_VERSION}" \
+      "jsonschema==${JSONSCHEMA_VERSION}"
+
+# --- user model (mirrors the OpenShell sandbox: supervisor + sandbox users) ---
+# System uids are auto-assigned (UBI9 already occupies some low gids such as 998);
+# OpenShell does not require a fixed sandbox uid, matching the gitops UBI9 sandbox.
+RUN set -eux; \
+    groupadd -r supervisor; \
+    useradd -r -g supervisor -s /usr/sbin/nologin supervisor; \
+    groupadd -r sandbox; \
+    useradd -r -g sandbox -d /sandbox -s /bin/bash sandbox; \
+    mkdir -p /sandbox/.claude \
+             /sandbox/.config \
+             /sandbox/.cache/go-build \
+             /sandbox/go/pkg/mod; \
+    chown -R sandbox:sandbox /sandbox
+
+# --- pre-seed Claude Code trust state for non-interactive `claude -p` ---
+RUN set -eux; \
+    printf '%s\n' \
+      '{' \
+      '  "hasCompletedOnboarding": true,' \
+      '  "bypassPermissionsModeAccepted": true,' \
+      '  "theme": "dark",' \
+      '  "projects": {' \
+      '    "/sandbox": { "hasTrustDialogAccepted": true, "hasTrustDialogHooksAccepted": true }' \
+      '  }' \
+      '}' > /sandbox/.claude.json; \
+    chown sandbox:sandbox /sandbox/.claude.json
+
+# --- OpenShell proxy CA (NVIDIA/OpenShell#886) ---
+# The sandbox proxy terminates TLS and re-signs with its own CA at
+# /etc/openshell-tls/ca-bundle.pem, injected at runtime. Point git/curl/node/pip
+# at it so they trust the proxy without per-agent env files. Symlink the system
+# bundle so builds of this image (and any child image) do not break before the
+# real CA is injected.
+RUN mkdir -p /etc/openshell-tls \
+    && ln -sf /etc/pki/tls/certs/ca-bundle.crt /etc/openshell-tls/ca-bundle.pem
+
+# --- environment ---
+# GOPATH/caches live under /sandbox because the sandbox filesystem policy grants
+# read-write only to /sandbox, /tmp and /work (/usr is read-only).
+ENV HOME=/sandbox \
+    GOPATH=/sandbox/go \
+    GOMODCACHE=/sandbox/go/pkg/mod \
+    GOCACHE=/sandbox/.cache/go-build \
+    GOTOOLCHAIN=local \
+    XDG_CACHE_HOME=/sandbox/.cache \
+    DISABLE_AUTOUPDATER=1 \
+    GIT_SSL_CAINFO=/etc/openshell-tls/ca-bundle.pem \
+    SSL_CERT_FILE=/etc/openshell-tls/ca-bundle.pem \
+    REQUESTS_CA_BUNDLE=/etc/openshell-tls/ca-bundle.pem \
+    CURL_CA_BUNDLE=/etc/openshell-tls/ca-bundle.pem \
+    NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem
+ENV PATH="/usr/local/go/bin:/usr/local/node/bin:/sandbox/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+USER sandbox
+WORKDIR /sandbox

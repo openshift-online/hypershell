@@ -32,7 +32,14 @@ import { queryApiReliability } from "./metrics-api-reliability.js";
 import { queryAdoptionMetrics } from "./metrics-adoption.js";
 import { queryAuthorizedGatewayMetrics } from "./authorized-gateway-metrics.js";
 import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
+import { queryResourceReadiness } from "./metrics-resource-readiness.js";
+import { queryCertificateHealth } from "./metrics-certificate-health.js";
+import { queryOidcClientSync } from "./metrics-oidc-client-sync.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
+import {
+  queryHomepagePlatformOverview,
+  queryHomepageSummary,
+} from "./homepage.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
@@ -51,6 +58,7 @@ import {
   type BffTracing,
   type ProxyOutcome,
 } from "./tracing.js";
+import { routePaths, routes } from "../../shared/routes.js";
 
 const correlationHeader = "x-hypershell-correlation-id";
 const validCorrelationId =
@@ -81,19 +89,18 @@ declare module "fastify" {
   }
 }
 
+const applicationRoutePatterns = Object.values(routes).map((pattern) => {
+  const source = `${pattern.startsWith("/") ? "^" : "^/"}${pattern.replace(
+    ":gatewayId",
+    "[^/]+",
+  )}/?$`;
+  return new RegExp(source, "u");
+});
+
 function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
-    pathname === "/dashboard" ||
-    pathname === "/dashboard/provisioning" ||
-    pathname === "/dashboard/inventory" ||
-    pathname === "/dashboard/reliability" ||
-    pathname === "/dashboard/usage" ||
-    pathname === "/dashboard/adoption" ||
-    pathname === "/login" ||
-    pathname === "/gateways/new" ||
-    pathname === "/metrics" ||
-    /^\/gateways\/[^/]+\/?$/u.test(pathname)
+    applicationRoutePatterns.some((pattern) => pattern.test(pathname))
   );
 }
 
@@ -124,11 +131,11 @@ function consoleRedirectForDashboardHost(request: FastifyRequest): string {
 
 function requiresDashboardAdminAccess(pathname: string): boolean {
   return (
-    pathname === "/dashboard/provisioning" ||
-    pathname === "/dashboard/inventory" ||
-    pathname === "/dashboard/reliability" ||
-    pathname === "/dashboard/adoption" ||
-    pathname === "/metrics"
+    pathname === routePaths.dashboardProvisioning ||
+    pathname === routePaths.dashboardInventory ||
+    pathname === routePaths.dashboardReliability ||
+    pathname === routePaths.dashboardAdoption ||
+    pathname === routePaths.metrics
   );
 }
 
@@ -193,7 +200,7 @@ interface ApiMetadata {
  * config. Called once at startup and then periodically to pick up api-server
  * rollouts without a BFF restart. Version display must never gate BFF readiness,
  * so this never throws; an indeterminate result (unreachable, non-OK, or no
- * version field) resolves to `null` (WEB-TRACE-06 best-effort precedent) and the
+ * version field) resolves to `null` (WEB-TRC-06 best-effort precedent) and the
  * caller decides how to represent it -- "unknown" at startup, or keeping the
  * last known value on a refresh so a transient blip cannot clobber a good
  * display. The probe gets its own short timeout rather than the proxy timeout.
@@ -412,7 +419,7 @@ export async function buildApp(
     // when the Origin header is absent or the literal string "null" -- Firefox
     // sends Origin: null on same-origin beacons under the no-referrer policy
     // this app sets, which the Origin/Host comparison alone would reject and so
-    // silently drop legitimate same-origin browser telemetry (WEB-TRACE-02).
+    // silently drop legitimate same-origin browser telemetry (WEB-TRC-02).
     // For non-browser clients that omit Fetch Metadata (such as curl), fall
     // back to comparing the Origin host to the Host header; a missing Origin is
     // allowed through.
@@ -498,7 +505,7 @@ export async function buildApp(
   app.get("/health/ready", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
     // Readiness stays "ready" regardless of telemetry delivery -- tracing is
-    // best-effort and must never gate serving (WEB-TRACE-06) -- but the bounded
+    // best-effort and must never gate serving (WEB-TRC-06) -- but the bounded
     // delivery-health snapshot rides along so span-export and relay losses are
     // observable rather than silently swallowed.
     return { status: "ready", tracing: tracing.deliveryHealth() };
@@ -580,7 +587,7 @@ export async function buildApp(
   // Same-origin browser telemetry ingest. The browser exporter posts OTLP/HTTP
   // JSON here; the BFF validates it and relays it to the configured collector,
   // keeping the collector origin out of the browser and reusing the session and
-  // CSRF controls the other state-changing routes rely on (WEB-TRACE-02). The
+  // CSRF controls the other state-changing routes rely on (WEB-TRC-02). The
   // global 1 MiB body limit bounds the payload.
   app.post("/telemetry/v1/traces", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
@@ -598,6 +605,33 @@ export async function buildApp(
     reply.code(202);
     return { status: "accepted" };
   });
+
+  app.get(
+    "/api/homepage/summary",
+    { preHandler: requireOperationalMetricsAccess },
+    async (request) => {
+      return queryHomepageSummary(
+        config.apiOrigin,
+        config.oidcIssuer ? request.session.get("accessToken") : undefined,
+        config.apiTimeoutMs,
+      );
+    },
+  );
+
+  app.get(
+    "/api/homepage/platform-overview",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request) => {
+      return queryHomepagePlatformOverview(
+        config.apiOrigin,
+        config.oidcIssuer ? request.session.get("accessToken") : undefined,
+        config.apiTimeoutMs,
+        config.prometheusUrl,
+        config.prometheusQueryTimeoutMs,
+        config.prometheusNamespace,
+      );
+    },
+  );
 
   app.get(
     "/api/metrics/gateways",
@@ -1043,11 +1077,56 @@ export async function buildApp(
     },
   );
 
+  app.get(
+    "/api/metrics/resource-readiness",
+    { preHandler: requireDashboardMetricsAccess },
+    async () =>
+      queryResourceReadiness(
+        {
+          url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+          tokenFile: config.clusterPrometheusTokenFile,
+          caFile: config.clusterPrometheusCaFile,
+        },
+        config.prometheusQueryTimeoutMs,
+        config.prometheusUrl,
+      ),
+  );
+
+  app.get(
+    "/api/metrics/certificate-health",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryCertificateHealth(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "certificate health metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/oidc-client-sync",
+    { preHandler: requireDashboardMetricsAccess },
+    async () =>
+      queryOidcClientSync(
+        config.prometheusUrl,
+        config.prometheusQueryTimeoutMs,
+      ),
+  );
+
   app.all("/api/*", async (request, reply) => {
     // Start one BFF server span per proxied request. It continues a valid
     // inbound W3C context and yields the validated upstream context to set on
-    // the API request, so browser, BFF, and API join one trace (WEB-TRACE-04,
-    // WEB-TRACE-05). A malformed inbound value is never forwarded: only the
+    // the API request, so browser, BFF, and API join one trace (WEB-TRC-04,
+    // WEB-TRC-05). A malformed inbound value is never forwarded: only the
     // span-derived context reaches upstream.
     const span = tracing.startProxySpan({
       correlationId: request.correlationId,
@@ -1059,7 +1138,7 @@ export async function buildApp(
       tracestate: singleHeaderValue(request.headers.tracestate),
     });
     // The span ends in the finally block with the outcome recorded here, so a
-    // tracing failure never changes the proxy result (WEB-TRACE-09).
+    // tracing failure never changes the proxy result (WEB-TRC-09).
     let spanOutcome: ProxyOutcome = "server_error";
     let spanStatusCode = 500;
     const recordOutcome = (statusCode: number) => {

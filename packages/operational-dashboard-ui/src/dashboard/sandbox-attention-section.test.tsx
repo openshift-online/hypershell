@@ -96,6 +96,7 @@ describe("SandboxAttentionSection", () => {
     expect(screen.getByText("7 Idle")).toBeTruthy();
   });
 
+  // Verifies: OBS-SBXA-09.02
   it("hides the section when all present attention counts are zero", () => {
     const { container } = renderAttention({
       expiringSandboxes: 0,
@@ -109,6 +110,7 @@ describe("SandboxAttentionSection", () => {
     expect(screen.queryByText("Attention required")).toBeNull();
   });
 
+  // Verifies: OBS-SBXA-09.03
   it("shows only non-zero chips when counts are mixed", () => {
     renderAttention({
       expiringSandboxes: 0,

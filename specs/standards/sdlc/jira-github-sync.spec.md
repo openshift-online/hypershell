@@ -660,6 +660,69 @@ the work in any Jira field or comment.
 - WHEN the funnel processes the item through any phase
 - THEN the Jira assignee is still the human owner
 
+### Requirement: SDLC-JIRA-14 -- One Pull Request Across Spec and Code Phases
+
+A single SDLC execution of a work item SHALL use exactly ONE pull request for
+BOTH its spec phase and its code phase, and every retry of either phase SHALL
+reuse that same pull request. The spec phase SHALL create the branch and open
+the pull request; the code phase SHALL push onto the same branch and advance the
+same pull request. Within one execution the correspondence between the execution
+record and this pull request is 1:1; the funnel SHALL NOT open a second,
+phase-specific pull request, so there is NO separate "spec pull request" and
+"code pull request".
+
+The branch SHALL be named `implementer/spec-<KEY>-*`, where `<KEY>` is the work
+item's Jira key, or the GitHub execution record's issue number when no Jira key
+exists. The `spec-` segment records where the branch was BORN - the spec phase
+that created it - and SHALL NOT be read as a marker of the current phase. The
+branch keeps this name unchanged through the code phase.
+
+The SDLC phase SHALL be tracked solely by the GitHub label state machine on the
+execution record (the `agent/*` phase labels) and SHALL NEVER be derived from a
+pull request's branch-name prefix. Deriving the phase from a `spec-` or `code-`
+branch prefix is prohibited, because a code-phase record lives on the
+`spec-`-born branch and would never match a `code-`-prefixed pattern.
+
+Any step that resolves the pull request for a phase - spec-review, code-review,
+reconcile, or the initial-phase seeding of a freshly ingested record - SHALL
+resolve the record's single pull request phase-agnostically: by the record's
+natively linked pull request, or by a pull request whose head branch or title
+contains the key, with NO `spec-`-versus-`code-` prefix discrimination. When more
+than one open pull request matches, that is an anomaly (not routing input); the
+resolver SHALL warn and take the newest.
+
+This requirement governs the spec-and-code pull request of a SINGLE execution. It
+does NOT forbid a work item from accumulating several pull requests over its
+lifetime (for example later follow-up work); reconcile links every such pull
+request as a Jira remote link (see Artifact Remote Links) and the SDLC visibility
+dashboard groups them under the one execution record (see
+`specs/platform/agent-sdlc-visibility-dashboard.spec.md`).
+
+#### Scenario: SDLC-JIRA-14.01 -- Code phase reuses the spec-phase pull request
+
+- GIVEN a work item whose spec phase opened pull request `#900` on branch
+  `implementer/spec-HYPERSHELL-500-add-widget`
+- WHEN the execution advances to the code phase
+- THEN the code phase pushes onto `implementer/spec-HYPERSHELL-500-add-widget`
+- AND it reuses pull request `#900`
+- AND no `implementer/code-*` branch and no second pull request is created
+
+#### Scenario: SDLC-JIRA-14.02 -- Phase is not derived from the branch prefix
+
+- GIVEN an execution record whose only pull request is on its `spec-`-born branch
+  and whose code is already written
+- WHEN a step needs the record's current phase
+- THEN it reads the record's `agent/*` phase label
+- AND it does NOT infer `agent/reviewable-spec` from the `spec-` branch prefix
+
+#### Scenario: SDLC-JIRA-14.03 -- Pull request resolution is phase-agnostic
+
+- GIVEN an execution record with one open pull request whose head branch contains
+  the record's key
+- WHEN spec-review and code-review each resolve the pull request to act on
+- THEN both resolve the same single pull request
+- AND resolution does not discriminate by a `spec-` or `code-` branch prefix
+
 ---
 
 ## Required Skill Changes
@@ -681,6 +744,16 @@ scope and active-phase conditions (see Authorization Gate Is Load-Bearing). A
 Jira-origin item that has been ingested SHALL be selectable exactly like a
 GitHub-origin item, and in neither case SHALL an un-authorized record be
 selected.
+
+Step 0's per-record steps SHALL honor the single-pull-request model (see One Pull
+Request Across Spec and Code Phases). Associating existing artifacts SHALL
+discover the record's one pull request phase-agnostically (by the natively linked
+pull request, or by a head branch or title containing the key), never treating a
+`spec-` and a `code-` branch as two distinct per-phase pull requests. Deriving the
+initial phase label for a record that carries none yet SHALL NOT read the pull
+request's branch prefix: a record with an open pull request SHALL seed to
+`agent/reviewable-spec`, and a record with none SHALL seed to `agent/workable`;
+from there the GitHub label state machine, not the branch name, tracks the phase.
 
 ### `triage` discovers work from either origin
 
@@ -801,7 +874,7 @@ the Closed-record Done path; no manual Jira edit is required.
   epic for the Closed record `#524`) reaches `Done`. An open record with no merged
   pull request stays `In Progress`. Re-running changes nothing.
 
-#### Scenario: GitHub-first item converges on merge
+#### Example: GitHub-first item converges on merge
 
 - GIVEN an in-scope GitHub-first execution record with no Jira counterpart
 - WHEN the funnel runs
@@ -810,7 +883,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND on merge the execution record is closed and the Jira item is projected to
   the `Done` category
 
-#### Scenario: Scope run self-heals the stranded GitHub-origin record
+#### Example: Scope run self-heals the stranded GitHub-origin record
 
 - GIVEN `#537`, a GitHub-origin execution record whose pull request `#538` is
   merged but which is still Open and has no Jira counterpart
@@ -820,7 +893,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND `#537` is closed
 - AND re-running makes no further change
 
-#### Scenario: Jira epic drives a full run
+#### Example: Jira epic drives a full run
 
 - GIVEN the Jira epic `HYPERSHELL-374` in a configured Jira source
 - WHEN `execute-sdlc` runs with scope `agent/scope/mturansk`
@@ -829,7 +902,7 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND the Jira item ends with the mapped status, the pull request as a remote
   link, attributed phase comments, and an unchanged assignee
 
-#### Scenario: Two origins converge
+#### Example: Two origins converge
 
 - GIVEN one GitHub-origin issue and one Jira-origin story of equal intent
 - WHEN each is run through the funnel

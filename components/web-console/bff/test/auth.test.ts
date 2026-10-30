@@ -182,6 +182,7 @@ function createOidcServer(ctx: OidcContext): Server {
 // ---------------------------------------------------------------------------
 
 describe("OIDC configuration validation", () => {
+  // Verifies: WEB-USE-03.04
   it("rejects partial OIDC config when OIDC_CLIENT_ID is missing", () => {
     expect(() =>
       loadConfig({
@@ -191,6 +192,7 @@ describe("OIDC configuration validation", () => {
     ).toThrow(/OIDC_CLIENT_ID is required when OIDC_ISSUER is set/u);
   });
 
+  // Verifies: WEB-USE-03.04
   it("rejects partial OIDC config when SESSION_SECRET is missing", () => {
     expect(() =>
       loadConfig({
@@ -200,6 +202,7 @@ describe("OIDC configuration validation", () => {
     ).toThrow(/SESSION_SECRET is required when OIDC_ISSUER is set/u);
   });
 
+  // Verifies: WEB-USE-03.04
   it("reports both missing fields when OIDC is partially configured", () => {
     expect(() =>
       loadConfig({ OIDC_ISSUER: "https://idp.example.com" }),
@@ -384,7 +387,9 @@ describe("web-console BFF with OIDC enabled", () => {
   });
 
   // --- helper: create an auth session cookie with test data ---
-  function authenticateSession(): string {
+  function authenticateSession(
+    roles: readonly string[] = ["admin", "viewer"],
+  ): string {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
       email: "test@example.com",
@@ -392,7 +397,7 @@ describe("web-console BFF with OIDC enabled", () => {
       idToken: "fake-id-token",
       name: "Test User",
       preferredUsername: "testuser",
-      roles: ["admin", "viewer"],
+      roles,
       sub: "user-123",
     });
     // URL-encode the value because @fastify/cookie URL-decodes the Cookie header
@@ -436,6 +441,7 @@ describe("web-console BFF with OIDC enabled", () => {
   // Auth endpoints
   // -----------------------------------------------------------------------
 
+  // Verifies: SEC-OIDC-03.01
   it("redirects /auth/login to the IdP authorization endpoint with PKCE", async () => {
     const response = await app.inject({ method: "GET", url: "/auth/login" });
 
@@ -461,6 +467,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(sessionCookie(response)).toContain("session=");
   });
 
+  // Verifies: SEC-OIDC-03.02
   it("exchanges code for tokens on /auth/callback and redirects to /", async () => {
     // Step 1: start the login to capture state, nonce, and login cookie
     const login = await app.inject({ method: "GET", url: "/auth/login" });
@@ -515,6 +522,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(response.json()).toMatchObject({ statusCode: 400 });
   });
 
+  // Verifies: SEC-OIDC-05.02
   it("returns authenticated: false from /auth/session without a cookie", async () => {
     const response = await app.inject({
       method: "GET",
@@ -601,6 +609,7 @@ describe("web-console BFF with OIDC enabled", () => {
     );
   });
 
+  // Verifies: SEC-OIDC-08.03
   it("returns to a safe return_to path after callback", async () => {
     const login = await app.inject({
       method: "GET",
@@ -627,6 +636,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(callback.headers.location).toBe("/gateways/gw-1");
   });
 
+  // Verifies: SEC-OIDC-08.04
   it("ignores an unsafe return_to and redirects to /", async () => {
     const login = await app.inject({
       method: "GET",
@@ -656,6 +666,41 @@ describe("web-console BFF with OIDC enabled", () => {
   // -----------------------------------------------------------------------
   // CSRF protection
   // -----------------------------------------------------------------------
+
+  // Verifies: SEC-OIDC-04.03
+  it("allows dashboard administrators to read the homepage platform overview", async () => {
+    const cookie = authenticateSession(["platform:admin"]);
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/homepage/platform-overview",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      gatewayStatuses: {
+        available: true,
+        total: 0,
+      },
+      sandboxStatuses: { available: false },
+    });
+  });
+
+  it("rejects non-administrators from the homepage platform overview", async () => {
+    const cookie = authenticateSession();
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/homepage/platform-overview",
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: "Forbidden",
+      statusCode: 403,
+    });
+    expect(apiRequests).toHaveLength(0);
+  });
 
   it("rejects cross-origin POST requests with 403", async () => {
     const cookie = authenticateSession();
@@ -732,6 +777,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(apiRequests).toHaveLength(1);
   });
 
+  // Verifies: SEC-OIDC-04.03
   it("rejects a cross-site request reported via Sec-Fetch-Site", async () => {
     const cookie = authenticateSession();
     const response = await app.inject({
@@ -756,6 +802,7 @@ describe("web-console BFF with OIDC enabled", () => {
   // Proxy auth header injection
   // -----------------------------------------------------------------------
 
+  // Verifies: SEC-OIDC-03.03
   it("injects Bearer token into upstream API requests from session", async () => {
     const cookie = authenticateSession();
     const response = await app.inject({
@@ -771,6 +818,7 @@ describe("web-console BFF with OIDC enabled", () => {
     );
   });
 
+  // Verifies: SEC-OIDC-08.02
   it("signals re-authentication for unauthenticated API requests", async () => {
     const response = await app.inject({
       method: "GET",
@@ -786,6 +834,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(apiRequests).toHaveLength(0);
   });
 
+  // Verifies: SEC-OIDC-07.01
   it("refreshes an expired access token before proxying", async () => {
     const cookie = makeCookies({
       expiresInSeconds: -10,
@@ -804,6 +853,7 @@ describe("web-console BFF with OIDC enabled", () => {
     );
   });
 
+  // Verifies: SEC-OIDC-07.02
   it("refreshes and retries once when the upstream rejects a valid-looking token", async () => {
     const cookie = makeCookies({
       accessToken: "stale-access-token",
@@ -825,6 +875,7 @@ describe("web-console BFF with OIDC enabled", () => {
     );
   });
 
+  // Verifies: SEC-OIDC-08.02
   it("signals re-authentication when an expired session has no refresh token", async () => {
     const cookie = makeCookies({ expiresInSeconds: -10 });
     const response = await app.inject({
@@ -838,6 +889,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(apiRequests).toHaveLength(0);
   });
 
+  // Verifies: SEC-OIDC-08.02
   it("signals re-authentication when the refresh token is rejected", async () => {
     const cookie = makeCookies({
       expiresInSeconds: -10,
@@ -909,6 +961,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(response.headers["content-type"]).toContain("text/html");
   });
 
+  // Verifies: REL-DASH-04.01
   it("redirects non-admin users away from /dashboard/reliability", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
@@ -977,6 +1030,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(response.headers.location).toBe("/");
   });
 
+  // Verifies: ADO-DASH-01.01, OBS-CPU-04.02, OBS-MEM-04.02, OBS-POD-04.02, OBS-NODE-04.02, OBS-REL-03.02, REL-DASH-04.03
   it("rejects non-admin callers from dashboard metrics routes", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
@@ -996,6 +1050,10 @@ describe("web-console BFF with OIDC enabled", () => {
       "/api/metrics/registered-users",
       "/api/metrics/adoption",
       "/api/metrics/api-reliability",
+      "/api/metrics/control-plane-reconciliation",
+      "/api/metrics/resource-readiness",
+      "/api/metrics/certificate-health",
+      "/api/metrics/oidc-client-sync",
     ]) {
       const response = await app.inject({
         headers: { cookie },
@@ -1011,6 +1069,7 @@ describe("web-console BFF with OIDC enabled", () => {
     }
   });
 
+  // Verifies: WEB-OPS-04.03, OBS-GMD-05.04
   it("returns authorized gateway metrics to non-admin callers", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
@@ -1049,6 +1108,42 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(request.url).toContain("/api/hypershell/v1/gateways?");
       expect(request.headers.authorization).toBe("Bearer test-access-token");
     }
+  });
+
+  // Verifies: WEB-OPS-04.04
+  it("scopes gateway metrics for hypershell-admins without platform:admin", async () => {
+    const session = app.createSecureSession({
+      accessToken: "test-access-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      roles: ["hypershell-admins"],
+    });
+    const cookie = `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/metrics/gateways",
+    });
+
+    // Served from the caller's RBAC-scoped gateway list, not fleet-wide
+    // Prometheus counts. The stub API returns no gateways, so all zeros.
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      activeSandboxes: 0,
+      counts: {
+        Degraded: 0,
+        Failed: 0,
+        Pending: 0,
+        Provisioning: 0,
+        Running: 0,
+      },
+      total: 0,
+    });
+    expect(apiRequests).toHaveLength(1);
+    expect(apiRequests[0]?.url).toContain("/api/hypershell/v1/gateways?");
+    expect(apiRequests[0]?.headers.authorization).toBe(
+      "Bearer test-access-token",
+    );
   });
 
   it("serves /dashboard to hypershell-admins without platform:admin", async () => {
@@ -1296,6 +1391,7 @@ describe("web-console BFF with OIDC enabled", () => {
       await gatedApp.close();
     });
 
+    // Verifies: CICD-PREN-09.01
     it("creates a session for an organization member", async () => {
       oidcCtx.githubLinked = true;
       gatedApp = await buildApp(gatedConfig());
@@ -1331,6 +1427,7 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(session.json()).toMatchObject({ authenticated: true });
     });
 
+    // Verifies: CICD-PREN-09.03
     it("redirects non-members to /auth/denied without a session", async () => {
       oidcCtx.githubLinked = true;
       oidcCtx.githubOrgs = ["acme"];

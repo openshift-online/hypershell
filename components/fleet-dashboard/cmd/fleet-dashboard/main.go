@@ -62,8 +62,12 @@ func run(logger *slog.Logger) error {
 	// the same FD_GITHUB_REPO: NewGitHubBundles returns nil when disabled, which
 	// NewPromotion treats as the no-op enricher.
 	var bundler sources.BundleEnricher
+	// Keep the concrete enricher so the lock resolver (below) can be wired in as its
+	// GitOps lock-history provenance source once both exist.
+	var githubBundles *sources.GitHubBundles
 	if gb := sources.NewGitHubBundles(cfg); gb != nil {
 		bundler = gb
+		githubBundles = gb
 		logger.Info("github bundle enrichment enabled", "repo", cfg.GitHubRepo)
 	}
 	// Resolve each environment's release by the versions-lock bundle it renders
@@ -80,15 +84,22 @@ func run(logger *slog.Logger) error {
 		versioner = lr
 		hydratedVersioner = lr
 		history = lr
+		// The lock resolver's commit timeline is also the GitOps PR group's
+		// deployment-revision provenance (FLT-BPR-04): wire it into the bundle
+		// enricher so bundle details show the GitOps delivery deployment changes.
+		githubBundles.WithLockHistory(lr)
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler, history)
+	// Capabilities and the default gateway image come from each control plane's
+	// own info metrics first, with the Argo annotation as fallback (FLT-CAP-01).
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler, history).WithClusterIdentities(prom)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)
 	promotionSrc := cache.NewSource("promotion", cfg.RefreshPromotion, promotion.Promotion, metrics.Observe)
 	topologySrc := cache.NewSource("topology", cfg.RefreshTopology, topology.Topology, metrics.Observe)
 	instancesSrc := cache.NewSource("instances", cfg.RefreshInstances, prom.Instances, metrics.Observe)
+	sdlcAgentsSrc := cache.NewSource("sdlc-agents", cfg.RefreshSdlcAgents, prom.SdlcAgents, metrics.Observe)
 
 	// Agent SDLC funnel visibility (agent-sdlc-visibility-dashboard.spec). Funnel
 	// state comes from the PUBLIC product repo through the GitHub-label adapter
@@ -125,7 +136,7 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc}
+	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc, sdlcAgentsSrc}
 	if sdlcSrc != nil {
 		srcs = append(srcs, sdlcSrc)
 	}
@@ -137,13 +148,14 @@ func run(logger *slog.Logger) error {
 	}
 
 	handlers := &api.Handlers{
-		Fleet:     fleetSrc,
-		Promotion: promotionSrc,
-		Topology:  topologySrc,
-		Instances: instancesSrc,
-		SDLC:      sdlcSrc,
-		E2ERuns:   e2eSrc,
-		E2E:       e2ePlane,
+		Fleet:      fleetSrc,
+		Promotion:  promotionSrc,
+		Topology:   topologySrc,
+		Instances:  instancesSrc,
+		SdlcAgents: sdlcAgentsSrc,
+		SDLC:       sdlcSrc,
+		E2ERuns:    e2eSrc,
+		E2E:        e2ePlane,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 

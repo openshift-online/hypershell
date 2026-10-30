@@ -101,6 +101,9 @@ type ReliabilitySummaryMetricId =
   | "api-request-rate"
   | "api-error-rate"
   | "api-latency"
+  | "api-p95-latency"
+  | "oidc-client-sync"
+  | "state-accuracy"
   | "reconciliation-failures"
   | "reconciliation-retries"
   | "reconciliation-successes"
@@ -114,6 +117,9 @@ const RELIABILITY_SUMMARY_LABELS: Record<
   "api-request-rate": messages.reliabilitySummaryRequestRate,
   "api-error-rate": messages.reliabilitySummaryErrorRate,
   "api-latency": messages.reliabilitySummaryLatency,
+  "api-p95-latency": messages.apiP95LatencyWidget,
+  "oidc-client-sync": messages.oidcClientSyncWidget,
+  "state-accuracy": messages.stateAccuracyWidget,
   "reconciliation-failures": messages.reliabilitySummaryReconciliationFailures,
   "reconciliation-retries": messages.reliabilitySummaryReconciliationRetries,
   "reconciliation-successes":
@@ -123,7 +129,7 @@ const RELIABILITY_SUMMARY_LABELS: Record<
 };
 
 const API_RELIABILITY_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
-  ["api-request-rate", "api-error-rate", "api-latency"];
+  ["api-request-rate", "api-error-rate", "api-latency", "api-p95-latency"];
 
 const RECONCILIATION_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
   [
@@ -132,6 +138,8 @@ const RECONCILIATION_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
     "reconciliation-successes",
     "reconciliation-lag",
     "stale-resource-status-count",
+    "oidc-client-sync",
+    "state-accuracy",
   ];
 
 function reliabilitySummaryTrendSubject(
@@ -251,6 +259,163 @@ export function ReliabilitySummaryCard({
           {renderSummaryColumn(RECONCILIATION_SUMMARY_METRIC_IDS)}
         </div>
       </div>
+    </WidgetContent>
+  );
+}
+
+function UnknownValue() {
+  return <FormattedMessage {...messages.unknown} />;
+}
+
+export function OidcClientSyncCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  const intl = useIntl();
+  const sync = metric?.oidcClientSync;
+
+  if (!sync) {
+    return (
+      <WidgetContent>
+        <MetricUnavailableEmptyState />
+      </WidgetContent>
+    );
+  }
+
+  const keycloakStatus =
+    sync.keycloakStatus === "connected"
+      ? messages.connected
+      : sync.keycloakStatus === "disconnected"
+        ? messages.disconnected
+        : messages.unknown;
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.oidcClientSyncHelp} />}
+    >
+      <DescriptionList
+        aria-label={intl.formatMessage(messages.oidcClientSyncAriaLabel)}
+        isHorizontal
+      >
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.accuracy} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {sync.accuracyPercent === undefined ? (
+              <UnknownValue />
+            ) : (
+              <FormattedMessage
+                {...messages.percentValue}
+                values={{ value: sync.accuracyPercent }}
+              />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.syncedClients} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {sync.syncedClients === undefined ||
+            sync.expectedClients === undefined ? (
+              <UnknownValue />
+            ) : (
+              <FormattedMessage
+                {...messages.countOfTotal}
+                values={{
+                  count: sync.syncedClients,
+                  total: sync.expectedClients,
+                }}
+              />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.expectedClients} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {sync.expectedClients ?? <UnknownValue />}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.keycloakStatus} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            <FormattedMessage {...keycloakStatus} />
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      </DescriptionList>
+    </WidgetContent>
+  );
+}
+
+export function StateAccuracyCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  const intl = useIntl();
+  const state = metric?.stateAccuracy;
+
+  if (!state) {
+    return (
+      <WidgetContent>
+        <MetricUnavailableEmptyState />
+      </WidgetContent>
+    );
+  }
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.stateAccuracyHelp} />}
+    >
+      <DescriptionList
+        aria-label={intl.formatMessage(messages.stateAccuracyAriaLabel)}
+        isHorizontal
+      >
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.accuracy} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {state.accuracyPercent === undefined ? (
+              <UnknownValue />
+            ) : (
+              <FormattedMessage
+                {...messages.percentValue}
+                values={{ value: state.accuracyPercent }}
+              />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.observedMatchingDesired} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {state.observedMatchingDesired === undefined ||
+            state.totalResources === undefined ? (
+              <UnknownValue />
+            ) : (
+              <FormattedMessage
+                {...messages.countOfTotal}
+                values={{
+                  count: state.observedMatchingDesired,
+                  total: state.totalResources,
+                }}
+              />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.staleResources} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {state.staleResources}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      </DescriptionList>
     </WidgetContent>
   );
 }

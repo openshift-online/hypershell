@@ -972,6 +972,72 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Keycloak provisioning or lifecycle verification is unavailable
       summary: Permanently revoke an OpenShell gateway service account
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:
+    post:
+      description: |
+        Change the OpenShell role and optionally the description in place. The requested role is capped at the creator's current gateway role. The client credentials are unchanged; no credential bundle is returned.
+      operationId: updateGatewayServiceAccountRole
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: OpenShellGatewayServiceAccount ID
+        in: path
+        name: service_account_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenShellGatewayServiceAccountRoleUpdateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Keycloak client converged to the new role
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Role update is persisted and Keycloak convergence is pending
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Change an OpenShell gateway service account's role
   /api/hypershell/v1/roles:
     get:
       operationId: listRoles
@@ -1496,6 +1562,38 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Keycloak provisioning or lifecycle verification is unavailable
       summary: Grant a user access to a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
+    get:
+      operationId: listGatewaySandboxEvents
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewaySandboxEventList"
+          description: Current bounded event snapshots grouped by sandbox name
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List recent sandbox Kubernetes events for a gateway
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     get:
       operationId: searchGatewayDirectory
@@ -3652,6 +3750,492 @@ paths:
       security:
       - Bearer: []
       summary: Update a workspace membership
+  /api/hypershell/ext/ci_providers:
+    get:
+      operationId: listCIProviders
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProviderList"
+          description: A JSON array of CI provider objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of CI providers
+    post:
+      operationId: createCIProvider
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CIProvider"
+        description: CI provider data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: A CI provider with the same issuer already exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Register a new CI OIDC provider
+  /api/hypershell/ext/ci_providers/{id}:
+    delete:
+      operationId: deleteCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: CI provider deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: CI provider is still referenced by one or more CITrusts
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a CI provider
+    get:
+      operationId: getCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: CI provider found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a CI provider by ID
+    patch:
+      operationId: updateCIProvider
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CIProviderPatchRequest"
+        description: Updated CI provider data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CIProvider"
+          description: CI provider updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI provider with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a CI provider
+  /api/hypershell/ext/ci_trusts:
+    get:
+      operationId: listCITrusts
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrustList"
+          description: A JSON array of CI trust objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of CI trusts
+    post:
+      operationId: createCITrust
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CITrust"
+        description: CI trust data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a CI trust linking a CI provider to a gateway
+  /api/hypershell/ext/ci_trusts/{id}:
+    delete:
+      operationId: deleteCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: CI trust deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a CI trust
+    get:
+      operationId: getCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: CI trust found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a CI trust by ID
+    patch:
+      operationId: updateCITrust
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CITrustPatchRequest"
+        description: Updated CI trust data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CITrust"
+          description: CI trust updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No CI trust with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a CI trust
 components:
   parameters:
     id:
@@ -4060,25 +4644,41 @@ components:
             readOnly: true
             type: string
           external_dns:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           tls_mode:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           service_type:
+            description: Platform-managed; set by the control plane (PLAT-DATA-23)
+            readOnly: true
             type: string
           status:
+            description: Control-plane-observed operational status (PLAT-DATA-23)
+            readOnly: true
             type: string
           phase:
+            description: Control-plane-observed lifecycle phase (PLAT-DATA-23)
+            readOnly: true
             type: string
           image:
-            description: Container image for the gateway deployment
+            description: "Container image for the gateway deployment; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
             type: string
           supervisor_image:
-            description: Container image for the supervisor sidecar
+            description: "Container image for the supervisor sidecar; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
             type: string
           server_dns_names:
-            description: DNS names for TLS certificate SANs
+            description: "DNS names for TLS certificate SANs; platform-managed, control-plane-only\
+              \ (PLAT-DATA-23)"
             items:
               type: string
+            readOnly: true
             type: array
           route_address:
             description: External route address populated by the control plane
@@ -4092,29 +4692,41 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
-          provisioning_version:
-            description: "Gateway version the gateway's cluster advertises provisioning\
-              \ onto new gateways, derived from that cluster's single-valued gateway-version\
-              \ capability. Empty when the cluster advertises no provisioning version."
-            readOnly: true
-            type: string
-          image_pinned:
-            description: "Whether this gateway pins an explicit image and therefore\
-              \ need not track its cluster's provisioning version. True suppresses\
-              \ the newer-version-available drift indicator, because a pinned gateway\
-              \ may intentionally run a different version from its cluster default."
-            readOnly: true
-            type: boolean
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
             readOnly: true
             type: string
           route:
-            description: JSON-encoded route configuration
+            description: "JSON-encoded route configuration; platform-managed, control-plane-only\
+              \ (PLAT-DATA-23). The optional certificate sub-key (an empty object)\
+              \ marks a gateway opted in to dedicated per-gateway certificate provisioning;\
+              \ it is provision-time only and cannot be added, removed, or changed\
+              \ after creation."
+            readOnly: true
             type: string
+          dedicated_route:
+            description: Whether the gateway requested the dedicated per-gateway route
+              and wildcard certificate path at creation.
+            readOnly: true
+            type: boolean
           credential_driver:
-            description: JSON-encoded credential storage driver configuration
+            description: "JSON-encoded credential storage driver configuration; platform-managed,\
+              \ control-plane-only (PLAT-DATA-23)"
+            readOnly: true
+            type: string
+          workspace_mode:
+            description: "How the OpenShell Kubernetes driver maps workspaces to namespaces.\
+              \ \"shared\" places all sandboxes in the gateway namespace; \"managed\"\
+              \ auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned\
+              \ namespaces. Platform-managed (PLAT-DATA-23): the API server defaults\
+              \ it to \"managed\" at create, and no caller can set or change it. Null\
+              \ (legacy gateways) keeps the chart's \"shared\" default."
+            enum:
+            - shared
+            - managed
+            - operator
+            readOnly: true
             type: string
           active_sandbox_count:
             description: Number of active (Running or Pending) agent sandboxes observed
@@ -4175,7 +4787,6 @@ components:
         server_dns_names:
         - server_dns_names
         - server_dns_names
-        image_pinned: true
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
         cluster_id: cluster_id
@@ -4186,12 +4797,12 @@ components:
         href: href
         gateway_version: gateway_version
         external_dns: external_dns
+        dedicated_route: true
         observed_generation: 2
         phase: phase
         generation: 5
         image: image
         active_sandbox_count: 5
-        provisioning_version: provisioning_version
         provisioning_conditions:
         - condition_status: Pending
           type: type
@@ -4201,6 +4812,7 @@ components:
           message: message
         kind: kind
         console_address: console_address
+        workspace_mode: shared
         can_edit: true
         route_address: route_address
         oidc: oidc
@@ -4234,7 +4846,6 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
-          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -4245,12 +4856,12 @@ components:
           href: href
           gateway_version: gateway_version
           external_dns: external_dns
+          dedicated_route: true
           observed_generation: 2
           phase: phase
           generation: 5
           image: image
           active_sandbox_count: 5
-          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -4260,6 +4871,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          workspace_mode: shared
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -4274,7 +4886,6 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
-          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -4285,12 +4896,12 @@ components:
           href: href
           gateway_version: gateway_version
           external_dns: external_dns
+          dedicated_route: true
           observed_generation: 2
           phase: phase
           generation: 5
           image: image
           active_sandbox_count: 5
-          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -4300,6 +4911,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          workspace_mode: shared
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -4312,59 +4924,24 @@ components:
           namespace: namespace
           status: status
     GatewayPatchRequest:
+      description: "The only user-writable gateway field on update is name (rename).\
+        \ Every other gateway field is platform-managed and control-plane-only; it\
+        \ is not part of the update contract and is rejected if a user or import caller\
+        \ changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and\
+        \ Write Policy\", PLAT-DATA-23)."
       example:
-        phase: phase
-        image: image
-        server_dns_names:
-        - server_dns_names
-        - server_dns_names
-        credential_driver: credential_driver
-        route_address: route_address
-        oidc: oidc
-        supervisor_image: supervisor_image
-        cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         name: name
-        external_dns: external_dns
-        status: status
       properties:
         name:
-          type: string
-        cluster_id:
-          type: string
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-        supervisor_image:
-          type: string
-        server_dns_names:
-          items:
-            type: string
-          type: array
-        route_address:
-          type: string
-        oidc:
-          type: string
-        route:
-          type: string
-        credential_driver:
           type: string
       type: object
     GatewayPlacementIntent:
       description: Exactly one of selector or mode must be supplied.
       example:
         mode: local-kind
+        excludedSelector:
+        - excludedSelector
+        - excludedSelector
         selector:
         - selector
         - selector
@@ -4372,6 +4949,11 @@ components:
       oneOf: []
       properties:
         selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        excludedSelector:
           items:
             type: string
           minItems: 1
@@ -5131,6 +5713,124 @@ components:
       - size
       - total
       type: object
+    GatewaySandboxEvent:
+      example:
+        reason: reason
+        last_observed_at: 2000-01-23T04:56:07.000+00:00
+        involved_pod_name: involved_pod_name
+        involved_pod_uid: involved_pod_uid
+        count: 0
+        first_observed_at: 2000-01-23T04:56:07.000+00:00
+        type: type
+        message: message
+      properties:
+        type:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+        first_observed_at:
+          format: date-time
+          type: string
+        last_observed_at:
+          format: date-time
+          type: string
+        count:
+          format: int32
+          type: integer
+        involved_pod_name:
+          type: string
+        involved_pod_uid:
+          type: string
+      required:
+      - count
+      type: object
+    GatewaySandboxEventGroup:
+      example:
+        observed_at: 2000-01-23T04:56:07.000+00:00
+        sandbox_name: sandbox_name
+        events:
+        - reason: reason
+          last_observed_at: 2000-01-23T04:56:07.000+00:00
+          involved_pod_name: involved_pod_name
+          involved_pod_uid: involved_pod_uid
+          count: 0
+          first_observed_at: 2000-01-23T04:56:07.000+00:00
+          type: type
+          message: message
+        - reason: reason
+          last_observed_at: 2000-01-23T04:56:07.000+00:00
+          involved_pod_name: involved_pod_name
+          involved_pod_uid: involved_pod_uid
+          count: 0
+          first_observed_at: 2000-01-23T04:56:07.000+00:00
+          type: type
+          message: message
+      properties:
+        sandbox_name:
+          type: string
+        observed_at:
+          format: date-time
+          type: string
+        events:
+          items:
+            $ref: "#/components/schemas/GatewaySandboxEvent"
+          type: array
+      required:
+      - events
+      - observed_at
+      - sandbox_name
+      type: object
+    GatewaySandboxEventList:
+      example:
+        items:
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          sandbox_name: sandbox_name
+          events:
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          sandbox_name: sandbox_name
+          events:
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+          - reason: reason
+            last_observed_at: 2000-01-23T04:56:07.000+00:00
+            involved_pod_name: involved_pod_name
+            involved_pod_uid: involved_pod_uid
+            count: 0
+            first_observed_at: 2000-01-23T04:56:07.000+00:00
+            type: type
+            message: message
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/GatewaySandboxEventGroup"
+          type: array
+      required:
+      - items
+      type: object
     GatewayDirectoryUser:
       example:
         subject: subject
@@ -5717,10 +6417,10 @@ components:
             type: string
           path:
             description: "Logical, mount-relative path to the secret in the backend.\
-              \ Optional on create - when omitted the API server derives the convention\
-              \ path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value\
-              \ is submitted the path is set server-side to the location the value\
-              \ was written to."
+              \ Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name};\
+              \ a client-supplied path is ignored, and the field cannot be changed\
+              \ on update. When a value is submitted the path is the location the\
+              \ value was written to."
             type: string
           key_mappings:
             description: JSON-encoded mapping of backend secret keys to environment
@@ -5808,6 +6508,9 @@ components:
           value: value
           agent_runtime_id: agent_runtime_id
     SecretSourcePatchRequest:
+      description: "Mutable SecretSource fields. The path is not patchable: it is\
+        \ the server-derived location of the submitted material, and a path supplied\
+        \ here is ignored."
       example:
         path: path
         purpose: purpose
@@ -5822,6 +6525,8 @@ components:
         backend:
           type: string
         path:
+          description: Ignored. The path is derived server-side on create and cannot
+            be re-pointed.
           type: string
         key_mappings:
           type: string
@@ -5979,32 +6684,27 @@ components:
           type: string
       type: object
     GatewayCreateRequest:
-      description: A gateway is created either pinned to a cluster (set cluster_id)
-        or late-bound by placement (set placement). Exactly one of cluster_id or placement
-        must be supplied. The web-console provision form submits only the placement
-        shape; the pinned shape is available to hsctl apply and the declarative .hypershell
-        import.
+      description: "A gateway is created with only its user-writable fields: a name,\
+        \ exactly one of cluster_id (pinned) or placement (late-bound), and the optional\
+        \ create-only dedicated_route request. Every other gateway field is platform-managed\
+        \ and control-plane-only; it is not part of the create contract and is rejected\
+        \ if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and\
+        \ Write Policy\", PLAT-DATA-23). The web-console provision form submits the\
+        \ placement shape; the pinned shape is available to hsctl apply and the declarative\
+        \ .hypershell import. dedicated_route is rejected on update: it cannot be\
+        \ added, removed, or changed after creation."
       example:
-        phase: phase
-        image: image
-        server_dns_names:
-        - server_dns_names
-        - server_dns_names
-        credential_driver: credential_driver
-        oidc: oidc
-        supervisor_image: supervisor_image
         cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         name: name
         placement:
           mode: local-kind
+          excludedSelector:
+          - excludedSelector
+          - excludedSelector
           selector:
           - selector
           - selector
-        external_dns: external_dns
-        status: status
+        dedicated_route: true
       properties:
         name:
           type: string
@@ -6012,38 +6712,14 @@ components:
           description: Pin the gateway to this managed cluster. Mutually exclusive
             with placement.
           type: string
+        dedicated_route:
+          description: Create-only. Requires the gateway:dedicated-route-creator role
+            and opts the gateway in to a dedicated route and per-gateway wildcard
+            certificate. The platform manages how the dedicated route and certificate
+            are provided.
+          type: boolean
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          description: Container image for the gateway deployment
-          type: string
-        supervisor_image:
-          description: Container image for the supervisor sidecar
-          type: string
-        server_dns_names:
-          description: DNS names for TLS certificate SANs
-          items:
-            type: string
-          type: array
-        oidc:
-          description: JSON-encoded OIDC authentication configuration
-          type: string
-        route:
-          description: JSON-encoded route configuration
-          type: string
-        credential_driver:
-          description: JSON-encoded credential storage driver configuration
-          type: string
       required:
       - name
       type: object
@@ -6097,6 +6773,21 @@ components:
           type: array
       required:
       - selectors
+      type: object
+    OpenShellGatewayServiceAccountRoleUpdateRequest:
+      additionalProperties: false
+      example:
+        role: openshell-user
+        description: description
+      properties:
+        role:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountRole"
+        description:
+          maxLength: 1024
+          nullable: true
+          type: string
+      required:
+      - role
       type: object
     RepositoryList:
       allOf:
@@ -6199,6 +6890,220 @@ components:
         import_path:
           type: string
       type: object
+    CIProviderList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/CIProvider"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - audience: audience
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          forge: github
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          issuer: issuer
+          jwks_url: jwks_url
+          status:
+            idp_alias: idp_alias
+        - audience: audience
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          forge: github
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          issuer: issuer
+          jwks_url: jwks_url
+          status:
+            idp_alias: idp_alias
+    CIProvider:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          forge:
+            description: "The forge family: github, gitlab, or forgejo"
+            enum:
+            - github
+            - gitlab
+            - forgejo
+            type: string
+          issuer:
+            description: The OIDC issuer URL whose tokens this provider validates
+            type: string
+          jwks_url:
+            description: The JWKS endpoint used for signature validation
+            type: string
+          audience:
+            description: The platform-pinned audience every federated CI token must
+              carry
+            type: string
+          status:
+            $ref: "#/components/schemas/CIProvider_allOf_status"
+        required:
+        - audience
+        - forge
+        - issuer
+        - jwks_url
+        type: object
+      example:
+        audience: audience
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        forge: github
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        issuer: issuer
+        jwks_url: jwks_url
+        status:
+          idp_alias: idp_alias
+    CIProviderPatchRequest:
+      example:
+        audience: audience
+        forge: github
+        issuer: issuer
+        jwks_url: jwks_url
+      properties:
+        forge:
+          enum:
+          - github
+          - gitlab
+          - forgejo
+          type: string
+        issuer:
+          type: string
+        jwks_url:
+          type: string
+        audience:
+          type: string
+      type: object
+    CITrustList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/CITrust"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - role: role
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject:
+            ref: ref
+            environment: environment
+            project_path: project_path
+            ref_protected: true
+            repository: repository
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          gateway_id: gateway_id
+          ci_provider_id: ci_provider_id
+          status:
+            workspace: workspace
+            workflow_hint: workflow_hint
+            exchange_endpoint: exchange_endpoint
+        - role: role
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          subject:
+            ref: ref
+            environment: environment
+            project_path: project_path
+            ref_protected: true
+            repository: repository
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          gateway_id: gateway_id
+          ci_provider_id: ci_provider_id
+          status:
+            workspace: workspace
+            workflow_hint: workflow_hint
+            exchange_endpoint: exchange_endpoint
+    CITrust:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          ci_provider_id:
+            description: Reference to the CIProvider whose issuer is trusted
+            type: string
+          gateway_id:
+            description: Reference to the Gateway this CI may operate
+            type: string
+          subject:
+            $ref: "#/components/schemas/CITrust_allOf_subject"
+          role:
+            description: The gateway role granted to the federated CI session
+            type: string
+          status:
+            $ref: "#/components/schemas/CITrust_allOf_status"
+        required:
+        - ci_provider_id
+        - gateway_id
+        - role
+        - subject
+        type: object
+      example:
+        role: role
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        subject:
+          ref: ref
+          environment: environment
+          project_path: project_path
+          ref_protected: true
+          repository: repository
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        gateway_id: gateway_id
+        ci_provider_id: ci_provider_id
+        status:
+          workspace: workspace
+          workflow_hint: workflow_hint
+          exchange_endpoint: exchange_endpoint
+    CITrustPatchRequest:
+      example:
+        role: role
+        subject:
+          ref: ref
+          environment: environment
+          project_path: project_path
+          ref_protected: true
+          repository: repository
+      properties:
+        subject:
+          $ref: "#/components/schemas/CITrustPatchRequest_subject"
+        role:
+          type: string
+      type: object
     Gateway_allOf_provisioning_conditions:
       example:
         condition_status: Pending
@@ -6221,6 +7126,78 @@ components:
           type: string
       type: object
     Role_allOf_permissions:
+      type: object
+    CIProvider_allOf_status:
+      example:
+        idp_alias: idp_alias
+      properties:
+        idp_alias:
+          description: The Keycloak IdP alias the control plane created or adopted
+          type: string
+      readOnly: true
+      type: object
+    CITrust_allOf_subject:
+      description: Forge-discriminated claim matcher; only tokens whose claims match
+        are accepted
+      example:
+        ref: ref
+        environment: environment
+        project_path: project_path
+        ref_protected: true
+        repository: repository
+      properties:
+        repository:
+          description: "GitHub/Forgejo: owner/name repository identifier"
+          type: string
+        project_path:
+          description: "GitLab: group/project path identifier"
+          type: string
+        ref:
+          description: Optional git ref constraint (e.g. refs/heads/main)
+          type: string
+        environment:
+          description: Optional deployment environment constraint
+          type: string
+        ref_protected:
+          description: "GitLab: require a protected ref"
+          type: boolean
+      type: object
+    CITrust_allOf_status:
+      example:
+        workspace: workspace
+        workflow_hint: workflow_hint
+        exchange_endpoint: exchange_endpoint
+      properties:
+        exchange_endpoint:
+          description: The cluster Keycloak token endpoint for token exchange
+          type: string
+        workspace:
+          description: "The derived forge-namespaced workspace (e.g. gh-myorg, gl-mygroup)"
+          type: string
+        workflow_hint:
+          description: A runnable CI snippet the tenant pastes to mint and exchange
+            the token
+          type: string
+      readOnly: true
+      type: object
+    CITrustPatchRequest_subject:
+      example:
+        ref: ref
+        environment: environment
+        project_path: project_path
+        ref_protected: true
+        repository: repository
+      properties:
+        repository:
+          type: string
+        project_path:
+          type: string
+        ref:
+          type: string
+        environment:
+          type: string
+        ref_protected:
+          type: boolean
       type: object
   securitySchemes:
     Bearer:

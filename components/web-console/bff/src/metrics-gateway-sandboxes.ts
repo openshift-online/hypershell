@@ -13,7 +13,7 @@ import { namespaceSelector, type MetricsSource } from "./metrics-source.js";
 
 export const gatewayActiveSandboxesPromql =
   "hypershell_gateways_active_sandboxes_total";
-/** Base control-plane OTLP gauge name (SSA-06); fleet PromQL wraps with sum(). */
+/** Base control-plane OTLP gauge name (OBS-SBXA-06); fleet PromQL wraps with sum(). */
 export const gatewayOrphanedSandboxesPromql = "gateway_sandbox_orphaned";
 export const gatewayExpiringSandboxesPromql = "gateway_sandbox_expiring";
 export const gatewayIdleSandboxesPromql = "gateway_sandbox_idle";

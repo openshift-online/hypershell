@@ -213,6 +213,7 @@ describe("usage metrics routes", () => {
     ].join("; ");
   }
 
+  // Verifies: WEB-USE-03.03
   it("requires an authenticated session for every usage route", async () => {
     app = await buildOidcApp();
 
@@ -272,6 +273,7 @@ describe("usage metrics routes", () => {
     expect(apiRequests).toHaveLength(0);
   });
 
+  // Verifies: WEB-USE-03.01, WEB-USE-11.01
   it("allows non-admins and scopes queries to authorized namespaces", async () => {
     app = await buildOidcApp();
     const response = await app.inject({
@@ -282,9 +284,7 @@ describe("usage metrics routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      active_gateways: 0,
       total_gateways: 1,
-      unused_gateways: 1,
     });
     expect(apiRequests).toHaveLength(1);
     expect(apiRequests[0]).toMatchObject({

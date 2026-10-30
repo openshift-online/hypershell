@@ -112,7 +112,7 @@ describe("classifySpokes", () => {
   });
 
   it("accumulates both sides when a managed cluster appears more than once", () => {
-    // GMCA-05 guarantees one row per managed_cluster, but a malformed payload with
+    // GTW-ATTR-05 guarantees one row per managed_cluster, but a malformed payload with
     // duplicate rows must sum (never last-write-wins) so it cannot silently undercount.
     const result = classifySpokes(
       [

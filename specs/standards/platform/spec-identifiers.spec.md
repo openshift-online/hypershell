@@ -159,17 +159,100 @@ A `make check` script SHALL fail the build when:
    a prefix registered to a different file.
 4. A retired ID (listed under a spec's `## Retired IDs`) is reused.
 5. A reference to an ID in `specs/`, `skills/`, or code does not resolve to
-   an ID that exists.
+   an ID that exists. A token counts as a reference when its `MODULE-GROUP`
+   prefix is registered in `specs/ids.md`.
+6. An old ID listed in `specs/id-rename-map.md` is still cited anywhere
+   other than the rename map and this spec. The error names the new ID.
+7. A test citation marker (Requirement STD-IDS-07) is malformed, or names
+   an ID that does not exist.
 
-This check is not yet wired into `make check`. Its implementation is tracked
-as follow-up build work under the same work item as this spec,
-[issue #636](https://github.com/openshift-online/hypershell/issues/636).
+`scripts/check_spec_ids.py` implements this check, and `make check` runs it.
 
 #### Scenario: STD-IDS-06.01 -- Duplicate ID fails the check
 
 - GIVEN two requirements in `specs/` both carry the ID `OSG-TLS-03`
 - WHEN the ID check runs
 - THEN the check SHALL fail and name both locations
+
+#### Scenario: STD-IDS-06.02 -- An old ID in code fails the check
+
+- GIVEN a Go comment cites `GAM-09`, which `specs/id-rename-map.md` renamed
+- WHEN the ID check runs
+- THEN the check SHALL fail and name the new ID that replaces `GAM-09`
+
+### Requirement: STD-IDS-07 -- Test Citation Markers
+
+A test that verifies a scenario SHALL carry a marker comment on the line
+directly above the test function, subtest, or test case:
+
+```go
+// Verifies: OSG-TLS-03.02
+func TestCertificateRenewal(t *testing.T) {
+```
+
+```ts
+// Verifies: OSG-TLS-03.02, OSG-TLS-03.03
+it('renews before expiry', () => {
+```
+
+Shell and Python tests use `# Verifies: ...`.
+
+1. The marker SHALL be the only content on its line: the comment token,
+   `Verifies:`, then one or more IDs separated by `, `.
+2. A test SHALL cite the scenario ID when it proves that scenario. It MAY
+   cite a requirement ID when it proves the requirement as a whole and no
+   single scenario fits.
+3. A marker SHALL be added only when the test asserts the scenario's THEN
+   clause. A test that only touches the same feature SHALL NOT be marked.
+4. A test MAY cite several IDs, and an ID MAY be cited by several tests.
+5. Free-text mentions of an ID in other comments are allowed, but they do
+   not count as test coverage.
+
+The marker reuses the word of the `Verifies:` commit trailer
+(STD-IDS-05). The trailer records non-`Test` evidence in git history; the
+marker records `Test` evidence in the test source.
+
+#### Scenario: STD-IDS-07.01 -- A marked test counts as coverage
+
+- GIVEN `// Verifies: OSG-TLS-03.02` sits directly above `func TestCertificateRenewal`
+- WHEN the traceability report is generated
+- THEN scenario `OSG-TLS-03.02` SHALL be reported as covered by that test
+- AND requirement `OSG-TLS-03` SHALL be reported as covered
+
+#### Scenario: STD-IDS-07.02 -- A marker naming a missing ID fails the check
+
+- GIVEN a marker `// Verifies: OSG-TLS-03.09` and no scenario `OSG-TLS-03.09` exists
+- WHEN the ID check runs
+- THEN the check SHALL fail and name the marker's location
+
+### Requirement: STD-IDS-08 -- Traceability Report
+
+`make traceability` SHALL print a report built from the spec headings and
+the test markers. The report is generated on demand and SHALL NOT be
+committed. It SHALL show:
+
+1. Totals for requirements and scenarios: how many exist, how many are
+   covered by a test, and how many are not.
+2. A per-spec-file summary.
+3. For each requirement and scenario, the tests that cite it, as
+   `path:line` with the test name.
+4. A list of scenarios no test cites.
+
+A scenario is covered when a marker cites it. A requirement is covered
+when a marker cites it or any of its scenarios. A requirement whose
+verification method (STD-IDS-05) is `Inspection`, `Analysis`, or
+`Demonstration` SHALL be counted separately and not listed as a gap.
+
+Missing coverage SHALL NOT fail `make check`. The report shows the gaps;
+closing them is planned work.
+
+#### Scenario: STD-IDS-08.01 -- An inspection-verified requirement is not a gap
+
+- GIVEN requirement `OSG-TLS-05` is annotated `**Verification:** Inspection -- reviewed during cert-manager upgrade`
+- AND no test cites `OSG-TLS-05` or its scenarios
+- WHEN the traceability report is generated
+- THEN `OSG-TLS-05` SHALL be counted as verified by inspection
+- AND it SHALL NOT appear in the uncovered list
 
 ## Retired IDs
 
@@ -199,9 +282,9 @@ names did not go away.
    with no Given/When/Then scenarios; forcing them into the Requirement
    format would manufacture structure the content doesn't have. They are
    listed in `specs/ids.md` with a reserved prefix for future use.
-5. **Proposal A (test traceability)**: adopted as a direction, not built
-   here. Tests SHOULD cite the scenario ID they verify once this spec lands;
-   the traceability-report script is follow-up build work.
+5. **Proposal A (test traceability)**: adopted. Tests cite the scenario
+   ID they verify with a `Verifies:` marker (STD-IDS-07), and
+   `make traceability` reports coverage (STD-IDS-08).
 6. **Proposal B (verification method per requirement)**: adopted, captured
    in Requirement STD-IDS-05 above.
 7. **Proposal C (revision suffixes for stale-test detection)**: not
@@ -221,11 +304,11 @@ was rewritten in the same change (698 rewritten cross-references). Five
 `#### Scenario:` headings were left unlabeled because they illustrate
 behavior in a narrative section outside any file's `## Requirements`
 section (`platform/oidc-integration.spec.md` and
-`standards/sdlc/jira-github-sync.spec.md`); a follow-up should either
-promote them into a formal requirement or demote their heading level so they
-stop looking like scenarios.
+`standards/sdlc/jira-github-sync.spec.md`). The follow-up change renamed
+them to `#### Example:` so they no longer look like scenarios.
 
-Code and test files that cite a pre-migration ID (113 files, per the
-originating issue) are unchanged by this PR. Rewriting them, and wiring the
-enforcement script from Requirement STD-IDS-06 into `make check`, is
-follow-up build work tracked under the same work item.
+Code and test files that cited a pre-migration ID were rewritten to the
+new IDs in a follow-up change, which also added the STD-IDS-06 check to
+`make check`. That change also renamed a few IDs added after the migration
+in the old style; they are listed under "Later Renames" in
+`specs/id-rename-map.md`.

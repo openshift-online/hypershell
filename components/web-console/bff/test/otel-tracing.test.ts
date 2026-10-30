@@ -89,6 +89,7 @@ describe("BFF tracing adapter", () => {
     );
   });
 
+  // Verifies: WEB-TRC-04.01
   it("continues a valid inbound trace and references its own span upstream", () => {
     const tracing = createBffTracing(config);
 
@@ -104,6 +105,7 @@ describe("BFF tracing adapter", () => {
     expect(upstream?.traceparent).not.toContain("b7ad6b7169203331");
   });
 
+  // Verifies: WEB-TRC-04.02
   it("starts a new trace when the inbound traceparent is malformed", () => {
     const tracing = createBffTracing(config);
 
@@ -149,6 +151,7 @@ describe("BFF tracing adapter", () => {
     );
   });
 
+  // Verifies: WEB-TRC-04.02
   it("starts a new trace for an all-zero or unsupported-version traceparent", () => {
     const tracing = createBffTracing(config);
 
@@ -573,6 +576,7 @@ describe("BFF delivery health", () => {
     expect(tracing.deliveryHealth().spanExportFailures).toBe(3);
   });
 
+  // Verifies: WEB-TRC-09
   it("counts spans dropped by an overflowing queue", () => {
     // The shim reads OTEL_BSP_* env for its bounds; a one-slot queue plus an
     // exporter that never drains forces every further span to overflow.
@@ -593,6 +597,7 @@ describe("BFF delivery health", () => {
     expect(health.lastErrorType).toBe("queue_full");
   });
 
+  // Verifies: WEB-TRC-09
   it("counts a wedged exporter that never acknowledges a batch", async () => {
     // The exporter accepts the batch and never calls back. The backstop turns
     // the stall into a FAILED result the self-observation meter records.

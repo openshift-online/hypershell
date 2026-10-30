@@ -2,8 +2,8 @@ package gateways
 
 import (
 	"encoding/json"
+	"log/slog"
 
-	"github.com/golang/glog"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -34,19 +34,12 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		GatewayVersion:     d.GatewayVersion,
 		Oidc:               d.Oidc,
 		Route:              d.Route,
+		DedicatedRoute:     d.DedicatedRoute,
 		CredentialDriver:   d.CredentialDriver,
+		WorkspaceMode:      d.WorkspaceMode,
 		RepositoryId:       d.RepositoryId,
 		Generation:         d.Generation,
 		ObservedGeneration: &d.ObservedGeneration,
-		// provisioning_version (proto field 28) is intentionally left unset on the
-		// gRPC path: it is derived from the cluster's gateway-version capability at
-		// REST read time, and the only gRPC consumer is the control plane, which
-		// reconciles its own cluster and has no use for the derived value. Unlike
-		// image_pinned, it is not derivable from the Gateway row alone.
-		ImagePinned: func() *bool {
-			v := gatewayImagePinned(d)
-			return &v
-		}(),
 		ActiveSandboxCount: func() *int32 {
 			if d.ActiveSandboxCount != nil {
 				v := int32(*d.ActiveSandboxCount)
@@ -70,7 +63,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*d.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", d.ID, err)
+			slog.Warn("failed to unmarshal provisioning_conditions", "gateway_id", d.ID, "error", err)
 		} else {
 			for _, c := range conditions {
 				gw.ProvisioningConditions = append(gw.ProvisioningConditions, &pb.ProvisioningCondition{
@@ -111,7 +104,7 @@ func conditionStatusFromProto(s pb.ProvisioningConditionStatus) string {
 	case pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED:
 		return "Failed"
 	default:
-		glog.Warningf("unknown ProvisioningConditionStatus enum value: %d", int32(s))
+		slog.Warn("unknown ProvisioningConditionStatus enum value", "status", int32(s))
 		return "Pending"
 	}
 }

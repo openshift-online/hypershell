@@ -2,9 +2,9 @@ package test
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
-	"github.com/golang/glog"
 	gm "github.com/onsi/gomega"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -29,6 +29,6 @@ func seedBuiltInRoles() {
 	}
 	roleDao := roles.NewRoleDao(&env.Database.SessionFactory)
 	if err := roles.SeedRoles(context.Background(), roleDao); err != nil {
-		glog.Warningf("failed to seed built-in roles after ResetDB: %v", err)
+		slog.Warn("failed to seed built-in roles after ResetDB", "error", err)
 	}
 }

@@ -16,6 +16,7 @@ import {
 import {
   ChartLineIcon,
   CubesIcon,
+  ExclamationCircleIcon,
   HourglassHalfIcon,
   MemoryIcon,
   MicrochipIcon,
@@ -285,7 +286,7 @@ function createWidgetMapping(
         const value = metric("memory");
         return value ? (
           <UtilizationCard
-            color="#0066cc"
+            color="#f0ab00"
             metric={value}
             trendCaption={trendCaption}
           />
@@ -305,7 +306,7 @@ function createWidgetMapping(
         const value = metric("cpu");
         return value ? (
           <UtilizationCard
-            color="#6753ac"
+            color="#0066cc"
             metric={value}
             trendCaption={trendCaption}
           />
@@ -362,7 +363,7 @@ function createWidgetMapping(
       },
       renderWidget: () => {
         const value = metric("provision-time");
-        return <ProvisionTimeWidget metric={value} />;
+        return <ProvisionTimeWidget metric={value} timeRange={timeRange} />;
       },
     },
     "provision-reliability": {
@@ -387,7 +388,11 @@ function createWidgetMapping(
 }
 function ProvisionTimeWidget({
   metric,
-}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  timeRange,
+}: Readonly<{
+  metric: OperationalMetric | undefined;
+  timeRange: DashboardTimeRange;
+}>) {
   const intl = useIntl();
   const stats = metric ? parseProvisionDurationStats(metric) : undefined;
   if (!stats) {
@@ -403,27 +408,73 @@ function ProvisionTimeWidget({
       minutes: Math.floor(seconds / 60),
       seconds: String(Math.round(seconds % 60)).padStart(2, "0"),
     });
+  const p99ExceedsTarget =
+    stats.p99Seconds !== undefined &&
+    stats.targetSeconds !== undefined &&
+    stats.p99Seconds > stats.targetSeconds;
+  const items = [
+    {
+      key: "mean",
+      label: intl.formatMessage(messages.provisionTimeAverage),
+      value: formatDuration(stats.meanSeconds),
+    },
+    {
+      key: "p50",
+      label: intl.formatMessage(messages.provisionTimeP50Label),
+      value: formatDuration(stats.p50Seconds),
+    },
+    {
+      key: "p95",
+      label: intl.formatMessage(messages.provisionTimeP95Label),
+      value: formatDuration(stats.p95Seconds),
+    },
+    ...(stats.p99Seconds === undefined
+      ? []
+      : [
+          {
+            ...(p99ExceedsTarget
+              ? {
+                  indicator: {
+                    content: <ExclamationCircleIcon aria-hidden />,
+                    tone: "warning" as const,
+                  },
+                }
+              : {}),
+            key: "p99",
+            label: intl.formatMessage(messages.provisionTimeP99Label),
+            value: formatDuration(stats.p99Seconds),
+          },
+        ]),
+    ...(stats.targetSeconds === undefined
+      ? []
+      : [
+          {
+            key: "target",
+            label: intl.formatMessage(messages.provisionTimeTargetLabel),
+            value: formatDuration(stats.targetSeconds),
+          },
+        ]),
+  ];
   return (
     <DashboardWidgetContent>
       <div className="hypershell-provisioning-trend-widget">
-        <div>
-          <span>
-            <FormattedMessage {...messages.provisionTimeAverage} />
-          </span>
-          <strong>{formatDuration(stats.meanSeconds)}</strong>
-        </div>
-        <div>
-          <span>
-            <FormattedMessage {...messages.provisionTimeP50Label} />
-          </span>
-          <strong>{formatDuration(stats.p50Seconds)}</strong>
-        </div>
-        <div>
-          <span>
-            <FormattedMessage {...messages.provisionTimeP95Label} />
-          </span>
-          <strong>{formatDuration(stats.p95Seconds)}</strong>
-        </div>
+        <DashboardSummaryList
+          ariaLabel={intl.formatMessage(messages.provisionTimeStatsAriaLabel)}
+          items={items}
+        />
+        {stats.p99Seconds !== undefined &&
+        metric?.provisionDuration?.p99Trend ? (
+          <TrendSparklineChart
+            caption={intl.formatMessage(messages.provisionTimeP99TrendCaption, {
+              days: timeRange,
+            })}
+            trend={metric.provisionDuration.p99Trend}
+            title={intl.formatMessage(messages.provisionTimeP99Label)}
+          />
+        ) : null}
+        <Content component="p">
+          <FormattedMessage {...messages.provisionTimeP99Note} />
+        </Content>
       </div>
     </DashboardWidgetContent>
   );

@@ -27,6 +27,7 @@ async function startApiStub(
 }
 
 describe("queryAuthorizedGatewayMetrics", () => {
+  // Verifies: WEB-OPS-04.03
   it("aggregates only the authorized gateway list", async () => {
     const api = await startApiStub((request, response) => {
       const url = new URL(request.url ?? "/", "http://api.invalid");

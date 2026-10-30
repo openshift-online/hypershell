@@ -17,6 +17,23 @@ namespace. The gateway and workspace releases can then be upgraded and removed
 independently. Use Kubernetes `operator` workspace mode when one gateway serves
 multiple pre-provisioned workspace namespaces.
 
+## Certificate hook metadata
+
+Use `pkiInitJob.podLabels` and `pkiInitJob.podAnnotations` to add metadata to the
+Pod templates of the `<fullname>-certgen` and `<fullname>-certgen-backend-ca`
+Jobs. These settings apply to both hooks when enabled and do not affect gateway
+or sandbox Pods. Chart-owned Pod labels take precedence when custom keys
+conflict.
+
+For example, disable Istio sidecar injection for the hook Pods in an injected
+namespace:
+
+```yaml
+pkiInitJob:
+  podAnnotations:
+    sidecar.istio.io/inject: "false"
+```
+
 ## Cluster-scoped vs namespaced objects
 
 Most objects in this chart are namespaced and land in the release namespace.
@@ -203,6 +220,36 @@ database is backed by a per-pod PVC:
 server:
   dbUrl: "sqlite:/var/openshell/openshell.db"
 ```
+
+#### Data PVC storage
+
+Size the gateway data claim, `openshell-data`, and select its StorageClass with
+`server.dataStorageSize` and `server.dataStorageClass`. Omitting both
+requests `1Gi` from the cluster's default StorageClass. Set
+`server.dataStorageClass` on clusters with no default StorageClass,
+otherwise the gateway PVC stays Pending. Both values are ignored under
+`workload.kind=deployment`, which mounts no PVC.
+
+```yaml
+server:
+  dataStorageSize: 20Gi
+  dataStorageClass: fast-ssd
+```
+
+`volumeClaimTemplates` is immutable, so set both at install time. To grow an
+existing claim, expand it in place when its StorageClass allows expansion, then
+recreate the StatefulSet so its template matches:
+
+```shell
+kubectl -n openshell patch pvc openshell-data-openshell-0 \
+  -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+kubectl -n openshell delete statefulset openshell --cascade=orphan
+helm upgrade openshell oci://ghcr.io/nvidia/openshell/helm-chart --version <installed-version> \
+  --reuse-values -n openshell --set server.dataStorageSize=20Gi
+```
+
+A recreated StatefulSet re-adopts existing claims unchanged, so changing
+StorageClass means copying the data to a new claim.
 
 #### External PostgreSQL
 

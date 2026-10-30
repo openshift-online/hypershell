@@ -12,6 +12,7 @@ const testProbe: GatewayProbe = {
 };
 
 describe("gateway observability adapter", () => {
+  // Verifies: UIS-OBS-04, UIS-OBS-05
   it("fans out immutable probes and isolates a failing sink", () => {
     const clearMarks = vi.fn();
     const mark = vi.fn<
@@ -48,6 +49,7 @@ describe("gateway observability adapter", () => {
     ]);
   });
 
+  // Verifies: UIS-OBS-05
   it("records an out-of-band delivery failure into delivery health", () => {
     const observability = createGatewayObservability({
       performanceTarget: { clearMarks: vi.fn(), mark: vi.fn() },

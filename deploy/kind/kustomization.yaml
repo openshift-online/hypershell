@@ -54,9 +54,10 @@ patches:
                   - name: GATEWAY_RESOURCES
                     value: '{"requests":{"cpu":"50m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}'
                   # The console dashboard and oauth2-proxy sidecar images are
-                  # public registry images; the control plane's ImageDefaults
-                  # already point at them (dashboard pinned by digest on quay),
-                  # so Kind pulls them at pod start (imagePullPolicy IfNotPresent)
+                  # public registry images. The base controller sets
+                  # HYPERSHELL_CONSOLE_IMAGE (dashboard pinned by digest on quay)
+                  # and the control plane defaults the oauth2-proxy image, so
+                  # Kind pulls them at pod start (imagePullPolicy IfNotPresent)
                   # with no overlay override or pre-load needed. Override
                   # HYPERSHELL_CONSOLE_IMAGE / HYPERSHELL_OAUTH2_PROXY_IMAGE only
                   # to test a different build.
@@ -68,7 +69,7 @@ patches:
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "local-kind"
                   - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
-                    value: "provider/kind,network/public,environment/kind,gateway-version/v0.1.3-rhaiv.3"
+                    value: "provider/kind,network/public,environment/kind"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID
@@ -184,8 +185,10 @@ patches:
   # (gateway:creator/owner/viewer). It is the sole gate for that model
   # (plugins/rbac/plugin.go) -- independent of --enable-authz, which only adds
   # the framework's identity-presence check. admin carries gateway:creator (via
-  # the realm_access.roles mapper in deploy/base/keycloak); developers do not,
-  # so their POST /gateways is rejected with 403.
+  # the realm_access.roles mapper in deploy/base/keycloak). The shared test-user
+  # seed gives developer only hypershell-users on every environment, so admin
+  # can POST /gateways and developer gets 403 (ephemeral-test-credentials.spec.md,
+  # CICD-CRED-13; rbac-enforcement.spec.md, SEC-RBAC-13).
   #
   # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
   # plane's service account. The control plane writes gateway status via the

@@ -54,6 +54,77 @@ Verdict must be one of:
 Output: (`$VERDICT`, `$REJECTION_RATIONALE` (NULL or string))
 
 
+### Step 2.5: Debug a Failing OpenShift e2e Check
+
+A bare "the OpenShift e2e failed" rejection sends the next implementation pass in
+blind. When the failing CI is specifically the ephemeral OpenShift e2e run, extend
+its environment and gather a concrete diagnosis so the fix is targeted.
+
+Run this step only when the check named `Tests / E2E / OpenShift` on `$LINKED_PR`
+is failing (it is one input to the `Failing CI` rejection reason above). Skip every
+WRITE action when `--dry-run` is set.
+
+1. Keep the ephemeral environment alive. Post the PR comment `/pr-extend` on
+   `$LINKED_PR`. This retains and (re)deploys the `hypershell-ci-pr-<n>` namespace
+   group for the current head commit and refreshes its expiry, so the reaper does
+   not reclaim it mid-investigation (see
+   `specs/platform/ephemeral-pr-environments.spec.md`, CICD-PREN-03/05/06). `<n>`
+   is the PR number. `/pr-extend` is honored only from a commenter with
+   write/maintain/admin permission on the origin repo (CICD-PREN-03); if the
+   agent's GitHub identity lacks that permission the comment is acknowledged but
+   changes nothing. Treat the extend as best-effort: the `pr-env-diagnostics-<n>`
+   artifact in step 2 is uploaded before teardown and does not depend on the
+   environment still being up, so diagnosis still proceeds either way.
+
+2. Gather the CI-side evidence, which is always reachable headlessly through `gh`:
+   - Read the failing job logs: `gh run view --log-failed` for the run that
+     produced the failing `Tests / E2E / OpenShift` check.
+   - Download the failure diagnostics the suite uploads: the `pr-env-diagnostics-<n>`
+     artifact (`gh run download <run-id> -n pr-env-diagnostics-<n>`), plus
+     `e2e-diagnostics` / `e2e-suite-logs` when present.
+
+3. Best-effort live inspection of the deployed environment. Do NOT fetch
+   credentials or log in from this skill. Only inspect the live env if the agent
+   ALREADY has an `oc` session that can reach the `hypershell-ci-pr-<n>` namespace
+   (a human or the surrounding environment logged in beforehand). Probe once, and
+   if the namespace is reachable, read pod status, recent events, and logs for any
+   crash-looping or failing component:
+
+   ```bash
+   # If this first call errors, the namespace is unreachable - stop and skip to
+   # the fallback below rather than trying to obtain access.
+   oc get pods -n hypershell-ci-pr-<n>
+   oc get events -n hypershell-ci-pr-<n> --sort-by=.lastTimestamp
+   oc logs -n hypershell-ci-pr-<n> <failing-pod> --previous
+   ```
+
+   If the namespace is not reachable (no active `oc` session, `oc` not installed,
+   or access denied), do NOT attempt to obtain credentials. Print a short notice
+   that live cluster access is unavailable and CONTINUE with only the CI logs and
+   the diagnostics artifact from step 2. Do NOT block, retry, or fail the review on
+   missing cluster access - the `pr-env-diagnostics-<n>` artifact already captures
+   pods, descriptions, logs, events, and routes for the failed run.
+
+4. Fold what you found - failing suite step, pod/log evidence, probable root cause -
+   into `$REJECTION_RATIONALE`, so the next `code-implementation` pass acts on a
+   concrete diagnosis instead of re-discovering the failure from scratch.
+
+5. Name the failing phase or step ID explicitly in `$REJECTION_RATIONALE` (for
+   example `P2.5`, or the whole `Phase-P2`). The Go E2E suite runs each phase and
+   step in isolation, so a named step lets the next `code-implementation` pass
+   reproduce ONLY that step instead of the whole suite, which is far faster:
+   - Whole phase: `make e2e E2E_RUN=Phase-P2`
+     (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/Phase-P2' -v`)
+   - Single step: `make e2e E2E_RUN='P2\.5'`
+     (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/.*/P2\.5' -v`)
+   - Reproduce the `Tests / E2E / OpenShift` failure on the same driver with
+     `E2E_INFRA_DRIVER=openshift make e2e E2E_RUN=...`.
+   The suite provisions the primary gateway in setup (`ensurePrimaryGateway`), so a
+   step that needs it provisions it on demand when run alone; set
+   `E2E_PRIMARY_GATEWAY_ID=<id>` to adopt an already-running gateway and skip its
+   teardown, cutting single-step turnaround further.
+
+
 ### Step 3: Communicate Outcome
 
 _Note: If a label does not exist, create it._

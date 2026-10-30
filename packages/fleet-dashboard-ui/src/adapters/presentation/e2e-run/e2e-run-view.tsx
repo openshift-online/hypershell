@@ -26,6 +26,7 @@ import {
   DrawerCloseButton,
   Title,
   Alert,
+  AlertActionLink,
   Button,
   Content,
   Label,
@@ -42,6 +43,7 @@ import {
   ModalBody,
   ModalHeader,
   ModalVariant,
+  Spinner,
 } from "@patternfly/react-core";
 import {
   type ThProps,
@@ -63,20 +65,32 @@ import PlayIcon from "@patternfly/react-icons/dist/esm/icons/play-icon";
 import QuestionCircleIcon from "@patternfly/react-icons/dist/esm/icons/question-circle-icon";
 import type { SVGIconProps } from "@patternfly/react-icons/dist/esm/createIcon";
 import type { ComponentType } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
   applyEvents,
+  boundLogBuffer,
   elapsedSeconds,
+  isRunning,
   logsForStep,
+  mergeLogLines,
   reduceRun,
   runDurationMs,
   runBundle,
   runTargetInstance,
   runsNewestFirst,
   MAX_DETAIL_LOG_LINES,
+  MAX_LOG_BUFFER,
+  type E2eLogLine,
   type E2eRunDetail,
   type E2eRunEvent,
   type E2eRunsData,
@@ -99,11 +113,11 @@ import { TONE_COLOR } from "../map/colors";
 import styles from "./e2e-run-view.module.css";
 
 /**
- * The shared execution-detail controls (GLASS-NAV-11): one bundle of route-derived
+ * The shared execution-detail controls (FLT-NAV-11): one bundle of route-derived
  * state plus typed dispatchers, wired by the E2E run container to route.e2e.exec and
  * by the Fleet Map gate drawer to route.map.exec. The presentational pane and its
  * tables stay router-agnostic and fully controlled, so a single stream per run is
- * preserved across sub-tab, step, sort, and log-search changes (GLASS-NAV-18).
+ * preserved across sub-tab, step, sort, and log-search changes (FLT-NAV-18).
  */
 export interface ExecControls {
   readonly exec: ExecState;
@@ -113,9 +127,6 @@ export interface ExecControls {
   readonly onLogExpanded: (value: boolean) => void;
   readonly onLogQuery: (value: string) => void;
 }
-
-/** How many log lines the pane renders, so an unbounded log cannot blow up the DOM. */
-const MAX_RENDERED_LOG_LINES = 500;
 
 /**
  * How many `log` events the live buffer retains. Older log events fall outside the
@@ -304,6 +315,8 @@ function formatAgo(intl: IntlShape, iso: string, nowMs: number): string {
 function useLiveRunDetail(
   id: string,
   snapshot: E2eRunDetail | null,
+  live: boolean,
+  onLog: (line: E2eLogLine) => void,
   observability: ObservabilityPort,
 ): { detail: E2eRunDetail | null; status: E2eStreamStatus | null } {
   const api = useFleetApi();
@@ -311,13 +324,25 @@ function useLiveRunDetail(
   const [status, setStatus] = useState<E2eStreamStatus | null>(null);
 
   useEffect(() => {
-    // This hook lives inside a run-keyed pane, so `id` is stable for the pane's life
-    // and the subscription is set up once on mount; no in-effect reset is needed.
+    // The live tail is opened ONLY for an in-progress run (E2E-LOG-21): a completed
+    // run is read by pagination alone, because a Loki tail replays no history and
+    // would render nothing. `live` is derived from the loaded snapshot, so the
+    // subscription starts once the run is known to be in progress.
+    if (!live) {
+      return;
+    }
+    // This hook lives inside a run-keyed pane, so `id` is stable for the pane's life.
     let prevState: E2eStreamStatus["state"] | null = null;
     observability.publishE2eStream(e2eStreamFact("connect"));
     const unsubscribe = api.streamE2eRun(id, {
       onEvent: (event) => {
         setEvents((prev) => appendBoundedEvents(prev, event));
+      },
+      onLog: (line) => {
+        // Live log lines ride their own frame and append into the same rendered log
+        // list the pane paginates, de-duplicated by sequence at the history-to-live
+        // seam (E2E-LOG-21).
+        onLog(line);
       },
       onStatus: (next) => {
         if (next.state === "disconnected" && prevState !== "disconnected") {
@@ -336,7 +361,7 @@ function useLiveRunDetail(
     return () => {
       unsubscribe();
     };
-  }, [id, api, observability]);
+  }, [id, api, live, onLog, observability]);
 
   const detail = useMemo<E2eRunDetail | null>(() => {
     if (snapshot !== null) {
@@ -351,9 +376,271 @@ function useLiveRunDetail(
   return { detail, status };
 }
 
+/**
+ * Manage one run's paginated raw-log history (E2E-LOG-19) and the live lines that
+ * append to it (E2E-LOG-21), scoped to the pair `(run id, selected step)`
+ * (E2E-LOG-23). When a step is selected the browser requests that step's logs
+ * directly (the backend filters in Loki before the page limit, E2E-LOG-24), rather
+ * than keeping a run-wide buffer and filtering at render time. On mount, and on any
+ * scope change, it loads the newest page for the scope, aborts in-flight requests
+ * from the previous scope, and ignores their late results so one step's history can
+ * never populate another's. loadOlder() fetches the next older page by the
+ * oldest-timestamp cursor; appendLive() merges a live line that belongs to the
+ * scope. The buffer is ordered and de-duplicated by sequence and bounded to
+ * MAX_LOG_BUFFER so the heap stays bounded on a very long run (E2E-LOG-22).
+ *
+ * A timed-out, rejected, or stale request sets `failed`: the already-loaded lines
+ * are preserved, observer-driven fetching stops, and the pane exposes an explicit
+ * Retry action (retry()) rather than re-firing against a still-visible sentinel
+ * (E2E-LOG-26). `locallyLimited` distinguishes the in-memory buffer ceiling from the
+ * true end of history.
+ */
+interface RunLogs {
+  readonly lines: readonly E2eLogLine[];
+  readonly hasMoreOlder: boolean;
+  readonly loadingOlder: boolean;
+  readonly loadingInitial: boolean;
+  readonly failed: boolean;
+  readonly locallyLimited: boolean;
+  readonly loadOlder: () => void;
+  readonly retry: () => void;
+  readonly appendLive: (line: E2eLogLine) => void;
+}
+
+function useRunLogs(
+  id: string,
+  selectedStepId: string | null,
+  inertWhenRunWide = false,
+): RunLogs {
+  const api = useFleetApi();
+  // A step-scoped instance stays idle while no step is selected, so the run-wide
+  // instance (which drives the independent progress summary and live tail) is the
+  // single run-wide reader - no duplicate run-wide fetch (E2E-LOG-23).
+  const inert = inertWhenRunWide && selectedStepId === null;
+  const [lines, setLines] = useState<readonly E2eLogLine[]>([]);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [loadingInitial, setLoadingInitial] = useState(!inert);
+  const [failed, setFailed] = useState(false);
+  const [locallyLimited, setLocallyLimited] = useState(false);
+  // An explicit reload counter so retry() can re-run the scope load for a failed
+  // initial load (E2E-LOG-26).
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  // Reset the scoped buffer, pagination, and error state when the scope changes (or a
+  // retry forces a reload), the React "adjust state when a prop changes" pattern
+  // applied during render rather than in an effect, so a step change starts clean
+  // without the old step's lines flashing (E2E-LOG-23). The run id is part of the
+  // scope key so switching runs while the step selection stays the same does not flash
+  // the previous run's lines before the refetch resolves (E2E-LOG-23). An older-page
+  // retry does NOT bump reloadNonce, so it preserves the loaded lines.
+  const scopeKey = `${id}\u0000${selectedStepId ?? ""}\u0000${String(reloadNonce)}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (renderedScopeKey !== scopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setLines([]);
+    setHasMoreOlder(false);
+    setLoadingOlder(false);
+    setLocallyLimited(false);
+    setFailed(false);
+    setLoadingInitial(!inert);
+  }
+
+  // Refs the loaders read without re-creating themselves on every line change, and
+  // to make scope-change guards synchronous (a late result for a previous scope is
+  // ignored, E2E-LOG-23).
+  const oldestCursor = useRef<string | null>(null);
+  const linesRef = useRef<readonly E2eLogLine[]>([]);
+  const inFlight = useRef(false);
+  const failedRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const scopeRef = useRef<string | null>(selectedStepId);
+  const inertRef = useRef(inert);
+  const controllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+  useEffect(() => {
+    inertRef.current = inert;
+  }, [inert]);
+
+  // Load the newest page for the current scope. Re-runs on a run or step change
+  // (E2E-LOG-23) and on a retry of a failed initial load (E2E-LOG-26). The scoped
+  // state was already reset during render; this resets the loader refs and fetches.
+  useEffect(() => {
+    scopeRef.current = selectedStepId;
+    inFlight.current = false;
+    oldestCursor.current = null;
+    linesRef.current = [];
+    failedRef.current = false;
+    hasMoreRef.current = false;
+    if (inert) {
+      // Idle: no scope is selected for this instance, so it holds no buffer and does
+      // not fetch.
+      return;
+    }
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    api
+      .getE2eRunLogs(id, null, selectedStepId, controller.signal)
+      .then((plane) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (plane.stale) {
+          failedRef.current = true;
+          setFailed(true);
+          setLoadingInitial(false);
+          return;
+        }
+        const next = mergeLogLines([], plane.data.entries);
+        linesRef.current = next;
+        setLines(next);
+        oldestCursor.current = plane.data.nextCursor;
+        const atCeiling = next.length >= MAX_LOG_BUFFER;
+        const more = plane.data.hasMore && !atCeiling;
+        hasMoreRef.current = more;
+        setHasMoreOlder(more);
+        // A same-nanosecond boundary the backend could not page past is a local limit,
+        // not end-of-history (E2E-LOG-26), the same as hitting the in-memory ceiling.
+        setLocallyLimited(
+          (plane.data.hasMore && atCeiling) ||
+            plane.data.boundaryTruncated === true,
+        );
+        setLoadingInitial(false);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        failedRef.current = true;
+        setFailed(true);
+        setLoadingInitial(false);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [api, id, selectedStepId, inert, reloadNonce]);
+
+  const loadOlder = useCallback(() => {
+    // Stop automatic fetching while a failure is pending, so an empty pane that keeps
+    // the sentinel visible cannot busy-loop the same request (E2E-LOG-26).
+    if (
+      inFlight.current ||
+      failedRef.current ||
+      !hasMoreRef.current ||
+      oldestCursor.current === null
+    ) {
+      return;
+    }
+    inFlight.current = true;
+    const controller = controllerRef.current;
+    const scopeAtRequest = scopeRef.current;
+    const requested = oldestCursor.current;
+    setLoadingOlder(true);
+    api
+      .getE2eRunLogs(id, requested, scopeAtRequest, controller?.signal)
+      .then((plane) => {
+        // Ignore a late result once the scope has changed (E2E-LOG-23).
+        if (controller?.signal.aborted || scopeRef.current !== scopeAtRequest) {
+          return;
+        }
+        if (plane.stale) {
+          // A stale/unavailable older page is actionable, not silently stopped
+          // (E2E-LOG-26.04): surface the failed state so Retry can recover.
+          failedRef.current = true;
+          setFailed(true);
+          return;
+        }
+        const merged = mergeLogLines(linesRef.current, plane.data.entries);
+        linesRef.current = merged;
+        setLines(merged);
+        oldestCursor.current = plane.data.nextCursor;
+        // Stop paging when the cursor did not advance (a defensive guard against a
+        // nanosecond shared by more than one page). Distinguish the in-memory buffer
+        // ceiling (locally limited) from the true end of history (E2E-LOG-26).
+        const cursorAdvanced = plane.data.nextCursor !== requested;
+        const atCeiling = merged.length >= MAX_LOG_BUFFER;
+        const more = plane.data.hasMore && cursorAdvanced && !atCeiling;
+        hasMoreRef.current = more;
+        setHasMoreOlder(more);
+        // The in-memory buffer ceiling and a same-nanosecond page boundary the backend
+        // could not advance past are both locally-limited history, kept distinct from
+        // true end-of-history (E2E-LOG-26).
+        setLocallyLimited(
+          (plane.data.hasMore && cursorAdvanced && atCeiling) ||
+            plane.data.boundaryTruncated === true,
+        );
+      })
+      .catch(() => {
+        if (controller?.signal.aborted || scopeRef.current !== scopeAtRequest) {
+          return;
+        }
+        // A timeout or rejection preserves the loaded lines and stops auto-fetch
+        // behind an explicit, recoverable error (E2E-LOG-26.01).
+        failedRef.current = true;
+        setFailed(true);
+      })
+      .finally(() => {
+        if (scopeRef.current === scopeAtRequest) {
+          inFlight.current = false;
+          setLoadingOlder(false);
+        }
+      });
+  }, [api, id]);
+
+  const retry = useCallback(() => {
+    if (!failedRef.current) {
+      return;
+    }
+    failedRef.current = false;
+    setFailed(false);
+    if (linesRef.current.length === 0 || oldestCursor.current === null) {
+      // The initial load failed: reload the newest page for the scope.
+      setReloadNonce((n) => n + 1);
+    } else {
+      // An older-page load failed: resume paging from the preserved cursor.
+      inFlight.current = false;
+      setLoadingOlder(false);
+      loadOlder();
+    }
+  }, [loadOlder]);
+
+  // Stable across scope changes (reads scope/inert via refs) so fanning it into the
+  // live tail does not re-subscribe the stream when the log scope toggles (E2E-LOG-21).
+  const appendLive = useCallback((line: E2eLogLine) => {
+    // An idle step-scoped instance holds no buffer; the run-wide instance takes the
+    // line instead.
+    if (inertRef.current) {
+      return;
+    }
+    // Merge a live line only when it belongs to the active scope, so a run-wide live
+    // line cannot leak into a selected step's buffer (E2E-LOG-23).
+    const scope = scopeRef.current;
+    if (scope !== null && line.stepId !== scope) {
+      return;
+    }
+    setLines((prev) =>
+      boundLogBuffer(mergeLogLines(prev, [line]), MAX_LOG_BUFFER),
+    );
+  }, []);
+
+  return {
+    lines,
+    hasMoreOlder,
+    loadingOlder,
+    loadingInitial,
+    failed,
+    locallyLimited,
+    loadOlder,
+    retry,
+    appendLive,
+  };
+}
+
 // Sort source values, never localized display strings. Null durations sort last.
 // Controlled by route state: the current sort and its dispatcher come from the
-// caller so sort selection round-trips through the URL (GLASS-NAV-12, GLASS-NAV-11).
+// caller so sort selection round-trips through the URL (FLT-NAV-12, FLT-NAV-11).
 function useTableSort<T>(
   rows: readonly T[],
   values: (row: T) => readonly (string | number | null)[],
@@ -541,6 +828,7 @@ function RunsTable({
 
 function StepsTable({
   detail,
+  logLines,
   selectedStepId,
   onSelectStep,
   sort,
@@ -548,6 +836,11 @@ function StepsTable({
   nowMs,
 }: {
   detail: E2eRunDetail;
+  /** The run-wide raw-log buffer (paginated + live), used only for the failed-step
+   *  output preview. It is the run-wide reader, independent of the selected-step log
+   *  view, so selecting a step for the log pane does not strip other steps' previews
+   *  (E2E-LOG-12/23); the detail itself no longer embeds logs (E2E-LOG-19/20). */
+  logLines: readonly E2eLogLine[];
   selectedStepId: string | null;
   onSelectStep: (stepId: string) => void;
   sort: SortState | null;
@@ -603,9 +896,11 @@ function StepsTable({
                 )
               : null);
           const selected = step.stepId === selectedStepId;
+          // The failed-step snippet is best-effort from whatever log pages have
+          // loaded (the newest page loads on open); empty until logs arrive.
           const lastOutput =
             step.state === "failed"
-              ? logsForStep(detail.logs, step.stepId).at(-1)?.message
+              ? logsForStep(logLines, step.stepId).at(-1)?.message
               : null;
           return (
             <Tr
@@ -647,6 +942,7 @@ function StepsTable({
 
 function LogPane({
   detail,
+  logs,
   selectedStepId,
   onSelectScope,
   search,
@@ -655,41 +951,145 @@ function LogPane({
   onExpanded,
 }: {
   detail: E2eRunDetail;
+  /** The paginated + live-streamed log buffer and its controls (E2E-LOG-19/21/22). */
+  logs: RunLogs;
   selectedStepId: string | null;
   onSelectScope: (stepId: string | null) => void;
-  /** Log search text (URL-coalesced, GLASS-NAV-11). */
+  /** Log search text (URL-coalesced, FLT-NAV-11). */
   search: string;
   onSearch: (value: string) => void;
-  /** Expanded log viewer (URL-represented, GLASS-NAV-11). */
+  /** Expanded log viewer (URL-represented, FLT-NAV-11). */
   expanded: boolean;
   onExpanded: (value: boolean) => void;
 }): React.ReactElement {
   const intl = useIntl();
   // follow/pause and the timestamp toggle are transient view toggles, not
-  // URL-represented (GLASS-NAV-11).
+  // URL-represented (FLT-NAV-11).
   const [following, setFollowing] = useState(true);
   const [timestamps, setTimestamps] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Scroll anchor captured before an older page is prepended, so the viewport does
+  // not jump when older lines are inserted at the top (E2E-LOG-22).
+  const anchor = useRef<{ height: number; top: number } | null>(null);
 
-  const lines = useMemo(
-    () =>
-      selectedStepId === null
-        ? detail.logs
-        : logsForStep(detail.logs, selectedStepId),
-    [detail.logs, selectedStepId],
-  );
-  // Bounded rendering: only the most recent lines are ever in the DOM (E2E-LOG-12).
-  const matches = lines.filter((line) =>
+  const {
+    lines: buffer,
+    hasMoreOlder,
+    loadingOlder,
+    loadingInitial,
+    failed,
+    locallyLimited,
+    loadOlder,
+    retry,
+  } = logs;
+  // The buffer is already scoped to the selected step by the hook (E2E-LOG-23), so it
+  // is rendered directly rather than filtered at render time.
+  const matches = buffer.filter((line) =>
     line.message.toLowerCase().includes(search.toLowerCase()),
   );
-  const rendered = matches.slice(-MAX_RENDERED_LOG_LINES);
+  // The in-memory buffer is bounded (MAX_LOG_BUFFER), so rendering it bounds the DOM
+  // too; infinite scroll loads older pages into the same bounded buffer (E2E-LOG-22).
+  const rendered = matches;
 
-  const lastSequence = rendered.at(-1)?.sequence;
-  useEffect(() => {
-    if (following && paneRef.current) {
-      paneRef.current.scrollTop = paneRef.current.scrollHeight;
+  // The log pane distinguishes five states (E2E-LOG-26): loading, empty, end-of-
+  // history, locally-limited history (the in-memory ceiling), and failed loading.
+  const showSpinner = loadingOlder || loadingInitial;
+  const showEmpty = rendered.length === 0 && !showSpinner && !failed;
+  const showLimited = !showSpinner && !failed && locallyLimited;
+  const showEndOfHistory =
+    !showSpinner &&
+    !failed &&
+    !locallyLimited &&
+    !hasMoreOlder &&
+    rendered.length > 0;
+
+  // Older-page load fires from the scroll observer, not a button (E2E-LOG-22): a
+  // sentinel at the top of the scroll container triggers the next older page when it
+  // enters view, guarded so only one page is in flight and stopped while a history
+  // request is in an explicit failed state (E2E-LOG-26).
+  const triggerLoadOlder = useCallback(() => {
+    if (!hasMoreOlder || loadingOlder || failed) {
+      return;
     }
-  }, [following, lastSequence, selectedStepId, search]);
+    const pane = paneRef.current;
+    if (pane) {
+      anchor.current = { height: pane.scrollHeight, top: pane.scrollTop };
+    }
+    loadOlder();
+  }, [hasMoreOlder, loadingOlder, failed, loadOlder]);
+
+  // Retry a failed history request. When lines are already loaded the failure was an
+  // older-page fetch, so anchor the scroll position first (as the observer does) so a
+  // recovered older page does not jump the viewport on prepend (E2E-LOG-22/26).
+  const onRetry = useCallback(() => {
+    if (buffer.length > 0) {
+      const pane = paneRef.current;
+      if (pane) {
+        anchor.current = { height: pane.scrollHeight, top: pane.scrollTop };
+      }
+    }
+    retry();
+  }, [buffer, retry]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          triggerLoadOlder();
+        }
+      }
+    });
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [triggerLoadOlder]);
+
+  // On each buffer change: restore the anchored position when older lines were
+  // prepended; otherwise keep the view pinned to the bottom while following
+  // (auto-follow for a live run, E2E-LOG-22).
+  const lastSequence = rendered.at(-1)?.sequence;
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) {
+      return;
+    }
+    if (anchor.current) {
+      pane.scrollTop =
+        pane.scrollHeight - anchor.current.height + anchor.current.top;
+      anchor.current = null;
+    } else if (following) {
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }, [following, lastSequence, rendered.length, selectedStepId, search]);
+
+  // triggerLoadOlder sets anchor.current before the fetch, and the layout effect
+  // above clears it once older lines are prepended. When a page adds no lines (a
+  // stale or failed older-page fetch), lastSequence and rendered.length do not
+  // change, so that effect never runs and the anchor would stay set, freezing
+  // auto-follow (onScroll returns early while an anchor is pending). Clear a
+  // dangling anchor when the older-page load finishes so scrolling resumes follow.
+  useEffect(() => {
+    if (!loadingOlder) {
+      anchor.current = null;
+    }
+  }, [loadingOlder]);
+
+  // Dropping out of follow when the operator scrolls up reveals the jump-to-latest
+  // affordance; returning to the bottom resumes auto-follow (E2E-LOG-22).
+  const onScroll = useCallback(() => {
+    const pane = paneRef.current;
+    if (!pane || anchor.current) {
+      return;
+    }
+    const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 8;
+    setFollowing(atBottom);
+  }, []);
 
   const content = (
     <Stack hasGutter>
@@ -762,46 +1162,97 @@ function LogPane({
           </Button>
         </div>
       </StackItem>
-      {detail.logsTruncated || matches.length > MAX_RENDERED_LOG_LINES ? (
+      {failed ? (
         <StackItem>
+          {/* A failed/stale/timed-out history request is surfaced with an explicit,
+              recoverable Retry rather than a stuck loading indicator, and it is a
+              logs-only notice so the steps above stay visible (E2E-LOG-20/26). The
+              already-loaded lines below are preserved. */}
           <Alert
-            variant="info"
+            variant="warning"
             isInline
             isPlain
-            title={<FormattedMessage {...messages.e2eLogsTruncated} />}
+            title={<FormattedMessage {...messages.e2eLogsFailed} />}
+            actionLinks={
+              <AlertActionLink onClick={onRetry}>
+                <FormattedMessage {...messages.e2eLogsRetry} />
+              </AlertActionLink>
+            }
           />
         </StackItem>
       ) : null}
       <StackItem>
-        <div
-          className={styles.logPane}
-          ref={paneRef}
-          role="log"
-          aria-label={intl.formatMessage(messages.e2eLogPaneAria)}
-        >
-          {rendered.length === 0 ? (
-            <Content component="small">
-              <FormattedMessage {...messages.e2eLogsEmpty} />
-            </Content>
-          ) : (
-            rendered.map((line) => (
-              <span
-                key={line.sequence}
-                className={styles.logLine}
-                data-testid="e2e-log-line"
+        <div className={styles.logPaneWrap}>
+          <div
+            className={styles.logPane}
+            ref={paneRef}
+            onScroll={onScroll}
+            role="log"
+            aria-label={intl.formatMessage(messages.e2eLogPaneAria)}
+          >
+            {/* Top sentinel + loading indicator for infinite scroll (E2E-LOG-22). */}
+            <div ref={sentinelRef} className={styles.logSentinel} aria-hidden />
+            {showSpinner ? (
+              <div
+                className={styles.logLoadingRow}
+                role="status"
+                aria-label={intl.formatMessage(messages.e2eLogsLoadingOlder)}
               >
-                {timestamps ? (
-                  <span className={styles.logTime}>{line.timestamp}</span>
-                ) : null}
-                {selectedStepId === null && line.stepId ? (
-                  <span className={styles.logStep}>{line.stepId}</span>
-                ) : null}
-                {/* Rendered as text: React escapes it, so record content cannot
-                    inject markup (E2E-LOG-14). */}
-                {line.message}
-              </span>
-            ))
-          )}
+                <Spinner size="sm" aria-hidden />
+                <Content component="small">
+                  <FormattedMessage {...messages.e2eLogsLoadingOlder} />
+                </Content>
+              </div>
+            ) : null}
+            {/* The in-memory buffer ceiling is a distinct state from the true end of
+                history: say so rather than implying all history was read (E2E-LOG-26). */}
+            {showLimited ? (
+              <Content component="small">
+                <FormattedMessage {...messages.e2eLogsLimited} />
+              </Content>
+            ) : null}
+            {showEndOfHistory ? (
+              <Content component="small">
+                <FormattedMessage {...messages.e2eLogsEndOfHistory} />
+              </Content>
+            ) : null}
+            {showEmpty ? (
+              <Content component="small">
+                <FormattedMessage {...messages.e2eLogsEmpty} />
+              </Content>
+            ) : (
+              rendered.map((line) => (
+                <span
+                  key={line.sequence}
+                  className={styles.logLine}
+                  data-testid="e2e-log-line"
+                >
+                  {timestamps ? (
+                    <span className={styles.logTime}>{line.timestamp}</span>
+                  ) : null}
+                  {selectedStepId === null && line.stepId ? (
+                    <span className={styles.logStep}>{line.stepId}</span>
+                  ) : null}
+                  {/* Rendered as text: React escapes it, so record content cannot
+                      inject markup (E2E-LOG-14). */}
+                  {line.message}
+                </span>
+              ))
+            )}
+          </div>
+          {!following ? (
+            <Button
+              className={styles.jumpToLatest}
+              variant="secondary"
+              size="sm"
+              icon={<PlayIcon />}
+              onClick={() => {
+                setFollowing(true);
+              }}
+            >
+              <FormattedMessage {...messages.e2eJumpToLatest} />
+            </Button>
+          ) : null}
         </div>
       </StackItem>
     </Stack>
@@ -857,7 +1308,7 @@ export function SelectedRunPane({
   const [snapshot, setSnapshot] = useState<E2eRunDetail | null>(null);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   // The log scope and sub-tab are URL-represented via the shared controls, so they
-  // survive reload and Back/Forward without restarting the live stream (GLASS-NAV-18).
+  // survive reload and Back/Forward without restarting the live stream (FLT-NAV-18).
   const selectedStepId = controls.exec.step;
   const activeTab: string | number = controls.exec.tab;
 
@@ -879,7 +1330,37 @@ export function SelectedRunPane({
     };
   }, [api, runId]);
 
-  const { detail, status } = useLiveRunDetail(runId, snapshot, observability);
+  // Logs are paged (and live-appended) independently of the steps snapshot, so a
+  // slow or failed log read never blanks the steps (E2E-LOG-19/20). Two scoped
+  // readers keep the run-wide progress summary independent of the selected-step log
+  // view (E2E-LOG-12/23): runWideLogs is the single run-wide reader (it feeds the
+  // step table's failed-output preview and the run-wide log view, and takes the live
+  // tail); stepLogs requests the selected step's lines directly and stays idle while
+  // no step is selected. The log pane renders whichever matches the current scope.
+  const runWideLogs = useRunLogs(runId, null);
+  const stepLogs = useRunLogs(runId, selectedStepId, true);
+  const activeLogs = selectedStepId === null ? runWideLogs : stepLogs;
+  // The live tail opens only while the run is in progress (E2E-LOG-21); the decision
+  // comes from the loaded snapshot's terminal state.
+  const live = snapshot !== null && isRunning(snapshot);
+  const runWideAppendLive = runWideLogs.appendLive;
+  const stepAppendLive = stepLogs.appendLive;
+  const appendLive = useCallback(
+    (line: E2eLogLine) => {
+      // Fan the live line to both readers: the run-wide buffer always takes it; the
+      // step buffer takes it only when its scope matches (E2E-LOG-21/23).
+      runWideAppendLive(line);
+      stepAppendLive(line);
+    },
+    [runWideAppendLive, stepAppendLive],
+  );
+  const { detail, status } = useLiveRunDetail(
+    runId,
+    snapshot,
+    live,
+    appendLive,
+    observability,
+  );
 
   if (detail === null) {
     return backendUnavailable ? (
@@ -1029,6 +1510,7 @@ export function SelectedRunPane({
             ) : (
               <StepsTable
                 detail={detail}
+                logLines={runWideLogs.lines}
                 selectedStepId={selectedStepId}
                 onSelectStep={(id) => {
                   controls.onStep(id);
@@ -1051,6 +1533,7 @@ export function SelectedRunPane({
           <div className={styles.tabBody}>
             <LogPane
               detail={detail}
+              logs={activeLogs}
               selectedStepId={selectedStepId}
               onSelectScope={controls.onStep}
               search={controls.exec.logQuery}
@@ -1065,7 +1548,7 @@ export function SelectedRunPane({
   );
 }
 
-/** Build the e2e run execution controls from the route (GLASS-NAV-11). */
+/** Build the e2e run execution controls from the route (FLT-NAV-11). */
 function useE2eExecControls(exec: ExecState): ExecControls {
   const { navigate } = useRouter();
   return useMemo(
@@ -1096,7 +1579,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
   const intl = useIntl();
   const nowMs = resolveNowMs(props.nowMs);
   // The URL is authoritative for selection, drawer, search, sort, and the shared
-  // execution detail (GLASS-NAV-05, GLASS-NAV-12).
+  // execution detail (FLT-NAV-05, FLT-NAV-12).
   const route = useRoute();
   const { navigate } = useRouter();
   const selectedId = route.e2e.run;
@@ -1123,7 +1606,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
     };
   }, []);
   const close = useCallback(() => {
-    // Closing preserves the selected run (GLASS-NAV-12); only the drawer closes.
+    // Closing preserves the selected run (FLT-NAV-12); only the drawer closes.
     navigate({ type: "e2eDrawer", open: false });
     triggerRef.current?.focus();
   }, [navigate]);
@@ -1249,7 +1732,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                   selectedId={selectedId}
                   onActivate={(event) => {
                     // Record the trigger for focus restoration on close; the link
-                    // itself performs the navigation (GLASS-NAV-08, GLASS-NAV-15).
+                    // itself performs the navigation (FLT-NAV-08, FLT-NAV-15).
                     triggerRef.current = event.currentTarget as HTMLElement;
                   }}
                   sort={route.e2e.runSort}

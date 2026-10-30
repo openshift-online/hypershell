@@ -427,3 +427,18 @@ not go away, only its identifier changed.
 | `USAGE-DASH-09` | `WEB-USE-09` | `web-console/usage-dashboard.spec.md` |
 | `USAGE-DASH-10` | `WEB-USE-10` | `web-console/usage-dashboard.spec.md` |
 | `USAGE-DASH-11` | `WEB-USE-11` | `web-console/usage-dashboard.spec.md` |
+
+## Later Renames
+
+IDs that were added after the migration in a pre-migration style and
+renamed when the ID check was introduced (`STD-IDS-06`).
+
+| Old ID | New ID | File |
+|--------|--------|------|
+| `SDLC-VIS-11a` | `SDLC-VIS-22` | `platform/agent-sdlc-visibility-dashboard.spec.md` |
+| `GSE-01` | `OSG-SEVT-01` | `platform/gateway-sandbox-events.spec.md` |
+| `GSE-02` | `OSG-SEVT-02` | `platform/gateway-sandbox-events.spec.md` |
+| `GSE-03` | `OSG-SEVT-03` | `platform/gateway-sandbox-events.spec.md` |
+| `GSE-04` | `OSG-SEVT-04` | `platform/gateway-sandbox-events.spec.md` |
+| `GSE-05` | `OSG-SEVT-05` | `platform/gateway-sandbox-events.spec.md` |
+| `GSE-06` | `OSG-SEVT-06` | `platform/gateway-sandbox-events.spec.md` |

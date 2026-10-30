@@ -412,7 +412,7 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"name\": \"gcp-test-gw\",
   \"placement\": {\"selector\": [\"network/public\", \"provider/aws\"]},
   \"namespace\": \"openshell-gcptest\",
-  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3\",
+  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3\",
   \"route\": \"{\\\"enabled\\\": true}\"
 }")
 echo "$GATEWAY" | python3 -m json.tool

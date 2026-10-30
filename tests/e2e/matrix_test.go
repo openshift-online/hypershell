@@ -21,6 +21,7 @@ import (
 // It defaults to E2E_MODE=short (the promotion/smoke subset) when E2E_MODE is
 // unset, and fails closed: an unregistered, stale, or unreachable cluster is a
 // failure unless E2E_MANAGED_SKIP_UNHEALTHY=1 downgrades it to a skip.
+// Verifies: E2E-CORE-30.02
 func TestMatrix(t *testing.T) {
 	// The matrix is a promotion/smoke gate: default to short unless the caller
 	// pinned a mode.

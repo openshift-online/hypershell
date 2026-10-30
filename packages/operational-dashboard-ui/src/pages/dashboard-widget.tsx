@@ -20,7 +20,6 @@ import {
   Flex,
   FlexItem,
   Icon,
-  Label,
   Stack,
   StackItem,
   Title,
@@ -37,7 +36,6 @@ import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
-import { useDashboardUi } from "../dashboard-ui-provider";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -535,6 +533,124 @@ export function ActiveSandboxesCard({
           <SummaryUnavailableValue />
         )}
       </Stack>
+    </WidgetContent>
+  );
+}
+
+function ReadinessValue({ value }: Readonly<{ value: string | undefined }>) {
+  return value === undefined ? (
+    <FormattedMessage {...messages.unknown} />
+  ) : (
+    <FormattedMessage
+      {...messages.utilizationLabel}
+      values={{ unit: "%", value }}
+    />
+  );
+}
+
+export function ResourceReadinessCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const readiness = metric.resourceReadiness;
+  const intl = useIntl();
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.resourceReadinessHelp} />}
+    >
+      <DashboardSummaryList
+        ariaLabel={intl.formatMessage(messages.resourceReadinessAriaLabel)}
+        items={[
+          {
+            key: "pods",
+            label: <FormattedMessage {...messages.podReadiness} />,
+            value: <ReadinessValue value={readiness?.podReadinessPercent} />,
+          },
+          {
+            key: "sandboxes",
+            label: <FormattedMessage {...messages.sandboxReadiness} />,
+            value: (
+              <ReadinessValue value={readiness?.sandboxReadinessPercent} />
+            ),
+          },
+          {
+            key: "unready",
+            label: <FormattedMessage {...messages.unreadyResources} />,
+            indicator:
+              readiness?.unreadyResources === undefined ||
+              Number(readiness.unreadyResources) <= 0
+                ? undefined
+                : {
+                    content: <ExclamationCircleIcon />,
+                    tone: "warning",
+                  },
+            value: readiness?.unreadyResources ?? (
+              <FormattedMessage {...messages.unknown} />
+            ),
+          },
+        ]}
+      />
+    </WidgetContent>
+  );
+}
+
+export function CertificateHealthCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const health = metric.certificateHealth;
+  const intl = useIntl();
+
+  if (!health) {
+    return <DashboardMetricUnavailable />;
+  }
+
+  return (
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.certificateHealthHelp} />}
+    >
+      <DashboardSummaryList
+        ariaLabel={intl.formatMessage(messages.certificateHealthAriaLabel)}
+        items={[
+          {
+            key: "valid",
+            label: <FormattedMessage {...messages.validCertificates} />,
+            value: `${health.validCertificates} / ${health.totalCertificates}`,
+          },
+          {
+            key: "expiry",
+            label: <FormattedMessage {...messages.soonestCertificateExpiry} />,
+            indicator:
+              health.soonestDaysToExpiry === undefined ||
+              Number(health.soonestDaysToExpiry) > 30
+                ? undefined
+                : {
+                    content: <ExclamationCircleIcon />,
+                    tone: "warning",
+                  },
+            value:
+              health.soonestDaysToExpiry === undefined ? (
+                <FormattedMessage {...messages.unknown} />
+              ) : (
+                <FormattedMessage
+                  {...messages.daysValue}
+                  values={{ value: health.soonestDaysToExpiry }}
+                />
+              ),
+          },
+          {
+            key: "expired",
+            label: <FormattedMessage {...messages.expiredCertificates} />,
+            value: health.expiredCertificates,
+          },
+          {
+            key: "unavailable",
+            label: (
+              <FormattedMessage {...messages.certificateStatusUnavailable} />
+            ),
+            value: health.statusUnavailable,
+          },
+        ]}
+      />
     </WidgetContent>
   );
 }
@@ -1292,7 +1408,6 @@ export function UsageSummaryCard({
   metrics,
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {
   const intl = useIntl();
-  const { isAdmin } = useDashboardUi();
   const resourceSummary = getResourceSummaryCounts(metrics);
   const items: DashboardSummaryItem[] = USAGE_SUMMARY_METRIC_IDS.map(
     (metricId) => {
@@ -1330,11 +1445,6 @@ export function UsageSummaryCard({
     <WidgetContent
       helpText={<FormattedMessage {...messages.resourceSummaryHelp} />}
     >
-      {isAdmin ? (
-        <Label color="blue">
-          <FormattedMessage {...messages.adminBadge} />
-        </Label>
-      ) : null}
       <DashboardSummaryList
         ariaLabel={intl.formatMessage(messages.summaryUsageAriaLabel)}
         items={[

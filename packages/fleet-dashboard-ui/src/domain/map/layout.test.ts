@@ -136,6 +136,7 @@ describe("computeLayout", () => {
     expect(layout.gates[1]?.x).toBe((colB?.x ?? 0) + NODE_W + COL_GAP / 2);
   });
 
+  // Verifies: FLT-MAP-02.02
   it("falls back to the vertical midpoint for the spine when no node is a hub", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
@@ -179,6 +180,7 @@ describe("computeLayout - hub spine", () => {
   const boxesById = (layout: ReturnType<typeof computeLayout>) =>
     new Map(layout.nodes.map((n) => [n.id, n]));
 
+  // Verifies: FLT-MAP-01.01
   it("puts every column's hub on one spine at the vertical center", () => {
     // Single-cloud-hub assumption: every stage HUB runs on the one hub-hosting
     // provider (ibm), so they share one centered spine.
@@ -219,6 +221,7 @@ describe("computeLayout - hub spine", () => {
     expect(boxes.get("prod")?.cy).toBe(layout.hubSpineY);
   });
 
+  // Verifies: FLT-MAP-01.02
   it("keeps the spine centered while spokes group by provider", () => {
     // HUBs run on one provider (ibm) and SPOKEs on others: the hubs still share the
     // centered spine and grouping the spokes into their provider lanes does not move
@@ -240,6 +243,7 @@ describe("computeLayout - hub spine", () => {
     expect(layout.hubSpineY).toBe((96 + (layout.height - 48)) / 2);
   });
 
+  // Verifies: FLT-MAP-03.01
   it("places the hub on the spine even when a spoke precedes it in input", () => {
     const model = buildMapModel(
       promotion(["stage-s", "stage"], {
@@ -254,6 +258,7 @@ describe("computeLayout - hub spine", () => {
     expect(boxes.get("stage-s")?.cy).not.toBe(layout.hubSpineY);
   });
 
+  // Verifies: FLT-MAP-04
   it("stacks two spokes symmetrically, one above and one below the spine", () => {
     const model = buildMapModel(
       promotion(["s", "s-a", "s-b"], {
@@ -272,6 +277,7 @@ describe("computeLayout - hub spine", () => {
     expect(spokeCys.some((cy) => cy > hub)).toBe(true); // one below
   });
 
+  // Verifies: FLT-MAP-04.03
   it("is deterministic: identical coordinates on repeated computation", () => {
     const build = () =>
       buildMapModel(
@@ -313,6 +319,7 @@ describe("computeLayout - provider lanes", () => {
   const laneByKey = (layout: ReturnType<typeof computeLayout>) =>
     new Map(layout.lanes.map((l) => [l.key, l]));
 
+  // Verifies: FLT-MAP-07.01
   it("renders one visible lane per cloud provider", () => {
     // AWS clusters and IBM clusters -> an AWS lane and an IBM lane as visible bands.
     const model = buildMapModel(
@@ -340,6 +347,7 @@ describe("computeLayout - provider lanes", () => {
     expect(inLane(boxes.get("prod-s"), "aws")).toBe(true);
   });
 
+  // Verifies: FLT-MAP-07.02
   it("groups a provider-less cluster into a single unassigned lane", () => {
     const model = buildMapModel(
       promotion(["prod", "prod-s"], {
@@ -356,6 +364,7 @@ describe("computeLayout - provider lanes", () => {
     expect(lanes.get("none")?.provider).toBeNull();
   });
 
+  // Verifies: FLT-MAP-04.01
   it("centers the hub-hosting lane and stacks the others around it", () => {
     // A hub-hosting IBM lane and a spoke-only AWS lane: the IBM lane carries the
     // centered spine; the AWS lane is placed off the spine.
@@ -386,6 +395,7 @@ describe("computeLayout - provider lanes", () => {
     expect(aws?.hostsHub).toBe(false);
   });
 
+  // Verifies: FLT-MAP-05.01
   it("groups spokes into their provider lane while hubs ride the centered spine", () => {
     // HUBs on IBM, SPOKEs on IBM and AWS: the IBM hubs sit on the centered spine, the
     // AWS spokes group into a visible AWS lane off the spine, the IBM spokes group
@@ -421,6 +431,7 @@ describe("computeLayout - provider lanes", () => {
     );
   });
 
+  // Verifies: FLT-MAP-04.02
   it("does not sink the hub-hosting lane below the other lanes", () => {
     // The hub runs on provider "zeta" (sorts last) with a spoke on "alpha": the zeta
     // lane must still carry the centered spine, not be pushed below the alpha lane.

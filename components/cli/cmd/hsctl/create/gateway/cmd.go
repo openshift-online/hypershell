@@ -16,19 +16,10 @@ import (
 )
 
 var args struct {
-	clusterId        string
-	credentialDriver string
-	externalDns      string
-	image            string
-	name             string
-	phase            string
-	route            string
-	serverDnsNames   string
-	serviceType      string
-	status           string
-	supervisorImage  string
-	tlsMode          string
-	bodyFile         string
+	clusterId      string
+	dedicatedRoute bool
+	name           string
+	bodyFile       string
 }
 
 var Cmd = &cobra.Command{
@@ -36,7 +27,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hsctl create gateway --cluster-id <value> --credential-driver <value> --external-dns <value> --image <value> --name <value> --phase <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
+		"  hsctl create gateway --cluster-id <value> --dedicated-route <value> --name <value> \n" +
 		"  hsctl create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -45,17 +36,8 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
-	fs.StringVar(&args.credentialDriver, "credential-driver", "", "credential_driver value.")
-	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
-	fs.StringVar(&args.image, "image", "", "image value.")
+	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "dedicated_route value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
-	fs.StringVar(&args.phase, "phase", "", "phase value.")
-	fs.StringVar(&args.route, "route", "", "route value.")
-	fs.StringVar(&args.serverDnsNames, "server-dns-names", "", "server_dns_names value.")
-	fs.StringVar(&args.serviceType, "service-type", "", "service_type value.")
-	fs.StringVar(&args.status, "status", "", "status value.")
-	fs.StringVar(&args.supervisorImage, "supervisor-image", "", "supervisor_image value.")
-	fs.StringVar(&args.tlsMode, "tls-mode", "", "tls_mode value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 }
 
@@ -83,38 +65,11 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.clusterId != "" {
 			request["cluster_id"] = args.clusterId
 		}
-		if args.credentialDriver != "" {
-			request["credential_driver"] = args.credentialDriver
-		}
-		if args.externalDns != "" {
-			request["external_dns"] = args.externalDns
-		}
-		if args.image != "" {
-			request["image"] = args.image
+		if args.dedicatedRoute {
+			request["dedicated_route"] = args.dedicatedRoute
 		}
 		if args.name != "" {
 			request["name"] = args.name
-		}
-		if args.phase != "" {
-			request["phase"] = args.phase
-		}
-		if args.route != "" {
-			request["route"] = args.route
-		}
-		if args.serverDnsNames != "" {
-			request["server_dns_names"] = args.serverDnsNames
-		}
-		if args.serviceType != "" {
-			request["service_type"] = args.serviceType
-		}
-		if args.status != "" {
-			request["status"] = args.status
-		}
-		if args.supervisorImage != "" {
-			request["supervisor_image"] = args.supervisorImage
-		}
-		if args.tlsMode != "" {
-			request["tls_mode"] = args.tlsMode
 		}
 		body, err = json.Marshal(request)
 		if err != nil {

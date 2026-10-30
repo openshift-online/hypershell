@@ -20,6 +20,7 @@ import {
   DashboardDonut,
   DashboardSparkline,
   DashboardSummaryList,
+  DashboardUtilization,
   DashboardWidget,
   MockupWidgetizedLayout,
 } from "../common/dashboard-widget";
@@ -100,7 +101,7 @@ provisioningLayout.lg = provisioningLayout.xl;
 provisioningLayout.md = provisioningLayout.xl;
 let stackedY = 0;
 provisioningLayout.sm = provisioningLayout.xl.map((item) => {
-  const positioned = { ...item, h: 5, w: 1, x: 0, y: stackedY };
+  const positioned = { ...item, w: 1, x: 0, y: stackedY };
   stackedY += positioned.h;
   return positioned;
 });
@@ -129,6 +130,13 @@ export function HubClusterDashboardPageSurface() {
           89, 91, 90, 92, 91, 93, 94, 92, 93, 94, 95, 94, 96, 95, 96, 97, 95,
           96, 97, 96, 97, 98, 97, 96, 97, 96, 98, 97, 96, 96,
         ];
+  const provisionP99Trend =
+    timeRange === 7
+      ? [11, 13, 12, 15, 14, 16, 14]
+      : [
+          10, 11, 12, 13, 12, 14, 13, 15, 14, 16, 15, 17, 16, 18, 17, 19, 18,
+          20, 19, 21, 20, 22, 21, 23, 22, 24, 23, 25, 24, 26,
+        ];
 
   return (
     <>
@@ -142,17 +150,16 @@ export function HubClusterDashboardPageSurface() {
             Provisioning dashboard
           </Title>
           <p>
-            Monitor capacity, node health, and gateway provisioning across all
-            managed clusters.
+            Monitor hub-cluster capacity and platform-wide gateway provisioning.
           </p>
         </Content>
       </PageSection>
       <PageSection data-page-region="body" isFilled variant="secondary">
         <DashboardNavigation current="Provisioning" showLayoutActions={false} />
         <DashboardPurpose>
-          Is the managed-cluster fleet healthy enough to host HyperShell
-          services and provision gateways? Review current utilization, node and
-          pod health, and provisioning reliability.
+          Is the hub cluster healthy enough to host HyperShell services and
+          provision gateways? Review current utilization, node and pod health,
+          and provisioning reliability.
         </DashboardPurpose>
         <DashboardFilters
           actions={
@@ -180,7 +187,7 @@ export function HubClusterDashboardPageSurface() {
             icon={<TachometerAltIcon />}
           >
             <DashboardSummaryList
-              footnote="System-wide managed-cluster metrics are visible to platform administrators."
+              footnote="Hub-cluster capacity and platform provisioning totals are visible to platform administrators."
               gap={18}
               items={[
                 { label: "Managed clusters", value: "8" },
@@ -205,28 +212,14 @@ export function HubClusterDashboardPageSurface() {
             />
           </DashboardWidget>
           <DashboardWidget adminOnly title="Memory" icon={<MemoryIcon />}>
-            <DashboardDonut
-              label="Memory"
-              value="68%"
-              segments={[
-                { label: "Used", value: 68, color: "#0066cc" },
-                { label: "Available", value: 32, color: "#d2d2d2" },
-              ]}
-            />
+            <DashboardUtilization total={237} unit="GiB" value={161} />
             <DashboardSparkline
               caption={`${rangeLabel} - daily used memory (GiB)`}
               data={memoryTrend}
             />
           </DashboardWidget>
           <DashboardWidget adminOnly title="CPU" icon={<MicrochipIcon />}>
-            <DashboardDonut
-              label="CPU"
-              value="54%"
-              segments={[
-                { label: "Used", value: 54, color: "#6753ac" },
-                { label: "Available", value: 46, color: "#d2d2d2" },
-              ]}
-            />
+            <DashboardUtilization total={60} unit="cores" value={32} />
             <DashboardSparkline
               caption={`${rangeLabel} - daily used CPU (cores)`}
               data={cpuTrend}
@@ -267,8 +260,20 @@ export function HubClusterDashboardPageSurface() {
                 { label: "Average", value: "5m 12s" },
                 { label: "P50", value: "4m 48s" },
                 { label: "P95", value: "12m 06s" },
+                {
+                  indicator: "attention",
+                  label: "P99",
+                  value: "14m 32s",
+                },
+                { label: "Target", value: "5m 00s" },
               ]}
-            />
+              footnote="P99 target is 5 minutes; the warning state appears when P99 exceeds the target."
+            >
+              <DashboardSparkline
+                caption={`${rangeLabel} - daily P99 time to ready`}
+                data={provisionP99Trend}
+              />
+            </DashboardSummaryList>
           </DashboardWidget>
           <DashboardWidget
             adminOnly

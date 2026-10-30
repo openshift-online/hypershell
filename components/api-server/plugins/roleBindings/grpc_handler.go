@@ -2,9 +2,9 @@ package roleBindings
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -220,7 +220,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchRoleBindings: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchRoleBindings subscriber connected", "subscriber_id", sub.ID)
 
 	// Send the header after the subscription starts. Then send each active
 	// gateway binding as an update. This restores bindings that the control
@@ -236,7 +236,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchRoleBindings: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchRoleBindings subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -254,7 +254,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 				var unscopedErr *errors.ServiceError
 				rb, unscopedErr = h.service.GetUnscoped(ctx, evt.SourceID)
 				if unscopedErr != nil {
-					glog.Warningf("WatchRoleBindings: failed to load deleted role binding %s: %v", evt.SourceID, unscopedErr)
+					slog.WarnContext(ctx, "WatchRoleBindings failed to load deleted role binding", "resource_id", evt.SourceID, "error", unscopedErr)
 					continue
 				}
 			} else {
@@ -263,7 +263,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 					return h.service.Get(ctx, evt.SourceID)
 				})
 				if svcErr != nil {
-					glog.Warningf("WatchRoleBindings: failed to load role binding %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchRoleBindings failed to load role binding", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 			}
@@ -278,13 +278,13 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 					// Ending the stream makes the control plane reconnect, and the
 					// replay on reconnect restores the binding; dropping it here
 					// would strand it until an unrelated reconnect.
-					glog.Warningf("WatchRoleBindings: failed to resolve the gateway cluster of role binding %s for subscriber %s: %v", rb.ID, sub.ID, lookupErr)
+					slog.WarnContext(ctx, "WatchRoleBindings failed to resolve the gateway cluster of role binding", "role_binding_id", rb.ID, "subscriber_id", sub.ID, "error", lookupErr)
 					return status.Errorf(codes.Unavailable, "resolve gateway cluster for role binding %s: %v", rb.ID, lookupErr)
 				}
 				if !found {
 					// Not attributable to any cluster, so it must not reach a
 					// scoped subscriber.
-					glog.Warningf("WatchRoleBindings: gateway %s of role binding %s not found; not delivering to cluster %s", *rb.GatewayID, rb.ID, clusterFilter)
+					slog.WarnContext(ctx, "WatchRoleBindings gateway of role binding not found; not delivering", "gateway_id", *rb.GatewayID, "role_binding_id", rb.ID, "cluster_id", clusterFilter)
 					continue
 				}
 				if !included {
@@ -295,7 +295,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 			watchEvent := h.roleBindingWatchEvent(ctx, pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)), rb)
 
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchRoleBindings: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchRoleBindings send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}
@@ -323,7 +323,7 @@ func (h *roleBindingGRPCHandler) replayActiveRoleBindings(ctx context.Context, s
 				return status.Errorf(codes.Unavailable, "failed to resolve gateway cluster for role binding %s: %v", rb.ID, lookupErr)
 			}
 			if !found {
-				glog.Warningf("WatchRoleBindings: gateway %s of role binding %s not found; not replaying to cluster %s", *rb.GatewayID, rb.ID, scope.clusterID)
+				slog.WarnContext(ctx, "WatchRoleBindings gateway of role binding not found; not replaying", "gateway_id", *rb.GatewayID, "role_binding_id", rb.ID, "cluster_id", scope.clusterID)
 				continue
 			}
 			if !included {
@@ -335,7 +335,7 @@ func (h *roleBindingGRPCHandler) replayActiveRoleBindings(ctx context.Context, s
 		}
 		replayed++
 	}
-	glog.V(4).Infof("WatchRoleBindings: replayed %d active role bindings", replayed)
+	slog.DebugContext(ctx, "WatchRoleBindings replayed active role bindings", "count", replayed)
 	return nil
 }
 

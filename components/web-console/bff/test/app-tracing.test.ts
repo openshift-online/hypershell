@@ -135,6 +135,7 @@ describe("web-console BFF tracing wiring", () => {
     expect(received[0]?.headers.tracestate).toBe("vendor=1");
   });
 
+  // Verifies: WEB-TRC-05
   it("starts a span per proxied request and ends it with the outcome", async () => {
     await app.inject({
       headers: { traceparent: "00-inbound-value" },
@@ -164,6 +165,7 @@ describe("web-console BFF tracing wiring", () => {
     expect(trace.ended).toEqual([{ outcome: "server_error", statusCode: 502 }]);
   });
 
+  // Verifies: WEB-TRC-07
   it("keeps request secrets out of the span, recording only the bounded route", async () => {
     const secret = "SEED-Bearer-token-do-not-log";
 

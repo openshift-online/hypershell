@@ -4,20 +4,10 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | **string** |  | 
-**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional] 
-**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional] 
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
+**Name** | **string** |  |
+**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
+**DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
+**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
 
 ## Methods
 
@@ -83,6 +73,31 @@ SetClusterId sets ClusterId field to given value.
 
 HasClusterId returns a boolean if a field has been set.
 
+### GetDedicatedRoute
+
+`func (o *GatewayCreateRequest) GetDedicatedRoute() bool`
+
+GetDedicatedRoute returns the DedicatedRoute field if non-nil, zero value otherwise.
+
+### GetDedicatedRouteOk
+
+`func (o *GatewayCreateRequest) GetDedicatedRouteOk() (*bool, bool)`
+
+GetDedicatedRouteOk returns a tuple with the DedicatedRoute field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDedicatedRoute
+
+`func (o *GatewayCreateRequest) SetDedicatedRoute(v bool)`
+
+SetDedicatedRoute sets DedicatedRoute field to given value.
+
+### HasDedicatedRoute
+
+`func (o *GatewayCreateRequest) HasDedicatedRoute() bool`
+
+HasDedicatedRoute returns a boolean if a field has been set.
+
 ### GetPlacement
 
 `func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent`
@@ -118,282 +133,5 @@ HasPlacement returns a boolean if a field has been set.
 `func (o *GatewayCreateRequest) UnsetPlacement()`
 
 UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
-### GetExternalDns
-
-`func (o *GatewayCreateRequest) GetExternalDns() string`
-
-GetExternalDns returns the ExternalDns field if non-nil, zero value otherwise.
-
-### GetExternalDnsOk
-
-`func (o *GatewayCreateRequest) GetExternalDnsOk() (*string, bool)`
-
-GetExternalDnsOk returns a tuple with the ExternalDns field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetExternalDns
-
-`func (o *GatewayCreateRequest) SetExternalDns(v string)`
-
-SetExternalDns sets ExternalDns field to given value.
-
-### HasExternalDns
-
-`func (o *GatewayCreateRequest) HasExternalDns() bool`
-
-HasExternalDns returns a boolean if a field has been set.
-
-### GetTlsMode
-
-`func (o *GatewayCreateRequest) GetTlsMode() string`
-
-GetTlsMode returns the TlsMode field if non-nil, zero value otherwise.
-
-### GetTlsModeOk
-
-`func (o *GatewayCreateRequest) GetTlsModeOk() (*string, bool)`
-
-GetTlsModeOk returns a tuple with the TlsMode field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetTlsMode
-
-`func (o *GatewayCreateRequest) SetTlsMode(v string)`
-
-SetTlsMode sets TlsMode field to given value.
-
-### HasTlsMode
-
-`func (o *GatewayCreateRequest) HasTlsMode() bool`
-
-HasTlsMode returns a boolean if a field has been set.
-
-### GetServiceType
-
-`func (o *GatewayCreateRequest) GetServiceType() string`
-
-GetServiceType returns the ServiceType field if non-nil, zero value otherwise.
-
-### GetServiceTypeOk
-
-`func (o *GatewayCreateRequest) GetServiceTypeOk() (*string, bool)`
-
-GetServiceTypeOk returns a tuple with the ServiceType field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetServiceType
-
-`func (o *GatewayCreateRequest) SetServiceType(v string)`
-
-SetServiceType sets ServiceType field to given value.
-
-### HasServiceType
-
-`func (o *GatewayCreateRequest) HasServiceType() bool`
-
-HasServiceType returns a boolean if a field has been set.
-
-### GetStatus
-
-`func (o *GatewayCreateRequest) GetStatus() string`
-
-GetStatus returns the Status field if non-nil, zero value otherwise.
-
-### GetStatusOk
-
-`func (o *GatewayCreateRequest) GetStatusOk() (*string, bool)`
-
-GetStatusOk returns a tuple with the Status field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetStatus
-
-`func (o *GatewayCreateRequest) SetStatus(v string)`
-
-SetStatus sets Status field to given value.
-
-### HasStatus
-
-`func (o *GatewayCreateRequest) HasStatus() bool`
-
-HasStatus returns a boolean if a field has been set.
-
-### GetPhase
-
-`func (o *GatewayCreateRequest) GetPhase() string`
-
-GetPhase returns the Phase field if non-nil, zero value otherwise.
-
-### GetPhaseOk
-
-`func (o *GatewayCreateRequest) GetPhaseOk() (*string, bool)`
-
-GetPhaseOk returns a tuple with the Phase field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetPhase
-
-`func (o *GatewayCreateRequest) SetPhase(v string)`
-
-SetPhase sets Phase field to given value.
-
-### HasPhase
-
-`func (o *GatewayCreateRequest) HasPhase() bool`
-
-HasPhase returns a boolean if a field has been set.
-
-### GetImage
-
-`func (o *GatewayCreateRequest) GetImage() string`
-
-GetImage returns the Image field if non-nil, zero value otherwise.
-
-### GetImageOk
-
-`func (o *GatewayCreateRequest) GetImageOk() (*string, bool)`
-
-GetImageOk returns a tuple with the Image field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetImage
-
-`func (o *GatewayCreateRequest) SetImage(v string)`
-
-SetImage sets Image field to given value.
-
-### HasImage
-
-`func (o *GatewayCreateRequest) HasImage() bool`
-
-HasImage returns a boolean if a field has been set.
-
-### GetSupervisorImage
-
-`func (o *GatewayCreateRequest) GetSupervisorImage() string`
-
-GetSupervisorImage returns the SupervisorImage field if non-nil, zero value otherwise.
-
-### GetSupervisorImageOk
-
-`func (o *GatewayCreateRequest) GetSupervisorImageOk() (*string, bool)`
-
-GetSupervisorImageOk returns a tuple with the SupervisorImage field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetSupervisorImage
-
-`func (o *GatewayCreateRequest) SetSupervisorImage(v string)`
-
-SetSupervisorImage sets SupervisorImage field to given value.
-
-### HasSupervisorImage
-
-`func (o *GatewayCreateRequest) HasSupervisorImage() bool`
-
-HasSupervisorImage returns a boolean if a field has been set.
-
-### GetServerDnsNames
-
-`func (o *GatewayCreateRequest) GetServerDnsNames() []string`
-
-GetServerDnsNames returns the ServerDnsNames field if non-nil, zero value otherwise.
-
-### GetServerDnsNamesOk
-
-`func (o *GatewayCreateRequest) GetServerDnsNamesOk() (*[]string, bool)`
-
-GetServerDnsNamesOk returns a tuple with the ServerDnsNames field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetServerDnsNames
-
-`func (o *GatewayCreateRequest) SetServerDnsNames(v []string)`
-
-SetServerDnsNames sets ServerDnsNames field to given value.
-
-### HasServerDnsNames
-
-`func (o *GatewayCreateRequest) HasServerDnsNames() bool`
-
-HasServerDnsNames returns a boolean if a field has been set.
-
-### GetOidc
-
-`func (o *GatewayCreateRequest) GetOidc() string`
-
-GetOidc returns the Oidc field if non-nil, zero value otherwise.
-
-### GetOidcOk
-
-`func (o *GatewayCreateRequest) GetOidcOk() (*string, bool)`
-
-GetOidcOk returns a tuple with the Oidc field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetOidc
-
-`func (o *GatewayCreateRequest) SetOidc(v string)`
-
-SetOidc sets Oidc field to given value.
-
-### HasOidc
-
-`func (o *GatewayCreateRequest) HasOidc() bool`
-
-HasOidc returns a boolean if a field has been set.
-
-### GetRoute
-
-`func (o *GatewayCreateRequest) GetRoute() string`
-
-GetRoute returns the Route field if non-nil, zero value otherwise.
-
-### GetRouteOk
-
-`func (o *GatewayCreateRequest) GetRouteOk() (*string, bool)`
-
-GetRouteOk returns a tuple with the Route field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetRoute
-
-`func (o *GatewayCreateRequest) SetRoute(v string)`
-
-SetRoute sets Route field to given value.
-
-### HasRoute
-
-`func (o *GatewayCreateRequest) HasRoute() bool`
-
-HasRoute returns a boolean if a field has been set.
-
-### GetCredentialDriver
-
-`func (o *GatewayCreateRequest) GetCredentialDriver() string`
-
-GetCredentialDriver returns the CredentialDriver field if non-nil, zero value otherwise.
-
-### GetCredentialDriverOk
-
-`func (o *GatewayCreateRequest) GetCredentialDriverOk() (*string, bool)`
-
-GetCredentialDriverOk returns a tuple with the CredentialDriver field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetCredentialDriver
-
-`func (o *GatewayCreateRequest) SetCredentialDriver(v string)`
-
-SetCredentialDriver sets CredentialDriver field to given value.
-
-### HasCredentialDriver
-
-`func (o *GatewayCreateRequest) HasCredentialDriver() bool`
-
-HasCredentialDriver returns a boolean if a field has been set.
-
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

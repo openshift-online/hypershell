@@ -220,6 +220,14 @@ kube wait --for=condition=available deployment/prometheus-operator -n default --
 success "Infrastructure ready"
 echo ""
 
+# --- Coverage instrumentation (DEV-LOC-18) ---
+# Instrumented images exist only as local builds, so KIND_COVERAGE=true implies
+# LOCAL_IMAGES=true.
+if coverage_enabled && [[ "${LOCAL_IMAGES:-}" != "true" ]]; then
+  info "KIND_COVERAGE=true - building images locally (implies LOCAL_IMAGES=true)"
+  LOCAL_IMAGES=true
+fi
+
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
@@ -447,6 +455,15 @@ if [[ "${_pg_ssl}" != "on" ]]; then
 fi
 success "Stand-in PostgreSQL ready (ssl=on)"
 
+# Stand-in HashiCorp Vault for the gateway provider-credential driver, which is now
+# the default (HYPERSHELL-369). Every gateway created in Kind resolves to vault and
+# fails closed without a reachable Vault, so the dev/e2e environment must provide one.
+# vault.sh stands up the same HashiCorp Vault software the per-cluster production Vault
+# runs, configured to the GitOps Contract (KV v2, kubernetes auth, the openshell-gateway
+# role + capability-scoped policy, serving CA in Secret openshell-gateway-vault-tls).
+# KIND_CLUSTER_NAME is exported by the Makefile, so the child shell resolves the context.
+VAULT_KUBECTL="kubectl --context $(kctx)" bash "${SCRIPT_DIR}/../cluster/vault.sh"
+
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
 # (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist
@@ -557,6 +574,11 @@ header "Deploying Components"
 # control plane creates with the hypershell-gateway-database-admin credentials
 # over sslmode=verify-full.
 _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
+# KIND_COVERAGE=true mounts the shared coverage volume and points GOCOVERDIR and
+# NODE_V8_COVERAGE at it (deploy/kind/code-coverage, DEV-LOC-18).
+if coverage_enabled; then
+  _db_overlay_extra+=$'\n  - ../kind/code-coverage'
+fi
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   info "Applying Kind manifests with localhost image refs..."
@@ -712,15 +734,16 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   # BFF; 4317 is OTLP/gRPC reserved for the API server). Setting the endpoint on
   # the Deployment opts the API server into tracing; a swapped-in working-tree
   # image keeps this env, so browser -> BFF -> API traces join in Jaeger.
-  # Jaeger ingests traces only; its OTLP endpoint has no metrics service, so the
-  # API server's metric exporter would log a periodic "Unimplemented" upload
-  # error. Turn metrics off in the dev cluster (OTEL_METRICS_EXPORTER=none) while
-  # keeping trace export on; production points at a full collector that accepts
-  # both.
+  # Jaeger ingests traces only; its OTLP endpoint has no metrics or logs
+  # service, so the API server's metric and log exporters would log a periodic
+  # "Unimplemented" upload error. Turn metrics and logs off in the dev cluster
+  # (OTEL_METRICS_EXPORTER=none, OTEL_LOGS_EXPORTER=none) while keeping trace
+  # export on; production points at a full collector that accepts all three.
   info "Patching API server with OTEL_EXPORTER_OTLP_ENDPOINT..."
   kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
-    OTEL_METRICS_EXPORTER="none"
+    OTEL_METRICS_EXPORTER="none" \
+    OTEL_LOGS_EXPORTER="none"
   # Control-plane metrics export to the in-cluster OTel Collector (kind
   # kustomization) so Prometheus can serve gateway provision duration. Jaeger is
   # trace-only; do not point the controller at Jaeger here.
@@ -755,7 +778,7 @@ else
   fi
   if deployment_exists hypershell-api-server; then
     kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
-      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER-
+      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER- OTEL_LOGS_EXPORTER-
     if api_server_otel_endpoint_set; then
       error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
       exit 1

@@ -1,7 +1,7 @@
 # Feature Specification: Provisioning Dashboard
 
-**Status**: Draft
-**Version**: 0.2.0
+**Status**: Active
+**Version**: 0.3.0
 **Created**: 2026-10-11
 **Applies to**: `components/web-console`, `packages/operational-dashboard-ui`
 
@@ -86,7 +86,7 @@ As a platform administrator, I want trend direction and percentile information t
 - **FR-010**: The dashboard SHALL display a Nodes widget with current ready and not-ready node counts and no historical trend.
 - **FR-011**: The dashboard SHALL display a Pods widget with current pod statuses and counts returned by the backend and no historical trend.
 - **FR-011a**: The Pods widget SHALL render every backend-provided status with its backend-provided label and count; the widget SHALL NOT require a fixed status vocabulary.
-- **FR-012**: The dashboard SHALL display a Provision time widget with current average, P50, and P95 values. It SHALL NOT display provision-time line graphs until the backend can support them reliably.
+- **FR-012**: The dashboard SHALL display a Provision time widget with current average, P50, P95, P99, and Target values. P99 SHALL use the selected supported 7-day window, Target SHALL be 5 minutes, and the widget SHALL show a warning when P99 exceeds Target. The widget SHALL render the optional daily P99 sparkline from `daily_p99`. When Last 30 days is selected, the existing values SHALL retain their current behavior while P99 and its daily trend SHALL show unavailable because the current Prometheus retention is 7 days.
 - **FR-013**: The dashboard SHALL display a Provision reliability widget with current success and failure counts and a daily success-rate trend.
 - **FR-014**: Memory and CPU trend values SHALL represent total used resources on the hub cluster.
 - **FR-015**: Memory and CPU utilization percentages SHALL equal total used resource divided by total resource capacity on the hub cluster, expressed as a percentage.
@@ -99,7 +99,7 @@ As a platform administrator, I want trend direction and percentile information t
 - **FR-021**: The dashboard SHALL show an initial loading spinner with a localized accessible label before any metrics are available.
 - **FR-022**: The dashboard SHALL not render `NaN`, `Infinity`, or `-Infinity`; non-finite values SHALL use the localized metric-unavailable state.
 - **FR-023**: All user-visible strings, chart labels, trend descriptions, error states, and accessible names SHALL use the web console localization system.
-- **FR-024**: The dashboard SHALL use the approved `Parity/Dashboards/Provisioning` Storybook story at `specs/web-console/mockups/dashboards/hub-cluster-dashboard.parity.stories.tsx` as its visual reference.
+- **FR-024**: The dashboard SHALL use the approved `Parity/Dashboards/Provisioning` Storybook story at `specs/web-console/mockups/dashboards/hub-cluster-dashboard.parity.stories.tsx` as its visual reference, sourced from GitHub issue #808 and pull request #816.
 
 ### Data Contracts
 
@@ -111,7 +111,7 @@ As a platform administrator, I want trend direction and percentile information t
 - **FR-030**: The dashboard SHALL use UTC calendar days for historical trend points.
 - **FR-031**: The dashboard SHALL use the existing operational-dashboard refresh behavior, including a 15-minute automatic refresh interval and a manual Refresh action.
 - **FR-032**: The current Provision reliability success rate, successful count, and failed count SHALL use the previous 24 hours.
-- **FR-033**: The current Provision time values SHALL use the existing Provision time API window; when the existing API does not define a window, the dashboard SHALL use the previous 24 hours.
+- **FR-033**: The current average, P50, and P95 Provision time values SHALL use the existing API window. P99 SHALL use the trailing 7-day histogram increase and SHALL never claim 30-day coverage.
 
 ## Key Entities
 
@@ -122,11 +122,13 @@ As a platform administrator, I want trend direction and percentile information t
 ## Success Criteria
 
 - **SC-001**: A `platform:admin` user can load the dashboard and see all seven widgets when all required metric sources return valid data.
-- **SC-002**: Changing the range from 7 days to 30 days updates all four historical charts to the selected range without changing current snapshot values.
-- **SC-003**: A non-administrator cannot receive Provisioning dashboard metrics when OIDC is enabled.
+- **SC-002**: Changing the range from 7 days to 30 days updates all three historical charts to the selected range without changing current snapshot values.
+- **SC-003**: A non-administrator cannot open the Provisioning dashboard when OIDC is enabled.
 - **SC-004**: Missing daily samples render as visible gaps in 100 percent of affected trend charts.
 - **SC-005**: A failure in one metric source leaves unaffected dashboard widgets interactive and displays a localized unavailable state for the failed source.
 - **SC-006**: The production page matches the approved Provisioning Storybook reference through the repository UI completion gate.
+- **SC-007**: When the 7-day P99 is greater than 300 seconds, Provision time shows the warning state, the 5-minute target, and the daily P99 trend.
+- **SC-008**: When Last 30 days is selected, P99 shows unavailable while existing provision-time values and unrelated 30-day charts continue to render.
 
 ## Assumptions
 

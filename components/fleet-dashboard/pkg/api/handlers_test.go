@@ -19,10 +19,26 @@ import (
 type fakeE2E struct {
 	detail *sources.E2ERunDetail
 	err    error
+
+	logs    *sources.E2ELogPage
+	logsErr error
+	// gotBefore, gotStep, and gotLimit record the last RunLogs arguments so a test can
+	// assert the handler forwarded the before cursor, selected step, and limit it
+	// parsed from the query.
+	gotBefore string
+	gotStep   string
+	gotLimit  int
 }
 
 func (f *fakeE2E) RunDetail(context.Context, string) (*sources.E2ERunDetail, error) {
 	return f.detail, f.err
+}
+
+func (f *fakeE2E) RunLogs(_ context.Context, _, stepID, before string, limit int) (*sources.E2ELogPage, error) {
+	f.gotBefore = before
+	f.gotStep = stepID
+	f.gotLimit = limit
+	return f.logs, f.logsErr
 }
 
 func (f *fakeE2E) Stream(w http.ResponseWriter, _ *http.Request) {
@@ -69,6 +85,7 @@ func TestServeEncodeErrorIsVisible(t *testing.T) {
 // TestServeSDLCColdIs503 confirms the SDLC route returns 503 before its first
 // successful refresh (never-refreshed), distinguishing cold-start from stale
 // (SDLC-VIS-01).
+// Verifies: SDLC-VIS-01.02
 func TestServeSDLCColdIs503(t *testing.T) {
 	cold := cache.NewSource("sdlc", time.Hour, func(context.Context) (any, error) {
 		return nil, context.DeadlineExceeded
@@ -103,6 +120,7 @@ func TestSDLCRouteNotMountedWhenNil(t *testing.T) {
 
 // TestE2ERunsFeatureOff confirms the always-mounted recent-runs route reports
 // the feature off (not an error) when the plane is unconfigured (E2E-LOG-01/02).
+// Verifies: E2E-LOG-01.03
 func TestE2ERunsFeatureOff(t *testing.T) {
 	h := &Handlers{} // E2ERuns + E2E nil
 	mux := http.NewServeMux()
@@ -181,6 +199,106 @@ func TestE2ERunDetailHealthy(t *testing.T) {
 	}
 }
 
+// TestE2ERunLogsPage confirms the paginated logs route serves a page wrapped in
+// the cache snapshot envelope and forwards the before cursor and parsed limit to
+// the source (E2E-LOG-19).
+func TestE2ERunLogsPage(t *testing.T) {
+	fake := &fakeE2E{logs: &sources.E2ELogPage{
+		Entries:    []sources.E2ELogLine{{Sequence: 1, Message: "hello"}},
+		NextCursor: "42",
+		HasMore:    true,
+	}}
+	h := &Handlers{E2E: fake}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1&before=100&limit=150&step=infra-verification", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if fake.gotBefore != "100" {
+		t.Errorf("before = %q, want 100", fake.gotBefore)
+	}
+	if fake.gotStep != "infra-verification" {
+		t.Errorf("step = %q, want infra-verification", fake.gotStep)
+	}
+	if fake.gotLimit != 150 {
+		t.Errorf("limit = %d, want 150", fake.gotLimit)
+	}
+	var snap cache.Snapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, _ := snap.Data.(map[string]any)
+	if data["nextCursor"] != "42" {
+		t.Errorf("nextCursor = %v, want 42", data["nextCursor"])
+	}
+	if hasMore, _ := data["hasMore"].(bool); !hasMore {
+		t.Error("hasMore should be true")
+	}
+}
+
+// TestE2ERunLogsRunWideWhenStepAbsent confirms the logs route forwards an empty
+// step scope when the request carries no step, preserving the run-wide history
+// behavior (E2E-LOG-23.02).
+func TestE2ERunLogsRunWideWhenStepAbsent(t *testing.T) {
+	fake := &fakeE2E{logs: &sources.E2ELogPage{}}
+	h := &Handlers{E2E: fake}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if fake.gotStep != "" {
+		t.Errorf("step = %q, want empty (run-wide) when no step query is supplied", fake.gotStep)
+	}
+}
+
+// TestE2ERunLogsNotFound confirms the logs route honors the tenant allowlist the
+// same way the detail route does: an unaddressable tenant 404s (E2E-LOG-19.04).
+func TestE2ERunLogsNotFound(t *testing.T) {
+	h := &Handlers{E2E: &fakeE2E{logsErr: sources.ErrRunNotFound}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=other/ns/run-1", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunLogsDegradedDoesNotLeakError confirms a Loki failure on the logs route
+// degrades to a stale 200 without echoing the raw error (E2E-LOG-08/20).
+func TestE2ERunLogsDegradedDoesNotLeakError(t *testing.T) {
+	leaky := errors.New(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range": refused`)
+	h := &Handlers{E2E: &fakeE2E{logsErr: leaky}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded, not blanked)", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "e2e-loki") || strings.Contains(rr.Body.String(), "query_range") {
+		t.Errorf("response leaked internal Loki identity: %s", rr.Body.String())
+	}
+}
+
+// TestE2ERunLogsFeatureOff confirms the logs route reports the feature off when
+// the plane is unconfigured, rather than 404ing (E2E-LOG-01/02).
+func TestE2ERunLogsFeatureOff(t *testing.T) {
+	h := &Handlers{} // E2E nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/logs?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (feature off)", rr.Code)
+	}
+}
+
 // TestE2EStreamContentType confirms the stream route produces an SSE response.
 func TestE2EStreamContentType(t *testing.T) {
 	h := &Handlers{E2E: &fakeE2E{}}
@@ -203,6 +321,71 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// TestServeSdlcAgentsColdIs503 confirms the sdlc-agents route returns 503 before
+// its first successful refresh (never-refreshed), distinguishing cold-start from
+// stale (mirroring the SDLC plane behavior).
+func TestServeSdlcAgentsColdIs503(t *testing.T) {
+	cold := cache.NewSource("sdlc-agents", time.Hour, func(context.Context) (any, error) {
+		return nil, context.DeadlineExceeded
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cold.Run(ctx) // one failed refresh: GeneratedAt stays zero
+	h := &Handlers{SdlcAgents: cold}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cold sdlc-agents status = %d, want 503", rr.Code)
+	}
+}
+
+// TestServeSdlcAgentsHealthy confirms a populated sdlc-agents source serves 200.
+func TestServeSdlcAgentsHealthy(t *testing.T) {
+	src := oneShotSource(t, sources.SdlcAgentsData{
+		Envs:   []string{"prod"},
+		Agents: []sources.SdlcAgentMetrics{{Name: "reconciler", Env: "prod"}},
+	})
+	h := &Handlers{SdlcAgents: src}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+// TestServeSdlcAgentsEncodeErrorIsVisible mirrors TestServeEncodeErrorIsVisible
+// for the sdlc-agents plane: a payload encoding/json cannot marshal (a NaN float)
+// must produce a 500 with a JSON error body, never a silent empty 200.
+func TestServeSdlcAgentsEncodeErrorIsVisible(t *testing.T) {
+	src := oneShotSource(t, sources.SdlcAgentsData{
+		Envs: []string{"prod"},
+		Agents: []sources.SdlcAgentMetrics{
+			{Name: "reconciler", Env: "prod", QueueDepth: math.NaN()},
+		},
+	})
+	h := &Handlers{SdlcAgents: src}
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/sdlc-agents", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rr.Code)
+	}
+	if rr.Body.Len() == 0 {
+		t.Fatal("body is empty; the failure must be visible, not a silent empty response")
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
 }
 
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.

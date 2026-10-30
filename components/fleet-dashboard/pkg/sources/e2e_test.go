@@ -129,10 +129,12 @@ func testE2E(loki LokiClient) *E2E {
 		E2ELokiSelector:   `{log_type="application"}`,
 		E2EHistoryWindow:  168 * time.Hour,
 		E2ERecentRunLimit: 20,
+		E2ELogPageSize:    150,
 	}
 	return newE2EWithClient(cfg, loki)
 }
 
+// Verifies: E2E-LOG-07.01
 func TestParseViaQEnvelopeThenMessage(t *testing.T) {
 	line := viaQLine(t, ev(e2eEventStepStarted, 3, map[string]any{"stepId": "P1.1", "name": "provisioning"}))
 	got, ok := parseViaQEvent(line)
@@ -160,6 +162,7 @@ func TestParseViaQMalformedIsReported(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-07.02
 func TestReduceRunMalformedIsolated(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -236,6 +239,7 @@ func TestReduceRunSkippedVsNotRun(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-04.03
 func TestReduceRunSteplessNotMarkedStructured(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -247,6 +251,7 @@ func TestReduceRunSteplessNotMarkedStructured(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-08.01
 func TestReduceRunTrustedClusterIsTenant(t *testing.T) {
 	entries := []LokiEntry{
 		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
@@ -260,6 +265,7 @@ func TestReduceRunTrustedClusterIsTenant(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-04.02
 func TestRunsTruncationReported(t *testing.T) {
 	loki := &fakeLoki{
 		history:  map[string][]LokiEntry{"hub-00": {{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))}}},
@@ -293,6 +299,7 @@ func TestRunsErrorWhenAllTenantsFail(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-01.02
 func TestRunDetailAddressingNoCrossTenantCollision(t *testing.T) {
 	// Two tenants share runId run-1; the address disambiguates by tenant/namespace.
 	cfg := &config.Config{
@@ -409,7 +416,12 @@ func (f *windowedLoki) QueryRange(_ context.Context, _ string, query string, _, 
 	}
 	return f.logs, true, nil
 }
-func TestRunDetailPreservesLifecycleOutsideLogWindow(t *testing.T) {
+
+// TestRunDetailPreservesLifecycleFromLifecycleQuery confirms the detail's steps and
+// verdict come from the isolated lifecycle query, which is scoped to the run, so a
+// chatty log window can never evict them (E2E-LOG-12). The detail no longer reads
+// the raw-log history (E2E-LOG-20), so only the lifecycle query is issued.
+func TestRunDetailPreservesLifecycleFromLifecycleQuery(t *testing.T) {
 	f := &windowedLoki{structural: []LokiEntry{
 		{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{map[string]any{"stepId": "a", "name": "API checks"}}}))},
 		{Line: viaQLine(t, ev("step_finished", 2, map[string]any{"stepId": "a", "outcome": "passed"}))},
@@ -420,13 +432,644 @@ func TestRunDetailPreservesLifecycleOutsideLogWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Verdict != "passed" || !detail.ReportingComplete || len(detail.Steps) != 1 || !detail.LogsTruncated {
+	if detail.Verdict != "passed" || !detail.ReportingComplete || len(detail.Steps) != 1 {
 		t.Fatalf("lost lifecycle: %+v", detail)
+	}
+	if len(detail.Logs) != 0 {
+		t.Errorf("detail must not embed logs, got %d", len(detail.Logs))
+	}
+	if len(f.queries) != 1 || !strings.Contains(f.queries[0], "run_started|") {
+		t.Fatalf("detail should issue only the lifecycle query, got %v", f.queries)
 	}
 	for _, q := range f.queries {
 		if !strings.Contains(q, `|= "run-1"`) {
 			t.Fatalf("unscoped run query: %s", q)
 		}
+	}
+}
+
+// splitLoki distinguishes the lifecycle (steps/verdict) query from the raw-log
+// query so a test can make the raw-log read fail while the lifecycle read
+// succeeds (E2E-LOG-20).
+type splitLoki struct {
+	fakeLoki
+	lifecycle    []LokiEntry
+	logs         []LokiEntry
+	lifecycleErr error
+	logErr       error
+	logCalls     int // how many non-lifecycle (raw-log) queries were issued
+}
+
+func (f *splitLoki) QueryRange(_ context.Context, _ string, query string, _, _ time.Time, _ int) ([]LokiEntry, bool, error) {
+	if strings.Contains(query, "run_started|") {
+		return f.lifecycle, false, f.lifecycleErr
+	}
+	f.logCalls++
+	return f.logs, false, f.logErr
+}
+
+// TestRunDetailDecoupledFromRawLogs confirms the run detail is decoupled from the
+// raw logs (E2E-LOG-20): steps and verdict come from the lifecycle query alone,
+// the detail issues no raw-log query, and it embeds no logs. Even with a raw-log
+// read that would error, the detail still serves steps and verdict.
+// Verifies: E2E-LOG-20.01
+func TestRunDetailDecoupledFromRawLogs(t *testing.T) {
+	f := &splitLoki{
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{map[string]any{"stepId": "a", "name": "API checks"}}}))},
+			{Line: viaQLine(t, ev("step_finished", 2, map[string]any{"stepId": "a", "outcome": "passed"}))},
+			{Line: viaQLine(t, ev("run_finished", 3, map[string]any{"outcome": "passed"}))},
+		},
+		logErr: context.DeadlineExceeded,
+	}
+	detail, err := testE2E(f).RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatalf("detail must render from the lifecycle query alone: %v", err)
+	}
+	if detail.Verdict != "passed" || len(detail.Steps) != 1 || detail.Steps[0].State != stepStatePassed {
+		t.Fatalf("steps/verdict lost: %+v", detail)
+	}
+	if len(detail.Logs) != 0 {
+		t.Errorf("run detail must not embed the raw-log history, got %d lines", len(detail.Logs))
+	}
+	if f.logCalls != 0 {
+		t.Errorf("run detail issued %d raw-log queries, want 0 (logs come from the logs endpoint)", f.logCalls)
+	}
+}
+
+// TestRunDetailBackendUnavailableWhenLifecycleFails confirms the genuine
+// backend-unavailable state is reserved for a failed lifecycle/steps query
+// (E2E-LOG-20.02).
+// Verifies: E2E-LOG-20.02
+func TestRunDetailBackendUnavailableWhenLifecycleFails(t *testing.T) {
+	f := &splitLoki{lifecycleErr: context.DeadlineExceeded}
+	_, err := testE2E(f).RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if !errors.Is(err, ErrLogBackendUnavailable) {
+		t.Errorf("err = %v, want ErrLogBackendUnavailable when steps cannot load", err)
+	}
+}
+
+// pagingLoki emulates a backward Loki query_range over a fixed newest-first set,
+// honoring the exclusive `end` bound and the `limit`, so RunLogs paging is
+// validated without a live Loki (E2E-LOG-19).
+type pagingLoki struct {
+	fakeLoki
+	all []LokiEntry // newest-first (descending TimestampNs)
+}
+
+func (f *pagingLoki) QueryRange(_ context.Context, _, _ string, _, end time.Time, limit int) ([]LokiEntry, bool, error) {
+	endNs := end.UnixNano()
+	var filtered []LokiEntry
+	for _, e := range f.all {
+		if e.TimestampNs < endNs { // query_range end is exclusive
+			filtered = append(filtered, e)
+		}
+	}
+	hitLimit := false
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+		hitLimit = true
+	}
+	return filtered, hitLimit, nil
+}
+
+// logEntry builds one raw-log LokiEntry with an explicit Loki timestamp (the
+// paging cursor) carrying a structured log event with the given sequence.
+func logEntry(t *testing.T, seq, tsNs int64, msg string) LokiEntry {
+	t.Helper()
+	return LokiEntry{Tenant: "hub-00", TimestampNs: tsNs, Line: viaQLine(t, ev("log", seq, map[string]any{"message": msg}))}
+}
+
+// walkLogs pages RunLogs oldest-ward from the newest page, de-duplicating by
+// sequence (the client's responsibility across the one-nanosecond boundary
+// overlap), until hasMore is false. Returns the de-duplicated sequences in first-
+// seen order and the number of pages walked.
+func walkLogs(t *testing.T, e *E2E, id string, pageSize int) ([]int64, int) {
+	t.Helper()
+	seen := map[int64]bool{}
+	var order []int64
+	before := ""
+	pages := 0
+	for {
+		page, err := e.RunLogs(context.Background(), id, "", before, pageSize)
+		if err != nil {
+			t.Fatalf("RunLogs page %d: %v", pages, err)
+		}
+		pages++
+		for _, l := range page.Entries {
+			if !seen[l.Sequence] {
+				seen[l.Sequence] = true
+				order = append(order, l.Sequence)
+			}
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("hasMore is true but nextCursor is empty")
+		}
+		if page.NextCursor == before {
+			t.Fatalf("cursor did not advance (stuck at %s)", before)
+		}
+		before = page.NextCursor
+		if pages > 50 {
+			t.Fatal("paging did not terminate")
+		}
+	}
+	return order, pages
+}
+
+// TestRunLogsPagingWalk confirms the newest page loads first and older pages load
+// by cursor until hasMore is false, covering the whole run (E2E-LOG-19.01).
+// Verifies: E2E-LOG-19.01
+func TestRunLogsPagingWalk(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 5, 500, "e"),
+		logEntry(t, 4, 400, "d"),
+		logEntry(t, 3, 300, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 100, "a"),
+	}}
+	e := testE2E(f)
+
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first page should report more: %+v", first)
+	}
+	// The newest page is returned chronological-ascending (oldest first) for display.
+	if len(first.Entries) != 2 || first.Entries[0].Sequence != 4 || first.Entries[1].Sequence != 5 {
+		t.Fatalf("newest page not ascending newest lines: %+v", first.Entries)
+	}
+
+	order, pages := walkLogs(t, e, "hub-00/hypershell/run-1", 2)
+	if pages < 2 {
+		t.Fatalf("expected a multi-page walk, got %d pages", pages)
+	}
+	if len(order) != 5 {
+		t.Fatalf("walk covered %d distinct lines, want 5: %v", len(order), order)
+	}
+}
+
+// TestRunLogsBoundaryNotDroppedOrDuplicated confirms two entries sharing one
+// nanosecond timestamp across a page boundary each appear exactly once after the
+// client de-dupes the overlap (E2E-LOG-19.02).
+// Verifies: E2E-LOG-19.02
+func TestRunLogsBoundaryNotDroppedOrDuplicated(t *testing.T) {
+	// seq 2 and seq 3 share timestamp 200; a page size of 3 cuts the group so only
+	// seq 3 lands in page 1, leaving seq 2 at the boundary for page 2 to recover
+	// through the one-nanosecond overlap.
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 5, 400, "e"),
+		logEntry(t, 4, 300, "d"),
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 100, "a"),
+	}}
+	e := testE2E(f)
+	order, _ := walkLogs(t, e, "hub-00/hypershell/run-1", 3)
+	want := map[int64]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+	got := map[int64]int{}
+	for _, s := range order {
+		got[s]++
+	}
+	for seq, n := range want {
+		if got[seq] != n {
+			t.Fatalf("sequence %d appeared %d times, want %d (dropped or duplicated across boundary): %v", seq, got[seq], n, order)
+		}
+	}
+}
+
+// TestRunLogsTerminatesOnOverfullTimestamp confirms paging terminates (rather than
+// looping on a non-advancing cursor) when more entries share a single nanosecond
+// than fit in one page. The guard trades the unreachable tail for liveness
+// (E2E-LOG-19 "SHALL NOT assume unique timestamps").
+func TestRunLogsTerminatesOnOverfullTimestamp(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 200, "a"),
+	}}
+	_, pages := walkLogs(t, testE2E(f), "hub-00/hypershell/run-1", 2)
+	if pages > 5 {
+		t.Fatalf("paging must terminate on an over-full timestamp, walked %d pages", pages)
+	}
+}
+
+// TestRunLogsOverfullTimestampReportsLocalLimit confirms that when more entries
+// share a single nanosecond than fit in one page, the older page that cannot
+// advance the cursor reports a locally-limited boundary (BoundaryTruncated) with
+// HasMore false and no looping cursor, NOT end-of-history. The client must then show
+// the local limit rather than claim all history was read (E2E-LOG-19.05/E2E-LOG-26).
+// Verifies: E2E-LOG-19.05
+func TestRunLogsOverfullTimestampReportsLocalLimit(t *testing.T) {
+	f := &pagingLoki{all: []LokiEntry{
+		logEntry(t, 3, 200, "c"),
+		logEntry(t, 2, 200, "b"),
+		logEntry(t, 1, 200, "a"),
+	}}
+	e := testE2E(f)
+
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || first.NextCursor != "200" {
+		t.Fatalf("first page should page older at ts 200: %+v", first)
+	}
+	if first.BoundaryTruncated {
+		t.Fatalf("first page must not report a boundary truncation yet: %+v", first)
+	}
+
+	older, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", first.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if older.HasMore {
+		t.Fatalf("over-full-timestamp older page must not report more history: %+v", older)
+	}
+	if older.NextCursor != "" {
+		t.Fatalf("over-full-timestamp older page must not hand back a looping cursor: %q", older.NextCursor)
+	}
+	if !older.BoundaryTruncated {
+		t.Fatalf("over-full-timestamp older page must report a locally-limited boundary, not end-of-history: %+v", older)
+	}
+}
+
+// TestRunLogsLimitClamped confirms a client-supplied limit above the server
+// maximum is clamped rather than issuing an unbounded query (E2E-LOG-19.03).
+// Verifies: E2E-LOG-19.03
+func TestRunLogsLimitClamped(t *testing.T) {
+	if got := clampLogPageSize(100_000, 150); got != maxLogPageSize {
+		t.Errorf("clampLogPageSize(100000) = %d, want %d", got, maxLogPageSize)
+	}
+	if got := clampLogPageSize(0, 150); got != 150 {
+		t.Errorf("clampLogPageSize(0) = %d, want the default 150", got)
+	}
+	if got := clampLogPageSize(50, 150); got != 50 {
+		t.Errorf("clampLogPageSize(50) = %d, want 50", got)
+	}
+}
+
+// TestRunLogsDisallowedTenantNotFound confirms the logs endpoint honors the same
+// tenant allowlist as the detail endpoint (E2E-LOG-19.04).
+// Verifies: E2E-LOG-19.04
+func TestRunLogsDisallowedTenantNotFound(t *testing.T) {
+	_, err := testE2E(&pagingLoki{}).RunLogs(context.Background(), "rogue/ns/run-1", "", "", 0)
+	if err != ErrRunNotFound {
+		t.Errorf("err = %v, want ErrRunNotFound for a tenant outside the allowlist", err)
+	}
+}
+
+// testE2EWithMargin builds the source with an explicit selected-step ingestion/skew
+// margin so the lifecycle-bounded window tests (E2E-LOG-25) assert a non-zero margin.
+func testE2EWithMargin(loki LokiClient, margin time.Duration) *E2E {
+	cfg := &config.Config{
+		E2ELokiURL:        "http://loki.test",
+		E2ELokiTenants:    []string{"hub-00"},
+		E2ELokiSelector:   `{log_type="application"}`,
+		E2EHistoryWindow:  168 * time.Hour,
+		E2ERecentRunLimit: 20,
+		E2ELogPageSize:    150,
+		E2ELogTimeMargin:  margin,
+	}
+	return newE2EWithClient(cfg, loki)
+}
+
+// stepFilterLoki emulates Loki applying the pipeline line filters BEFORE the result
+// limit (E2E-LOG-24): it routes the lifecycle query to the canned lifecycle set and
+// the raw-log query to allLogs, honoring the exclusive end bound, applying every
+// `|= "..."` line filter in the query, and only then the limit. It records the last
+// raw-log query and its [start, end) bounds so a test can assert the step filter and
+// the lifecycle-bounded time range.
+type stepFilterLoki struct {
+	fakeLoki
+	lifecycle  []LokiEntry
+	allLogs    []LokiEntry // newest-first (descending TimestampNs)
+	lastStart  time.Time
+	lastEnd    time.Time
+	lastLogQ   string
+	logQueries int
+}
+
+func (f *stepFilterLoki) QueryRange(_ context.Context, _ string, query string, start, end time.Time, limit int) ([]LokiEntry, bool, error) {
+	if strings.Contains(query, "run_started|") {
+		return f.lifecycle, false, nil
+	}
+	f.logQueries++
+	f.lastLogQ = query
+	f.lastStart = start
+	f.lastEnd = end
+	filters := lineFilters(query)
+	var filtered []LokiEntry
+	for _, e := range f.allLogs {
+		if e.TimestampNs >= end.UnixNano() { // query_range end is exclusive
+			continue
+		}
+		matched := true
+		for _, substr := range filters {
+			if !strings.Contains(e.Line, substr) {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	hitLimit := false
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+		hitLimit = true
+	}
+	return filtered, hitLimit, nil
+}
+
+// lineFilters extracts each LogQL `|= "..."` line-filter operand from a query and
+// unescapes the string literal, so the fake can emulate Loki applying the operands
+// (including the ViaQ-escaped quoted step token, e.g. `\"id\"`) in the pipeline
+// before the limit.
+func lineFilters(query string) []string {
+	var out []string
+	i := 0
+	for {
+		idx := strings.Index(query[i:], `|= "`)
+		if idx < 0 {
+			break
+		}
+		i += idx + len(`|= "`)
+		var sb strings.Builder
+		for i < len(query) {
+			c := query[i]
+			if c == '\\' && i+1 < len(query) {
+				sb.WriteByte(query[i+1])
+				i += 2
+				continue
+			}
+			if c == '"' {
+				i++
+				break
+			}
+			sb.WriteByte(c)
+			i++
+		}
+		out = append(out, sb.String())
+	}
+	return out
+}
+
+func containsFilter(filters []string, want string) bool {
+	for _, f := range filters {
+		if f == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stepLogEntry(t *testing.T, seq, tsNs int64, stepID, msg string) LokiEntry {
+	t.Helper()
+	return LokiEntry{Tenant: "hub-00", TimestampNs: tsNs, Line: viaQLine(t, ev("log", seq, map[string]any{"message": msg, "stepId": stepID}))}
+}
+
+func mustNanos(t *testing.T, rfc3339 string) int64 {
+	t.Helper()
+	tm, err := time.Parse(time.RFC3339Nano, rfc3339)
+	if err != nil {
+		t.Fatalf("parse %q: %v", rfc3339, err)
+	}
+	return tm.UnixNano()
+}
+
+// TestRunLogsStepFilteredBeforeLimit confirms a selected-step page pushes the step
+// into the Loki query as a line filter so the result limit applies to that step's
+// lines - an early step's lines come back even when newer other-step lines would
+// fill a run-wide page first (E2E-LOG-23.01, E2E-LOG-24.01). Lifecycle timing is
+// absent here so the documented fallback window applies and does not omit the logs
+// (E2E-LOG-25.03).
+// Verifies: E2E-LOG-23.01, E2E-LOG-24.01, E2E-LOG-25.03
+func TestRunLogsStepFilteredBeforeLimit(t *testing.T) {
+	f := &stepFilterLoki{
+		// No step_started/step_finished -> no lifecycle timing -> fallback window.
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev("run_started", 1, nil))},
+		},
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 5, 500, "bravo", "bravo-3"),
+			stepLogEntry(t, 4, 400, "bravo", "bravo-2"),
+			stepLogEntry(t, 3, 300, "bravo", "bravo-1"),
+			stepLogEntry(t, 2, 200, "alpha", "alpha-2"),
+			stepLogEntry(t, 1, 100, "alpha", "alpha-1"),
+		},
+	}
+	page, err := testE2E(f).RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsFilter(lineFilters(f.lastLogQ), `\"alpha\"`) {
+		t.Fatalf("step page query missing the step line filter: %q", f.lastLogQ)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("step page returned %d lines, want 2 alpha lines: %+v", len(page.Entries), page.Entries)
+	}
+	for _, l := range page.Entries {
+		if l.StepID != "alpha" {
+			t.Fatalf("step page leaked a non-alpha line: %+v", l)
+		}
+	}
+	// A run-wide limit=2 page would have returned the two newest (bravo) lines; the
+	// pre-limit step filter returns alpha instead, proving the filter runs first.
+	if page.Entries[0].Message != "alpha-1" || page.Entries[1].Message != "alpha-2" {
+		t.Fatalf("expected the alpha lines ascending, got %+v", page.Entries)
+	}
+}
+
+// TestRunLogsStepFilterMalformedAndUnrelated confirms step filtering tolerates a
+// malformed record and an unrelated other-step event that both survive the coarse
+// line filter: the malformed record does not drop the remaining well-formed line,
+// and an event whose step id does not match is excluded by the authoritative Go-side
+// check (E2E-LOG-24.02).
+// Verifies: E2E-LOG-24.02
+func TestRunLogsStepFilterMalformedAndUnrelated(t *testing.T) {
+	// An unrelated bravo event whose message is exactly "alpha" so the serialized
+	// value token \"alpha\" survives the coarse line filter; it must still be dropped
+	// by the exact step-id check (it belongs to step bravo, not alpha).
+	unrelated := LokiEntry{Tenant: "hub-00", TimestampNs: 300, Line: viaQLine(t, ev("log", 3, map[string]any{"message": "alpha", "stepId": "bravo"}))}
+	// A malformed record that carries both the run token and the \"alpha\" token so it
+	// survives the coarse line filters; it must be skipped (unparseable) without
+	// dropping the well-formed line.
+	malformed := LokiEntry{Tenant: "hub-00", TimestampNs: 250, Line: "{\"message\":\"{not json run-1 \\\"alpha\\\"}\"}"}
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{{Line: viaQLine(t, ev("run_started", 1, nil))}},
+		allLogs: []LokiEntry{
+			unrelated,
+			malformed,
+			stepLogEntry(t, 1, 100, "alpha", "alpha-only"),
+		},
+	}
+	page, err := testE2E(f).RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Message != "alpha-only" {
+		t.Fatalf("want only the well-formed alpha line, got %+v", page.Entries)
+	}
+}
+
+// TestRunLogsStepNoHighCardinalityLabels confirms the step scope rides a line filter
+// on the log body, not a stream label, so run and step ids never become
+// high-cardinality Loki stream labels (E2E-LOG-24.03).
+// Verifies: E2E-LOG-24.03
+func TestRunLogsStepNoHighCardinalityLabels(t *testing.T) {
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{{Line: viaQLine(t, ev("run_started", 1, nil))}},
+		allLogs:   []LokiEntry{stepLogEntry(t, 1, 100, "alpha", "a")},
+	}
+	if _, err := testE2E(f).RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	selector, _, ok := strings.Cut(f.lastLogQ, " |= ")
+	if !ok {
+		t.Fatalf("step query carried no line filter: %q", f.lastLogQ)
+	}
+	if strings.Contains(selector, "run-1") || strings.Contains(selector, "alpha") {
+		t.Fatalf("run/step id leaked into the stream selector (high-cardinality label): %q", selector)
+	}
+	filters := lineFilters(f.lastLogQ)
+	if !containsFilter(filters, "run-1") || !containsFilter(filters, `\"alpha\"`) {
+		t.Fatalf("expected run and step line filters in the pipeline: %q", f.lastLogQ)
+	}
+}
+
+// stepLifecycle builds a canned lifecycle set for a two-step run with explicit step
+// timestamps, so the lifecycle-bounded window tests have real start/end times.
+func stepLifecycle(t *testing.T, alphaStart, alphaEnd, bravoStart, bravoEnd string, alphaDone bool) []LokiEntry {
+	t.Helper()
+	entries := []LokiEntry{
+		{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{
+			map[string]any{"stepId": "alpha", "name": "alpha"},
+			map[string]any{"stepId": "bravo", "name": "bravo"},
+		}}))},
+		{Line: viaQLine(t, ev("step_started", 2, map[string]any{"stepId": "alpha", "name": "alpha", "timestamp": alphaStart}))},
+	}
+	if alphaDone {
+		entries = append(entries, LokiEntry{Line: viaQLine(t, ev("step_finished", 3, map[string]any{"stepId": "alpha", "name": "alpha", "outcome": "passed", "timestamp": alphaEnd}))})
+	}
+	if bravoStart != "" {
+		entries = append(entries, LokiEntry{Line: viaQLine(t, ev("step_started", 4, map[string]any{"stepId": "bravo", "name": "bravo", "timestamp": bravoStart}))})
+	}
+	if bravoEnd != "" {
+		entries = append(entries, LokiEntry{Line: viaQLine(t, ev("step_finished", 5, map[string]any{"stepId": "bravo", "name": "bravo", "outcome": "passed", "timestamp": bravoEnd}))})
+	}
+	return entries
+}
+
+// TestRunLogsStepLifecycleBoundedWindow confirms a completed step's history query is
+// bounded to that step's window plus the configured margin and does not scan later
+// history belonging to other steps (E2E-LOG-25.01).
+// Verifies: E2E-LOG-25.01
+func TestRunLogsStepLifecycleBoundedWindow(t *testing.T) {
+	const (
+		alphaStart = "2026-10-15T10:00:00Z"
+		alphaEnd   = "2026-10-15T10:01:00Z"
+		bravoStart = "2026-10-15T10:30:00Z"
+		bravoEnd   = "2026-10-15T10:31:00Z"
+	)
+	margin := 2 * time.Minute
+	f := &stepFilterLoki{
+		lifecycle: stepLifecycle(t, alphaStart, alphaEnd, bravoStart, bravoEnd, true),
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 20, mustNanos(t, "2026-10-15T10:30:30Z"), "bravo", "bravo-late"),
+			stepLogEntry(t, 11, mustNanos(t, "2026-10-15T10:00:45Z"), "alpha", "alpha-2"),
+			stepLogEntry(t, 10, mustNanos(t, "2026-10-15T10:00:30Z"), "alpha", "alpha-1"),
+		},
+	}
+	page, err := testE2EWithMargin(f, margin).RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStart := time.Unix(0, mustNanos(t, alphaStart)).Add(-margin)
+	wantEnd := time.Unix(0, mustNanos(t, alphaEnd)).Add(margin)
+	if !f.lastStart.Equal(wantStart) {
+		t.Errorf("lower bound = %v, want step start minus margin %v", f.lastStart.UTC(), wantStart.UTC())
+	}
+	if !f.lastEnd.Equal(wantEnd) {
+		t.Errorf("upper bound = %v, want step end plus margin %v", f.lastEnd.UTC(), wantEnd.UTC())
+	}
+	for _, l := range page.Entries {
+		if l.StepID != "alpha" {
+			t.Fatalf("completed step window leaked later history: %+v", l)
+		}
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("want the 2 alpha lines in-window, got %+v", page.Entries)
+	}
+}
+
+// TestRunLogsStepRunningExtendsToNow confirms a still-running step extends its upper
+// bound to the current time so freshly emitted lines remain visible (E2E-LOG-25.02).
+// Verifies: E2E-LOG-25.02
+func TestRunLogsStepRunningExtendsToNow(t *testing.T) {
+	const alphaStart = "2026-10-15T10:00:00Z"
+	margin := time.Minute
+	f := &stepFilterLoki{
+		// alpha started, never finished (running); no bravo.
+		lifecycle: stepLifecycle(t, alphaStart, "", "", "", false),
+		allLogs:   []LokiEntry{stepLogEntry(t, 10, mustNanos(t, "2026-10-15T10:00:30Z"), "alpha", "alpha-1")},
+	}
+	before := time.Now()
+	if _, err := testE2EWithMargin(f, margin).RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now()
+	if f.lastEnd.Before(before) || f.lastEnd.After(after) {
+		t.Errorf("running step upper bound = %v, want ~now in [%v,%v]", f.lastEnd, before, after)
+	}
+	wantStart := time.Unix(0, mustNanos(t, alphaStart)).Add(-margin)
+	if !f.lastStart.Equal(wantStart) {
+		t.Errorf("lower bound = %v, want step start minus margin %v", f.lastStart.UTC(), wantStart.UTC())
+	}
+}
+
+// TestRunLogsStepStableLowerBoundAcrossPages confirms the step history's lower bound
+// stays fixed as the operator pages older by cursor, rather than moving the whole
+// window backward each page (E2E-LOG-25.04).
+// Verifies: E2E-LOG-25.04
+func TestRunLogsStepStableLowerBoundAcrossPages(t *testing.T) {
+	const (
+		alphaStart = "2026-10-15T10:00:00Z"
+		alphaEnd   = "2026-10-15T10:05:00Z"
+	)
+	margin := time.Minute
+	f := &stepFilterLoki{
+		lifecycle: stepLifecycle(t, alphaStart, alphaEnd, "", "", true),
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 13, mustNanos(t, "2026-10-15T10:03:00Z"), "alpha", "a3"),
+			stepLogEntry(t, 12, mustNanos(t, "2026-10-15T10:02:00Z"), "alpha", "a2"),
+			stepLogEntry(t, 11, mustNanos(t, "2026-10-15T10:01:00Z"), "alpha", "a1"),
+		},
+	}
+	e := testE2EWithMargin(f, margin)
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstLower := f.lastStart
+	if !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first step page should report more: %+v", first)
+	}
+	if _, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "alpha", first.NextCursor, 2); err != nil {
+		t.Fatal(err)
+	}
+	if !f.lastStart.Equal(firstLower) {
+		t.Errorf("lower bound moved across pages: first %v, second %v (want stable)", firstLower.UTC(), f.lastStart.UTC())
+	}
+	wantStart := time.Unix(0, mustNanos(t, alphaStart)).Add(-margin)
+	if !firstLower.Equal(wantStart) {
+		t.Errorf("lower bound = %v, want step start minus margin %v", firstLower.UTC(), wantStart.UTC())
 	}
 }
 

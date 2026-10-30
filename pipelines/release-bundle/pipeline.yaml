@@ -130,11 +130,13 @@ spec:
                   "hypershell-agent-runtime-main",
                   "hypershell-agent-runtime-slim-main",
               )
-              # Components built by the hypershell-main Konflux application that ship on their
-              # own rather than through the release bundle. The fleet-dashboard is pinned by its
-              # own :main image digest (not the bundle), so it is tolerated in a Snapshot or the
-              # release artifacts and excluded here instead of rejected as unexpected.
-              EXCLUDED_COMPONENTS = ("hypershell-fleet-dashboard-main",)
+              # These application components are distributed independently of the six-image
+              # release bundle: the fleet dashboard and the Fullsend harness sandbox. Accept
+              # them in snapshots and managed artifacts without adding them to the bundle.
+              EXCLUDED_COMPONENTS = (
+                  "hypershell-fleet-dashboard-main",
+                  "hypershell-fullsend-sandbox-main",
+              )
               BUNDLE_REPOSITORY = BUILD_PREFIX + COMPONENTS[0]
               MANIFEST_PATHS = (
                   "deploy/hub",
@@ -369,7 +371,7 @@ spec:
                   # list is a possibly partial subset of the accepted Snapshot. A merge that
                   # touches only an excluded component leaves it empty after exclusions; the
                   # bundle is still assembled from the complete Snapshot digests. Snapshot
-                  # completeness above is the sole component-coverage gate (HSR-06).
+                  # completeness above is the sole component-coverage gate (CLI-REL-06).
                   images = indexed(release["status"].get("artifacts", {}).get("images", []), require_all=False, allow_empty=True)
                   output = []
                   for name in COMPONENTS:

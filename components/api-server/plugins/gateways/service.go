@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	stderrors "errors"
+	"log/slog"
 	"net/http"
 	"reflect"
 
 	"gorm.io/gorm"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
@@ -58,42 +59,50 @@ type GatewayService interface {
 	OnDelete(ctx context.Context, id string) error
 }
 
+// GatewayBindingCleaner deletes every role binding scoped to a gateway. The
+// gateway delete calls it in the same transaction as the row delete, so no
+// binding outlives its gateway.
+type GatewayBindingCleaner func(ctx context.Context, gatewayID string) *errors.ServiceError
+
+// NewGatewayService builds the gateway service. bindingCleaner may be nil when
+// the role bindings plugin is absent; the gateway delete then skips binding
+// cleanup.
 func NewGatewayService(
 	lockFactory db.LockFactory,
 	gatewayDao GatewayDao,
 	events services.EventService,
+	bindingCleaner GatewayBindingCleaner,
 ) GatewayService {
 	return &sqlGatewayService{
-		lockFactory: lockFactory,
-		gatewayDao:  gatewayDao,
-		events:      events,
+		lockFactory:    lockFactory,
+		gatewayDao:     gatewayDao,
+		events:         events,
+		bindingCleaner: bindingCleaner,
 	}
 }
 
 var _ GatewayService = &sqlGatewayService{}
 
 type sqlGatewayService struct {
-	lockFactory db.LockFactory
-	gatewayDao  GatewayDao
-	events      services.EventService
+	lockFactory    db.LockFactory
+	gatewayDao     GatewayDao
+	events         services.EventService
+	bindingCleaner GatewayBindingCleaner
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-
 	gateway, err := s.gatewayDao.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	logger.Infof("Do idempotent somethings with this gateway: %s", gateway.ID)
+	slog.InfoContext(ctx, "Do idempotent somethings with this gateway", "gateway_id", gateway.ID)
 
 	return nil
 }
 
 func (s *sqlGatewayService) OnDelete(ctx context.Context, id string) error {
-	logger := logger.NewLogger(ctx)
-	logger.Infof("This gateway has been deleted: %s", id)
+	slog.InfoContext(ctx, "This gateway has been deleted", "gateway_id", id)
 	return nil
 }
 
@@ -114,6 +123,37 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// Default-deny field policy: a user or import caller may create a gateway with only
+	// name + placement; a platform-managed field is rejected (PLAT-DATA-23 / SEC-RBAC-18).
+	// Only a control-plane internal write bypasses this. It runs before the
+	// dedicated_route translation below, so the route document the API server applies
+	// on the caller's behalf is never mistaken for a caller-supplied route.
+	kind := rbac.GatewayWriterKindFromContext(ctx)
+	if svcErr := enforceGatewayFieldPolicyCreate(kind, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// dedicated_route translation: reject an import request for it (imports may not
+	// opt a gateway in) and otherwise apply the platform-managed route opt-in
+	if svcErr := applyGatewayDedicatedRouteCreateRequest(kind, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// The route.certificate opt-in is validated at the API boundary, not just
+	// during provisioning: an invalid shape would otherwise be accepted and only
+	// fail asynchronously in the control plane, with the actionable detail buried
+	// in controller logs rather than the user-visible condition message. The
+	// route field is control-plane-authored (PLAT-DATA-23), so this guards the
+	// privileged authoring path, and running it after the default above means the
+	// server-applied dedicated-route route is validated by the same check.
+	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode is platform-managed: the API server applies the managed
+	// default here, after the policy check, so every creator class (REST, gRPC,
+	// import, control plane) gets it and no caller-supplied value survives
+	// (OSG-CORE-18).
+	if svcErr := applyGatewayWorkspaceCreateDefault(gateway); svcErr != nil {
+		return nil, svcErr
+	}
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
@@ -148,6 +188,45 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
 	if getErr != nil {
 		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+
+	// route.certificate is a provision-time-only opt-in (docs/investigations/
+	// per-gateway-certificates.md §7.7): the dedicated certificate provisioning
+	// path is chosen when the gateway is created, so any update that adds,
+	// removes, or alters the key is rejected. Other route sub-keys (e.g. host)
+	// keep their normal update semantics. Checked before the default-deny field
+	// policy below so a route.certificate mutation gets this specific, actionable
+	// conflict rather than the generic field-policy rejection (an unchanged route
+	// is a no-op for both checks).
+	if routeCertificateChanged(current.Route, gateway.Route) {
+		return nil, errors.Conflict("%s", routeCertificateImmutableReason)
+	}
+	// dedicated_route is create-only (the placement/cluster_id ownership class), so
+	// a request to add or remove it after creation is rejected for every writer
+	// class with delete-and-recreate guidance, checked before the field policy so
+	// the caller gets that specific reason rather than the generic rejection. An
+	// unchanged resend (including nil vs false) is a no-op.
+	if dedicatedRouteChanged(current.DedicatedRoute, gateway.DedicatedRoute) {
+		return nil, errors.Conflict("%s", dedicatedRouteImmutableReason)
+	}
+	// Shape is validated after the immutability check so an update that both
+	// alters the opt-in and carries an invalid shape reports the more
+	// fundamental provision-time violation.
+	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
+		return nil, svcErr
+	}
+	// Default-deny field policy: a user or import caller may change only name; any other
+	// changed field is rejected (PLAT-DATA-23 / SEC-RBAC-18). Re-sending an unchanged
+	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
+	// under the advisory lock so current is the authoritative stored state.
+	if svcErr := enforceGatewayFieldPolicyUpdate(rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode value semantics apply to every writer class, the control
+	// plane included: vocabulary enforced, stored value immutable, a NULL value
+	// settable exactly once (OSG-CORE-18).
+	if svcErr := enforceGatewayWorkspaceUpdateSemantics(current, gateway); svcErr != nil {
+		return nil, svcErr
 	}
 	newGeneration := current.Generation
 	if desiredStateChanged(current, gateway) {
@@ -243,7 +322,8 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||
-		!strEq(current.CredentialDriver, next.CredentialDriver)
+		!strEq(current.CredentialDriver, next.CredentialDriver) ||
+		!strEq(current.WorkspaceMode, next.WorkspaceMode)
 }
 
 // jsonEq compares two optional JSON documents semantically. Oidc and Route are
@@ -273,6 +353,101 @@ func strEq(a, b *string) bool {
 	return *a == *b
 }
 
+// routeCertificateImmutableReason is the user-facing reason for rejecting a
+// route.certificate mutation after creation. It is a named constant so the
+// gRPC handler can recognize this one conflict and present it as
+// FailedPrecondition instead of the framework's blanket 409-to-AlreadyExists
+// mapping (API UX review finding 4): "the resource exists in a state that
+// forbids this change", not "you are creating a duplicate".
+const routeCertificateImmutableReason = "route.certificate is provision-time only and cannot be added, removed, or changed after gateway creation; delete and re-create the gateway to change certificate provisioning. " +
+	"PATCH replaces the whole route document, so keep certificate: {} unchanged when editing other route keys on an opted-in gateway"
+
+// routeCertificate returns the parsed value of the route JSON's certificate
+// sub-key. A nil value means the gateway is not opted in to per-gateway
+// certificate provisioning: the key is absent, explicitly JSON null, or the
+// document is not a JSON object. Any non-null value, including the empty
+// object ({}), means opted in. ok is false only when the route text is not
+// valid JSON at all; such a write cannot pass the jsonb column constraint, so
+// callers skip the immutability check and let the database reject it.
+func routeCertificate(route *string) (value any, ok bool) {
+	if route == nil {
+		return nil, true
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(*route), &doc); err != nil {
+		return nil, false
+	}
+	obj, isObject := doc.(map[string]any)
+	if !isObject {
+		return nil, true
+	}
+	cert, present := obj["certificate"]
+	if !present || cert == nil {
+		return nil, true
+	}
+	return cert, true
+}
+
+// routeCertificateChanged reports whether the provision-time-only certificate
+// opt-in differs between the stored route and the incoming route: absent vs
+// present, or present with a different value. The comparison is on the parsed
+// certificate sub-key, so whitespace and key-order differences elsewhere in
+// the route document never trigger it, and certificate:null counts as absent.
+// See docs/investigations/per-gateway-certificates.md §7.7.
+func routeCertificateChanged(current, next *string) bool {
+	currentCert, currentOK := routeCertificate(current)
+	nextCert, nextOK := routeCertificate(next)
+	if !currentOK || !nextOK {
+		return false
+	}
+	if (currentCert == nil) != (nextCert == nil) {
+		return true
+	}
+	if currentCert == nil {
+		return false
+	}
+	return !reflect.DeepEqual(currentCert, nextCert)
+}
+
+// validateRouteCertificateShape rejects route documents whose certificate
+// sub-key cannot mean what the caller intends, at the API boundary where the
+// caller gets an immediate, actionable 400 instead of an asynchronously failing
+// provisioning pass. Two shapes are invalid:
+//
+//   - a non-empty certificate object (or a non-object value): the certificate
+//     issuer is cluster infrastructure (GATEWAY_EXTERNAL_ISSUER on the control
+//     plane), never gateway input, so fields like issuer would be silently
+//     discarded - a natural cert-manager idiom the API must not swallow
+//   - certificate combined with host: a dedicated-certificate gateway always
+//     uses the derived gw-<namespace> hostname (mirrors the control plane's
+//     ValidateGatewayConfig, which fails provisioning on this combination)
+//
+// A route that is not valid JSON is left to the jsonb column to reject, and a
+// route without a certificate key is unconstrained here.
+func validateRouteCertificateShape(route *string) *errors.ServiceError {
+	if route == nil {
+		return nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(*route), &doc); err != nil {
+		return nil
+	}
+	cert, present := doc["certificate"]
+	if !present || cert == nil {
+		return nil
+	}
+	obj, isObject := cert.(map[string]any)
+	if !isObject || len(obj) > 0 {
+		return errors.BadRequest(
+			"route.certificate accepts no fields: the certificate issuer is cluster infrastructure (GATEWAY_EXTERNAL_ISSUER on the control plane), never gateway input; write the opt-in as an empty object (\"certificate\": {})")
+	}
+	if host, hasHost := doc["host"]; hasHost && host != nil && host != "" {
+		return errors.BadRequest(
+			"route.host is not supported with route.certificate: a dedicated-certificate gateway uses the derived gw-<namespace> hostname")
+	}
+	return nil
+}
+
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if _, svcErr := s.Get(ctx, id); svcErr != nil {
 		return svcErr
@@ -294,6 +469,16 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
 		serviceErr.HttpCode = http.StatusServiceUnavailable
 		return serviceErr
+	}
+
+	// Delete the gateway's role bindings with it. A binding left behind is
+	// listed by every control-plane role binding resync, which then asks for
+	// the missing gateway on every pass, forever.
+	if s.bindingCleaner != nil {
+		if svcErr := s.bindingCleaner(ctx, id); svcErr != nil {
+			db.MarkForRollback(ctx, svcErr)
+			return svcErr
+		}
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{

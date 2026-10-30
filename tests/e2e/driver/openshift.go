@@ -165,29 +165,7 @@ func (d *openshiftDriver) ClusterDomain(ctx context.Context) (string, error) {
 
 func (d *openshiftDriver) WaitForGatewayRoute(ctx context.Context, gw GatewayRef) error {
 	timeout := durationEnv("E2E_PROVISION_TIMEOUT", 180*time.Second)
-	return harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
-		route, err := d.clients.Gateway.GatewayV1().GRPCRoutes(gw.Namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
-		if err != nil {
-			return false, nil
-		}
-		if !grpcRouteAccepted(route) {
-			return false, nil
-		}
-		for _, pr := range route.Spec.ParentRefs {
-			ns := gw.Namespace
-			if pr.Namespace != nil {
-				ns = string(*pr.Namespace)
-			}
-			parent, err := d.clients.Gateway.GatewayV1().Gateways(ns).Get(ctx, string(pr.Name), metav1.GetOptions{})
-			if err != nil {
-				return false, nil
-			}
-			if gatewayProgrammed(parent) {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
+	return waitForGatewayRoute(ctx, d.clients.Gateway, gw, timeout)
 }
 
 func (d *openshiftDriver) APIClient(ctx context.Context, tok Token) (*apiclient.Client, error) {
@@ -289,6 +267,43 @@ func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user 
 			return Token{}, fmt.Errorf("gateway token for client %s never gained role %q: %w (last token error: %v)", clientID, role, err, lastErr)
 		}
 		return Token{}, fmt.Errorf("gateway token for client %s never gained role %q: %w", clientID, role, err)
+	}
+	return last, nil
+}
+
+// AcquireGatewayToken mints a per-gateway token for user without requiring any
+// role (see the interface doc). It retries only transient token-endpoint errors.
+func (d *openshiftDriver) AcquireGatewayToken(ctx context.Context, user Credentials, clientID string) (Token, error) {
+	timeout := durationEnv("E2E_GATEWAY_TOKEN_TIMEOUT", 300*time.Second)
+	grant := envOr("E2E_OIDC_GRANT", grantPassword)
+
+	var last Token
+	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
+		var (
+			tok Token
+			err error
+		)
+		switch grant {
+		case grantPassword:
+			tok, err = postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), map[string]string{
+				"grant_type": grantPassword,
+				"client_id":  clientID,
+				"username":   user.Username,
+				"password":   user.Password,
+			})
+		case grantClientCredentials:
+			tok, err = d.gatewayTokenExchange(ctx, clientID, user.Username)
+		default:
+			return false, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
+		}
+		if err != nil {
+			return false, nil // transient; keep polling until the client is ready
+		}
+		last = tok
+		return true, nil
+	})
+	if err != nil {
+		return Token{}, fmt.Errorf("gateway token for client %s was never issued: %w", clientID, err)
 	}
 	return last, nil
 }

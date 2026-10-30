@@ -383,12 +383,18 @@ secrets are unnecessary):
 # postgres/RHEL images carry signatures the internal registry rejects -> --remove-signatures
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
+# Source images are normally pinned by digest (resolved from the Quay tag API).
+# The v0.1.5-rhaiv.3 bump could not reach quay.io from the agent runtime that
+# made this change, so these fall back to a tag-only reference; resolve and pin
+# the digest before mirroring with
+# `skopeo inspect --format '{{.Digest}}' docker://<ref>`. A bare tag is a
+# mutable reference and only a last-resort fallback.
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e    docker://$REG/openshift/openshell-gateway:v0.1.3-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3    docker://$REG/openshift/openshell-gateway:v0.1.5-rhaiv.3
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.3-rhaiv.3@sha256:8564613ff3b753b9cdd03fc6b936646790e8d575b882f924d83640516db40d1a docker://$REG/openshift/openshell-supervisor:v0.1.3-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.3 docker://$REG/openshift/openshell-supervisor:v0.1.5-rhaiv.3
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.3-rhaiv.3@sha256:7a38a0fba5d4cf196ba45879701e43ac61aa41de80ef5d486631d0fba7553d03 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.3-rhaiv.3
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.5-rhaiv.3 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.5-rhaiv.3
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 

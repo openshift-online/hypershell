@@ -1,0 +1,21 @@
+# fullsend per-repo configuration -- https://github.com/fullsend-ai/fullsend
+version: "1"
+agents:
+    - name: ingest
+      source: harness/ingest.yaml
+    - name: reconcile
+      source: harness/reconcile.yaml
+    - name: triage
+      source: harness/triage.yaml
+    - name: spec-implementation
+      source: harness/spec-implementation.yaml
+    - name: spec-review
+      source: harness/spec-review.yaml
+    - name: code-implementation
+      source: harness/code-implementation.yaml
+    - name: code-review
+      source: harness/code-review.yaml
+    - name: release-verification
+      source: harness/release-verification.yaml
+    - name: update-openshell
+      source: harness/update-openshell.yaml

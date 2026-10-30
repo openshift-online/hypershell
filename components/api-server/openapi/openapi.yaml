@@ -44,6 +44,8 @@ paths:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1revoke'
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:
+    $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1role'
   /api/hypershell/v1/roles:
     $ref: 'openapi.roles.yaml#/paths/~1api~1hypershell~1v1~1roles'
   /api/hypershell/v1/roles/{id}:
@@ -58,6 +60,8 @@ paths:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1{id}'
   /api/hypershell/v1/gateways/{gateway_id}/access:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access'
+  /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
+    $ref: 'openapi.sandboxEvents.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1sandbox_events'
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1directory'
   /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
@@ -98,6 +102,14 @@ paths:
     $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships'
   /api/hypershell/ext/workspace_memberships/{id}:
     $ref: 'openapi.workspaceMemberships.yaml#/paths/~1api~1hypershell~1ext~1workspace_memberships~1{id}'
+  /api/hypershell/ext/ci_providers:
+    $ref: 'openapi.ciProviders.yaml#/paths/~1api~1hypershell~1ext~1ci_providers'
+  /api/hypershell/ext/ci_providers/{id}:
+    $ref: 'openapi.ciProviders.yaml#/paths/~1api~1hypershell~1ext~1ci_providers~1{id}'
+  /api/hypershell/ext/ci_trusts:
+    $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts'
+  /api/hypershell/ext/ci_trusts/{id}:
+    $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:
@@ -208,6 +220,12 @@ components:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessCapabilities'
     GatewayAccessList:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessList'
+    GatewaySandboxEvent:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEvent'
+    GatewaySandboxEventGroup:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEventGroup'
+    GatewaySandboxEventList:
+      $ref: 'openapi.sandboxEvents.yaml#/components/schemas/GatewaySandboxEventList'
     GatewayDirectoryUser:
       $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayDirectoryUser'
     GatewayDirectoryUserList:

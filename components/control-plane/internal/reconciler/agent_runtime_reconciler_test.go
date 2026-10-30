@@ -164,6 +164,7 @@ func TestAgentRuntimeReconcile_CreatesClusterResources(t *testing.T) {
 // When a SecretSource value cannot be read from the store the runtime is degraded
 // and the failing SecretSource is named (control-plane.spec.md "SecretSource read
 // or placement failure degrades the AgentRuntime").
+// Verifies: CTRL-CORE-04.07, AGT-SEC-07.01
 func TestAgentRuntimeReconcile_SecretPendingWhenValueNotUploaded(t *testing.T) {
 	ar := testAgentRuntime()
 	// Seed only the second source so the first value is absent from a REACHABLE store.
@@ -207,6 +208,7 @@ func TestAgentRuntimeReconcile_SecretPendingWhenValueNotUploaded(t *testing.T) {
 	}
 }
 
+// Verifies: AGT-SEC-06.02
 func TestAgentRuntimeReconcile_ConvergesWhenValueAppears(t *testing.T) {
 	ar := testAgentRuntime()
 	reader := secretstore.NewMemoryReader(map[string]string{"secret/github": "pem"})
@@ -236,6 +238,7 @@ func TestAgentRuntimeReconcile_ConvergesWhenValueAppears(t *testing.T) {
 	}
 }
 
+// Verifies: AGT-SEC-06.03, CTRL-CORE-04.08
 func TestAgentRuntimeReconcile_DegradedOnStoreError(t *testing.T) {
 	ar := testAgentRuntime()
 	// An unreachable/erroring store is a genuine failure, distinct from SecretPending.
@@ -464,6 +467,7 @@ func (f *fakeProviderRealizer) DeleteProviders(_ context.Context, _ *pb.AgentRun
 // With a ProviderRealizer wired, provider material is realized as OpenShell providers
 // (no raw Secret placed for it) while the coordinator gateway-identity is still placed
 // as a Secret (HYPERSHELL-409).
+// Verifies: AGT-SEC-01.01, AGT-SEC-05.01
 func TestAgentRuntimeReconcile_RealizesProvidersInsteadOfPlacingSecrets(t *testing.T) {
 	ar := testAgentRuntime()
 	ns := agentRuntimeNamespace(ar)
@@ -524,6 +528,7 @@ func TestAgentRuntimeReconcile_RealizesProvidersInsteadOfPlacingSecrets(t *testi
 // With a realizer wired, provider material absent from a reachable store holds the
 // runtime at Provisioning (SecretPending gates provider creation) and the realizer is
 // not invoked.
+// Verifies: AGT-SEC-06.01
 func TestAgentRuntimeReconcile_ProviderMaterialPendingGatesRealization(t *testing.T) {
 	ar := testAgentRuntime()
 	// gateway-identity present, provider material (secret/github) absent.

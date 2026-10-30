@@ -236,7 +236,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
-	cpotel.SetResourceStatusStale(ctx, r.clusterID, "Gateway", event.ResourceID, false)
+	if event.Type != watcher.EventDeleted {
+		observedGeneration := gw.ObservedGeneration
+		cpotel.SetResourceStatusStale(
+			ctx,
+			r.clusterID,
+			"Gateway",
+			event.ResourceID,
+			observedGeneration == nil || *observedGeneration < gw.GetGeneration(),
+		)
+	}
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
@@ -331,6 +340,41 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
 			}
 
+			// Delete the gateway's per-tenant Vault KV mount (openshell-gw/<namespace>),
+			// which removes every provider-credential entry it held in one operation,
+			// through the control plane's scoped provisioner identity (HYPERSHELL-369).
+			// See openshell-gateway-credentials.spec.md (Provider Credential Lifecycle on Deletion).
+			//
+			// Use the nil-safe getter, NOT a `CredentialDriver != nil` guard: a gateway created
+			// with no credential_driver is stored as NULL yet still resolves to vault (the flat
+			// default), so it has an openshell-gw/<ns> mount to reclaim. IsVaultBacked("") is true.
+			// A malformed stored driver is NOT assumed to be vault (it records an orphan instead).
+			vaultBacked, driverErr := gateway.IsVaultBacked(gw.GetCredentialDriver())
+			switch {
+			case driverErr != nil:
+				// The stored credential_driver could not be parsed, so we cannot assert the
+				// gateway was Vault-backed. Record a durable orphan for operator reclaim and
+				// let the delete proceed rather than pinning the tombstone on a value we do
+				// not understand.
+				log.Printf("WARN gateway %s: cannot determine credential driver during deletion (%v); skipping Vault mount reclaim", event.ResourceID, driverErr)
+				opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
+					fmt.Sprintf("stored credential_driver could not be parsed (%v); if this gateway was Vault-backed, mount %s may remain", driverErr, gateway.VaultMountForNamespace(namespace)))
+			case vaultBacked:
+				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace); err != nil {
+					// Orphan-only, like the other permanent-failure cleanups in this function
+					// (a deconfigured Keycloak provisioner above): a failed mount delete (Vault
+					// unreachable or decommissioned, provisioner login denied) must NOT pin the
+					// delete tombstone forever. Record a durable orphan for operator reclaim and
+					// complete the deletion; the gateway database is already dropped, so a
+					// left-behind mount holds only unreferenced, un-listable entries.
+					log.Printf("WARN gateway %s: per-tenant Vault mount %s could not be deleted (%v); recording orphan and completing deletion", event.ResourceID, gateway.VaultMountForNamespace(namespace), err)
+					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
+						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion and may remain: %v", gateway.VaultMountForNamespace(namespace), err))
+				} else {
+					log.Printf("INFO deleted vault tenant mount for namespace %s", namespace)
+				}
+			}
+
 			// Namespace deletion and database deletion are independent cleanup
 			// operations. Attempt both and aggregate failures so one partial failure
 			// cannot silently leak the other resource.
@@ -339,6 +383,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway namespace %s: %w", namespace, err))
 			} else if !deleted {
 				gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
+			}
+			// A managed-mode gateway created cluster-scoped per-workspace
+			// namespaces the Helm uninstall and namespace GC never reap; sweep them
+			// here so a deleted gateway does not leak them (openshell-gateway.spec.md,
+			// "Gateway Workspace Mode").
+			if gw.GetWorkspaceMode() == "managed" {
+				if err := gateway.DeleteManagedWorkspaceNamespaces(ctx, r.clientset, namespace); err != nil {
+					deleteErrs = append(deleteErrs, fmt.Errorf("delete managed workspace namespaces of %s: %w", namespace, err))
+				}
 			}
 		}
 
@@ -444,6 +497,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gwConfig := gateway.GatewayConfig{
 		ServerDnsNames: dnsNames,
 		ExternalDns:    externalDns,
+		WorkspaceMode:  gw.GetWorkspaceMode(),
 	}
 
 	// Select the direct image or platform default before Helm values are built.
@@ -471,14 +525,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.OIDC = oidcConfig
 	}
 
-	if gw.Route != nil {
-		routeConfig, err := parseGatewayRouteConfig(*gw.Route)
-		if err != nil {
-			reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gwConfig.Route = routeConfig
+	// Routing is platform-managed and enabled by default (PLAT-DATA-23). A user
+	// or GitOps import never sets route, so gw.Route is nil for every such
+	// gateway; the control plane routes it (gated by the cluster ingress mode)
+	// and derives its ingress hostname. An explicit route the control plane
+	// itself authored still wins.
+	routeConfig, err := effectiveRouteConfig(gw)
+	if err != nil {
+		reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
+		return reconcileErr
 	}
+	gwConfig.Route = routeConfig
 
 	if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
 		var credDriverConfig gateway.CredentialDriverConfig
@@ -930,12 +987,26 @@ func parseGatewayRouteConfig(raw string) (gateway.RouteConfig, error) {
 	return config, nil
 }
 
+// effectiveRouteConfig resolves the route config the control plane provisions
+// for a gateway. Routing is platform-managed (PLAT-DATA-23) and enabled by
+// default: a user or GitOps import never sets route, so an absent or empty
+// route resolves to enabled (the actual creation of route resources is still
+// gated by the cluster's ingress mode) and the control plane derives the
+// ingress hostname. An explicit route the control plane authored still wins.
+func effectiveRouteConfig(gw *pb.Gateway) (gateway.RouteConfig, error) {
+	if gw.Route == nil {
+		return gateway.RouteConfig{Enabled: true}, nil
+	}
+	trimmed := strings.TrimSpace(*gw.Route)
+	if trimmed == "" || trimmed == "null" {
+		return gateway.RouteConfig{Enabled: true}, nil
+	}
+	return parseGatewayRouteConfig(trimmed)
+}
+
 // isRoutedGateway reports whether a Gateway enables external route exposure.
 func isRoutedGateway(gw *pb.Gateway) bool {
-	if gw.Route == nil {
-		return false
-	}
-	routeConfig, err := parseGatewayRouteConfig(*gw.Route)
+	routeConfig, err := effectiveRouteConfig(gw)
 	if err != nil {
 		// The provisioning path reports invalid configuration. Preserve the
 		// exposure until that path can resolve the invalid value.
@@ -1105,7 +1176,18 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 		log.Printf("WARN console address for %s: %v", gatewayID, err)
 		return false
 	}
-	url, hasURL := gateway.ConsoleURL(namespace)
+	// Gateways opted in to the dedicated per-gateway certificate serve their
+	// console from the per-tenant Gateway's own domain
+	// (console-<ns>.gw-<ns>.<base-domain>), not the shared base domain, so the
+	// published address must be derived with the gateway's parsed route config.
+	// An unparseable route is treated as not opted in: the provisioning path
+	// reports the invalid value, and publishing the shared-domain address keeps
+	// the button consistent with what the console exposure actually serves.
+	nsConfig := gateway.NamespaceConfig{
+		Name:    namespace,
+		Gateway: gateway.GatewayConfig{Route: consoleRouteConfig(gw)},
+	}
+	url, hasURL := gateway.ConsoleURLFor(nsConfig)
 	ready := false
 	if hasURL {
 		ready, _, err = gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)
@@ -1116,8 +1198,12 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	if ready {
 		// The selected public exposure must be Ready before the reconciler
-		// publishes the address.
-		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, namespace, ingressMode)
+		// publishes the address. ConsoleExposureReady also verifies the exposure
+		// actually serves the derived console host (and, for a dedicated-route
+		// gateway, its per-tenant parent), so a console provisioned onto the
+		// shared ingress is reported not servable instead of advertising a URL
+		// that presents a mismatched certificate.
+		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, nsConfig, ingressMode)
 		if exposureErr != nil {
 			log.Printf("WARN console exposure readiness for %s: %v", namespace, exposureErr)
 			return false
@@ -1140,6 +1226,26 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	log.Printf("INFO console address for %s set to %q (consoleReady=%v)", gatewayID, desired, ready)
 	return ready
+}
+
+// consoleRouteConfig resolves the route config every console path keys on:
+// the gateway's parsed route document, with the dedicated per-gateway
+// certificate opt-in intact. Both the console-address publisher
+// (syncConsoleAddress) and the console self-heal (selfHealConsole) must derive
+// the console host and parent from this one helper, or the two drift apart and
+// the self-heal re-parents a dedicated-route console onto the shared ingress
+// while the published address keeps pointing at the dedicated host. An absent
+// route is enabled (matching effectiveRouteConfig); an unparseable route is
+// reported by the provisioning path and treated here as not opted in, keeping
+// the published address and the self-heal consistent with the exposure the
+// shared path actually serves.
+func consoleRouteConfig(gw *pb.Gateway) gateway.RouteConfig {
+	routeConfig, err := effectiveRouteConfig(gw)
+	if err != nil {
+		log.Printf("WARN console route config for gateway %s: invalid route config: %v", gw.GetMetadata().GetId(), err)
+		return gateway.RouteConfig{}
+	}
+	return routeConfig
 }
 
 // updateObservedGeneration records the generation the control plane has

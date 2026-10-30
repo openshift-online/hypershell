@@ -74,6 +74,7 @@ func newGatewayWatchConn(t *testing.T, srv pb.GatewayServiceServer) *grpc.Client
 // "Startup seeds gateways created while the control plane was down"). This runs
 // the real WatchGateways entry point, so it fails if WatchGateways stops seeding;
 // the seedGateways tests call the seed directly and would not notice.
+// Verifies: CTRL-CORE-02.03
 func TestWatchGateways_StartupSeedsPreExistingGateway(t *testing.T) {
 	srv := &silentGatewayServer{inventory: &fakeGatewayLister{items: []*pb.Gateway{gw("gw-pre-existing", "")}}}
 	conn := newGatewayWatchConn(t, srv)

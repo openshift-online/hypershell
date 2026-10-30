@@ -1,0 +1,402 @@
+# Local dependency/coverage audit metadata, NOT Mergify configuration.
+# Preserves tracked-path classification and shared-input drift guards (CICD-MRG-03/08).
+# Runtime CI selection is owned by component-paths.json; this file does not
+# create queue lanes, skip checks, or require Mergify's paid Scopes feature.
+scopes:
+  source:
+    files:
+      # Producer inputs that affect several consumers (the deployment/release set,
+      # the OpenAPI contract, the CLI/SDK/frontend toolchains) are repeated in
+      # each consumer's include list on purpose: Local impact lists are flat and
+      # a YAML anchor/alias replaces a whole value, so it cannot splice a shared
+      # block into part of a list. To stop that duplication from drifting, the
+      # shared groups are declared once in scripts/check_ci_impact_scopes.py and it
+      # fails if any member scope is missing a shared pattern -- keep the two in
+      # sync when adding a shared input (CICD-MRG-03).
+      #
+      # CICD-MRG-03 consumer scopes. Each excludes the known informational
+      # files so a README/AGENTS/CLAUDE edit under a runtime directory does not
+      # select that runtime lane; Markdown is NOT blanket-excluded because it
+      # can be embedded runtime content, prompts, or generator input.
+      api-server:
+        include:
+          - components/api-server/**
+          - .tekton/hypershell-api-server-*
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      cli:
+        include:
+          - components/cli/**
+          - .tekton/hypershell-cli-*
+          - scripts/generate-cli.sh
+          - scripts/generate-tui.sh
+          - scripts/trex-checkout.sh
+          - scripts/rh-trex-ai.ref
+          - scripts/lib/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      control-plane:
+        # Replaces both the API-server and CLI modules locally and imports
+        # api-server pkg/gatewayhealth, pkg/secretstore, pkg/api/grpc, and
+        # cli pkg/kustomize -- so those modules and their generation inputs
+        # select this scope too (CICD-MRG-03.05).
+        include:
+          - components/control-plane/**
+          - .tekton/hypershell-control-plane-*
+          - components/api-server/**
+          - .tekton/hypershell-api-server-*
+          - components/cli/**
+          - .tekton/hypershell-cli-*
+          - scripts/generate-cli.sh
+          - scripts/generate-tui.sh
+          - scripts/trex-checkout.sh
+          - scripts/rh-trex-ai.ref
+          - scripts/lib/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      sdk-typescript:
+        include:
+          - components/sdk-typescript/**
+          - scripts/sdk-generator/**
+          - scripts/openapi-ir/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+          - package.json
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - .node-version
+          - scripts/bootstrap_pnpm.sh
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      sdk-go:
+        include:
+          - components/sdk-go/**
+          - scripts/sdk-generator/**
+          - scripts/openapi-ir/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      web-console:
+        # Domain probes live under components/web-console and are consumed by
+        # the shared UI packages, so they stay in this consumer scope rather
+        # than forming a universal UI lock. The TypeScript SDK and its
+        # contract/generator inputs are included (CICD-MRG-03.04).
+        include:
+          - components/web-console/**
+          - packages/gateway-management-ui/**
+          - packages/operational-dashboard-ui/**
+          - .tekton/hypershell-web-console-*
+          - specs/web-console/mockups/**
+          - images/brand/**
+          - components/sdk-typescript/**
+          - scripts/sdk-generator/**
+          - scripts/openapi-ir/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+          - package.json
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - .node-version
+          - scripts/bootstrap_pnpm.sh
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      fleet-dashboard:
+        # No TypeScript SDK dependency: the fleet UI manifest does not consume
+        # it, so it is deliberately absent (CICD-MRG-03.04).
+        include:
+          - components/fleet-dashboard/**
+          - packages/fleet-dashboard-ui/**
+          - .tekton/hypershell-fleet-dashboard-*
+          - scripts/check_fleet_dashboard_firewall.sh
+          - images/brand/**
+          - package.json
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - .node-version
+          - scripts/bootstrap_pnpm.sh
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      agents:
+        # Agent Containerfiles compile and embed hsctl, so CLI sources and the
+        # CLI generation/contract inputs select this scope (CICD-MRG-03.06).
+        include:
+          - components/agents/**
+          - .tekton/hypershell-agent-runtime-*
+          - .tekton/hypershell-agent-runtime-slim-*
+          - .tekton/hypershell-fullsend-sandbox-*
+          - components/cli/**
+          - .tekton/hypershell-cli-*
+          - scripts/generate-cli.sh
+          - scripts/generate-tui.sh
+          - scripts/trex-checkout.sh
+          - scripts/rh-trex-ai.ref
+          - scripts/lib/**
+          - components/api-server/openapi/**
+          - components/api-server/Dockerfile.openapi
+          - components/api-server/Makefile
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      deployment:
+        # CICD-MRG-11: deployment/release inputs also select every runtime
+        # consumer scope (through the shared deploy/charts/... patterns above)
+        # in this initial conservative design. Narrow later with build/runtime
+        # ownership evidence.
+        include:
+          - deploy/**
+          - charts/**
+          - dashboards/**
+          - OPENSHELL_VERSION
+          - scripts/cluster/**
+          - scripts/kind/**
+          - scripts/gen-postgres-tls*
+          - scripts/install-openshell*
+          - scripts/sync_openshell_version.py
+          - scripts/test_sync_openshell_version.py
+          - scripts/check_deploy_orphans.py
+          - scripts/test_check_deploy_orphans.py
+          - scripts/test_gitops_manifests.py
+          - pipelines/**
+          - scripts/release_bundle.py
+          - scripts/test_release_bundle.py
+          - scripts/render_release_bundle_pipeline.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      test-infrastructure:
+        include:
+          - tests/**
+          - components/pr-test/**
+          - scripts/ci/**
+          - .github/actions/deploy-pr-environment/**
+          - .github/actions/openshift-cluster-login/**
+          - .github/workflows/pr-environment-*.yml
+          - .github/workflows/ci-federation-test.yml
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      architecture-site:
+        include:
+          - tools/architecture-site/**
+          - docs/architecture/**
+          - .github/workflows/architecture-site.yml
+          - package.json
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - .node-version
+          - scripts/bootstrap_pnpm.sh
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
+      documentation:
+        # Prose lane. This is the catch-all for Markdown prose anywhere in the
+        # tree (`**/*.md`) so an ordinary doc file under a tooling directory
+        # (e.g. scripts/lib/NOTES.md) is classified instead of falling through
+        # the CICD-MRG-08 coverage audit. A runtime Markdown file additionally
+        # keeps its component scope (the union), so coverage never hides a
+        # dependency. Compiled mockups and architecture-site inputs are excluded
+        # because they are not prose (CICD-MRG-03); their lanes own them.
+        include:
+          # All Markdown prose at any depth. README/AGENTS/CLAUDE and every
+          # other *.md file are covered by this one pattern; LICENSE is listed
+          # explicitly because it has no extension.
+          - '**/*.md'
+          - LICENSE
+          - specs/**
+          - skills/**
+        exclude:
+          - specs/web-console/mockups/**
+          - docs/architecture/**
+      repository-tooling:
+        # Repository administration and tooling. Markdown is excluded here so a
+        # README/spec edit routes to the documentation lane; executable helpers
+        # under scripts/ that affect real consumers also select those consumer
+        # scopes through their own patterns above.
+        include:
+          - scripts/**
+          - docs/**
+          - .github/ISSUE_TEMPLATE/**
+          - .github/PULL_REQUEST_TEMPLATE*
+          - .github/CODEOWNERS
+          - .gitignore
+          - .gitattributes
+          - .coderabbit.yaml
+          - codecov.yml
+          - .forbidden-terms-whitelist.json
+          - .skillspector-baseline.yaml
+          - .snyk
+          - renovate.json
+          - apm.yml
+          - apm.lock.yaml
+          - lefthook.yml
+          - .pre-commit-config.yaml
+          - go.mod
+          - go.sum
+          - dependency-age-tools.json
+          - dependency-age-allowlist.json
+        exclude:
+          - '**/*.md'
+          - docs/architecture/**
+  # CICD-MRG-04: global build/check machinery that can affect every scope.
+  # These classify global inputs for the repository coverage audit that checks
+  # them. Only genuinely global inputs belong here -- not every script, all
+  # documentation, or every component build file.
+  barrier_files:
+    include:
+      - .mergify.yml
+      - .github/ci-impact-scopes.yml
+      - Makefile
+      - .dockerignore
+      - .npmrc
+      - .gitmodules
+      - prefetch/**
+      - .github/component-paths.json
+      - .github/scripts/**
+      - .github/actions/detect-konflux-components/**
+      - .github/workflows/checks.yml
+      - .github/workflows/tests.yml
+      - .github/workflows/unit-tests.yml
+      - .github/workflows/e2e.yml
+      - scripts/check_ci_components.py
+      - scripts/check_dependency_pins.py
+      - scripts/test_check_dependency_pins.py
+      - scripts/check_dependency_age.py
+      - scripts/test_check_dependency_age.py
+      - scripts/check_forbidden_terms.py
+      - scripts/test_check_forbidden_terms.py
+      - scripts/check_spec_ids.py
+      - scripts/test_check_spec_ids.py
+      - scripts/check_ci_impact_scopes.py
+      - scripts/test_check_ci_impact_scopes.py
+      - .github/ci-impact-allowlist.txt
+      - scripts/run-shell-unit-tests.sh

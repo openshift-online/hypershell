@@ -32,6 +32,7 @@ func statusByType(conds []provisioningConditionJSON) map[string]string {
 	return out
 }
 
+// Verifies: PLAT-DATA-07.01, PLAT-DATA-07.03
 func TestMergeMonotonicProvisioningConditions(t *testing.T) {
 	tests := []struct {
 		name     string

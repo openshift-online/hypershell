@@ -3,8 +3,9 @@ package gateways
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
-	"github.com/golang/glog"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 )
 
 // resolvePendingPlacements re-resolves every late-bound gateway that is still
@@ -26,6 +27,12 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 	if svc == nil || resolve == nil {
 		return nil
 	}
+	// This sweep assigns cluster_id (and clears the awaiting-placement status) as an
+	// internal API-server write, so it is a control-plane-class write for the gateway
+	// field policy: without this marker the default user kind would reject the cluster_id
+	// change (PLAT-DATA-23). It is the API server's own late-binding logic, not an
+	// externally-authored caller.
+	ctx = rbac.WithGatewayWriterKind(ctx, rbac.GatewayWriterControlPlane)
 	gateways, svcErr := svc.FindUnplaced(ctx)
 	if svcErr != nil {
 		return fmt.Errorf("list unplaced gateways: %w", svcErr)
@@ -36,14 +43,14 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 			continue
 		}
 		// Late binding applies only to capability-label selectors. A local-kind
-		// placement resolves or hard-errors at create (GP-08) and must not be retried
+		// placement resolves or hard-errors at create (WEB-PLC-08) and must not be retried
 		// here, where it would error on every sweep.
 		if intent.Mode != nil {
 			continue
 		}
 		clusterID, resolved, resolveErr := resolve(ctx, intent)
 		if resolveErr != nil {
-			glog.Warningf("late-binding: resolving placement for gateway %s failed, will retry on the next cluster change: %v", gateway.ID, resolveErr)
+			slog.WarnContext(ctx, "late-binding: resolving placement failed, will retry on the next cluster change", "gateway_id", gateway.ID, "error", resolveErr)
 			continue
 		}
 		if !resolved {
@@ -56,10 +63,10 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 		// generation because cluster_id changed.
 		gateway.Status = nil
 		if _, replaceErr := svc.Replace(ctx, gateway); replaceErr != nil {
-			glog.Warningf("late-binding: assigning cluster %s to gateway %s failed, will retry on the next cluster change: %v", clusterID, gateway.ID, replaceErr)
+			slog.WarnContext(ctx, "late-binding: assigning cluster failed, will retry on the next cluster change", "cluster_id", clusterID, "gateway_id", gateway.ID, "error", replaceErr)
 			continue
 		}
-		glog.Infof("late-bound gateway %s placed on cluster %s", gateway.ID, clusterID)
+		slog.InfoContext(ctx, "late-bound gateway placed on cluster", "gateway_id", gateway.ID, "cluster_id", clusterID)
 	}
 	return nil
 }

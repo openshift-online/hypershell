@@ -24,10 +24,10 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
-// These tests pin the authorization of ManagedCluster records and of the
-// cluster-scoped gRPC writes under the GitOps hub configuration (see
-// TestMain): every authenticated principal holds gateway:creator, spokes are
-// registered control planes, and one account is on the bootstrap allowlist.
+// These tests pin authorization for ManagedCluster records and cluster-scoped
+// gRPC writes with RBAC enforced and one bootstrap-allowlisted account. Each
+// scenario supplies its JWT roles explicitly. Creator attackers verify that
+// gateway creation privilege never bypasses narrower tenant boundaries.
 
 type bearer struct{ token string }
 
@@ -104,19 +104,50 @@ func statusOf(resp *http.Response) int {
 
 func grpcCode(err error) codes.Code { return status.Code(err) }
 
+// Verifies: SEC-RBAC-13.02
+func TestRESTGatewayCreateRequiresExplicitCreatorRole(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	cluster := registerSpoke(t, h, client)
+
+	for _, tc := range []struct {
+		name   string
+		claims jwt.MapClaims
+		status int
+	}{
+		{name: "no-realm-roles", status: http.StatusForbidden},
+		{name: "platform-admin-only", claims: realmRoles("platform:admin"), status: http.StatusForbidden},
+		{name: "gateway-creator", claims: realmRoles("gateway:creator"), status: http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			caller := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), tc.claims)
+			created, response, err := client.DefaultAPI.CreateGateway(caller.rest).
+				GatewayCreateRequest(gatewayCreateRequest(uniqueName("explicit-role"), cluster.clusterID, false)).Execute()
+			g.Expect(statusOf(response)).To(Equal(tc.status), "gateway create: %s", test.APIErrorReason(err))
+			if tc.status == http.StatusCreated {
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(created.GetId()).NotTo(BeEmpty())
+			} else {
+				g.Expect(err).To(HaveOccurred())
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ManagedCluster deletion, REST
 // ---------------------------------------------------------------------------
 
+// Verifies: PLAT-CLUS-03.01, PLAT-CLUS-03.02, PLAT-CLUS-03.03
 func TestRESTDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	victim := registerSpoke(t, h, client)
 	other := registerSpoke(t, h, client)
-	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles("platform:admin"))
 
-	// An ordinary signed-in user holds gateway:creator (default role) and must
-	// not be able to deregister somebody else's control plane.
+	// A caller explicitly granted gateway:creator must not be able to
+	// deregister somebody else's control plane.
 	httpResp, err := client.DefaultAPI.DeleteManagedCluster(user.rest, victim.clusterID).Execute()
 	Expect(err).To(HaveOccurred(), "an ordinary user deleted ManagedCluster %s", victim.clusterID)
 	Expect(statusOf(httpResp)).To(Equal(http.StatusForbidden))
@@ -141,7 +172,7 @@ func TestRESTDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 func TestRESTManagedClusterWritesRequirePlatformAdmin(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	victim := registerSpoke(t, h, client)
-	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles("platform:admin"))
 
 	// Renaming a registered record makes its control plane's next registration
@@ -174,11 +205,12 @@ func TestRESTManagedClusterWritesRequirePlatformAdmin(t *testing.T) {
 // ManagedCluster deletion, gRPC
 // ---------------------------------------------------------------------------
 
+// Verifies: PLAT-CLUS-03.01, PLAT-CLUS-03.02, PLAT-CLUS-03.03
 func TestGRPCDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	victim := registerSpoke(t, h, client)
 	other := registerSpoke(t, h, client)
-	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), nil)
+	user := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	allowlisted := newPrincipal(t, h, allowlistedAccount, nil)
 	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles("platform:admin"))
 
@@ -207,10 +239,11 @@ func TestGRPCDeleteManagedClusterIsAdminOrSelf(t *testing.T) {
 // a new id either: the control plane would restart under that id, see none of
 // its gateways as live, and its namespace GC would reap them. Registration
 // restores the same record.
+// Verifies: PLAT-CLUS-01.03
 func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	s := registerSpoke(t, h, client)
-	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), nil)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	gw := createGateway(t, client, owner, s.clusterID)
 
 	httpResp, err := client.DefaultAPI.DeleteManagedCluster(s.rest, s.clusterID).Execute()
@@ -276,11 +309,12 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
+// Verifies: PLAT-CLUS-11.02
 func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	a := registerSpoke(t, h, client)
 	b := registerSpoke(t, h, client)
-	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), nil)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	gwA := createGateway(t, client, owner, a.clusterID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -320,11 +354,12 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 // Users on gRPC get the HTTP rules, not "creator may call anything"
 // ---------------------------------------------------------------------------
 
+// Verifies: SEC-RBAC-09.03, SEC-RBAC-09.04
 func TestGRPCUserCallsFollowHTTPGatewayRules(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	a := registerSpoke(t, h, client)
-	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), nil)
-	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), nil)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	attacker := newPrincipal(t, h, "attacker-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
 	admin := newPrincipal(t, h, "admin-"+strings.ToLower(api.NewID()), realmRoles("platform:admin"))
 	gw := createGateway(t, client, owner, a.clusterID)
 

@@ -461,7 +461,7 @@ de_seed_test_users() {
 
 : "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
 : "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
-# Directory projection refresh (GAM-09) defaults to 5m in code, too slow for area
+# Directory projection refresh (GTW-ACC-09) defaults to 5m in code, too slow for area
 # 9b to observe a realm user added at test time. Shortened in the same controller
 # rollout as the GC timing (below) so there is only one restart, done up front.
 : "${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL:=15s}"
@@ -651,7 +651,7 @@ assign_realm_role() {
 # profile fields derived from the username, enabled, no roles or password (the
 # directory projection only needs username/name/email/subject, and a grant target
 # need never have signed in). Used by area 9b to add a brand-new realm user at test
-# time and prove the control-plane directory projection (GAM-09) picks it up.
+# time and prove the control-plane directory projection (GTW-ACC-09) picks it up.
 # Idempotent: an already-existing user is success.
 # Usage: kc_create_user <username>
 kc_create_user() {

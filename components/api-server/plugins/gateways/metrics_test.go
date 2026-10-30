@@ -53,6 +53,7 @@ func keyFor(m *dto.Metric, want []string) [2]string {
 	return key
 }
 
+// Verifies: GTW-ATTR-01.01, GTW-ATTR-01.02
 func TestGatewayCollector_AttributesByManagedCluster(t *testing.T) {
 	// hyp0-spoke0: two Running; hyp0-spoke1: one Running + one Failed; a gateway
 	// with no cluster_id -> "unknown"; a non-canonical phase -> "other".
@@ -109,6 +110,7 @@ func TestGatewayCollector_AttributesByManagedCluster(t *testing.T) {
 	}
 }
 
+// Verifies: GTW-PHS-03.01
 func TestGatewayCollector_ZeroFleetBaseline(t *testing.T) {
 	// Empty fleet: there is no spoke to attribute, but fleet-wide panels
 	// (sum(hypershell_gateways_total{phase="Running"}), sum by (phase) (...))
@@ -142,6 +144,7 @@ func TestGatewayCollector_ZeroFleetBaseline(t *testing.T) {
 	}
 }
 
+// Verifies: GTW-ATTR-02.01
 func TestActiveSandboxesCollector_AttributesByManagedCluster(t *testing.T) {
 	dao := NewMockGatewayDao()
 	ctx := context.Background()

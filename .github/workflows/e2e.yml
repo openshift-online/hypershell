@@ -20,21 +20,30 @@ name: E2E
 # `needs:`. Deploy OpenShift Environment lives in this workflow so OpenShift can
 # `needs:` it instead of polling a separate PR Environment workflow. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
-# retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n>;
-# push to main deploys hypershell-ci-main-<short-sha>; a merge queue entry
-# deploys hypershell-ci-mq-<short-sha> -- both per-commit so a cancelled
-# older run cannot tear down a newer deploy's namespace. Concurrency keys on
-# the PR number, 'main', or the merge-queue commit SHA so unrelated runs
-# never cancel each other while rapid pushes to the same target still
-# serialize. Neither main nor a merge queue entry ever carries the
-# retainment label, so teardown always runs for them. Fork PRs skip deploy
-# and OpenShift (no per-PR environment; a fork PR cannot enter the merge
-# queue either). The Kind job runs the Go E2ESuite (make e2e -> go test TestE2E)
-# and, outside merge_group, the Playwright console suite
-# (tests/e2e/e2e-console.sh) concurrently with it, then the Playwright trace
-# verification. The OpenShift job
-# runs only the Go E2ESuite: its GitHub-brokered login cannot be completed by
-# a headless browser.
+# retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n> and
+# push to main deploys hypershell-ci-main-<short-sha>, per-commit so a cancelled
+# older run cannot tear down a newer deploy's namespace. Concurrency keys on the
+# PR number or (for push to main) the commit SHA so unrelated runs never cancel
+# each other and rapid merges each run to completion (CICD-MRG-07). Main never
+# carries the retainment label, so teardown always runs for it. Fork PRs skip
+# deploy and OpenShift (no per-PR environment).
+#
+# CICD-MRG-06: this workflow is not called on Mergify temporary queue pull
+# requests, so E2E and the ephemeral OpenShift environment never run on the merge
+# path; the queue is validated by the cheap required checks only. The operative
+# suppression lives in tests.yml, which skips the `e2e` job when a same-repo PR's
+# head branch carries Mergify's queue_branch_prefix (`mergify/merge-queue/`, or
+# the legacy `tmp-mergify/merge-queue/`). The `merge_group` guards that also
+# appear in this file are inert vestiges of the former native-merge-queue path:
+# this repo uses Mergify's draft-PR queue, not GitHub's native merge queue, so
+# merge_group never fires here. They are not a guarantee of native-queue support
+# -- the concurrency groups no longer carry a merge_group key, so enabling native
+# merge queue would need those guards revisited, not merely left in place. The
+# Kind job runs the Go E2ESuite (make e2e -> go test TestE2E) alongside the
+# Playwright console suite (tests/e2e/e2e-console.sh) and then the trace
+# verification on every event that does reach it. The OpenShift job runs only the
+# Go E2ESuite: its GitHub-brokered login cannot be completed by a headless
+# browser.
 on:
   workflow_call:
     inputs:
@@ -549,7 +558,7 @@ jobs:
         env:
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
-          # trace verification below has a collector to export to (WEB-TRACE-10).
+          # trace verification below has a collector to export to (WEB-TRC-10).
           KIND_JAEGER: "true"
           # Defer platform seeding until after the image swap below. kind-up
           # deploys the baseline placeholder image first; seeding a request
@@ -722,8 +731,10 @@ jobs:
       # namespace-GC timing, at setup and teardown). Recovery of gateways created while the control
       # plane is down is covered by api-server and control-plane tests instead.
       # Any future Go suite step that stops or restarts the control plane must
-      # wait for E2E_DISRUPTIVE_GATE_FILE. On merge_group only the Go suite runs.
-      # E2E_MODE=short applies to the console suite only.
+      # wait for E2E_DISRUPTIVE_GATE_FILE. E2E_MODE=short applies to the console
+      # suite only. The merge_group branch below is an inert defensive guard
+      # (merge_group never fires for this repo, see the header); every event that
+      # actually reaches this job runs both suites.
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
@@ -733,6 +744,9 @@ jobs:
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           E2E_CONSOLE_READY_TIMEOUT: "300"
+          # The Go tests own cluster diagnostics so promotion runs and Actions
+          # emit the same evidence; Actions only invokes tests and uploads files.
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
           E2E_PARALLEL_LOG_DIR: ${{ github.workspace }}/e2e-suite-logs
           # show_cmd sleeps E2E_PAUSE seconds (default 1, demo pacing) after every
           # command it echoes: about 70 of them in the bash suite, ~70s of idle.
@@ -752,7 +766,7 @@ jobs:
               "console=E2E_MODE=short bash tests/e2e/e2e-console.sh"
           fi
 
-      # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
+      # Browser-driven distributed-trace verification (WEB-TRC-10): drive a
       # real gateway workflow in the deployed console, then assert one trace in
       # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
       # setup the web-console lint job uses.
@@ -772,88 +786,16 @@ jobs:
         if: github.event_name != 'merge_group'
         run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:tracing:live
 
-      - name: Collect diagnostics
-        if: failure()
-        run: |
-          mkdir -p e2e-diagnostics
-
-          echo "::group::All pods"
-          kubectl get pods -A -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Pod descriptions (hypershell-system)"
-          kubectl describe pods -n hypershell-system 2>&1 | tee e2e-diagnostics/pod-describes.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Pod logs (hypershell-system)"
-          {
-            for label in app.kubernetes.io/name=hypershell app=hypershell-api-server app=hypershell-controller app=hypershell-web-console; do
-              kubectl logs --all-containers --prefix --tail=200 -l "${label}" -n hypershell-system 2>&1 || true
-            done
-          } | tee e2e-diagnostics/pod-logs.txt
-          echo "::endgroup::"
-
-          echo "::group::Stand-in postgres logs"
-          kubectl logs --all-containers --prefix --tail=200 -l app=postgres -n external-cloud-db 2>&1 | tee e2e-diagnostics/postgres.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Keycloak logs"
-          kubectl logs --all-containers --prefix --tail=100 -l app=keycloak -n keycloak 2>&1 | tee e2e-diagnostics/keycloak-logs.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Tracing (Jaeger) diagnostics"
-          {
-            kubectl get pods,svc,httproutes -l app=jaeger -n hypershell-system -o wide 2>&1 || true
-            kubectl logs --all-containers --prefix --tail=100 -l app=jaeger -n hypershell-system 2>&1 || true
-            echo "--- web-console OTEL env ---"
-            kubectl get deployment/hypershell-web-console -n hypershell-system \
-              -o jsonpath='{range .spec.template.spec.containers[*].env[*]}{.name}={.value}{"\n"}{end}' 2>&1 | grep -i otel || true
-          } | tee e2e-diagnostics/tracing.txt
-          echo "::endgroup::"
-
-          echo "::group::Events (hypershell-system)"
-          kubectl get events --sort-by=.lastTimestamp -n hypershell-system 2>&1 | tee e2e-diagnostics/events.txt || true
-          echo "::endgroup::"
-
-          echo "::group::Gateway API resources"
-          {
-            kubectl get gateways,grpcroutes,httproutes -A -o wide 2>&1 || true
-            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
-              ns_name="${ns##*/}"
-              echo "--- $ns ---"
-              kubectl get pods,svc,deployments -n "${ns_name}" 2>&1 || true
-              echo "--- pod descriptions ($ns_name) ---"
-              kubectl describe pods -n "${ns_name}" 2>&1 || true
-              echo "--- events ($ns_name) ---"
-              kubectl get events --sort-by=.lastTimestamp -n "${ns_name}" 2>&1 || true
-              for pod in $(kubectl get pods -n "${ns_name}" -o name 2>/dev/null); do
-                echo "--- logs ${pod} ($ns_name) ---"
-                kubectl logs "${pod}" --all-containers --tail=80 -n "${ns_name}" 2>&1 || true
-                echo "--- previous logs ${pod} ($ns_name) ---"
-                kubectl logs "${pod}" --all-containers --previous --tail=80 -n "${ns_name}" 2>&1 || true
-              done
-            done
-          } | tee e2e-diagnostics/gateway-api.txt
-          echo "::endgroup::"
-
-          echo "::group::OpenShell console (gateway namespaces)"
-          {
-            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
-              ns_name="${ns##*/}"
-              echo "--- deployment/openshell-console ($ns_name) ---"
-              kubectl get deployment openshell-console -n "${ns_name}" -o wide 2>&1 || true
-              kubectl get deployment openshell-console -n "${ns_name}" -o jsonpath='{.status.conditions}' 2>&1 || true
-              echo ""
-              echo "--- httproute/openshell-console status ($ns_name) ---"
-              kubectl get httproute openshell-console -n "${ns_name}" -o jsonpath='{.spec.hostnames}{"\n"}{.status.parents}' 2>&1 || true
-              echo ""
-              for container in oauth2-proxy dashboard; do
-                echo "--- logs openshell-console/${container} ($ns_name) ---"
-                kubectl logs deployment/openshell-console -c "${container}" --tail=150 -n "${ns_name}" 2>&1 || true
-              done
-            done
-          } | tee e2e-diagnostics/openshell-console.txt
-          echo "::endgroup::"
+      # TestE2E collects on its own failure. A later console/tracing failure
+      # uses the same test-owned collector rather than duplicating kubectl
+      # commands in Actions.
+      - name: Collect diagnostics for non-suite failure
+        if: failure() && hashFiles('e2e-diagnostics/**') == ''
+        env:
+          E2E_COLLECT_DIAGNOSTICS: "1"
+          E2E_INFRA_DRIVER: kind
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
+        run: go -C tests/e2e test . -run '^TestFailureDiagnostics$' -count=1 -v -timeout 2m
 
       - name: Upload diagnostics
         if: failure()
@@ -862,6 +804,7 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload e2e suite logs
         if: failure() && hashFiles('e2e-suite-logs/**') != ''
@@ -883,14 +826,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Origin-PR deploy of hypershell-ci-pr-<n>, hypershell-ci-main-<short-sha> on
-  # push to main, or hypershell-ci-mq-<short-sha> for a merge queue entry
-  # (ephemeral-pr-environments.spec.md). Per-commit main/merge-queue
+  # Origin-PR deploy of hypershell-ci-pr-<n>, or hypershell-ci-main-<short-sha>
+  # on push to main (ephemeral-pr-environments.spec.md). Per-commit main
   # namespaces mean cancel-in-progress teardown of an older run cannot delete
-  # a newer deploy. Concurrency keys on the PR number, 'main', or the
-  # merge-queue commit SHA, so unrelated runs (including two merge queue
-  # entries validated concurrently) never cancel each other while repeats of
-  # the same target still serialize. Same plan-images / should_run gate as
+  # a newer deploy. Concurrency keys on the PR number or the push-to-main commit
+  # SHA (CICD-MRG-07), so unrelated runs -- including rapid merges to main --
+  # never cancel each other while repeats of the same target still serialize.
+  # Same plan-images / should_run gate as
   # Kind and OpenShift. Runs concurrently with Unit. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
   # and close so those cannot race an in-flight deploy. Kind runs in
   # parallel with this job. Fork PRs skip it (no per-PR environment; a fork
@@ -915,11 +857,15 @@ jobs:
       checks: read
       pull-requests: write
       id-token: write
+    # CICD-MRG-07: push to main keys on its own SHA so rapid merges each deploy
+    # and run their OpenShift E2E to completion instead of cancelling the
+    # previous commit's nearly-done run. PR revisions still supersede each other
+    # (PR-number group).
     concurrency:
       group: >-
         pr-env-${{
           github.event.pull_request.number ||
-          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+          (github.event_name == 'push' && format('main-{0}', github.sha)) ||
           'main'
         }}
       cancel-in-progress: true
@@ -992,11 +938,15 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
+    # CICD-MRG-07: push to main keys on its own SHA so rapid merges each deploy
+    # and run their OpenShift E2E to completion instead of cancelling the
+    # previous commit's nearly-done run. PR revisions still supersede each other
+    # (PR-number group).
     concurrency:
       group: >-
         pr-env-${{
           github.event.pull_request.number ||
-          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+          (github.event_name == 'push' && format('main-{0}', github.sha)) ||
           'main'
         }}
       cancel-in-progress: true
@@ -1042,6 +992,7 @@ jobs:
           E2E_INFRA_DRIVER: openshift
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "300"
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
           TERM: dumb
           NO_COLOR: "1"
         # The Go E2ESuite (TestE2E) is the functional gate; it auto-detects the
@@ -1057,14 +1008,15 @@ jobs:
           fi
           make e2e
 
-      - name: Collect diagnostics
-        if: steps.e2e-suite.outcome == 'failure'
-        run: |
-          mkdir -p e2e-diagnostics
-          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
-          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
-          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
-          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+      # Setup can fail before TestE2E constructs E2ESuite. Keep that rare path
+      # on the same test-owned collector as suite and promotion failures.
+      - name: Collect diagnostics after early suite failure
+        if: steps.e2e-suite.outcome == 'failure' && hashFiles('e2e-diagnostics/**') == ''
+        env:
+          E2E_COLLECT_DIAGNOSTICS: "1"
+          E2E_INFRA_DRIVER: openshift
+          E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/e2e-diagnostics
+        run: go -C tests/e2e test . -run '^TestFailureDiagnostics$' -count=1 -v -timeout 2m
 
       - name: Upload diagnostics
         if: steps.e2e-suite.outcome == 'failure'
@@ -1073,11 +1025,12 @@ jobs:
           name: >-
             pr-env-diagnostics-${{
               github.event.pull_request.number ||
-              (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+              (github.event_name == 'push' && format('main-{0}', github.sha)) ||
               'main'
             }}
           path: e2e-diagnostics/
           retention-days: 7
+          if-no-files-found: ignore
 
       # Skip ONLY when the environment is retained. Runs on success, failure,
       # and cancel so an unretained namespace is not left behind.

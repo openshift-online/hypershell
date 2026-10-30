@@ -1,4 +1,4 @@
-// Framework-free route codec for the Glass dashboard (GLASS-NAV-02, GLASS-NAV-04).
+// Framework-free route codec for the Glass dashboard (FLT-NAV-02, FLT-NAV-04).
 //
 // This module is the single source of truth for the typed route/query contract.
 // It parses a location (path + search) into a normalized RouteState, serializes a
@@ -7,7 +7,7 @@
 // `window`, or `history`; the driving adapter in src/adapters/routing wraps the
 // browser History API around it.
 //
-// Design rules (GLASS-NAV-02):
+// Design rules (FLT-NAV-02):
 //  - Equivalent views produce equivalent URLs: defaults are omitted, enums reject
 //    unknown values, numerics reject out-of-range values, and multi-value
 //    parameters are ordered deterministically.
@@ -15,9 +15,9 @@
 //    collision-free run address tenant/namespace/runId, SDLC issue number, map
 //    node id, gate id, step id), never by display text or row index.
 //  - Unknown or malformed input degrades to a safe canonical view, never throws
-//    (GLASS-NAV-14).
+//    (FLT-NAV-14).
 //  - Every identifier is treated as opaque runtime data and round-trips
-//    byte-for-byte through standard URL percent-encoding (GLASS-NAV-03).
+//    byte-for-byte through standard URL percent-encoding (FLT-NAV-03).
 
 /** The three top-level tabs. The URL path carries this; all else is query state. */
 export type TabKey = "map" | "sdlc" | "e2e";
@@ -31,15 +31,20 @@ export interface SortState {
 }
 
 /** Node-detail drawer sub-tabs on the Fleet Map. */
-export type NodeTabKey = "details" | "bundle" | "links";
-const NODE_TAB_KEYS: readonly NodeTabKey[] = ["details", "bundle", "links"];
+export type NodeTabKey = "details" | "bundle" | "agents" | "links";
+const NODE_TAB_KEYS: readonly NodeTabKey[] = [
+  "details",
+  "bundle",
+  "agents",
+  "links",
+];
 
 /** Progress/Logs sub-tab of the shared execution detail. */
 export type ExecTabKey = "progress" | "logs";
 const EXEC_TAB_KEYS: readonly ExecTabKey[] = ["progress", "logs"];
 
 /**
- * The shared execution-detail contract (GLASS-NAV-11): used by both the Fleet Map
+ * The shared execution-detail contract (FLT-NAV-11): used by both the Fleet Map
  * gate drawer and the E2E run detail. Only the sub-tab, the selected-step/whole-run
  * scope, the step-table sort, the expanded viewer, and the (coalesced) log search
  * are URL-represented here; follow/pause and the timestamp toggle are transient.
@@ -52,7 +57,7 @@ export interface ExecState {
   readonly stepSort: SortState | null;
   /** Expanded log viewer (the log modal) open. */
   readonly logExpanded: boolean;
-  /** Log search text (coalesced via replaceState, GLASS-NAV-06). */
+  /** Log search text (coalesced via replaceState, FLT-NAV-06). */
   readonly logQuery: string;
 }
 
@@ -66,16 +71,16 @@ export interface MapState {
   readonly nodeTab: NodeTabKey;
   /**
    * Gate pinned attempt as a full run address; null is the explicit live/latest
-   * mode that follows the current attempt (GLASS-NAV-10).
+   * mode that follows the current attempt (FLT-NAV-10).
    */
   readonly attempt: string | null;
-  /** Gate execution detail (GLASS-NAV-11). */
+  /** Gate execution detail (FLT-NAV-11). */
   readonly exec: ExecState;
 }
 
 /** Agent SDLC tab state. */
 export interface SdlcState {
-  /** Scope multi-select, canonically ordered (GLASS-NAV-13). */
+  /** Scope multi-select, canonically ordered (FLT-NAV-13). */
   readonly scopes: readonly string[];
   /** Issue-number/title search (coalesced). */
   readonly query: string;
@@ -99,9 +104,9 @@ export interface E2eState {
   readonly runSort: SortState | null;
   /** Selected run as a collision-free address tenant/namespace/runId. */
   readonly run: string | null;
-  /** Detail drawer open; independent of the selection (GLASS-NAV-12). */
+  /** Detail drawer open; independent of the selection (FLT-NAV-12). */
   readonly drawer: boolean;
-  /** Run execution detail (GLASS-NAV-11). */
+  /** Run execution detail (FLT-NAV-11). */
   readonly exec: ExecState;
 }
 
@@ -122,7 +127,7 @@ export interface RouteLocation {
 }
 
 /**
- * Explicit live/latest gate mode for the `gattempt` parameter (GLASS-NAV-10): the
+ * Explicit live/latest gate mode for the `gattempt` parameter (FLT-NAV-10): the
  * view follows the current attempt instead of pinning one. Distinct from both an
  * absent attempt (a fresh open, which auto-pins the current attempt so it does not
  * drift per E2E-LOG-12) and a concrete pinned run address. Real run addresses always
@@ -130,7 +135,7 @@ export interface RouteLocation {
  */
 export const GATE_LIVE_ATTEMPT = "live";
 
-// --- Limits (GLASS-NAV-02) -------------------------------------------------
+// --- Limits (FLT-NAV-02) -------------------------------------------------
 
 /** Practical caps so a crafted or runaway URL cannot grow unbounded. */
 export const ROUTE_LIMITS = {
@@ -185,7 +190,7 @@ export const DEFAULT_ROUTE: RouteState = {
 
 function clampValue(raw: string): string | null {
   // Reserved/Unicode characters round-trip through percent-encoding; we only
-  // reject values beyond the practical length cap (GLASS-NAV-02, GLASS-NAV-03).
+  // reject values beyond the practical length cap (FLT-NAV-02, FLT-NAV-03).
   if (raw.length === 0 || raw.length > ROUTE_LIMITS.value) {
     return null;
   }
@@ -240,19 +245,19 @@ function sameSort(a: SortState | null, b: SortState | null): boolean {
   );
 }
 
-// Column counts, used to range-check sort indices on parse (GLASS-NAV-02).
+// Column counts, used to range-check sort indices on parse (FLT-NAV-02).
 const RUN_SORT_COLUMNS = 7; // revision, attempt, started, duration, verdict, bundle, target
 const STEP_SORT_COLUMNS = 3; // name, state, duration
 
 /**
  * The runs table's default sort (Started column, newest first); an explicit sort
  * equal to it is the same view as the default, so it canonicalizes to null
- * (GLASS-NAV-02, GLASS-NAV-12). The steps table has no default sort (execution
+ * (FLT-NAV-02, FLT-NAV-12). The steps table has no default sort (execution
  * order), so its default is already the null state.
  */
 const RUN_DEFAULT_SORT: SortState = { col: 2, dir: "desc" };
 
-// --- Exec codec (shared by map gate + e2e run, GLASS-NAV-11) ---------------
+// --- Exec codec (shared by map gate + e2e run, FLT-NAV-11) ---------------
 
 interface ExecKeys {
   readonly tab: string;
@@ -313,7 +318,7 @@ function serializeExec(
 
 function parseTab(path: string): TabKey {
   // Accept a base-path prefix: the last non-empty segment selects the tab, and the
-  // empty root path is the default Fleet Map (GLASS-NAV-19).
+  // empty root path is the default Fleet Map (FLT-NAV-19).
   const segments = path.split("/").filter((s) => s.length > 0);
   const last = segments[segments.length - 1];
   return parseEnum(last ?? null, TAB_KEYS, "map");
@@ -324,7 +329,7 @@ function parseTab(path: string): TabKey {
 /**
  * Parse a location into a normalized RouteState. Never throws: unknown or
  * malformed parameters degrade to safe defaults and are dropped on
- * re-serialization (GLASS-NAV-14).
+ * re-serialization (FLT-NAV-14).
  */
 export function parseRoute(location: RouteLocation): RouteState {
   const search = location.search.startsWith("?")
@@ -336,7 +341,7 @@ export function parseRoute(location: RouteLocation): RouteState {
   const bundleRaw = params.get("bundle");
   const bundle = bundleRaw !== null ? clampValue(bundleRaw) : null;
 
-  // Map: node wins if both node and gate are present (GLASS-NAV-14 canonicalizes
+  // Map: node wins if both node and gate are present (FLT-NAV-14 canonicalizes
   // the redundant one away).
   const nodeRaw = params.get("node");
   const gateRaw = params.get("gate");
@@ -353,7 +358,7 @@ export function parseRoute(location: RouteLocation): RouteState {
   };
 
   // SDLC: scopes are repeated `scope=` params, deduplicated, canonically sorted,
-  // and capped (GLASS-NAV-02, GLASS-NAV-13).
+  // and capped (FLT-NAV-02, FLT-NAV-13).
   const scopes = canonicalScopes(
     params
       .getAll("scope")
@@ -374,7 +379,7 @@ export function parseRoute(location: RouteLocation): RouteState {
   };
 
   // E2E: the drawer defaults to open when a run is selected; `rund=0` is the
-  // explicit selected-but-closed state (GLASS-NAV-12).
+  // explicit selected-but-closed state (FLT-NAV-12).
   const runRaw = params.get("run");
   const run = runRaw !== null ? clampValue(runRaw) : null;
   const e2eQuery = params.get("runq");
@@ -417,7 +422,7 @@ export function normalizeRoute(state: RouteState): RouteState {
 
   // SDLC selections are mutually exclusive the way the reducers enforce them, so a
   // crafted or stale link that sets more than one must canonicalize to a single
-  // winner rather than round-tripping an impossible combination (GLASS-NAV-14). A
+  // winner rather than round-tripping an impossible combination (FLT-NAV-14). A
   // board card wins over a shipped-issue selection; a shipped-issue selection cannot
   // coexist with the escalations list.
   const card = state.sdlc.card;
@@ -454,7 +459,7 @@ export function normalizeRoute(state: RouteState): RouteState {
  * Serialize a RouteState to a canonical location. Default-valued state is omitted,
  * query parameters are emitted in a fixed order, and scopes are sorted, so two
  * navigation sequences that reach the same view produce identical URLs
- * (GLASS-NAV-02).
+ * (FLT-NAV-02).
  */
 export function serializeRoute(state: RouteState): RouteLocation {
   const norm = normalizeRoute(state);
@@ -525,7 +530,7 @@ export function serializeRoute(state: RouteState): RouteLocation {
   const location = { path, search };
 
   // A pathological over-length URL degrades to the tab-only canonical view rather
-  // than emitting something a browser or proxy may truncate (GLASS-NAV-02).
+  // than emitting something a browser or proxy may truncate (FLT-NAV-02).
   if (path.length + search.length > ROUTE_LIMITS.url) {
     return { path, search: "" };
   }

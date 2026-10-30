@@ -66,7 +66,7 @@ type Config struct {
 	NamespaceGCGracePeriod time.Duration
 
 	// DirectoryRefreshInterval is the cadence of the Keycloak realm directory
-	// projection refresh (GAM-09). Bounded staleness equals this interval.
+	// projection refresh (GTW-ACC-09). Bounded staleness equals this interval.
 	DirectoryRefreshInterval time.Duration
 
 	// GatewayReconcileWorkers bounds how many distinct gateways the control
@@ -146,6 +146,13 @@ type Config struct {
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
 
+	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
+	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
+	// permissions. OFF by default: the reconciler requires a Keycloak admin
+	// client provisioned and accessible. Sourced from
+	// HYPERSHELL_CI_TRUST_ENABLED.
+	CITrustEnabled bool
+
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
 	// reads repository subtrees over the GitHub API with the platform GitHub App
@@ -214,6 +221,7 @@ func Load() (*Config, error) {
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
+		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
 		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
 		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),

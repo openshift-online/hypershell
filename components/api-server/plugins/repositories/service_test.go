@@ -97,6 +97,7 @@ func TestCreate_UnsupportedProvider(t *testing.T) {
 
 // A set-but-nonexistent secret_source_id SHALL still be rejected with a validation
 // error (the FK check runs for a non-empty value).
+// Verifies: PLAT-DATA-10.03
 func TestCreate_NonexistentSecretSource(t *testing.T) {
 	svc := repositories.NewRepositoryService(&fakeRepositoryDao{secretSourceExists: false}, &fakeEventService{})
 	_, err := svc.Create(context.Background(), validRepo())
@@ -108,6 +109,7 @@ func TestCreate_NonexistentSecretSource(t *testing.T) {
 // An empty secret_source_id SHALL be accepted (public repository, anonymous read):
 // it must NOT be FK-validated and must NOT produce the "does not reference an
 // existing SecretSource" error.
+// Verifies: PLAT-DATA-10.02
 func TestCreate_EmptySecretSource_Accepted(t *testing.T) {
 	// secretSourceExists is false to prove the FK check is skipped for an empty value.
 	dao := &fakeRepositoryDao{secretSourceExists: false}

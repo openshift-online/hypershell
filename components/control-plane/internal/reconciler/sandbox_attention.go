@@ -19,6 +19,8 @@ import (
 
 const (
 	defaultSandboxAttentionInterval = 2 * time.Minute
+	oidcHealthInterval              = 30 * time.Second
+	oidcHealthTimeout               = 25 * time.Second
 	sandboxAttentionListTimeout     = 30 * time.Second
 	sandboxAttentionRPCTimeout      = 10 * time.Second
 )
@@ -30,22 +32,32 @@ const (
 //
 // See gateway-sandbox-attention-status.spec.md.
 type SandboxAttentionReconciler struct {
-	client        kubernetes.Interface
-	dynamicClient dynamic.Interface
-	grpcConn      *grpc.ClientConn
-	interval      time.Duration
-	clusterID     string
-	instance      string
-	now           func() time.Time
+	client          kubernetes.Interface
+	dynamicClient   dynamic.Interface
+	grpcConn        *grpc.ClientConn
+	interval        time.Duration
+	clusterID       string
+	instance        string
+	now             func() time.Time
+	oidcInspector   oidcClientInspector
+	oidcLastSuccess time.Time
 
-	publish         func(ctx context.Context, counts gateway.AttentionCounts)
-	liveNamespaces  func(ctx context.Context) (map[string]struct{}, error)
-	listPods        func(ctx context.Context) ([]*corev1.Pod, error)
-	listSandboxes   func(ctx context.Context) ([]*unstructured.Unstructured, error)
-	listNamespaces  func(ctx context.Context) ([]*corev1.Namespace, error)
-	activeSandboxes map[string]gateway.SandboxObservation
-	publishUsage    func(ctx context.Context, counts map[string]int)
-	recordLifetime  func(ctx context.Context, namespace string, lifetime time.Duration)
+	publish                        func(ctx context.Context, counts gateway.AttentionCounts)
+	liveNamespaces                 func(ctx context.Context) (map[string]struct{}, error)
+	listPods                       func(ctx context.Context) ([]*corev1.Pod, error)
+	listSandboxes                  func(ctx context.Context) ([]*unstructured.Unstructured, error)
+	listNamespaces                 func(ctx context.Context) ([]*corev1.Namespace, error)
+	activeSandboxes                map[string]gateway.SandboxObservation
+	publishedUsageNamespaces       map[string]struct{}
+	publishUsage                   func(ctx context.Context, counts map[string]int)
+	recordLifetime                 func(ctx context.Context, namespace string, lifetime time.Duration)
+	publishReadiness               func(ctx context.Context, ready int)
+	publishReadinessUnavailable    func(ctx context.Context)
+	publishCertificates            func(ctx context.Context, health certificateHealth)
+	publishCertificatesUnavailable func(ctx context.Context)
+	publishOIDC                    func(ctx context.Context, synced, expected int, connected bool)
+	listCertificates               func(ctx context.Context, eligible map[string]struct{}) ([][]byte, error)
+	listGateways                   func(ctx context.Context) ([]*pb.Gateway, error)
 }
 
 // NewSandboxAttentionReconciler builds a SandboxAttentionReconciler.
@@ -55,18 +67,21 @@ func NewSandboxAttentionReconciler(
 	grpcConn *grpc.ClientConn,
 	interval time.Duration,
 	clusterID, instance string,
+	oidcInspector oidcClientInspector,
 ) *SandboxAttentionReconciler {
 	if interval <= 0 {
 		interval = defaultSandboxAttentionInterval
 	}
 	r := &SandboxAttentionReconciler{
-		client:        client,
-		dynamicClient: dynamicClient,
-		grpcConn:      grpcConn,
-		interval:      interval,
-		clusterID:     clusterID,
-		instance:      instance,
-		now:           time.Now,
+		client:                   client,
+		dynamicClient:            dynamicClient,
+		grpcConn:                 grpcConn,
+		interval:                 interval,
+		clusterID:                clusterID,
+		instance:                 instance,
+		now:                      time.Now,
+		oidcInspector:            oidcInspector,
+		publishedUsageNamespaces: make(map[string]struct{}),
 	}
 	r.publish = r.exportCounts
 	r.liveNamespaces = r.grpcLiveNamespaces
@@ -75,11 +90,27 @@ func NewSandboxAttentionReconciler(
 	r.listNamespaces = r.listManagedNamespaces
 	r.publishUsage = r.exportUsage
 	r.recordLifetime = r.exportLifetime
+	r.publishReadiness = r.exportReadiness
+	r.publishReadinessUnavailable = r.exportReadinessUnavailable
+	r.publishCertificates = r.exportCertificates
+	r.publishCertificatesUnavailable = r.exportCertificatesUnavailable
+	r.publishOIDC = r.exportOIDC
+	r.listCertificates = r.listCertificateMaterials
+	r.listGateways = r.grpcGateways
 	return r
 }
 
 // Run drives the attention reconciliation loop until the context is cancelled.
 func (r *SandboxAttentionReconciler) Run(ctx context.Context) error {
+	// OIDC health must advance independently of sandbox/certificate API failures.
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	healthDone := make(chan struct{})
+	go func() {
+		defer close(healthDone)
+		r.runOIDCHealth(healthCtx)
+	}()
+	defer func() { stopHealth(); <-healthDone }()
+
 	log.Printf("INFO sandbox attention reconciler started (interval=%s cluster_id=%q instance=%s)",
 		r.interval, r.clusterID, r.instance)
 	r.reconcileOnce(ctx)
@@ -110,6 +141,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN sandbox attention: list managed namespaces: %v", err)
+		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
 	}
@@ -124,13 +156,14 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN sandbox attention: list sandbox pods: %v", err)
+		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
 	}
 
-	// Sandbox CR list failure must not block orphaned publication (SSA-01 /
+	// Sandbox CR list failure must not block orphaned publication (OBS-SBXA-01 /
 	// SC-003): orphaned counts need only pods + live gateway namespaces.
-	// SSA-05: on CR failure, treat expiring-soon and idle as zero for that tick
+	// OBS-SBXA-05: on CR failure, treat expiring-soon and idle as zero for that tick
 	// (do not apply the never-used idle heuristic from pod CreationTime alone).
 	sandboxes, err := r.listSandboxes(listCtx)
 	crListFailed := err != nil
@@ -141,6 +174,22 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 
 	observations := gateway.BuildAttentionObservations(pods, gateway.IndexSandboxes(sandboxes), eligible)
 	r.recordUsage(ctx, eligible, sandboxes, observations, crListFailed)
+	if !crListFailed && r.publishReadiness != nil {
+		r.publishReadiness(ctx, readySandboxCount(sandboxes, eligible))
+	} else if crListFailed && r.publishReadinessUnavailable != nil {
+		r.publishReadinessUnavailable(ctx)
+	}
+	if r.listCertificates != nil && r.publishCertificates != nil {
+		materials, certErr := r.listCertificates(listCtx, eligible)
+		if certErr != nil {
+			log.Printf("WARN dashboard health: evaluate certificates: %v", certErr)
+			if r.publishCertificatesUnavailable != nil {
+				r.publishCertificatesUnavailable(ctx)
+			}
+		} else {
+			r.publishCertificates(ctx, evaluateCertificateHealth(materials, r.now().UTC()))
+		}
+	}
 
 	live, err := r.liveNamespaces(listCtx)
 	if err != nil {
@@ -169,7 +218,22 @@ func (r *SandboxAttentionReconciler) recordUsage(
 	crListFailed bool,
 ) {
 	if !crListFailed && r.publishUsage != nil {
-		r.publishUsage(ctx, gateway.ProvisionedSandboxCounts(sandboxes, eligible))
+		counts := gateway.ProvisionedSandboxCounts(sandboxes, eligible)
+		for namespace := range eligible {
+			if _, ok := counts[namespace]; !ok {
+				counts[namespace] = 0
+			}
+		}
+		for namespace := range r.publishedUsageNamespaces {
+			if _, ok := eligible[namespace]; !ok {
+				counts[namespace] = 0
+			}
+		}
+		r.publishUsage(ctx, counts)
+		r.publishedUsageNamespaces = make(map[string]struct{}, len(eligible))
+		for namespace := range eligible {
+			r.publishedUsageNamespaces[namespace] = struct{}{}
+		}
 	}
 
 	current, departed := gateway.ReconcileActiveSandboxes(r.activeSandboxes, observations)
@@ -195,6 +259,94 @@ func (r *SandboxAttentionReconciler) exportUsage(ctx context.Context, counts map
 
 func (r *SandboxAttentionReconciler) exportLifetime(ctx context.Context, namespace string, lifetime time.Duration) {
 	cpotel.RecordSandboxLifetime(ctx, r.clusterID, namespace, lifetime)
+}
+
+func (r *SandboxAttentionReconciler) exportReadiness(ctx context.Context, ready int) {
+	cpotel.RecordSandboxReady(ctx, r.clusterID, ready)
+}
+
+func (r *SandboxAttentionReconciler) exportReadinessUnavailable(ctx context.Context) {
+	cpotel.RecordSandboxReadyUnavailable(ctx, r.clusterID)
+}
+
+func (r *SandboxAttentionReconciler) publishDashboardHealthUnavailable(ctx context.Context) {
+	if r.publishReadinessUnavailable != nil {
+		r.publishReadinessUnavailable(ctx)
+	}
+	if r.publishCertificatesUnavailable != nil {
+		r.publishCertificatesUnavailable(ctx)
+	}
+}
+
+func (r *SandboxAttentionReconciler) exportCertificates(ctx context.Context, health certificateHealth) {
+	cpotel.RecordCertificateHealth(ctx, r.clusterID, health.Valid, health.Expired, health.Unavailable, health.DaysToExpiryMin)
+}
+
+func (r *SandboxAttentionReconciler) exportCertificatesUnavailable(ctx context.Context) {
+	cpotel.RecordCertificateHealthUnavailable(ctx, r.clusterID)
+}
+
+func (r *SandboxAttentionReconciler) exportOIDC(ctx context.Context, synced, expected int, connected bool) {
+	cpotel.RecordOIDCClientHealth(ctx, r.clusterID, synced, expected, connected)
+}
+
+// runOIDCHealth bounds every comparison and exports its completion time. A
+// timeout records failure; a stalled/missing producer is detected by freshness.
+func (r *SandboxAttentionReconciler) runOIDCHealth(ctx context.Context) {
+	ticker := time.NewTicker(oidcHealthInterval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, oidcHealthTimeout)
+		r.observeOIDCHealth(checkCtx)
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *SandboxAttentionReconciler) publishOIDCObservation(ctx context.Context, synced, expected int, connected bool) {
+	now := r.now().UTC()
+	if connected && synced == expected && expected >= 0 {
+		r.oidcLastSuccess = now
+	}
+	cpotel.RecordOIDCClientFreshness(ctx, r.clusterID, now, r.oidcLastSuccess)
+	r.publishOIDC(ctx, synced, expected, connected)
+}
+
+func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
+	if r.publishOIDC == nil || r.listGateways == nil {
+		return
+	}
+	gateways, err := r.listGateways(ctx)
+	if err != nil {
+		log.Printf("WARN dashboard health: list desired OIDC clients: %v", err)
+		r.publishOIDCObservation(ctx, 0, 0, false)
+		return
+	}
+	clientIDs := desiredOIDCClientIDs(gateways)
+	if r.oidcInspector == nil {
+		r.publishOIDCObservation(ctx, 0, len(clientIDs), false)
+		return
+	}
+	synced := 0
+	for _, clientID := range clientIDs {
+		inSync, inspectErr := r.oidcInspector.GatewayClientSynced(ctx, clientID)
+		if inspectErr != nil {
+			log.Printf("WARN dashboard health: compare desired OIDC clients: %v", inspectErr)
+			r.publishOIDCObservation(ctx, synced, len(clientIDs), false)
+			return
+		}
+		if inSync {
+			synced++
+		}
+	}
+	r.publishOIDCObservation(ctx, synced, len(clientIDs), true)
 }
 
 func (r *SandboxAttentionReconciler) listSandboxPods(ctx context.Context) ([]*corev1.Pod, error) {
@@ -256,12 +408,18 @@ func (r *SandboxAttentionReconciler) grpcLiveNamespaces(ctx context.Context) (ma
 	return out, nil
 }
 
+func (r *SandboxAttentionReconciler) grpcGateways(ctx context.Context) ([]*pb.Gateway, error) {
+	rpcCtx, cancel := context.WithTimeout(ctx, sandboxAttentionRPCTimeout)
+	defer cancel()
+	return listAllGateways(rpcCtx, pb.NewGatewayServiceClient(r.grpcConn), r.clusterID)
+}
+
 func (r *SandboxAttentionReconciler) exportCounts(ctx context.Context, counts gateway.AttentionCounts) {
 	cpotel.RecordSandboxAttentionCounts(ctx, r.clusterID, counts.Orphaned, counts.Expiring, counts.Idle)
 }
 
 // publishZero clears attention gauges so a failed tick cannot leave stale
-// non-zero values exporting until the process stops (SSA-06 freshness).
+// non-zero values exporting until the process stops (OBS-SBXA-06 freshness).
 func (r *SandboxAttentionReconciler) publishZero(ctx context.Context) {
 	r.publish(ctx, gateway.AttentionCounts{})
 }

@@ -148,7 +148,7 @@ test.beforeEach(async ({ browserName, page }) => {
 test("makes gateway management the primary HyperShell experience", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/gateways");
 
   await expect(page).toHaveTitle("HyperShell - OpenShell Gateways");
   await expect(
@@ -213,7 +213,7 @@ test("keeps unknown gateway status readable in every theme", async ({
     });
   });
 
-  await page.goto("/");
+  await page.goto("/gateways");
   await expect(page.getByText("Future status", { exact: true })).toBeVisible();
   let results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
@@ -240,14 +240,14 @@ test("keeps unknown gateway status readable in every theme", async ({
     .analyze();
   expect(results.violations).toEqual([]);
 
-  await page.goto("/");
+  await page.goto("/gateways");
   await expect(page.getByText("Future status", { exact: true })).toBeVisible();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
 
 test("operates gateway rows and opens provisioning", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/gateways");
 
   await page
     .getByRole("button", { name: "Actions for openshell-gateway-test" })
@@ -276,7 +276,7 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   ).toBeVisible();
   await expect(page).toHaveURL(/\?q=Cluster\+East&sort=cluster$/u);
   await page.goBack();
-  await expect(page).toHaveURL(/\/$/u);
+  await expect(page).toHaveURL(/\/gateways$/u);
   await expect(
     page.getByRole("columnheader", { name: "Gateway name" }),
   ).toHaveAttribute("aria-sort", "ascending");
@@ -289,6 +289,7 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
+// Verifies: WEB-UIEX-04.03
 test("keeps connection methods on gateway details", async ({
   browserName,
   context,
@@ -297,7 +298,7 @@ test("keeps connection methods on gateway details", async ({
   if (browserName === "chromium") {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   }
-  await page.goto("/");
+  await page.goto("/gateways");
   await page
     .getByRole("link", { name: "openshell-gateway-test", exact: true })
     .click();
@@ -369,7 +370,7 @@ test("keeps connection methods on gateway details", async ({
 });
 
 test("renames a gateway from its row", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/gateways");
   await page
     .getByRole("button", { name: "Actions for openshell-gateway-test" })
     .click();
@@ -414,8 +415,9 @@ test("renames a gateway from its details", async ({ page }) => {
   await expect(page.getByText("Gateway renamed to team-gateway")).toBeVisible();
 });
 
+// Verifies: WEB-UIEX-06.03
 test("deletes a gateway from its row after confirmation", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/gateways");
   await page
     .getByRole("button", { name: "Actions for openshell-gateway-test" })
     .click();
@@ -460,7 +462,7 @@ test("deletes a gateway from its details and returns to the list", async ({
   });
   await dialog.getByRole("button", { name: "Delete gateway" }).click();
 
-  await expect(page).toHaveURL(/\/$/u);
+  await expect(page).toHaveURL(/\/gateways$/u);
   await expect(
     page.getByText("Gateway openshell-gateway-test deleted"),
   ).toBeVisible();
@@ -484,6 +486,7 @@ test("does not preserve removed administration routes", async ({ page }) => {
   }
 });
 
+// Verifies: WEB-UIEX-04.01, WEB-PLC-01.01, WEB-PLC-06.02
 test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {
@@ -546,7 +549,7 @@ test("provisions a gateway on an existing managed cluster", async ({
     });
   });
 
-  await page.goto("/");
+  await page.goto("/gateways");
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
@@ -592,11 +595,14 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
     name: "team-gateway",
-    placement: { selector: ["network/public", "provider/aws"] },
-    route: '{"enabled":true}',
+    placement: {
+      excludedSelector: ["runtime/kata"],
+      selector: ["network/public", "provider/aws"],
+    },
   });
 });
 
+// Verifies: SEC-OIDC-06.01
 test("shows the signed-in user and a full sign-out link", async ({ page }) => {
   await page.route("**/auth/session", async (route) => {
     await route.fulfill({
@@ -611,7 +617,7 @@ test("shows the signed-in user and a full sign-out link", async ({ page }) => {
     });
   });
 
-  await page.goto("/");
+  await page.goto("/gateways");
   const toggle = page.getByRole("button", { name: /Ada Lovelace/u });
   await expect(toggle).toBeVisible();
 
@@ -632,7 +638,7 @@ test("reflows the gateway table without horizontal page overflow", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/gateways");
 
   await expect(
     page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),

@@ -18,6 +18,32 @@ the control plane resolves and assigns a matching `ManagedCluster` at provision
 time. Agents reference that gateway by name and assume it provisions when applied
 to a cluster whose capabilities match.
 
+## Relationship to `.fullsend/` (execution engine)
+
+`.hypershell/` and [`.fullsend/`](../.fullsend/) are **complementary** and describe
+the same agents from two angles:
+
+- **`.hypershell/` = the HyperShell platform wiring.** Declarative ext-API Kinds
+  (`AgentRuntime`, `SecretSource`, `ProviderBinding`, `InferenceRoute`, `Gateway`)
+  imported server-side and reconciled by the control plane: *which* agents exist,
+  *where* they run, *with what credentials*, *when*, and *is-it-healthy*. The agent
+  logic lives in `.hypershell/agents/<name>/SKILL.md`.
+- **`.fullsend/` = the Fullsend execution spec.** One harness per agent
+  (`harness/<name>.yaml` = role + policy + providers + model + sandbox image + CEL
+  `trigger`) plus the prompt (`agents/<name>.md`, mirrored from the SKILL). Fullsend
+  resolves a harness, creates the sandbox, runs the agent, and opens the PR.
+
+The two share the **`agent/*` label state machine** below: the labels are both the
+`AgentRuntime.selector` (HyperShell discovery) and the Fullsend CEL `trigger`
+conditions, so no second scheme exists. The migration from the hand-rolled `run.sh`
+coordinator to the Fullsend engine is tracked in
+[`fullsend-migration/`](../fullsend-migration/); see its `PLAN.md` "Adopting
+Fullsend" section for how a repo pairs the two projects.
+
+| Agent | `.hypershell` logic | `.fullsend` harness |
+|-------|---------------------|---------------------|
+| triage, spec-implementation, spec-review, code-implementation, code-review, release-verification, update-openshell | `agents/<name>/SKILL.md` + `agents/<name>/agent.yaml` (AgentRuntime) | `.fullsend/harness/<name>.yaml` + `.fullsend/agents/<name>.md` |
+
 ## Layout
 
 ```

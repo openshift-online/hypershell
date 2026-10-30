@@ -1,4 +1,4 @@
-// Shared flight motion primitive (SDLC-VIS-12a): the single source of the promotion
+// Shared flight motion primitive (SDLC-VIS-20): the single source of the promotion
 // flight's arc path, impact "dust" burst, and timing, so the Fleet Map (SVG, flying an
 // identicon) and the Agent SDLC board (DOM, flying a full card) read as one motion
 // language instead of each forking their own. Pure math + constants only; the matching

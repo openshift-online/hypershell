@@ -31,6 +31,7 @@ const serviceAccountApi = {
   get: vi.fn(),
   list: vi.fn(),
   revoke: vi.fn(),
+  updateRole: vi.fn(),
 };
 const gatewayAccessApi = {
   create: vi.fn(),
@@ -67,6 +68,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     created_at: null,
     created_by: "",
     credential_driver: "",
+    dedicated_route: false,
     external_dns: "gateway.example.com",
     gateway_version: "",
     generation: 1,
@@ -75,13 +77,11 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     image: "",
     kind: "Gateway",
     name: "Team gateway",
-    image_pinned: false,
     namespace: "openshell",
     observed_generation: 1,
     oidc: "",
     phase: "",
     provisioning_conditions: [],
-    provisioning_version: "",
     repository_id: "",
     route: "",
     route_address: "",
@@ -91,6 +91,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     supervisor_image: "",
     tls_mode: "",
     updated_at: null,
+    workspace_mode: "managed",
     ...overrides,
   };
 }
@@ -302,6 +303,9 @@ describe("gateway API operations adapter", () => {
       serviceAccount({ status: "revoking" }),
     );
     serviceAccountApi.delete.mockResolvedValue(undefined);
+    serviceAccountApi.updateRole.mockResolvedValue(
+      serviceAccount({ role: "openshell-admin" }),
+    );
 
     await expect(
       controlPlane.createOpenShellGatewayServiceAccount(
@@ -331,6 +335,20 @@ describe("gateway API operations adapter", () => {
         context,
       ),
     ).resolves.toMatchObject({ status: "revoking" });
+    await expect(
+      controlPlane.updateOpenShellGatewayServiceAccountRole(
+        "gateway-1",
+        "account-1",
+        { role: "openshell-admin" },
+        context,
+      ),
+    ).resolves.toMatchObject({ role: "openshell-admin" });
+    expect(serviceAccountApi.updateRole).toHaveBeenCalledWith(
+      "gateway-1",
+      "account-1",
+      { role: "openshell-admin" },
+      expect.anything(),
+    );
     await expect(
       controlPlane.deleteOpenShellGatewayServiceAccount(
         "gateway-1",
@@ -439,63 +457,6 @@ describe("gateway API operations adapter", () => {
       expect.objectContaining({ search: "oidc_subject <> ''" }),
       expect.anything(),
     );
-  });
-
-  it("collects provisioning versions across every registered-cluster page", async () => {
-    managedClusterApi.list
-      .mockResolvedValueOnce({
-        items: Array.from({ length: 20 }, (_, index) =>
-          managedCluster({
-            capabilities: ["gateway-version/v0.1.2-rhaiv.7"],
-            id: `cluster-a-${String(index)}`,
-          }),
-        ),
-        kind: "ManagedClusterList",
-        page: 1,
-        size: 20,
-        total: 21,
-      })
-      .mockResolvedValueOnce({
-        items: [
-          managedCluster({
-            capabilities: ["gateway-version/v0.2.0-rhaiv.1"],
-            id: "cluster-b-0",
-          }),
-        ],
-        kind: "ManagedClusterList",
-        page: 2,
-        size: 20,
-        total: 21,
-      });
-
-    if (!controlPlane.getGatewayProvisioningVersions) {
-      throw new Error("getGatewayProvisioningVersions is not implemented");
-    }
-    await expect(
-      controlPlane.getGatewayProvisioningVersions(context),
-    ).resolves.toEqual(["v0.1.2-rhaiv.7", "v0.2.0-rhaiv.1"]);
-    expect(managedClusterApi.list).toHaveBeenCalledTimes(2);
-    expect(managedClusterApi.list).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ page: 2, search: "oidc_subject <> ''" }),
-      expect.anything(),
-    );
-  });
-
-  it("reads one page of provisioning versions when the first page is short", async () => {
-    managedClusterApi.list.mockResolvedValue(
-      managedClusterList([
-        managedCluster({ capabilities: ["gateway-version/v0.1.2-rhaiv.7"] }),
-      ]),
-    );
-
-    if (!controlPlane.getGatewayProvisioningVersions) {
-      throw new Error("getGatewayProvisioningVersions is not implemented");
-    }
-    await expect(
-      controlPlane.getGatewayProvisioningVersions(context),
-    ).resolves.toEqual(["v0.1.2-rhaiv.7"]);
-    expect(managedClusterApi.list).toHaveBeenCalledOnce();
   });
 
   it("treats ILIKE wildcard and escape characters as search literals", async () => {
@@ -674,6 +635,7 @@ describe("gateway API operations adapter", () => {
     });
   });
 
+  // Verifies: WEB-VER-04.01
   it("maps gateway_version to the reconciled gateway version", async () => {
     gatewayApi.get.mockResolvedValue(
       gateway({ gateway_version: " v0.0.109-rh9a8f8 " }),
@@ -682,32 +644,6 @@ describe("gateway API operations adapter", () => {
     await expect(
       controlPlane.getGateway("gateway-1", context),
     ).resolves.toMatchObject({ gatewayVersion: "v0.0.109-rh9a8f8" });
-  });
-
-  it("maps provisioning_version and image_pinned onto the gateway record", async () => {
-    gatewayApi.get.mockResolvedValue(
-      gateway({
-        gateway_version: "v0.1.1-rhaiv.3",
-        image_pinned: true,
-        provisioning_version: " v0.1.2-rhaiv.7 ",
-      }),
-    );
-
-    await expect(
-      controlPlane.getGateway("gateway-1", context),
-    ).resolves.toMatchObject({
-      gatewayVersion: "v0.1.1-rhaiv.3",
-      imagePinned: true,
-      provisioningVersion: "v0.1.2-rhaiv.7",
-    });
-  });
-
-  it("omits the provisioning version when the cluster advertises none", async () => {
-    gatewayApi.get.mockResolvedValue(gateway({ provisioning_version: "" }));
-
-    const result = await controlPlane.getGateway("gateway-1", context);
-
-    expect(result.provisioningVersion).toBeUndefined();
   });
 
   it("sorts gateways by the API gateway-version field", async () => {
@@ -785,7 +721,7 @@ describe("gateway API operations adapter", () => {
     );
   });
 
-  it("provisions from placement intent with hidden request defaults", async () => {
+  it("provisions from placement intent with name and placement only", async () => {
     gatewayApi.create.mockResolvedValue(gateway({}));
 
     await controlPlane.provisionGateway(
@@ -800,7 +736,6 @@ describe("gateway API operations adapter", () => {
       {
         name: "team-gateway",
         placement: { selector: ["network/public", "provider/aws"] },
-        route: '{"enabled":true}',
       },
       { signal: undefined },
     );

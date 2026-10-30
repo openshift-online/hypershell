@@ -1,4 +1,10 @@
-import { Content, Divider, PageSection, Title } from "@patternfly/react-core";
+import { Content, PageSection, Title } from "@patternfly/react-core";
+import {
+  ArrowRightIcon,
+  ChartLineIcon,
+  UsersIcon,
+} from "@patternfly/react-icons";
+import type { ExtendedTemplateConfig } from "@patternfly/widgetized-dashboard";
 import {
   DashboardFilters,
   DashboardNavigation,
@@ -8,17 +14,55 @@ import {
 import {
   DashboardDonut,
   DashboardSparkline,
+  DashboardSummaryList,
   DashboardWidget,
+  MockupWidgetizedLayout,
 } from "../common/dashboard-widget";
 
-const Row = ({ label, value }: { label: string; value: string }) => (
-  <div
-    style={{ display: "flex", fontSize: 12, justifyContent: "space-between" }}
-  >
-    <span>{label}</span>
-    <strong>{value}</strong>
-  </div>
-);
+const adoptionLayout: ExtendedTemplateConfig = {
+  xl: [
+    {
+      h: 5,
+      i: "adoption-summary#1",
+      title: "Adoption summary",
+      w: 2,
+      x: 0,
+      y: 0,
+      widgetType: "adoption-summary",
+    },
+    {
+      h: 5,
+      i: "adoption-conversion#1",
+      title: "Registration to first resource",
+      w: 1,
+      x: 2,
+      y: 0,
+      widgetType: "adoption-conversion",
+    },
+    {
+      h: 6,
+      i: "adoption-trends#1",
+      title: "Adoption trends",
+      w: 3,
+      x: 0,
+      y: 5,
+      widgetType: "adoption-trends",
+    },
+  ],
+  lg: [],
+  md: [],
+  sm: [],
+};
+adoptionLayout.lg = adoptionLayout.xl;
+adoptionLayout.md = adoptionLayout.xl;
+adoptionLayout.sm = adoptionLayout.xl.map((item, index) => ({
+  ...item,
+  w: 1,
+  x: 0,
+  y: adoptionLayout.xl
+    .slice(0, index)
+    .reduce((sum, previous) => sum + previous.h, 0),
+}));
 
 export function AdoptionDashboardPageSurface() {
   return (
@@ -30,7 +74,7 @@ export function AdoptionDashboardPageSurface() {
       >
         <Content>
           <Title headingLevel="h1" size="2xl">
-            Adoption dashboard
+            Adoption
           </Title>
           <p>
             Understand who is using HyperShell, how adoption is changing, and
@@ -49,78 +93,94 @@ export function AdoptionDashboardPageSurface() {
           destinations={futureDashboards}
         />
         <DashboardPurpose>
-          This dashboard answers: Are people adopting HyperShell? Are
-          registrations, active use, conversion, and retention moving in the
-          right direction? These are aggregate measures; system-wide views are
-          for platform admins, while fleet-scoped views follow the viewer's
-          access.
+          Are people adopting HyperShell? Are registrations, active use,
+          conversion, and retention moving in the right direction? These are
+          aggregate measures; no user-level data is displayed.
         </DashboardPurpose>
         <DashboardFilters />
-        <div
-          style={{
-            display: "grid",
-            gap: 8,
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gridTemplateRows: "260px 330px",
-          }}
+        <MockupWidgetizedLayout
+          columns={{ xl: 3, lg: 3, md: 3, sm: 1 }}
+          template={adoptionLayout}
         >
           <DashboardWidget
             adminOnly
+            icon={<UsersIcon />}
             title="Adoption summary"
-            style={{ gridColumn: "1 / span 2" }}
           >
             <div style={{ display: "grid", gap: 16 }}>
               <Title headingLevel="h3" size="lg">
                 450 registered users
               </Title>
-              <Row label="New registrations (selected period)" value="48" />
-              <Row label="Daily active users" value="186" />
-              <Row label="Weekly active users" value="312" />
-              <Row label="Monthly active users" value="398" />
-              <Row label="Inactive users (30+ days)" value="52" />
-              <Row label="7-day retention" value="78%" />
-              <Row label="30-day retention" value="-" />
-              <Divider />
-              <Content component="small">
-                Active users are counted when they perform a qualifying
-                HyperShell activity. Aggregate-only view; no user-level data is
-                displayed.
-              </Content>
+              <DashboardSummaryList
+                gap={8}
+                items={[
+                  {
+                    label: "New registrations (selected period)",
+                    value: "48",
+                  },
+                  { label: "Daily active users", value: "186" },
+                  { label: "Weekly active users", value: "312" },
+                  { label: "Monthly active users", value: "398" },
+                  { label: "Inactive users (30+ days)", value: "52" },
+                  { label: "7-day retention", value: "78.0" },
+                  { label: "30-day retention", value: "-" },
+                ]}
+              />
             </div>
           </DashboardWidget>
-          <DashboardWidget adminOnly title="Registration to first resource">
+          <DashboardWidget
+            adminOnly
+            icon={<ArrowRightIcon />}
+            title="Registration to first resource"
+          >
             <DashboardDonut
               label="Conversion"
               value="68%"
               segments={[
-                { label: "First gateway", value: 68, color: "#0066cc" },
+                {
+                  label: "First gateway conversion",
+                  value: 68,
+                  color: "#0066cc",
+                },
                 { label: "Not converted", value: 32, color: "#d2d2d2" },
               ]}
             />
-            <Row label="First sandbox" value="61%" />
-            <Row label="Median time to first resource" value="2h 14m" />
+            <DashboardSummaryList
+              gap={8}
+              items={[
+                { label: "First gateway conversion", value: "306" },
+                { label: "First sandbox conversion", value: "-" },
+                { label: "Median time to first resource", value: "-" },
+              ]}
+            />
           </DashboardWidget>
           <DashboardWidget
             adminOnly
+            icon={<ChartLineIcon />}
             title="Adoption trends"
-            style={{ gridColumn: "1 / span 3" }}
           >
-            <Title headingLevel="h4" size="md">
-              New registrations
-            </Title>
-            <DashboardSparkline
-              data={[18, 23, 27, 32, 31, 39, 44, 48, 55, 61, 67, 74]}
-              caption="Last 30 days · daily bucket · UTC"
-            />
-            <Title headingLevel="h4" size="md">
-              Active users
-            </Title>
-            <DashboardSparkline
-              data={[12, 15, 18, 24, 29, 33, 36, 41, 47, 52, 58, 64]}
-              caption="Last 30 days · daily bucket · UTC"
-            />
+            <div style={{ display: "grid", gap: 16 }}>
+              <div style={{ display: "grid", gap: 8 }}>
+                <Title headingLevel="h4" size="md">
+                  New registrations
+                </Title>
+                <DashboardSparkline
+                  caption="Last 30 days - daily bucket - UTC"
+                  data={[18, 23, 27, 32, 31, 39, 44, 48, 55, 61, 67, 74]}
+                />
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <Title headingLevel="h4" size="md">
+                  Active users
+                </Title>
+                <DashboardSparkline
+                  caption="Last 30 days - daily bucket - UTC"
+                  data={[12, 15, 18, 24, 29, 33, 36, 41, 47, 52, 58, 64]}
+                />
+              </div>
+            </div>
           </DashboardWidget>
-        </div>
+        </MockupWidgetizedLayout>
       </PageSection>
     </>
   );

@@ -142,6 +142,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.03
 	t.Run("skips an unmanaged namespace", func(t *testing.T) {
 		unmanaged := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "shared"}}
 		client := fake.NewSimpleClientset(unmanaged)
@@ -157,6 +158,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.02
 	t.Run("absent namespace is a no-op success", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		deleted, err := DeleteManagedNamespace(ctx, client, "gone", "hypershell")
@@ -168,6 +170,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-01.04
 	t.Run("skips a foreign instance namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "stage", nil))
 		deleted, err := DeleteManagedNamespace(ctx, client, "openshell-gw", "hypershell")
@@ -197,6 +200,7 @@ func TestDeleteManagedNamespace(t *testing.T) {
 func TestEnsureManagedNamespace(t *testing.T) {
 	ctx := context.Background()
 
+	// Verifies: OSG-NSGC-03.01
 	t.Run("creates with instance label", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		if err := EnsureManagedNamespace(ctx, client, "openshell-gw", "hypershell"); err != nil {
@@ -228,6 +232,7 @@ func TestEnsureManagedNamespace(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-03.03
 	t.Run("refuses a foreign instance namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "stage", nil))
 		if err := EnsureManagedNamespace(ctx, client, "openshell-gw", "hypershell"); err == nil {
@@ -253,6 +258,7 @@ func TestEnsureManagedNamespace(t *testing.T) {
 func TestBackfillInstanceLabel(t *testing.T) {
 	ctx := context.Background()
 
+	// Verifies: OSG-NSGC-04.01
 	t.Run("stamps instance on legacy managed namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "", nil))
 		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
@@ -322,6 +328,7 @@ func TestBackfillInstanceLabel(t *testing.T) {
 		}
 	})
 
+	// Verifies: OSG-NSGC-04.03
 	t.Run("never creates an absent namespace", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gone", "hypershell")
@@ -428,6 +435,58 @@ func TestClearGCEligible(t *testing.T) {
 		client := fake.NewSimpleClientset(ns)
 		if err := ClearGCEligible(ctx, client, ns); err != nil {
 			t.Fatalf("ClearGCEligible() error = %v", err)
+		}
+	})
+}
+
+// TestDeleteManagedWorkspaceNamespaces covers the managed-mode cleanup sweep
+// (openshell-gateway.spec.md, "Gateway Workspace Mode"): per-workspace
+// namespaces labeled with the gateway's derived gateway_id are deleted, other
+// namespaces (including other gateways') are untouched, and a namespace without
+// the API-assigned shape is a no-op.
+func TestDeleteManagedWorkspaceNamespaces(t *testing.T) {
+	ctx := context.Background()
+
+	workspaceNS := func(name, gatewayID string) *corev1.Namespace {
+		return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{OpenShellGatewayIDLabel: gatewayID},
+		}}
+	}
+
+	t.Run("deletes the gateway's labeled workspace namespaces", func(t *testing.T) {
+		client := fake.NewSimpleClientset(
+			workspaceNS("openshell-deadbeefdeadbeef-team-a", "deadbeefdeadbeef"),
+			workspaceNS("openshell-deadbeefdeadbeef-team-b", "deadbeefdeadbeef"),
+			workspaceNS("openshell-feedfacefeedface-team-a", "feedfacefeedface"),
+		)
+		if err := DeleteManagedWorkspaceNamespaces(ctx, client, "openshell-deadbeefdeadbeef"); err != nil {
+			t.Fatalf("DeleteManagedWorkspaceNamespaces() error = %v", err)
+		}
+		for _, name := range []string{"openshell-deadbeefdeadbeef-team-a", "openshell-deadbeefdeadbeef-team-b"} {
+			if _, err := client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+				t.Errorf("namespace %s still exists after sweep, err = %v", name, err)
+			}
+		}
+		if _, err := client.CoreV1().Namespaces().Get(ctx, "openshell-feedfacefeedface-team-a", metav1.GetOptions{}); err != nil {
+			t.Errorf("other gateway's workspace namespace must be preserved, err = %v", err)
+		}
+	})
+
+	t.Run("non API-assigned namespace is a no-op", func(t *testing.T) {
+		client := fake.NewSimpleClientset(workspaceNS("openshell-custom-team-a", "custom"))
+		if err := DeleteManagedWorkspaceNamespaces(ctx, client, "custom-namespace"); err != nil {
+			t.Fatalf("DeleteManagedWorkspaceNamespaces() error = %v", err)
+		}
+		if _, err := client.CoreV1().Namespaces().Get(ctx, "openshell-custom-team-a", metav1.GetOptions{}); err != nil {
+			t.Errorf("namespace must be preserved without a derivable gateway id, err = %v", err)
+		}
+	})
+
+	t.Run("no labeled namespaces is a no-op success", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		if err := DeleteManagedWorkspaceNamespaces(ctx, client, "openshell-deadbeefdeadbeef"); err != nil {
+			t.Fatalf("DeleteManagedWorkspaceNamespaces() error = %v", err)
 		}
 	})
 }

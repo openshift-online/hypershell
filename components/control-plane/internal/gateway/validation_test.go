@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
+// Verifies: OSG-CORE-07.02
 func TestValidateImageReference(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -35,6 +38,7 @@ func TestValidateImageReference(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-ROUT-03.02
 func TestValidateGatewayConfigRouteHost(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -120,6 +124,7 @@ func TestValidateOIDCConfig(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-CRED-02.01, OSG-CRED-02.02
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -145,68 +150,12 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "vault with address and role is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address: "https://vault.example.com",
-					Role:    "gw-role",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with all fields is valid",
-			config: &CredentialDriverConfig{
-				Type: "vault",
-				Vault: &VaultCredentialConfig{
-					Address:             "https://vault.example.com",
-					Mount:               "secret",
-					AuthMethod:          "kubernetes",
-					Role:                "gw-role",
-					KubernetesAuthMount: "kubernetes",
-					TimeoutSecs:         30,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			// HYPERSHELL-369: vault sub-fields are optional; the control plane
-			// fills them from the per-cluster conventions.
-			name:    "vault without config is valid (conventions fill it)",
+			// HYPERSHELL-369: Vault is a black box - credential_driver carries NO per-gateway
+			// Vault coordinates (no address/role/mount/auth), so `type: vault` alone is the
+			// whole contract; the control plane fills everything from the per-cluster
+			// conventions + deployment config.
+			name:    "vault (type only) is valid; no overrides exist",
 			config:  &CredentialDriverConfig{Type: "vault"},
-			wantErr: false,
-		},
-		{
-			name: "vault without address is valid (convention address used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Role: "gw-role"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault without role is valid (convention role used)",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "https://vault.example.com"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "vault with plaintext non-loopback address is invalid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://vault.example.com:8200"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "vault with http loopback address is valid",
-			config: &CredentialDriverConfig{
-				Type:  "vault",
-				Vault: &VaultCredentialConfig{Address: "http://127.0.0.1:8200"},
-			},
 			wantErr: false,
 		},
 		{
@@ -220,9 +169,10 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// An empty-typed driver object is unspecified; it defers to the deployment default
-			// selector (kek-db unless opted in), not an implicit vault selection (HYPERSHELL-369).
-			name:    "empty type is valid (defers to deployment default)",
+			// An empty-typed driver object (credential_driver: {}) is unspecified and resolves
+			// to the flat vault default, same as an omitted field (OSG-CRED-01); validation
+			// accepts it here and effectiveCredentialDriver fills in vault at reconcile.
+			name:    "empty type is valid (resolves to the vault default)",
 			config:  &CredentialDriverConfig{Type: ""},
 			wantErr: false,
 		},
@@ -238,6 +188,36 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-CRED-02.03
+//
+// Vault is a black box: a credential_driver.vault object (or any Vault override key) has no
+// field on CredentialDriverConfig, so it is rejected when the stored driver JSON is decoded
+// with DisallowUnknownFields - the exact decoder the reconciler uses before reconciling. This
+// asserts that contract on the same struct + decoder option the production path uses.
+func TestCredentialDriverRejectsVaultOverride(t *testing.T) {
+	cases := []struct {
+		name    string
+		json    string
+		wantErr bool
+	}{
+		{"vault type only is accepted", `{"type":"vault"}`, false},
+		{"vault.address override is rejected", `{"type":"vault","vault":{"address":"https://vault.example.com:8200"}}`, true},
+		{"vault.role override is rejected", `{"type":"vault","vault":{"role":"openshell-gateway-tenant-a"}}`, true},
+		{"bare vault object is rejected", `{"type":"vault","vault":{}}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dec := json.NewDecoder(strings.NewReader(tc.json))
+			dec.DisallowUnknownFields()
+			var c CredentialDriverConfig
+			err := dec.Decode(&c)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("decode(%s) err = %v; wantErr %v", tc.json, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateGatewayConfig_SandboxRuntimeImage(t *testing.T) {
 	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "quay.io/test/sandbox:v1"}); err != nil {
 		t.Fatalf("valid sandbox runtime image rejected: %v", err)
@@ -245,4 +225,65 @@ func TestValidateGatewayConfig_SandboxRuntimeImage(t *testing.T) {
 	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "not a valid ref!"}); err == nil {
 		t.Fatal("invalid sandbox runtime image accepted")
 	}
+}
+
+// TestValidateGatewayConfigWorkspaceMode covers the reconcile-time vocabulary
+// check for the OpenShell workspace mode (openshell-gateway.spec.md, "Gateway
+// Workspace Mode"): the three chart-supported values pass, anything else fails,
+// and an empty mode (legacy gateways) is accepted.
+func TestValidateGatewayConfigWorkspaceMode(t *testing.T) {
+	for _, mode := range []string{"shared", "managed", "operator"} {
+		if err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode}); err != nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) error = %v, want nil", mode, err)
+		}
+	}
+	if err := ValidateGatewayConfig(GatewayConfig{}); err != nil {
+		t.Errorf("ValidateGatewayConfig(empty workspaceMode) error = %v, want nil", err)
+	}
+	for _, mode := range []string{"combined", "Managed", ""} {
+		if mode == "" {
+			continue
+		}
+		err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode})
+		if err == nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) = nil, want error", mode)
+		}
+	}
+}
+
+// TestValidateGatewayConfigRouteCertificate guards the dedicated-certificate
+// opt-in shape: a route.certificate gateway always uses the derived
+// gw-<namespace> hostname, so pairing it with an explicit route.host is
+// rejected rather than silently ignored.
+func TestValidateGatewayConfigRouteCertificate(t *testing.T) {
+	t.Run("certificate with an explicit host is rejected", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{
+			Host:        "gw-tenant-a.apps.example.com",
+			Certificate: &RouteCertificateConfig{},
+		}}
+		err := ValidateGatewayConfig(cfg)
+		if err == nil {
+			t.Fatal("expected route.host + route.certificate to be rejected, got nil")
+		}
+		if !strings.Contains(err.Error(), "route.host is not supported with route.certificate") {
+			t.Errorf("error does not explain the dedicated-certificate hostname rule: %v", err)
+		}
+	})
+
+	t.Run("certificate alone is valid", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{
+			Enabled:     true,
+			Certificate: &RouteCertificateConfig{},
+		}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.certificate alone must be accepted: %v", err)
+		}
+	})
+
+	t.Run("explicit host without certificate keeps shared-Gateway semantics", func(t *testing.T) {
+		cfg := GatewayConfig{Route: RouteConfig{Host: "gw-tenant-a.apps.example.com"}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.host without route.certificate must stay valid: %v", err)
+		}
+	})
 }

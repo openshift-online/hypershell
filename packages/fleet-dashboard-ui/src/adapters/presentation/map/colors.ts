@@ -2,7 +2,7 @@
 // component props, so we centralise the handful of status + accent colours here as
 // PF v6 design-token references (with hex fallbacks for non-browser test renders).
 // State is ALWAYS paired with text/!shape elsewhere, so colour is never the sole
-// signal (brand spec UI-BRAND-03).
+// signal (brand spec UIS-BRND-03).
 
 import { fnv1a } from "../../../domain/map/hash";
 import type { SemanticTone } from "../../../domain/status";
@@ -126,6 +126,24 @@ export function providerChip(provider: string): {
 /** Role-badge fill (light, same-hue family) for an opaque role label. */
 export function roleBadgeFill(role: string): SvgColor {
   return `hsl(${String(hueFor(role))}, 68%, 66%)`;
+}
+
+/**
+ * Capability chip colours (dark fill + bright same-hue text) for an opaque
+ * capability VALUE - one notch dimmer than {@link providerChip} so the runtime
+ * row reads as secondary to the provider/role row (FLT-CAP-05).
+ * The hue is value-derived (brand hue for a known public cloud, else a hash hue),
+ * so an unrecognized value still renders without any capability list baked in.
+ */
+export function capabilityChip(value: string): {
+  readonly bg: SvgColor;
+  readonly fg: SvgColor;
+} {
+  const h = hueFor(value);
+  return {
+    bg: `hsl(${String(h)}, 40%, 16%)`,
+    fg: `hsl(${String(h)}, 70%, 70%)`,
+  };
 }
 
 /** Promotion-state ring colour for a node's identicon. */

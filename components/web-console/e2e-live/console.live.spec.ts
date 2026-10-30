@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import {
   expect,
   test,
@@ -38,11 +41,11 @@ interface Gateway {
 async function logIn(page: Page) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const usernameInput = page.getByLabel(/username/iu);
-  const gatewaysHeading = page.getByRole("heading", {
-    level: 1,
-    name: "OpenShell Gateways",
+  const homepageHeading = page.getByRole("heading", {
+    level: 2,
+    name: "Pick a gateway. Ship your sandboxes.",
   });
-  await expect(usernameInput.or(gatewaysHeading)).toBeVisible({
+  await expect(usernameInput.or(homepageHeading)).toBeVisible({
     timeout: pageTimeout,
   });
   if (await usernameInput.isVisible()) {
@@ -50,7 +53,7 @@ async function logIn(page: Page) {
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: /sign in|log in/iu }).click();
   }
-  await expect(gatewaysHeading).toBeVisible({ timeout: pageTimeout });
+  await expect(homepageHeading).toBeVisible({ timeout: pageTimeout });
 }
 
 async function readGateway(api: APIRequestContext, id: string) {
@@ -258,6 +261,45 @@ test.describe("live console user journey", () => {
     });
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
+
+    // E2E-COV-05.01/05.04: the console must render the REAL, version-derived install
+    // command, not a pinned constant. Scrape the exact text the UI hands the operator
+    // by reading the copy button's clipboard payload, then assert it equals the shared
+    // fixture (the same file the Go merge-gate phase asserts against) with the live
+    // installer version substituted. This reads the actual rendered command, so UI
+    // drift (unlike a Go-to-Go comparison) is caught here.
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    const installVersion = gateway?.gateway_version ?? "";
+    expect(installVersion, "gateway reported a reconciled version").not.toBe(
+      "",
+    );
+    const expectedInstallerVersion = installVersion.startsWith("v")
+      ? installVersion
+      : `v${installVersion}`;
+    const copyInstall = page.getByRole("button", {
+      name: "Copy the OpenShell installation command",
+    });
+    await expect(copyInstall).toBeVisible({ timeout: pageTimeout });
+    await copyInstall.click();
+    const renderedInstall = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    const fixture = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../packages/gateway-management-ui/src/gateways/ui-install-command.golden",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ).replace(/\n$/u, "");
+    const expectedCommand = fixture.replaceAll(
+      "__OPENSHELL_INSTALLER_VERSION__",
+      expectedInstallerVersion,
+    );
+    expect(renderedInstall).toBe(expectedCommand);
   });
 
   test("deletes the gateway from its actions menu", async ({ page }) => {

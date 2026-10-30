@@ -31,39 +31,16 @@ MANAGED_FILES: list[tuple[Path, list[str]]] = [
     ),
 ]
 
-# Manifests that advertise the control plane's provisioning version through the
-# single-valued gateway-version capability in HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES.
-# The label value is rendered from OPENSHELL_TAG so the advertised provisioning
-# version always matches the images the overlay deploys, with no runtime image-tag
-# parsing (managed-cluster-registration.spec.md, gateway-version-visibility.spec.md).
-CAPABILITY_FILES: list[Path] = [
-    REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml",
-    REPO_ROOT / "deploy" / "gitops" / "platform" / "kustomization.yaml",
-    REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
-    REPO_ROOT / "deploy" / "kind" / "kustomization.yaml",
-    REPO_ROOT / "deploy" / "openshift" / "kustomization.yaml",
-]
-
-CAPABILITY_ENV = "HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES"
-GATEWAY_VERSION_NAMESPACE = "gateway-version"
-
-# Go source file containing the defaultConsoleImage constant, pinned by
-# digest (image@sha256:...).  OPENSHELL_CONSOLE_IMAGE and
+# Manifest that sets the HYPERSHELL_CONSOLE_IMAGE env var on the controller,
+# pinned by digest (image@sha256:...).  OPENSHELL_CONSOLE_IMAGE and
 # OPENSHELL_CONSOLE_DIGEST from OPENSHELL_VERSION are the source of truth.
+# The control plane has no built-in console image, so this value is required.
 CONSOLE_IMAGE_FILE = (
-    REPO_ROOT
-    / "components"
-    / "control-plane"
-    / "internal"
-    / "gateway"
-    / "config.go"
+    REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml"
 )
+CONSOLE_IMAGE_ENV = "HYPERSHELL_CONSOLE_IMAGE"
 
-_CONSOLE_CONST_RE = re.compile(
-    r'(const defaultConsoleImage\s*=\s*")'
-    r'([^"]+)'
-    r'(")'
-)
+_CONSOLE_VALUE_RE = re.compile(r"(value:\s*)(\S+)")
 
 
 def parse_openshell_version() -> dict[str, str]:
@@ -206,60 +183,6 @@ def stamp_file(
     return mismatches
 
 
-def stamp_capabilities(
-    path: Path, tag: str, *, check_only: bool
-) -> list[str]:
-    """Stamp or verify the gateway-version capability label in a manifest's
-    HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES value so it carries exactly one
-    gateway-version/<tag> label matching OPENSHELL_TAG."""
-    lines = path.read_text().splitlines(keepends=True)
-    mismatches: list[str] = []
-    expected_label = f"{GATEWAY_VERSION_NAMESPACE}/{tag}"
-    try:
-        rel = path.relative_to(REPO_ROOT)
-    except ValueError:
-        rel = path
-
-    for i, line in enumerate(lines):
-        if not re.search(rf"name:\s*{CAPABILITY_ENV}\s*$", line):
-            continue
-        if i + 1 >= len(lines):
-            continue
-        value_line = lines[i + 1]
-        m = re.search(r'(value:\s*")([^"]*)(")', value_line)
-        if not m:
-            raise RuntimeError(
-                f"{rel}: {CAPABILITY_ENV} value must be a double-quoted "
-                "comma-separated label string"
-            )
-        labels = [lbl for lbl in m.group(2).split(",") if lbl]
-        rebuilt = [
-            lbl for lbl in labels
-            if not lbl.startswith(f"{GATEWAY_VERSION_NAMESPACE}/")
-        ]
-        rebuilt.append(expected_label)
-        new_value = ",".join(rebuilt)
-        if new_value != m.group(2):
-            mismatches.append(
-                f"  {rel}: {CAPABILITY_ENV} has {m.group(2)!r}, "
-                f"expected {new_value!r}"
-            )
-            if not check_only:
-                lines[i + 1] = (
-                    value_line[: m.start()]
-                    + m.group(1) + new_value + m.group(3)
-                    + value_line[m.end():]
-                )
-        # Stamp every HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES block in the file,
-        # not just the first: a manifest that patches more than one controller
-        # must have each block's gateway-version label kept in sync.
-
-    if not check_only and mismatches:
-        path.write_text("".join(lines))
-
-    return mismatches
-
-
 def stamp_console_image(
     path: Path,
     image: str,
@@ -267,34 +190,51 @@ def stamp_console_image(
     *,
     check_only: bool,
 ) -> list[str]:
-    """Stamp or verify the defaultConsoleImage Go constant."""
+    """Stamp or verify the HYPERSHELL_CONSOLE_IMAGE env var value."""
     if not path.exists():
-        return []
-
-    text = path.read_text()
-    m = _CONSOLE_CONST_RE.search(text)
-    if not m:
-        raise RuntimeError(
-            f"{path}: defaultConsoleImage constant not found - "
-            "was it renamed or reformatted?"
-        )
-
-    expected = f"{image}@{digest}"
-    current = m.group(2)
-    if current == expected:
         return []
 
     try:
         rel = path.relative_to(REPO_ROOT)
     except ValueError:
         rel = path
-    mismatch = f"  {rel}: defaultConsoleImage has {current}, expected {expected}"
 
-    if not check_only:
-        text = _CONSOLE_CONST_RE.sub(rf"\g<1>{expected}\3", text)
-        path.write_text(text)
+    lines = path.read_text().splitlines(keepends=True)
+    expected = f"{image}@{digest}"
+    mismatches: list[str] = []
+    found = False
+    for i, line in enumerate(lines):
+        if not re.search(rf"name:\s*{CONSOLE_IMAGE_ENV}\s*$", line):
+            continue
+        found = True
+        value_line = lines[i + 1] if i + 1 < len(lines) else ""
+        m = _CONSOLE_VALUE_RE.search(value_line)
+        if not m:
+            raise RuntimeError(
+                f"{rel}: {CONSOLE_IMAGE_ENV} has no value line - "
+                "was it reformatted?"
+            )
+        current = m.group(2)
+        if current == expected:
+            continue
+        mismatches.append(
+            f"  {rel}: {CONSOLE_IMAGE_ENV} has {current}, expected {expected}"
+        )
+        if not check_only:
+            lines[i + 1] = (
+                value_line[: m.start(2)] + expected + value_line[m.end(2):]
+            )
 
-    return [mismatch]
+    if not found:
+        raise RuntimeError(
+            f"{rel}: {CONSOLE_IMAGE_ENV} env var not found - "
+            "the controller has no built-in console image, so it must be set"
+        )
+
+    if not check_only and mismatches:
+        path.write_text("".join(lines))
+
+    return mismatches
 
 
 def main() -> int:
@@ -321,16 +261,16 @@ def main() -> int:
             stamp_file(path, env_names, tag, check_only=check_only)
         )
 
-    for path in CAPABILITY_FILES:
-        if not path.exists():
-            continue
-        all_mismatches.extend(
-            stamp_capabilities(path, tag, check_only=check_only)
-        )
-
     console_image = env.get("OPENSHELL_CONSOLE_IMAGE", "")
     console_digest = env.get("OPENSHELL_CONSOLE_DIGEST", "")
-    if console_image and console_digest:
+    if not console_image or not console_digest:
+        print(
+            "ERROR: OPENSHELL_CONSOLE_IMAGE and OPENSHELL_CONSOLE_DIGEST must "
+            f"both be set in {VERSION_FILE}; the control plane has no "
+            "built-in console image"
+        )
+        return 1
+    try:
         all_mismatches.extend(
             stamp_console_image(
                 CONSOLE_IMAGE_FILE,
@@ -339,6 +279,9 @@ def main() -> int:
                 check_only=check_only,
             )
         )
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
 
     if all_mismatches:
         if check_only:

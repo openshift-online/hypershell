@@ -33,7 +33,9 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
-| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
+| `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
+| `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
 
@@ -42,6 +44,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -49,7 +52,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 14 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 15 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
 | `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 3 |
@@ -67,12 +70,14 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `E2E-CORE` | `platform/e2e-testing.spec.md` | 46 |
 | `E2E-COV` | `platform/e2e-feature-coverage.spec.md` | 7 |
-| `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 18 |
+| `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 26 |
 
 ### FLT
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
+| `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -93,7 +98,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 8 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -124,17 +129,19 @@ or group is added here before any requirement uses it.
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 4 |
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
-| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 17 |
+| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
+| `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
 | `OSG-TLS` | `platform/openshell-gateway-tls.spec.md` | 5 |
 
 ### PLAT
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `PLAT-ARCH` | `platform/global-architecture.spec.md` | 4 |
+| `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 22 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
@@ -142,28 +149,31 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 14 |
+| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 16 |
 
 ### SDLC
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 21 |
+| `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
+| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 12 |
+| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 14 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
 
 ### SEC
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 17 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 6 |
+| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
+| `STD-RCON` | `standards/control-plane/reconciliation-contract.spec.md` | 13 |
 
 ### UIS
 
@@ -198,18 +208,19 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-DATA` | `web-console/architecture.spec.md` | 4 |
 | `WEB-DOCS` | `platform/openshell-install-docs-link.spec.md` | 2 |
 | `WEB-DPLY` | `web-console/architecture.spec.md` | 2 |
+| `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
-| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
+| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
-| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 11 |
+| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
 | `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
-| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 5 |
+| `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
 ## Multi-Group Files
 

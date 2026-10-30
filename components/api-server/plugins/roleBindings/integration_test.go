@@ -208,6 +208,7 @@ func TestRoleBindingScopeValidation_GatewayScopeRequiresGatewayID(t *testing.T) 
 	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
 }
 
+// Verifies: SEC-RBAC-06.01
 func TestGrantValidation_OwnerCanGrantViewerOnSameGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -241,6 +242,7 @@ func TestGrantValidation_OwnerCanGrantViewerOnSameGateway(t *testing.T) {
 	Expect(viewerErr).NotTo(HaveOccurred())
 }
 
+// Verifies: SEC-RBAC-06.02
 func TestGrantValidation_OwnerCanGrantOwnerOnSameGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -273,6 +275,7 @@ func TestGrantValidation_OwnerCanGrantOwnerOnSameGateway(t *testing.T) {
 	Expect(grantErr).NotTo(HaveOccurred())
 }
 
+// Verifies: SEC-RBAC-06.05
 func TestGrantValidation_NonOwnerCannotGrantOnGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -306,6 +309,7 @@ func TestGrantValidation_NonOwnerCannotGrantOnGateway(t *testing.T) {
 	Expect(grantErr.HttpCode).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: SEC-RBAC-06.06
 func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -382,11 +386,13 @@ func TestGrantValidation_AdminSelfGrantRejected(t *testing.T) {
 	Expect(grantErr.HttpCode).To(Equal(http.StatusForbidden))
 }
 
-// TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles drives the
-// real HTTP middleware path with a token that carries no realm_access roles and
-// asserts that the user receives a gateway:creator binding. This is the exact
-// scenario RBAC_ENFORCE=true must handle: a brand-new user with no Keycloak roles.
-func TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles(t *testing.T) {
+// TestUserProvisioningMiddleware_NoRoleAssignedWithNoJWTRoles drives the real
+// HTTP middleware path with a token that carries no realm_access roles and
+// asserts that the user receives no gateway:creator binding. The API server
+// merges no role of its own; a brand-new user with no Keycloak roles stays
+// without gateway:creator until an admin grants it directly or through the
+// realm default role. Verifies: SEC-RBAC-13.02
+func TestUserProvisioningMiddleware_NoRoleAssignedWithNoJWTRoles(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	// NewRandAccount creates a JWT with no realm_access claims.
@@ -408,24 +414,20 @@ func TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles(t *testing
 	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
 	Expect(findErr).NotTo(HaveOccurred())
 
-	found := false
 	for _, b := range bindings {
-		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
-			found = true
-		}
+		Expect(b.RoleName).NotTo(Equal(roles.RoleGatewayCreator), "no gateway:creator binding should be merged for a JWT with no realm roles")
 	}
-	Expect(found).To(BeTrue(), "expected gateway:creator binding after first authenticated request with no JWT roles")
 }
 
-// TestSyncJWTRoles_DefaultRoleAssigned verifies that a newly provisioned user
-// receives a gateway:creator binding even when the JWT carries no roles.
-func TestSyncJWTRoles_DefaultRoleAssigned(t *testing.T) {
+// TestSyncJWTRoles_NoRoleAssignedWhenJWTEmpty verifies that a newly provisioned
+// user receives no gateway:creator binding when the JWT carries no roles.
+func TestSyncJWTRoles_NoRoleAssignedWhenJWTEmpty(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
 	userService := users.Service(&environments.Environment().Services)
 
-	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-new", nil, nil)
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-empty-jwt", nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 
 	syncErr := rbService.SyncJWTRoles(context.Background(), userID, nil)
@@ -433,29 +435,22 @@ func TestSyncJWTRoles_DefaultRoleAssigned(t *testing.T) {
 
 	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
 	Expect(findErr).NotTo(HaveOccurred())
-
-	found := false
-	for _, b := range bindings {
-		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
-			found = true
-		}
-	}
-	Expect(found).To(BeTrue(), "expected gateway:creator global binding after sync with empty JWT")
+	Expect(bindings).To(BeEmpty(), "no binding should be merged when the JWT carries no roles")
 }
 
-// TestSyncJWTRoles_DefaultRoleIsIdempotent verifies that calling SyncJWTRoles
-// twice does not create duplicate gateway:creator bindings.
-func TestSyncJWTRoles_DefaultRoleIsIdempotent(t *testing.T) {
+// TestSyncJWTRoles_JWTRoleIsIdempotent verifies that calling SyncJWTRoles twice
+// with the same JWT-carried role does not create a duplicate binding.
+func TestSyncJWTRoles_JWTRoleIsIdempotent(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
 	userService := users.Service(&environments.Environment().Services)
 
-	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-idempotent", nil, nil)
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-jwt-idempotent", nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 
-	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
-	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RoleGatewayCreator})).To(Succeed())
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RoleGatewayCreator})).To(Succeed())
 
 	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
 	Expect(findErr).NotTo(HaveOccurred())
@@ -469,48 +464,45 @@ func TestSyncJWTRoles_DefaultRoleIsIdempotent(t *testing.T) {
 	Expect(creatorCount).To(Equal(1), "expected exactly one gateway:creator binding after two syncs")
 }
 
-// TestSyncJWTRoles_DefaultRoleNotRemovedWhenAbsentFromJWT verifies that a user's
-// gateway:creator binding is retained across syncs even when the JWT never carries it.
-func TestSyncJWTRoles_DefaultRoleNotRemovedWhenAbsentFromJWT(t *testing.T) {
+// TestSyncJWTRoles_RoleRevokedWhenAbsentFromJWT verifies that a role sourced
+// from the JWT is removed once the JWT no longer carries it -- the mechanism
+// that lets a Keycloak admin revoke gateway:creator (SEC-RBAC-13.03,
+// SEC-RBAC-01.02).
+func TestSyncJWTRoles_RoleRevokedWhenAbsentFromJWT(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
 	userService := users.Service(&environments.Environment().Services)
 
-	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-persist", nil, nil)
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-revoked", nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 
-	// First sync assigns the default.
-	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+	// First sync grants gateway:creator from the JWT.
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RoleGatewayCreator})).To(Succeed())
 
-	// Second sync with still-empty JWT must not revoke it.
+	// Second sync with an empty JWT must revoke it.
 	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
 
 	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
 	Expect(findErr).NotTo(HaveOccurred())
 
-	found := false
 	for _, b := range bindings {
-		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
-			found = true
-		}
+		Expect(b.RoleName).NotTo(Equal(roles.RoleGatewayCreator), "gateway:creator binding must be revoked once absent from the JWT")
 	}
-	Expect(found).To(BeTrue(), "gateway:creator binding must survive a sync with an empty JWT")
 }
 
-// TestSyncJWTRoles_DefaultAndJWTRolesBothApplied verifies that a JWT-carried role
-// (platform:admin) is synced in addition to the default gateway:creator.
-// Default roles are always applied regardless of what the JWT carries.
-func TestSyncJWTRoles_DefaultAndJWTRolesBothApplied(t *testing.T) {
+// TestSyncJWTRoles_MultipleJWTRolesBothApplied verifies that multiple
+// JWT-carried roles (gateway:creator and platform:admin) are synced together.
+func TestSyncJWTRoles_MultipleJWTRolesBothApplied(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
 	userService := users.Service(&environments.Environment().Services)
 
-	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-and-jwt", nil, nil)
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-multiple-jwt-roles", nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 
-	syncErr := rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RolePlatformAdmin})
+	syncErr := rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RoleGatewayCreator, roles.RolePlatformAdmin})
 	Expect(syncErr).NotTo(HaveOccurred())
 
 	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
@@ -523,5 +515,210 @@ func TestSyncJWTRoles_DefaultAndJWTRolesBothApplied(t *testing.T) {
 		}
 	}
 	Expect(roleNames[roles.RolePlatformAdmin]).To(BeTrue(), "expected JWT-carried platform:admin binding")
-	Expect(roleNames[roles.RoleGatewayCreator]).To(BeTrue(), "expected default gateway:creator binding alongside JWT roles")
+	Expect(roleNames[roles.RoleGatewayCreator]).To(BeTrue(), "expected JWT-carried gateway:creator binding")
+}
+
+// TestDedicatedRouteCreatorRoleIsKeycloakAssigned proves the new platform-wide
+// entitlement behaves like its siblings: it requires global scope, it cannot be
+// granted through the RoleBinding API (SyncJWTRoles would revoke a directly
+// created binding on the caller's next sign-in), and a JWT-carried realm role
+// produces the global binding the create path checks.
+func TestDedicatedRouteCreatorRoleIsKeycloakAssigned(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	routeRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayDedicatedRouteCreator)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in dedicated-route role must be seeded")
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+
+	// Gateway scope is rejected: the entitlement applies to the platform, not one
+	// gateway (the gateway it is used to create does not exist yet).
+	gatewayID := "gw-dedicated-route-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    routeRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// Direct assignment is rejected: the role is Keycloak-owned.
+	userID := "user-dedicated-route-direct"
+	_, err = rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: routeRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &userID,
+	})
+	Expect(err).To(HaveOccurred(), "a Keycloak-owned role must not be assignable through the API")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	// A JWT-carried realm role syncs the global binding the gateway create path
+	// reads, exactly as it does for platform:admin.
+	userService := users.Service(&environments.Environment().Services)
+	syncedUserID, userErr := userService.UpsertByUsername(context.Background(), "sync-dedicated-route", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedUserID, []string{roles.RoleGatewayDedicatedRouteCreator})).To(Succeed())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedUserID)
+	Expect(findErr).NotTo(HaveOccurred())
+	granted := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayDedicatedRouteCreator && b.Scope == roleBindings.ScopeGlobal {
+			granted = true
+		}
+	}
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleGatewayDedicatedRouteCreator)
+	Expect(rbac.CanRequestGatewayDedicatedRoute(bindings)).To(BeTrue())
+}
+
+// TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin proves the
+// ci-federation:admin entitlement is granted by HyperShell's own RBAC rather than
+// delegated to Keycloak (SEC-RBAC-21): it is seeded built-in, it requires global
+// scope, it is assignable through the RoleBinding API but only by a platform:admin
+// caller, it is NOT JWT-synced (so a JWT carrying it grants nothing and an
+// API-created binding survives a later sign-in), and a non-admin caller is denied.
+func TestCIFederationAdminRoleIsAPIAssignableByPlatformAdmin(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	ciRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:admin role must be seeded")
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	// Gateway scope is rejected: the entitlement is platform-wide (scope=global).
+	gatewayID := "gw-ci-federation-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    ciRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for a platform-wide role")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// A non-platform-admin caller cannot grant it: assignment is a platform-admin act.
+	targetUserID, targetErr := userService.UpsertByUsername(context.Background(), "ci-fed-target", nil, nil)
+	Expect(targetErr).NotTo(HaveOccurred())
+	nonAdminID, nonAdminErr := userService.UpsertByUsername(context.Background(), "ci-fed-nonadmin", nil, nil)
+	Expect(nonAdminErr).NotTo(HaveOccurred())
+	nonAdminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, nonAdminID)
+	_, err = rbService.Create(nonAdminCtx, &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &targetUserID,
+	})
+	Expect(err).To(HaveOccurred(), "a non-platform-admin caller must not be able to grant ci-federation:admin")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	// A platform:admin caller can grant it through the API (scope=global).
+	adminID, adminErr := userService.UpsertByUsername(context.Background(), "ci-fed-granter-admin", nil, nil)
+	Expect(adminErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), adminID, []string{roles.RolePlatformAdmin})).To(Succeed())
+	adminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, adminID)
+	created, createErr := rbService.Create(adminCtx, &roleBindings.RoleBinding{
+		RoleID: ciRole.ID,
+		Scope:  roleBindings.ScopeGlobal,
+		UserID: &targetUserID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "platform:admin must be able to grant ci-federation:admin via the API")
+	Expect(created.ID).NotTo(BeEmpty())
+
+	hasCIBinding := func(userID string) bool {
+		bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+		Expect(findErr).NotTo(HaveOccurred())
+		for _, b := range bindings {
+			if b.RoleName == roles.RoleCIFederationAdmin && b.Scope == roleBindings.ScopeGlobal {
+				return true
+			}
+		}
+		return false
+	}
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "the API-granted ci-federation:admin binding must exist")
+
+	// The role is not JWT-synced: a subsequent sign-in must NOT revoke the
+	// API-created binding, and a JWT carrying the realm role grants nothing.
+	Expect(rbService.SyncJWTRoles(context.Background(), targetUserID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(targetUserID)).To(BeTrue(), "SyncJWTRoles must not revoke an API-created ci-federation:admin binding")
+
+	unsyncedID, unsyncedErr := userService.UpsertByUsername(context.Background(), "ci-fed-jwt-only", nil, nil)
+	Expect(unsyncedErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), unsyncedID, []string{roles.RoleCIFederationAdmin})).To(Succeed())
+	Expect(hasCIBinding(unsyncedID)).To(BeFalse(), "a JWT realm role must NOT grant ci-federation:admin (not JWT-synced)")
+}
+
+// TestCIFederationGrantorRole proves the narrow bootstrap grantor (SEC-RBAC-23):
+// a caller holding only ci-federation:grantor may create and delete a global
+// ci-federation:admin RoleBinding, confers no other granting power, and the
+// grantor role is itself Keycloak-owned (JWT-synced, not API-assignable).
+func TestCIFederationGrantorRole(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	ciAdminRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationAdmin)
+	Expect(svcErr).NotTo(HaveOccurred())
+	grantorRole, svcErr := roleService.GetByName(context.Background(), roles.RoleCIFederationGrantor)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in ci-federation:grantor role must be seeded")
+
+	// A bootstrap identity gets ci-federation:grantor from its JWT (Keycloak-owned).
+	grantorID, err := userService.UpsertByUsername(context.Background(), "ci-fed-bootstrap", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), grantorID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	grantorCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, grantorID)
+
+	seederID, err := userService.UpsertByUsername(context.Background(), "ci-fed-seeder", nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	// (1) grantor creates a global ci-federation:admin binding for the seeder.
+	created, createErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ciAdminRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &seederID,
+	})
+	Expect(createErr).NotTo(HaveOccurred(), "ci-federation:grantor must be able to grant ci-federation:admin")
+
+	// (2) grantor may delete that binding too.
+	Expect(rbService.Delete(grantorCtx, created.ID)).To(BeNil())
+
+	// (3) confinement: grantor confers no gateway-granting power.
+	ownerRole, roleErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
+	Expect(roleErr).NotTo(HaveOccurred())
+	gwID := "gw-grantor-confine"
+	_, gwErr := rbService.Create(grantorCtx, &roleBindings.RoleBinding{
+		RoleID: ownerRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gwID, UserID: &seederID,
+	})
+	Expect(gwErr).To(HaveOccurred(), "ci-federation:grantor must not authorize granting gateway roles")
+	Expect(gwErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	// (4) the grantor role is Keycloak-owned: not API-assignable (403), gateway scope 400.
+	otherID, otherErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-target", nil, nil)
+	Expect(otherErr).NotTo(HaveOccurred())
+	_, directErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &otherID,
+	})
+	Expect(directErr).To(HaveOccurred(), "ci-federation:grantor must not be API-assignable (Keycloak-owned)")
+	Expect(directErr.HttpCode).To(Equal(http.StatusForbidden))
+
+	gw2 := "gw-grantor-scope"
+	_, scopeErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: grantorRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gw2,
+	})
+	Expect(scopeErr).To(HaveOccurred())
+	Expect(scopeErr.HttpCode).To(Equal(http.StatusBadRequest))
+
+	// A JWT carrying the grantor realm role syncs the global binding the grant path reads.
+	syncedID, syncErr := userService.UpsertByUsername(context.Background(), "ci-fed-grantor-sync", nil, nil)
+	Expect(syncErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), syncedID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), syncedID)
+	Expect(findErr).NotTo(HaveOccurred())
+	granted := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleCIFederationGrantor && b.Scope == roleBindings.ScopeGlobal {
+			granted = true
+		}
+	}
+	Expect(granted).To(BeTrue(), "expected a JWT-synced global %s binding", roles.RoleCIFederationGrantor)
 }

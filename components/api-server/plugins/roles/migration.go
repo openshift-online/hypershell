@@ -3,11 +3,13 @@ package roles
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
@@ -25,7 +27,7 @@ func migration() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026081112000002",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Role{})
+			return dbmigrate.CreateTable(tx, &Role{})
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropTable(&Role{})
@@ -169,6 +171,30 @@ var builtInRoleSeeds = []roleSeed{
 			"gateways": []string{"read"},
 		},
 	},
+	{
+		Name:        RoleGatewayDedicatedRouteCreator,
+		DisplayName: "Gateway Dedicated Route Creator",
+		Description: "Allows requesting a dedicated per-gateway route and certificate at gateway create; per-gateway certificates are a rate-limited resource.",
+		Permissions: map[string]interface{}{
+			"gateways": []string{"request_dedicated_route"},
+		},
+	},
+	{
+		Name:        RoleCIFederationAdmin,
+		DisplayName: "CI Federation Administrator",
+		Description: "Authorizes registering CI OIDC forges (ci_providers) and nothing else; a least-privilege alternative to platform:admin for the CI-federation seeder.",
+		Permissions: map[string]interface{}{
+			"ci_providers": []string{"create", "read", "update", "delete"},
+		},
+	},
+	{
+		Name:        RoleCIFederationGrantor,
+		DisplayName: "CI Federation Grantor",
+		Description: "Narrow bootstrap role: authorizes creating and deleting a global ci-federation:admin RoleBinding and nothing else (SEC-RBAC-23). Lets gitops grant the CI-federation seeder its ci_providers authorization declaratively without platform:admin.",
+		Permissions: map[string]interface{}{
+			"role_bindings": []string{"create", "delete"},
+		},
+	},
 }
 
 func migrationAddPlatformAdminRole() *gormigrate.Migration {
@@ -264,7 +290,7 @@ func migrationSeedManagedClusterRegistrarRole() *gormigrate.Migration {
 }
 
 // migrationAddGatewayAdminRole seeds the gateway:admin built-in role
-// idempotently (GAM-12). gateway:admin is a per-gateway, DB-assigned role (like
+// idempotently (GTW-ACC-12). gateway:admin is a per-gateway, DB-assigned role (like
 // gateway:owner and gateway:viewer); it is NOT JWT-synced. Re-running is safe,
 // and no existing binding is touched.
 func migrationAddGatewayAdminRole() *gormigrate.Migration {
@@ -308,6 +334,175 @@ func migrationAddGatewayAdminRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleGatewayAdmin).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddGatewayDedicatedRouteCreatorRole seeds the
+// gateway:dedicated-route-creator built-in role idempotently. It is a
+// platform-wide (global-scope) entitlement that gates
+// GatewayCreateRequest.dedicated_route; per-gateway certificates are a rate-limited
+// resource, so it is separate from gateway:creator. Like platform:admin and
+// gateway:creator it is JWT-synced (assigned through the identity provider), and no
+// existing binding is touched. Re-running is safe: an existing row short-circuits.
+func migrationAddGatewayDedicatedRouteCreatorRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026102812000002",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleGatewayDedicatedRouteCreator).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			// Only a missing row means "seed it"; a real lookup failure must not be
+			// swallowed into a duplicate-key create error.
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleGatewayDedicatedRouteCreator, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"gateways": []string{"request_dedicated_route"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleGatewayDedicatedRouteCreator, err)
+			}
+			permStr := string(permJSON)
+			displayName := "Gateway Dedicated Route Creator"
+			description := "Allows requesting a dedicated per-gateway route and certificate at gateway create; per-gateway certificates are a rate-limited resource."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleGatewayDedicatedRouteCreator,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleGatewayDedicatedRouteCreator).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddCIFederationAdminRole seeds the ci-federation:admin built-in role
+// idempotently (SEC-RBAC-21). It is a platform-wide (global-scope) entitlement
+// that authorizes only the ci_providers ext kind; it is deliberately narrower
+// than platform:admin so the CI-federation seeder holds least privilege. Unlike
+// platform:admin and gateway:dedicated-route-creator it is NOT JWT-synced: it is
+// granted through the RoleBinding API by a platform:admin, so HyperShell owns the
+// authorization decision rather than delegating it to a Keycloak realm role. This
+// migration only seeds the role record; no existing binding is touched.
+// Re-running is safe: an existing row short-circuits.
+func migrationAddCIFederationAdminRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026102912000001",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleCIFederationAdmin).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			// Only a missing row means "seed it"; a real lookup failure must not be
+			// swallowed into a duplicate-key create error.
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleCIFederationAdmin, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"ci_providers": []string{"create", "read", "update", "delete"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleCIFederationAdmin, err)
+			}
+			permStr := string(permJSON)
+			displayName := "CI Federation Administrator"
+			description := "Authorizes registering CI OIDC forges (ci_providers) and nothing else; a least-privilege alternative to platform:admin for the CI-federation seeder."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleCIFederationAdmin,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleCIFederationAdmin).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddCIFederationGrantorRole seeds the ci-federation:grantor built-in
+// role idempotently (SEC-RBAC-23). It is the narrow bootstrap role that authorizes
+// creating/deleting a global ci-federation:admin RoleBinding and nothing else, so
+// gitops can grant the CI-federation seeder its ci_providers authorization
+// declaratively (via a Keycloak realm role on a bootstrap identity) instead of
+// requiring platform:admin. Unlike ci-federation:admin it IS JWT-synced. This
+// migration only seeds the role record; no existing binding is touched. Re-running
+// is safe: an existing row short-circuits.
+func migrationAddCIFederationGrantorRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026102912000002",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleCIFederationGrantor).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleCIFederationGrantor, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"role_bindings": []string{"create", "delete"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleCIFederationGrantor, err)
+			}
+			permStr := string(permJSON)
+			displayName := "CI Federation Grantor"
+			description := "Narrow bootstrap role: authorizes creating and deleting a global ci-federation:admin RoleBinding and nothing else (SEC-RBAC-23)."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleCIFederationGrantor,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleCIFederationGrantor).Delete(&Role{}).Error
 		},
 	}
 }

@@ -95,6 +95,7 @@ const operations: GatewayOperations = {
   renameGateway: vi.fn(),
   revokeGatewayAccess: mocks.revoke,
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
   searchGatewayDirectory: mocks.search,
 };
 
@@ -137,6 +138,7 @@ describe("AccessPage", () => {
     mocks.revoke.mockResolvedValue(undefined);
   });
 
+  // Verifies: WEB-ACC-02.01
   it("renders names, user IDs, and roles", async () => {
     renderPage();
     expect(await screen.findByText("Olivia Owner")).toBeTruthy();
@@ -145,6 +147,7 @@ describe("AccessPage", () => {
     expect(screen.getByText("Uma User")).toBeTruthy();
   });
 
+  // Verifies: WEB-ACC-08.01
   it("disables the sole owner's controls", async () => {
     mocks.list.mockResolvedValue(accessPage([creator], ownerCapabilities));
     renderPage();
@@ -159,6 +162,7 @@ describe("AccessPage", () => {
     });
   });
 
+  // Verifies: WEB-ACC-07.02
   it("disables owner rows for a non-owner admin", async () => {
     mocks.list.mockResolvedValue(
       accessPage([creator, user], adminCapabilities),
@@ -227,6 +231,7 @@ describe("AccessPage", () => {
     });
   });
 
+  // Verifies: WEB-ACC-05.03
   it("confirms before a user changes their own role", async () => {
     const user1 = userEvent.setup();
     // Two owners so the self owner row is editable (not the last owner), and the
@@ -260,6 +265,7 @@ describe("AccessPage", () => {
     });
   });
 
+  // Verifies: WEB-ACC-05.04
   it("changes another user's role without a confirmation modal", async () => {
     const user1 = userEvent.setup();
     mocks.list.mockResolvedValue(accessPage([user], ownerCapabilities));
@@ -397,6 +403,7 @@ describe("AccessPage", () => {
     );
   });
 
+  // Verifies: WEB-ACC-05.02
   it("hides the Owner option from a non-owner admin", async () => {
     const user1 = userEvent.setup();
     mocks.list.mockResolvedValue(accessPage([admin], adminCapabilities));
@@ -417,6 +424,7 @@ describe("AccessPage", () => {
     expect(within(dialog).getByRole("radio", { name: /User/u })).toBeTruthy();
   });
 
+  // Verifies: WEB-ACC-07.01
   it("shows viewers a read-only list", async () => {
     mocks.list.mockResolvedValue(
       accessPage([creator, user], viewerCapabilities),

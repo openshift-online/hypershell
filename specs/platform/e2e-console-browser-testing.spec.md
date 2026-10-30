@@ -19,7 +19,12 @@ not implement browser interactions or assertions.
   Chromium, HTTPS handling, retries, traces, screenshots, videos, and reports.
 - `components/web-console/e2e-live/console.live.spec.ts` owns the user journey.
 - Playwright and Chromium use the versions already pinned by the web-console
-  workspace. There is no second browser CLI or browser download.
+  workspace. There is no second browser CLI. Container mode (below) uses the
+  Playwright image whose tag matches that pinned version, so its Chromium is
+  the same revision.
+- `tests/e2e/e2e-console-container.sh` is the container-mode launcher. Like
+  `e2e-console.sh`, it only prepares the environment and starts the same
+  Playwright test.
 
 ## User-facing locator policy
 
@@ -65,18 +70,45 @@ The existing distributed tracing test remains in the same Playwright live suite.
 - `E2E_BROWSER_PAGE_TIMEOUT_MS` bounds rendered-page assertions.
 - `E2E_CONSOLE_ARTIFACT_DIR` selects Playwright's failure artifact directory.
 - `E2E_SKIP_CLEANUP=1` preserves the gateway for investigation.
+- `E2E_CONSOLE_CONTAINER=true` runs the suite in container mode (Kind only).
+- `E2E_BROWSER_HOST_RESOLVER_RULES` passes Chromium a `--host-resolver-rules`
+  value. Container mode sets it; it is unset otherwise.
+
+## Container mode
+
+`E2E_CONSOLE_CONTAINER=true make e2e-console` runs the suite inside the official
+Playwright image (`mcr.microsoft.com/playwright:v<pinned version>-noble`) on the
+container network of the Kind nodes (`kind`). It needs neither host port 443
+forwarding nor Chromium's system libraries on the host. It is supported only
+with the `kind` driver; `e2e-console.sh` SHALL refuse it with any other driver.
+
+- The repository SHALL be mounted at its host path, and the workspace's own
+  Playwright SHALL run the suite, so the test code and versions are the ones
+  the host would use.
+- The address of the cloud-provider-kind Envoy SHALL be read from the
+  `hypershell-gw` Gateway status. Node-side requests (`page.request`) SHALL
+  reach the console host through an `--add-host` entry for it.
+- Chromium sends `*.localhost` names to loopback regardless of `/etc/hosts`, so
+  the browser SHALL get `--host-resolver-rules=MAP *.localhost <Envoy address>`
+  through `E2E_BROWSER_HOST_RESOLVER_RULES`. That covers the console, Keycloak,
+  and the per-gateway OpenShell consoles.
+- The container SHALL run as the invoking user (with `--userns=keep-id` on
+  podman), so artifacts written to the mounted repository keep that ownership.
+- Every `E2E_*` variable and `CI` SHALL be passed into the container.
 
 ## Commands
 
 ```shell
 make e2e-console
 E2E_MODE=short make e2e-console
+E2E_CONSOLE_CONTAINER=true make e2e-console
 pnpm --filter @openshift-online/hypershell-web-console test:e2e:console:live
 pnpm --filter @openshift-online/hypershell-web-console test:e2e:tracing:live
 pnpm test:e2e:all
 ```
 
-Kind requires the normal port 443 forwarding established by `make kind-up`.
+Kind requires the normal port 443 forwarding established by `make kind-up`,
+except in container mode.
 The root `test:e2e:all` script establishes Kind with Jaeger first and then runs
 the mocked Chromium, live console, and live tracing suites sequentially.
 CI runs the short console suite concurrently with the non-browser OpenShell e2e

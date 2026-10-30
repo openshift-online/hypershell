@@ -439,10 +439,10 @@ For each RoleBinding DELETED event with `scope=gateway`, the control plane SHALL
 
 #### Scenario: OSG-KCLK-05.06 -- User in RoleBinding not found in Keycloak
 
-- GIVEN a RoleBinding references a User whose Keycloak identity cannot be resolved
+- GIVEN a RoleBinding references a User whose Keycloak identity cannot yet be resolved (a provisioning race)
 - WHEN the control plane attempts to assign the Keycloak client role
 - THEN it SHALL log an error identifying the unresolvable user
-- AND it SHALL retry on the next reconciliation cycle
+- AND it SHALL treat the failure as transient and retry with the fast capped exponential backoff (OSG-KCLK-10), not defer recovery to the periodic RoleBinding resync
 
 ---
 
@@ -566,10 +566,13 @@ The retry policy SHALL be:
 - Initial backoff: 2 seconds
 - Backoff multiplier: 2x per attempt
 - Maximum backoff: 30 seconds
-- Permanent failures (the RoleBinding's Gateway no longer exists) SHALL NOT be retried
-- Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, and a watch event whose username or role name has not been enriched yet
+- A RoleBinding whose Gateway no longer exists SHALL NOT be retried. It is a no-op, not a failure (see below)
+- Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, a watch event whose username or role name has not been enriched yet, and a bound user whose Keycloak identity cannot yet be resolved (the user record has not yet propagated to Keycloak -- a provisioning race between user creation and binding reconciliation)
+- An unresolvable bound user SHALL be classified as a transient failure and retried on the fast capped-backoff schedule above. It SHALL NOT be classified as a permanent failure, because doing so drops the binding from the retry schedule and defers recovery to the periodic RoleBinding resync (`control-plane.spec.md`, "Requirement: Role Binding Resync"), delaying the user's role assignment by up to the resync interval instead of resolving it within seconds
 
-Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level. A permanent missing-gateway failure SHALL be logged at ERROR level and SHALL NOT be retried.
+Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level.
+
+A RoleBinding whose Gateway no longer exists has no Keycloak client left to reconcile. The RoleBindingReconciler SHALL treat it as a no-op: it SHALL log at DEBUG level, SHALL NOT retry, and SHALL NOT report an error to the reconcile queue. It SHALL NOT log at ERROR, because the periodic RoleBinding resync (`control-plane.spec.md`, "Requirement: Role Binding Resync") would repeat that log on every interval for every such binding and bury real errors. Such bindings are rare: deleting a Gateway also deletes its RoleBindings (`gateway-deletion-finalization.spec.md`, GTW-DEL-09). The no-op covers the short window where a binding event is processed after its Gateway is gone.
 
 #### Scenario: OSG-KCLK-10.01 -- RoleBinding arrives before Keycloak client exists
 
@@ -592,9 +595,21 @@ Each retry attempt SHALL be logged at WARN level with the delay, target client, 
 #### Scenario: OSG-KCLK-10.03 -- Gateway for the RoleBinding has been deleted
 
 - GIVEN a RoleBinding whose `gateway_id` no longer resolves
-- WHEN the RoleBindingReconciler attempts to assign a Keycloak role
-- THEN it SHALL log the failure at ERROR level
+- WHEN the RoleBindingReconciler processes that binding
+- THEN it SHALL log at DEBUG level that the gateway no longer exists
+- AND it SHALL NOT call Keycloak
+- AND it SHALL NOT return an error to the reconcile queue
 - AND it SHALL NOT retry that binding
+
+#### Scenario: OSG-KCLK-10.04 -- Owner binding arrives before the owner's Keycloak user is resolvable
+
+- GIVEN user-a creates Gateway `gw-new` (id=`xyz789`) and the API server auto-provisions a `gateway:owner` RoleBinding for user-a
+- AND the RoleBindingReconciler processes the owner binding before user-a's record is resolvable in Keycloak
+- WHEN the RoleBindingReconciler attempts to assign `openshell-admin` and `openshell-user` to user-a on `gw-new-xyz789`
+- AND the Keycloak user lookup for user-a returns no match
+- THEN the RoleBindingReconciler SHALL treat the unresolvable user as a transient failure and retry with the fast capped exponential backoff
+- AND it SHALL succeed within seconds once user-a becomes resolvable, bounded by the 30-second backoff cap rather than the periodic resync interval
+- AND user-a SHALL hold `openshell-admin` and `openshell-user` on the `gw-new-xyz789` client
 
 ---
 
@@ -714,7 +729,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 | User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | The RBAC spec auto-provisions Users from `preferred_username`; ensure this matches the Keycloak username |
 | Gateway created with auto-provisioned RoleBinding | Race between Gateway ADDED and RoleBinding ADDED events (both emitted from the same API transaction) | RoleBindingReconciler retries role assignment with exponential backoff until the Keycloak client is provisioned. A half-provisioned client (client exists, roles not yet created) is retried the same way. |
 | RoleBinding deletion requires coverage check | Removing one binding may leave the user covered by another | Resolve all remaining bindings for the user+gateway before removing the Keycloak role |
-| Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings in HyperShell are also deleted when the gateway is deleted (gateway_id FK) |
+| Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings in HyperShell are also deleted, in the same transaction as the gateway row (GTW-DEL-09 in [`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md)) |
 
 ---
 

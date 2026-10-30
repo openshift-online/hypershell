@@ -159,7 +159,7 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 
 **What HyperShell must ensure:**
 - The projected SA token volume is correctly configured with the `vault` audience
-- If the Vault configuration changes (address, role, mount), the operator updates the `credential_driver` field on the Gateway API resource, and the reconciler regenerates the gateway.toml and restarts the pod
+- If the Vault configuration changes (address, role, mount), the control plane sets the `credential_driver` field on the Gateway API resource from its configuration (`credential_driver` is control-plane-managed and is not user- or import-writable; see `data-model.spec.md` PLAT-DATA-23), and the reconciler regenerates the gateway.toml and restarts the pod
 
 #### Scenario: OSG-ROT-04.02 -- Vault driver -- SA token renewal
 
@@ -174,8 +174,9 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 
 - GIVEN a gateway with `credential_driver.type` = `vault`
 - AND the Vault server address changes (e.g., migration to a new Vault cluster)
-- WHEN the operator updates the Gateway's `credential_driver.vault.address` field
-- THEN the GatewayReconciler SHALL regenerate gateway.toml with the new address
+- WHEN the cluster operator updates the control-plane deployment `GATEWAY_VAULT_ADDRESS`
+  override (Vault is a black box; there is no per-gateway `credential_driver.vault.address` field)
+- THEN the GatewayReconciler SHALL regenerate gateway.toml with the new address on the next reconcile
 - AND the config-hash SHALL change, triggering a rolling restart
 - AND the gateway SHALL connect to the new Vault server on startup
 

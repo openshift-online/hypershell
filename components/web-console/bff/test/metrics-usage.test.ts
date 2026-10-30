@@ -62,6 +62,7 @@ function rangePayload(value: string): string {
 }
 
 describe("usage metrics queries", () => {
+  // Verifies: WEB-USE-06.01
   it("scopes gateway usage and preserves daily gaps", async () => {
     const queries: string[] = [];
     const prometheus = await startPrometheusStub((request, response) => {
@@ -73,7 +74,7 @@ describe("usage metrics queries", () => {
       if (url.pathname === "/api/v1/query_range") {
         response.end(
           rangePayload(
-            query.includes('code!="OK"') || query.includes('status=~"5.."')
+            query.includes('code!="0"') || query.includes('status=~"5.."')
               ? "1"
               : "99",
           ),
@@ -92,7 +93,7 @@ describe("usage metrics queries", () => {
 
       response.end(
         instantPayload(
-          query.includes('code!="OK"') || query.includes('status=~"5.."')
+          query.includes('code!="0"') || query.includes('status=~"5.."')
             ? "1"
             : "99",
         ),
@@ -138,7 +139,7 @@ describe("usage metrics queries", () => {
         'sum(increase(openshell_server_grpc_requests_total{method!~"Peer.*",namespace=~"openshell-gateway-1|openshell-gateway-2"}[7d]))',
       );
       expect(queries).toContain(
-        'sum(increase(openshell_server_grpc_requests_total{method!~"Peer.*",code!="OK",namespace=~"openshell-gateway-1|openshell-gateway-2"}[7d]))',
+        'sum(increase(openshell_server_grpc_requests_total{method!~"Peer.*",code!="0",namespace=~"openshell-gateway-1|openshell-gateway-2"}[7d]))',
       );
       expect(queries.some((query) => query.includes('method!~"Peer.*"'))).toBe(
         true,
@@ -274,6 +275,37 @@ describe("usage metrics queries", () => {
     }
   });
 
+  it("reports no gateway usage data when both request series are absent", async () => {
+    const prometheus = await startPrometheusStub((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          status: "success",
+          data: { resultType: "vector", result: [] },
+        }),
+      );
+    });
+
+    try {
+      const response = await queryUsageGatewayMetrics(
+        prometheus.origin,
+        5_000,
+        7,
+        {
+          currentGatewayCount: 8,
+          currentGatewayNamespaces: [
+            "openshell-gateway-1",
+            "openshell-gateway-2",
+          ],
+        },
+      );
+
+      expect(response).toEqual({ total_gateways: 8 });
+    } finally {
+      prometheus.close();
+    }
+  });
+
   it("calculates sandbox utilization from scoped active and total series", async () => {
     const queries: string[] = [];
     const prometheus = await startPrometheusStub((request, response) => {
@@ -327,7 +359,7 @@ describe("usage metrics queries", () => {
       const query = url.searchParams.get("query") ?? "";
       response.setHeader("content-type", "application/json");
 
-      if (query.includes('code!="OK"') || query.includes('status=~"5.."')) {
+      if (query.includes('code!="0"') || query.includes('status=~"5.."')) {
         response.end(
           url.pathname === "/api/v1/query_range"
             ? JSON.stringify({

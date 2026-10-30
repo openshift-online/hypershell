@@ -30,6 +30,7 @@ import {
   type RateStats,
   type SandboxClusterCount,
 } from "../fleet";
+import { capabilityValue } from "./capabilities";
 import { classifySpokes, type SpokeAttribution } from "../spoke-attribution";
 import type { InstanceTopology, TopologyData } from "../topology";
 import {
@@ -86,6 +87,15 @@ export interface MapNode {
   readonly role: string | null;
   readonly provider: string | null;
   readonly cluster: string | null;
+  /**
+   * Self-declared capability labels (`namespace/value`), carried through from the
+   * promotion environment's delivery labels. Optional and opaque; an instance with
+   * no capabilities carries an empty set. Drives the card's capability chip row and
+   * the drawer's Capabilities section (FLT-CAP-01).
+   */
+  readonly capabilities?: readonly string[];
+  /** Default gateway image the cluster's control plane provisions (FLT-CAP-07). */
+  readonly gatewayImage?: string | null;
   /** Stable identicon/identiname seed: the active digest, else the instance key. */
   readonly seed: string;
   readonly version: string | null;
@@ -435,7 +445,14 @@ function buildNode(
   topology: InstanceTopology | null,
   brokenOutSpokes: ReadonlySet<string>,
 ): MapNode {
-  const provider = nonEmpty(env.provider);
+  // Capabilities are opaque delivery-label DATA; absent -> empty set (FLT-CAP-01).
+  const capabilities = env.capabilities ?? [];
+  // Provider prefers the `provider` capability, falling back to the dedicated
+  // `provider` delivery field so an instance that only carries one still groups
+  // into its provider lane. Both are the SAME runtime label - no provider list is
+  // baked in (data-architecture.spec §3.5).
+  const provider =
+    capabilityValue(capabilities, "provider") ?? nonEmpty(env.provider);
   const isHub = isHubRole(env.role);
   // A hub card reads its OWN instance and rolls up every cluster except the spokes
   // broken out onto their own node; a spoke card reads its HUB instance (its column
@@ -485,6 +502,8 @@ function buildNode(
     role: nonEmpty(env.role),
     provider,
     cluster: nonEmpty(env.cluster),
+    capabilities,
+    gatewayImage: nonEmpty(env.gatewayImage ?? null),
     seed: nonEmpty(env.activeDigest) ?? env.name,
     version: env.activeRelease,
     digest: env.activeDigest,

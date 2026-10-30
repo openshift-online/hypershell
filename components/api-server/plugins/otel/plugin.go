@@ -1,4 +1,4 @@
-// Package otel wires OpenTelemetry tracing and metrics into the HyperShell API
+// Package otel wires OpenTelemetry tracing, metrics and logs into the HyperShell API
 // server. It is a cross-cutting plugin (like plugins/rbac): its init() registers
 // HTTP middleware and gRPC interceptors with the framework and reads its
 // configuration from the environment. Instrumentation is applied once at the
@@ -15,18 +15,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/golang/glog"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/logging"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -54,12 +58,12 @@ func init() {
 	if err != nil {
 		// Degrade, do not crash: a telemetry setup failure must not stop the API
 		// server from serving requests.
-		glog.Errorf("OpenTelemetry initialization failed, continuing without telemetry: %v", err)
+		slog.Error("OpenTelemetry initialization failed, continuing without telemetry", "error", err)
 		return
 	}
 
 	if err := registerMetrics(); err != nil {
-		glog.Errorf("OpenTelemetry metric instrument setup failed, continuing without gRPC metrics: %v", err)
+		slog.Error("OpenTelemetry metric instrument setup failed, continuing without gRPC metrics", "error", err)
 	}
 
 	// HTTP: the outer handler creates the server span and extracts inbound W3C
@@ -80,12 +84,12 @@ func init() {
 
 	go awaitShutdown(shutdown)
 
-	glog.Infof("OpenTelemetry instrumentation enabled, exporting to %s", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	slog.Info("OpenTelemetry instrumentation enabled", "endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 }
 
-// setupOTel initializes the trace and metric providers, the sampler, and the
-// global W3C propagator, and returns a shutdown function that flushes both
-// providers. Exporter endpoint and protocol are read from the standard OTEL_*
+// setupOTel initializes the trace, metric and log providers, the sampler, and
+// the global W3C propagator, and returns a shutdown function that flushes every
+// provider. Exporter endpoint and protocol are read from the standard OTEL_*
 // environment variables by the exporter constructors.
 func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
@@ -119,31 +123,53 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 		propagation.Baggage{},
 	))
 
+	shutdowns := []func(context.Context) error{tp.Shutdown}
+	shutdown := func(ctx context.Context) error {
+		var errs []error
+		for _, s := range shutdowns {
+			errs = append(errs, s(ctx))
+		}
+		return errors.Join(errs...)
+	}
+
 	// Metrics are opt-out via the standard OTEL_METRICS_EXPORTER=none. A
 	// trace-only backend (Jaeger in the dev cluster) rejects the OTLP metrics
 	// service, so this lets an operator disable metric export without losing
 	// tracing. When metrics are off the global meter stays the no-op, and the
 	// gRPC interceptors' recordRPCDuration becomes a no-op.
-	if os.Getenv("OTEL_METRICS_EXPORTER") == "none" {
-		return tp.Shutdown, nil
+	if os.Getenv("OTEL_METRICS_EXPORTER") != "none" {
+		metricExporter, err := otlpmetricgrpc.New(ctx)
+		if err != nil {
+			// Flush the already-started providers before returning so a
+			// half-initialized SDK is not left running.
+			return nil, errors.Join(fmt.Errorf("creating metric exporter: %w", err), shutdown(ctx))
+		}
+		mp := sdkmetric.NewMeterProvider(
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
+			sdkmetric.WithResource(res),
+		)
+		otel.SetMeterProvider(mp)
+		shutdowns = append(shutdowns, mp.Shutdown)
 	}
 
-	metricExporter, err := otlpmetricgrpc.New(ctx)
-	if err != nil {
-		// Flush the already-started trace provider before returning so a
-		// half-initialized SDK is not left running.
-		return nil, errors.Join(fmt.Errorf("creating metric exporter: %w", err), tp.Shutdown(ctx))
+	// Logs are opt-out the same way, with OTEL_LOGS_EXPORTER=none. The slog
+	// bridge is registered as a sink of the server's logger (pkg/logging), so
+	// every record, including the framework's, is exported at the configured
+	// --log-level with the trace and span IDs of the context it was logged with.
+	if os.Getenv("OTEL_LOGS_EXPORTER") != "none" {
+		logExporter, err := otlploggrpc.New(ctx)
+		if err != nil {
+			return nil, errors.Join(fmt.Errorf("creating log exporter: %w", err), shutdown(ctx))
+		}
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+			sdklog.WithResource(res),
+		)
+		logging.RegisterSink(otelslog.NewHandler(tracerName, otelslog.WithLoggerProvider(lp)))
+		shutdowns = append(shutdowns, lp.Shutdown)
 	}
 
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
-		sdkmetric.WithResource(res),
-	)
-	otel.SetMeterProvider(mp)
-
-	return func(ctx context.Context) error {
-		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
-	}, nil
+	return shutdown, nil
 }
 
 // samplerRatio reads OTEL_TRACES_SAMPLER_ARG, defaulting to 1.0 (sample all root
@@ -155,13 +181,13 @@ func samplerRatio() float64 {
 	}
 	parsed, err := strconv.ParseFloat(v, 64)
 	if err != nil {
-		glog.Warningf("invalid OTEL_TRACES_SAMPLER_ARG %q, defaulting to %v: %v", v, defaultSampleArg, err)
+		slog.Warn("Invalid OTEL_TRACES_SAMPLER_ARG, using the default", "value", v, "default", defaultSampleArg, "error", err)
 		return defaultSampleArg
 	}
 	return parsed
 }
 
-// awaitShutdown flushes buffered spans and metrics on SIGTERM/SIGINT, bounded by
+// awaitShutdown flushes buffered spans, metrics and logs on SIGTERM/SIGINT, bounded by
 // a timeout so shutdown never blocks indefinitely.
 func awaitShutdown(shutdown func(context.Context) error) {
 	sigCh := make(chan os.Signal, 1)
@@ -171,6 +197,6 @@ func awaitShutdown(shutdown func(context.Context) error) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownGracePrd)
 	defer cancel()
 	if err := shutdown(ctx); err != nil {
-		glog.Errorf("OpenTelemetry shutdown error: %v", err)
+		slog.Error("OpenTelemetry shutdown failed", "error", err)
 	}
 }

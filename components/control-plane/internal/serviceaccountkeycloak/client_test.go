@@ -94,6 +94,7 @@ func TestProvisionServiceAccountCreatesLeastPrivilegeClientAndVerifiesToken(t *t
 	}
 }
 
+// Verifies: OSG-SACC-01.02
 func TestProvisionServiceAccountDoesNotLeakSecretOrProviderBody(t *testing.T) {
 	fake := newServiceAccountKeycloak(t, []string{RoleUser}, true)
 	client := NewClient(fake.server.URL, "realm", "provisioner", "admin-secret")
@@ -180,6 +181,7 @@ func TestProvisionedCredentialsCanRenewShortLivedAccessTokens(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-10.01
 func TestDeleteGatewayServiceAccountsDisablesEveryClientBeforeDeletion(t *testing.T) {
 	clientIDs := []string{"service-1", "service-2"}
 	events := make([]string, 0, 4)
@@ -583,6 +585,7 @@ func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-16.01
 func TestReconcileServiceAccountPerformsNoWritesWithBuiltInServiceAccountScope(t *testing.T) {
 	rep := convergedClientRepresentation()
 	rep["defaultClientScopes"] = []string{builtInServiceAccountScope}

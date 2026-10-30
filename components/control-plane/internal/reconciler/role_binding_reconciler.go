@@ -111,7 +111,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	kcClientID, gatewayClusterID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
 	if err != nil {
-		if isGatewayNotFound(err) {
+		if isNotFoundRPC(err) {
 			// The binding outlived its gateway: the gateway was deleted while the
 			// stream was down, or the periodic resync's ListRoleBindings surfaced a
 			// binding whose gateway is already gone. There is no per-gateway Keycloak
@@ -132,7 +132,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	}
 
 	// On every event, reconcile the user's client roles on this gateway to the
-	// exact union implied by their surviving bindings (GAM-02): assign any
+	// exact union implied by their surviving bindings (GTW-ACC-02): assign any
 	// missing role and remove any role no longer backed by a binding. This makes
 	// promotions, demotions (including an in-place role_id UPDATE from
 	// gateway:admin to gateway:viewer that must strip openshell-admin while
@@ -220,10 +220,10 @@ func unionKcRoles(items []*pb.RoleBinding, excludeID string) map[string]bool {
 	return desired
 }
 
-// isGatewayNotFound reports whether err (possibly wrapped) is a gRPC NotFound,
+// isNotFoundRPC reports whether err (possibly wrapped) is a gRPC NotFound.
 // which GetGateway returns when the binding's gateway no longer exists. It walks
 // the wrap chain because resolveKeycloakClientID wraps the RPC error with %w.
-func isGatewayNotFound(err error) bool {
+func isNotFoundRPC(err error) bool {
 	for err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return true

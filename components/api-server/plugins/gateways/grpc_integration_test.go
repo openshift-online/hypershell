@@ -37,25 +37,16 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// The control plane owns the platform-managed and observed gateway fields exercised
+	// here (external_dns, tls_mode, service_type, status, phase) and the control-plane-only
+	// SetGatewayVersion RPC, so this end-to-end CRUD runs as a control-plane identity
+	// (PLAT-DATA-23). A user may write only name + placement/cluster_id.
+	grpcClient, clusterID := newControlPlaneGatewayClient(t, h)
+	ctx := context.Background()
 
 	createReq := &pb.CreateGatewayRequest{
 		Name:        "TestName",
-		ClusterId:   registerTestCluster(t),
+		ClusterId:   clusterID,
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -85,7 +76,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	updateReq := &pb.UpdateGatewayRequest{
 		Id:          gatewayID,
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
-		ClusterId:   func() *string { s := registerTestCluster(t); return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -118,6 +108,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 }
 
+// Verifies: PLAT-DATA-02.02, PLAT-CLUS-06.01, PLAT-CLUS-06.03, PLAT-CLUS-07.02
 func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -291,6 +282,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
+// Verifies: CTRL-WDEL-01.01
 func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -400,6 +392,7 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 // down reaches it only through the ListGateways call it makes once the watch
 // subscription is live. On each fresh connection, that list must return every
 // pre-existing gateway of the caller's cluster and none of another cluster.
+// Verifies: CTRL-CORE-02.03
 func TestGRPCWatchThenListReturnsPreExistingGateways(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

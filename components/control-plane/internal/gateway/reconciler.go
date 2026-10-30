@@ -63,14 +63,18 @@ func ReconcileGateway(
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
 	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
-		hostname, err := deriveGatewayHostname(nsConfig)
-		if err != nil {
-			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
-		} else {
-			nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
-			if nsConfig.Gateway.Route.Host == "" {
-				nsConfig.Gateway.Route.Host = hostname
-			}
+		injectIngressHostnames(&nsConfig)
+	}
+
+	// Vault-backed gateways fail closed: verify the per-cluster Vault is reachable
+	// (unauthenticated sys/health over TLS trusted by the serving CA) before we
+	// provision the workload. The authenticated identity check runs post-deploy, once
+	// the gateway ServiceAccount exists. See openshell-gateway-credentials.spec.md
+	// (Fail Closed When Vault Is Unavailable).
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		if err := probeVaultReachable(ctx, clientset); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, "Vault credential backend is unreachable")
+			return fmt.Errorf("vault reachability probe failed for %s: %w", nsConfig.Name, err)
 		}
 	}
 
@@ -137,6 +141,15 @@ func ReconcileGateway(
 			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
 			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
 		}
+		// Create the gateway's OWN per-tenant Vault KV mount (openshell-gw/<namespace>)
+		// before the workload starts, through the control plane's scoped provisioner
+		// identity (it can manage only openshell-gw/* mounts, never read a secret or
+		// rewrite a policy). Idempotent. Fail closed: a gateway must have its mount before
+		// it runs. See openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+		if err := EnsureVaultTenantMount(ctx, clientset, opts, nsConfig.Name); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend mount could not be provisioned")
+			return fmt.Errorf("ensure vault tenant mount for %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	// Reconcile OpenShift SCC binding BEFORE Helm install
@@ -155,6 +168,17 @@ func ReconcileGateway(
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
 
+	// Vault-backed gateways: the workload (and its ServiceAccount) now exists, so
+	// verify the gateway's own identity can authenticate to the per-cluster Vault
+	// before it advances to Running. Fail closed + retry on denial. See
+	// openshell-gateway-credentials.spec.md (Fail Closed When Vault Is Unavailable).
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		if err := probeVaultAuth(ctx, clientset, nsConfig.Name); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend rejected the gateway identity")
+			return fmt.Errorf("vault auth probe failed for %s: %w", nsConfig.Name, err)
+		}
+	}
+
 	// Console reconciliation and route-address publishing are not managed by
 	// the Helm chart. Reconcile them after the Helm release so the gateway
 	// workload is already deployed.
@@ -162,7 +186,7 @@ func ReconcileGateway(
 	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to configure network routing")
+				report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
 				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
@@ -395,14 +419,78 @@ func DeleteLabeledNamespaceResources(
 	}
 }
 
+// Sentinel errors for the dedicated-certificate provisioning path. They let
+// gatewayDeployedConditionMessage surface the actionable cause in the
+// user-visible ConditionGatewayDeployed message (API UX review finding 2)
+// instead of the generic network-routing text, which a UI user cannot tell
+// apart from an actual network failure.
+var (
+	// errExternalIssuerUnset: the controller deployment is missing the issuer
+	// configuration; only the platform operator can fix it.
+	errExternalIssuerUnset = errors.New("dedicated certificate provisioning is unavailable: GATEWAY_EXTERNAL_ISSUER is not set on the controller (contact the platform operator)")
+	// errExternalCertificateNotIssued: cert-manager did not produce the
+	// external certificate Secret within the provisioning wait window.
+	errExternalCertificateNotIssued = errors.New("the dedicated gateway certificate was not issued in time; check the openshell-gateway-external Certificate's status conditions and the issuer named by GATEWAY_EXTERNAL_ISSUER")
+)
+
+// gatewayDeployedConditionMessage translates a Gateway API resource
+// reconciliation failure into the user-visible ConditionGatewayDeployed
+// message. The generic message covers the shared-Gateway path; the
+// dedicated-certificate sentinels carry their actionable causes.
+func gatewayDeployedConditionMessage(nsConfig NamespaceConfig, err error) string {
+	switch {
+	case errors.Is(err, errExternalIssuerUnset):
+		return "Gateway deployment failed - " + errExternalIssuerUnset.Error()
+	case errors.Is(err, errExternalCertificateNotIssued):
+		return "Gateway deployment failed - " + errExternalCertificateNotIssued.Error()
+	default:
+		return "Gateway deployment failed - unable to configure network routing"
+	}
+}
+
 // DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
-// route: it removes the GRPCRoute, BackendTLSPolicy, and backend-CA ConfigMap,
-// tears down the console (which follows the route), and clears the stored
-// route_address. It attempts every deletion regardless of individual failures
-// and returns their joined errors (nil once everything is absent), so a caller
-// can retry until the route and its console are fully gone rather than stopping
-// on partial cleanup. Idempotent: absent resources are ignored.
+// route: it removes the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, the
+// dedicated-certificate resources (external Certificate, per-tenant Gateway,
+// sandbox HTTPRoute) when present, tears down the console (which follows the
+// route), and clears the stored route_address. It attempts every deletion
+// regardless of individual failures and returns their joined errors (nil once
+// everything is absent), so a caller can retry until the route and its console
+// are fully gone rather than stopping on partial cleanup. Idempotent: absent
+// resources are ignored.
 func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+	var errs []error
+
+	if err := deleteGatewayAPIRouteResources(ctx, dynamicClient, clientset, namespace); err != nil {
+		errs = append(errs, err)
+	}
+
+	// The console follows the route, so removing the route removes the console.
+	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
+		errs = append(errs, err)
+	}
+
+	if opts.UpdateRouteAddress != nil {
+		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
+		} else {
+			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		}
+	}
+
+	if len(errs) == 0 {
+		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+	}
+	return errors.Join(errs...)
+}
+
+// deleteGatewayAPIRouteResources removes the route-owned Kubernetes resources:
+// the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, and the
+// dedicated-certificate resources (external Certificate, per-tenant Gateway,
+// sandbox HTTPRoute). It takes a kubernetes.Interface rather than the concrete
+// client type so tests can drive it with a fake clientset (the console teardown
+// in DeleteGatewayAPIResources requires the concrete type and stays in the
+// wrapper). Idempotent: absent resources are ignored, and all errors are joined.
+func deleteGatewayAPIRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string) error {
 	var errs []error
 
 	grpcRouteGVR := schema.GroupVersionResource{
@@ -423,26 +511,42 @@ func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
+	// Dedicated-certificate resources (only present on opted-in gateways; their
+	// absence for non-opted-in gateways is the expected state, so the deletes are
+	// unconditionally attempted and NotFound is ignored). A removed gateway must
+	// not leave a live listener serving its hostname or wildcard, nor a
+	// certificate renewing for it.
+	certGVR := schema.GroupVersionResource{
+		Group:    "cert-manager.io",
+		Version:  "v1",
+		Resource: "certificates",
+	}
+	if err := dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ctx, externalCertificateName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete external Certificate in %s: %w", namespace, err))
+	}
+
+	gatewayGVR := schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "gateways",
+	}
+	if err := dynamicClient.Resource(gatewayGVR).Namespace(namespace).Delete(ctx, perTenantGatewayName(namespace), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete per-tenant Gateway in %s: %w", namespace, err))
+	}
+
+	httpRouteGVR := schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "httproutes",
+	}
+	if err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Delete(ctx, sandboxHTTPRouteName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete sandbox HTTPRoute in %s: %w", namespace, err))
+	}
+
 	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, backendCAConfigMapName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
 	}
 
-	// The console follows the route, so removing the route removes the console.
-	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
-		errs = append(errs, err)
-	}
-
-	if opts.UpdateRouteAddress != nil {
-		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
-		} else {
-			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
-		}
-	}
-
-	if len(errs) == 0 {
-		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
-	}
 	return errors.Join(errs...)
 }
 
@@ -473,6 +577,8 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
 	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
 	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	gatewayGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
 	openShiftRouteGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 
 	type dynamicProbe struct {
@@ -482,9 +588,15 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	var dynamicProbes []dynamicProbe
 	switch ingressMode {
 	case IngressModeGatewayAPI:
+		// The dedicated-certificate resources are only present for opted-in
+		// gateways; probing them unconditionally is correct (absence for
+		// non-opted-in gateways is the expected state).
 		dynamicProbes = append(dynamicProbes,
 			dynamicProbe{grpcRouteGVR, "openshell-gateway"},
 			dynamicProbe{btlsGVR, "openshell-gateway"},
+			dynamicProbe{certGVR, externalCertificateName},
+			dynamicProbe{gatewayGVR, perTenantGatewayName(namespace)},
+			dynamicProbe{httpRouteGVR, sandboxHTTPRouteName},
 		)
 	case IngressModeRoute:
 		dynamicProbes = append(dynamicProbes,
@@ -614,7 +726,7 @@ func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 	return errors.Join(errs...)
 }
 
-func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
+func waitForSecret(ctx context.Context, clientset kubernetes.Interface, namespace, name string, timeout time.Duration) error {
 	watchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -676,6 +788,32 @@ const GatewayDeploymentName = "openshell-gateway"
 // ConfigMap leaks on teardown and the readiness probe watches the wrong object;
 // see openshell-gateway.spec.md.
 const backendCAConfigMapName = "openshell-gateway-backend-ca"
+
+// Names of the resources only a dedicated-certificate gateway
+// (route.certificate) owns. The create, delete, and teardown-readiness paths
+// MUST agree on them or the resources leak on teardown and the absence probe
+// watches the wrong objects, exactly like backendCAConfigMapName above.
+const (
+	// externalCertificateName is the cert-manager Certificate covering both
+	// the gateway's own hostname and its sandbox wildcard.
+	externalCertificateName = "openshell-gateway-external"
+	// externalCertificateSecretName is the Secret cert-manager issues
+	// externalCertificateName into; the per-tenant Gateway's listeners
+	// reference it.
+	externalCertificateSecretName = "openshell-gateway-external-tls"
+	// sandboxHTTPRouteName is the wildcard-hostname HTTPRoute routing sandbox
+	// service traffic to the gateway's own listener.
+	sandboxHTTPRouteName = "openshell-gateway-sandbox"
+)
+
+// perTenantGatewayName returns the name of the per-tenant Gateway API Gateway
+// a dedicated-certificate gateway is served by (gw-<namespace>). It mirrors the
+// hostname derivation (gw-<namespace>.<base-domain>) so the Gateway, its
+// listeners, and the hostname baked into the routes cannot drift apart. It
+// matches the exposure adapter's same-named helper.
+func perTenantGatewayName(namespace string) string {
+	return "gw-" + namespace
+}
 
 // deploymentRolloutComplete judges a Deployment's rollout on its *new* revision,
 // not on any still-Ready old pod. It reports complete=true only when the
@@ -1360,6 +1498,33 @@ func gatewayIngressName() string {
 	return ""
 }
 
+// gatewayExternalIssuerName returns the name of the cert-manager issuer that
+// mints the dedicated per-gateway external certificate, from
+// GATEWAY_EXTERNAL_ISSUER. Empty means the dedicated-certificate feature is
+// unavailable on this controller: an opted-in gateway fails provisioning with
+// a clear error instead of silently falling back to the shared wildcard.
+func gatewayExternalIssuerName() string {
+	return strings.TrimSpace(os.Getenv("GATEWAY_EXTERNAL_ISSUER"))
+}
+
+// gatewayExternalIssuerKind returns the kind of the external certificate
+// issuer (GATEWAY_EXTERNAL_ISSUER_KIND), defaulting to ClusterIssuer.
+func gatewayExternalIssuerKind() string {
+	if kind := strings.TrimSpace(os.Getenv("GATEWAY_EXTERNAL_ISSUER_KIND")); kind != "" {
+		return kind
+	}
+	return "ClusterIssuer"
+}
+
+// gatewayAPIGatewayClass returns the GatewayClass the per-tenant Gateway is
+// created with (GATEWAY_API_GATEWAY_CLASS), defaulting to openshift-default.
+func gatewayAPIGatewayClass() string {
+	if class := strings.TrimSpace(os.Getenv("GATEWAY_API_GATEWAY_CLASS")); class != "" {
+		return class
+	}
+	return "openshift-default"
+}
+
 // Ingress modes select how a tenant gateway is exposed for external traffic.
 // Exported so the controller entrypoint can select the matching Gateway Exposure
 // adapter (Gateway API vs Route) by the same rule the reconciler uses to emit
@@ -1467,6 +1632,34 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 	return fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain), nil
 }
 
+// injectIngressHostnames adds the external ingress hostname to the gateway's
+// server certificate SANs and fills an empty Route.Host with it. The gateway
+// pod terminates TLS with its own per-tenant CA and both ingress modes carry
+// that TLS through unmodified, so the server certificate must list the
+// external hostname as a SAN or clients fail verification. The controller
+// derives the hostname, so it -- not the operator -- injects it into the cert
+// SANs here, before cert-manager mints the certificate.
+//
+// A dedicated-certificate gateway (route.certificate) additionally gets the
+// wildcard *.gw-<namespace>.<base-domain> SAN: the gateway strips the "*."
+// prefix and derives its exposed-service base domain from it, so without the
+// wildcard entry it cannot generate valid sandbox service URLs. See
+// docs/investigations/per-gateway-certificates.md (Gap C).
+func injectIngressHostnames(nsConfig *NamespaceConfig) {
+	hostname, err := deriveGatewayHostname(*nsConfig)
+	if err != nil {
+		log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
+		return
+	}
+	nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
+	if nsConfig.Gateway.Route.Certificate != nil {
+		nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, "*."+hostname)
+	}
+	if nsConfig.Gateway.Route.Host == "" {
+		nsConfig.Gateway.Route.Host = hostname
+	}
+}
+
 // appendDNSNameIfMissing returns names with hostname appended, unless it is
 // empty or already present. Used to add the derived ingress hostname to the
 // gateway server certificate SANs without duplicating it.
@@ -1496,16 +1689,206 @@ func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hos
 	}
 }
 
+// buildExternalCertificate returns the cert-manager Certificate covering a
+// dedicated-certificate gateway's own hostname and its sandbox wildcard. One
+// certificate with both names is a single ACME order; the wildcard mandates a
+// DNS-01-capable issuer (named by GATEWAY_EXTERNAL_ISSUER on the controller).
+func buildExternalCertificate(namespace, hostname string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cert-manager.io/v1",
+		"kind":       "Certificate",
+		"metadata": map[string]interface{}{
+			"name":      externalCertificateName,
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		"spec": map[string]interface{}{
+			"secretName": externalCertificateSecretName,
+			"dnsNames":   []interface{}{hostname, "*." + hostname},
+			// Always replace the Secret on renewal so the Gateway listeners
+			// serving it never present a stale certificate.
+			"rotationPolicy": "Always",
+			"issuerRef": map[string]interface{}{
+				"name":  gatewayExternalIssuerName(),
+				"kind":  gatewayExternalIssuerKind(),
+				"group": "cert-manager.io",
+			},
+		},
+	}}
+}
+
+// buildPerTenantGateway returns the per-tenant Gateway API Gateway a
+// dedicated-certificate gateway is served by. Both listeners terminate TLS with
+// the same external certificate Secret on port 443 with distinct,
+// non-overlapping hostnames: "grpc" carries the gateway's own gRPC traffic on
+// the exact hostname, "sandbox" carries sandbox service and console traffic on
+// the wildcard. The external-dns infrastructure annotation publishes both DNS
+// records pointing at this Gateway's own load balancer (the same mechanism the
+// shared Gateway uses; on clusters without external-dns the operator adds the
+// two records manually at provision time).
+func buildPerTenantGateway(namespace, hostname string) *unstructured.Unstructured {
+	tlsConfig := func() map[string]interface{} {
+		return map[string]interface{}{
+			"mode": "Terminate",
+			"certificateRefs": []interface{}{
+				map[string]interface{}{
+					"group": "",
+					"kind":  "Secret",
+					"name":  externalCertificateSecretName,
+				},
+			},
+		}
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "gateway.networking.k8s.io/v1",
+		"kind":       "Gateway",
+		"metadata": map[string]interface{}{
+			"name":      perTenantGatewayName(namespace),
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		"spec": map[string]interface{}{
+			"gatewayClassName": gatewayAPIGatewayClass(),
+			"infrastructure": map[string]interface{}{
+				"annotations": map[string]interface{}{
+					"external-dns.kubernetes.io/hostname": hostname + ",*." + hostname,
+				},
+			},
+			"listeners": []interface{}{
+				map[string]interface{}{
+					"name":     "grpc",
+					"hostname": hostname,
+					"port":     int64(443),
+					"protocol": "HTTPS",
+					"tls":      tlsConfig(),
+					"allowedRoutes": map[string]interface{}{
+						"kinds": []interface{}{
+							map[string]interface{}{"group": "gateway.networking.k8s.io", "kind": "GRPCRoute"},
+						},
+						"namespaces": map[string]interface{}{"from": "Same"},
+					},
+				},
+				map[string]interface{}{
+					"name":     "sandbox",
+					"hostname": "*." + hostname,
+					"port":     int64(443),
+					"protocol": "HTTPS",
+					"tls":      tlsConfig(),
+					"allowedRoutes": map[string]interface{}{
+						"kinds": []interface{}{
+							map[string]interface{}{"group": "gateway.networking.k8s.io", "kind": "HTTPRoute"},
+						},
+						"namespaces": map[string]interface{}{"from": "Same"},
+					},
+				},
+			},
+		},
+	}}
+}
+
+// buildSandboxHTTPRoute returns the wildcard-hostname HTTPRoute carrying
+// sandbox service traffic to the gateway's own listener, parented on the
+// per-tenant Gateway's "sandbox" listener.
+func buildSandboxHTTPRoute(namespace, hostname string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "gateway.networking.k8s.io/v1",
+		"kind":       "HTTPRoute",
+		"metadata": map[string]interface{}{
+			"name":      sandboxHTTPRouteName,
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		"spec": map[string]interface{}{
+			"hostnames": []interface{}{"*." + hostname},
+			"parentRefs": []interface{}{
+				map[string]interface{}{
+					"name":        perTenantGatewayName(namespace),
+					"sectionName": "sandbox",
+				},
+			},
+			"rules": []interface{}{
+				map[string]interface{}{
+					"backendRefs": []interface{}{
+						map[string]interface{}{
+							"name": "openshell-gateway",
+							"port": int64(8080),
+						},
+					},
+				},
+			},
+		},
+	}}
+}
+
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+	// The route-owned resources are reconciled through a kubernetes.Interface
+	// core so tests can drive them with a fake clientset; the console call below
+	// requires the concrete client type (console.go) and stays in this wrapper.
+	if err := reconcileGatewayAPIRouteResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+		return err
+	}
+
+	// The console follows the route: it is deployed in the same pass that creates
+	// the route resources. A console failure must not fail the gateway route
+	// reconciliation, so it is logged and the reconcile continues.
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
+	}
+	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
+		log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
+	}
+
+	return nil
+}
+
+// reconcileGatewayAPIRouteResources creates the Gateway API resources exposing
+// a routed tenant gateway: the GRPCRoute onto the shared Gateway, or - for a
+// dedicated-certificate gateway (route.certificate) - the external
+// cert-manager Certificate, the per-tenant Gateway, the re-parented GRPCRoute,
+// and the wildcard sandbox HTTPRoute. It takes a kubernetes.Interface rather
+// than the concrete client type so tests can drive it with a fake clientset
+// (the console reconciliation in reconcileGatewayAPIResources requires the
+// concrete type and stays in the wrapper).
+func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
 
-	gwName := gatewayIngressName()
-	if gwName == "" {
-		log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
-		return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
+	// A dedicated-certificate gateway (route.certificate) is served by its own
+	// per-tenant Gateway, so the shared Gateway is not required; instead the
+	// controller must know which cluster issuer mints the external certificate.
+	// The issuer is cluster infrastructure, never user input (see
+	// docs/investigations/per-gateway-certificates.md section 7, decision 2).
+	dedicatedCert := routeConfig.Certificate != nil
+	var gwName, gwNS string
+	if dedicatedCert {
+		if gatewayExternalIssuerName() == "" {
+			log.Printf("WARN route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
+			return fmt.Errorf("route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller: %w", errExternalIssuerUnset)
+		}
+	} else {
+		gwName = gatewayIngressName()
+		if gwName == "" {
+			log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
+			return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
+		}
+		gwNS = gatewayIngressNamespace()
 	}
-	gwNS := gatewayIngressNamespace()
 
 	// Derive the external hostname through the Gateway Exposure adapter's shared
 	// helper so the hostname baked into the GRPCRoute cannot drift from the
@@ -1534,17 +1917,61 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	listenerName := sharedGatewayListenerName()
-	if os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME") == "" {
-		log.Printf("INFO using Gateway %s/%s listener %s for tenant %s (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)", gwNS, gwName, listenerName, namespace)
-	} else {
-		log.Printf("INFO using Gateway %s/%s listener %s for tenant %s", gwNS, gwName, listenerName, namespace)
+	if dedicatedCert {
+		// One cert, one DNS-01 order: the exact name serves the gateway's own
+		// gRPC host; the wildcard covers every <sandbox>--<service> label below
+		// it. cert-manager owns issuance and rotation from here on.
+		if err := reconcileResource(ctx, dynamicClient, buildExternalCertificate(namespace, hostname)); err != nil {
+			return fmt.Errorf("reconcile external Certificate: %w", err)
+		}
+
+		// The Gateway's listeners reference the issued Secret, so wait for
+		// cert-manager to mint it before creating them (mirroring the
+		// openshell-server-tls wait below).
+		if err := waitForSecret(ctx, clientset, namespace, externalCertificateSecretName, 60*time.Second); err != nil {
+			return fmt.Errorf("wait for external TLS secret in %s: %w: %w", namespace, err, errExternalCertificateNotIssued)
+		}
+
+		// The wait above can run for up to a minute; mirror the RouteStillDesired
+		// re-check below so this in-flight pass does not create the per-tenant
+		// Gateway behind a concurrent teardown. Fail closed on unknown intent.
+		if opts.RouteStillDesired != nil {
+			desired, err := opts.RouteStillDesired(ctx)
+			if err != nil {
+				return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+			}
+			if !desired {
+				log.Printf("INFO gateway in %s no longer routed after external TLS wait; skipping per-tenant Gateway creation (health loop owns teardown)", namespace)
+				return nil
+			}
+		}
+
+		if err := reconcileResource(ctx, dynamicClient, buildPerTenantGateway(namespace, hostname)); err != nil {
+			return fmt.Errorf("reconcile per-tenant Gateway: %w", err)
+		}
 	}
 
-	parentRef := map[string]interface{}{
-		"name":        gwName,
-		"namespace":   gwNS,
-		"sectionName": listenerName,
+	var parentRef map[string]interface{}
+	if dedicatedCert {
+		// Same namespace as the GRPCRoute, so no ReferenceGrant is needed.
+		parentRef = map[string]interface{}{
+			"name":        perTenantGatewayName(namespace),
+			"namespace":   namespace,
+			"sectionName": "grpc",
+		}
+	} else {
+		listenerName := sharedGatewayListenerName()
+		if os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME") == "" {
+			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)", gwNS, gwName, listenerName, namespace)
+		} else {
+			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s", gwNS, gwName, listenerName, namespace)
+		}
+
+		parentRef = map[string]interface{}{
+			"name":        gwName,
+			"namespace":   gwNS,
+			"sectionName": listenerName,
+		}
 	}
 
 	grpcRoute := &unstructured.Unstructured{
@@ -1579,6 +2006,17 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 	if err := reconcileResource(ctx, dynamicClient, grpcRoute); err != nil {
 		return fmt.Errorf("reconcile GRPCRoute: %w", err)
+	}
+
+	if dedicatedCert {
+		// Sandbox service traffic (ExposeService HTTP virtual-hosting, plus the
+		// per-gateway console) arrives on *.gw-<namespace>... hosts and is
+		// virtual-hosted by the gateway's own listener. The BackendTLSPolicy
+		// below re-encrypts this leg with the pod's internal cert, same as the
+		// gRPC path.
+		if err := reconcileResource(ctx, dynamicClient, buildSandboxHTTPRoute(namespace, hostname)); err != nil {
+			return fmt.Errorf("reconcile sandbox HTTPRoute: %w", err)
+		}
 	}
 
 	if err := waitForSecret(ctx, clientset, namespace, "openshell-server-tls", 60*time.Second); err != nil {
@@ -1682,17 +2120,6 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 	// The route address is published deterministically at the top of this
 	// function, so no readiness-gated discovery is required here.
-
-	// The console follows the route: it is deployed in the same pass that creates
-	// the route resources. A console failure must not fail the gateway route
-	// reconciliation, so it is logged and the reconcile continues.
-	images := opts.Images
-	if images == nil {
-		images = StaticImageDefaults{}
-	}
-	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
-		log.Printf("WARN failed to reconcile console in %s: %v", namespace, err)
-	}
 
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil

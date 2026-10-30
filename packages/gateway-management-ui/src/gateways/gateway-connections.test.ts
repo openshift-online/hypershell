@@ -6,6 +6,8 @@ import {
   buildOneTimeSetupScript,
   buildOpenShellInstallCommand,
   buildProviderCreateCommand,
+  buildProviderProfileDownloadCommand,
+  buildProviderProfileImportCommand,
   buildSandboxConnectCommand,
   buildSandboxCreateCommand,
   claudeModel,
@@ -14,8 +16,14 @@ import {
   sandboxName,
   sandboxResourceDefaults,
   vertexProviderName,
+  vertexProviderProfileFile,
+  vertexProviderProfileUrl,
   type GatewayConnection,
 } from "./gateway-connections";
+// Shared with the Go e2e P2.11 phase (tests/e2e/cli_parity_phases.go), which reads
+// this same file on the merge gate. Imported as a raw string so the path resolves
+// via Vite regardless of the test runner's cwd.
+import installCommandFixture from "./ui-install-command.golden?raw";
 
 const gateway: GatewayConnection = {
   clusterId: "cluster-east",
@@ -64,6 +72,24 @@ describe("gateway connections", () => {
         'export PATH="$HOME/.local/bin:$PATH"',
       ].join("\n"),
     );
+  });
+
+  it("stays in sync with the shared e2e install-command fixture (E2E-COV-05.01)", () => {
+    // The Go P2.11 phase runs on the merge gate where no browser is available, so
+    // it asserts UI parity by reading this fixture. Keep it honest: the real helper
+    // output (with the version replaced by the fixture's sentinel) must equal the
+    // committed fixture, so any change to buildOpenShellInstallCommand fails here
+    // until the fixture is regenerated.
+    const rendered = buildOpenShellInstallCommand(gateway);
+    expect(rendered).toBeDefined();
+    if (rendered === undefined) return;
+    const version = gateway.gatewayVersion ?? "";
+    const installerVersion = version.startsWith("v") ? version : `v${version}`;
+    const templated = rendered
+      .split(installerVersion)
+      .join("__OPENSHELL_INSTALLER_VERSION__");
+    const fixture = installCommandFixture.replace(/\n$/u, "");
+    expect(templated).toBe(fixture);
   });
 
   it("quotes an unsafe gateway version in the installation command", () => {
@@ -156,9 +182,40 @@ describe("gateway connections", () => {
       `openshell provider create \\
   --name ${vertexProviderName} \\
   --type google-vertex-ai \\
+  --global-profile \\
   --from-gcloud-adc \\
   --config VERTEX_AI_PROJECT_ID="$ANTHROPIC_VERTEX_PROJECT_ID" \\
   --config VERTEX_AI_REGION=global`,
+    );
+  });
+
+  it("builds the provider profile download command", () => {
+    expect(buildProviderProfileDownloadCommand()).toBe(
+      `curl -LsSfO ${vertexProviderProfileUrl}`,
+    );
+  });
+
+  it("substitutes a custom url into the profile download command", () => {
+    expect(
+      buildProviderProfileDownloadCommand("https://example.test/p.yaml"),
+    ).toBe("curl -LsSfO https://example.test/p.yaml");
+  });
+
+  it("builds the provider profile import command with matching --global scope", () => {
+    expect(buildProviderProfileImportCommand()).toBe(
+      `openshell provider profile import -f ${vertexProviderProfileFile} --global`,
+    );
+  });
+
+  it("substitutes a custom profile file into the profile import command", () => {
+    expect(buildProviderProfileImportCommand("custom-provider.yaml")).toBe(
+      "openshell provider profile import -f custom-provider.yaml --global",
+    );
+  });
+
+  it("quotes a shell-unsafe profile file in the profile import command", () => {
+    expect(buildProviderProfileImportCommand("my profile.yaml")).toBe(
+      "openshell provider profile import -f 'my profile.yaml' --global",
     );
   });
 
@@ -262,18 +319,25 @@ describe("gateway connections", () => {
     );
   });
 
-  it("combines gateway registration, provider, and inference commands", () => {
+  it("combines gateway registration, profile download/import, provider, and inference commands", () => {
     const script = buildOneTimeSetupScript(gateway);
 
     expect(script).toContain(buildGatewayAddCommand(gateway));
+    expect(script).toContain(buildProviderProfileDownloadCommand());
+    expect(script).toContain(buildProviderProfileImportCommand());
     expect(script).toContain(buildProviderCreateCommand());
     expect(script).toContain(buildInferenceSetCommand());
     expect(script).not.toContain("cat >");
     const gatewayAt = script?.indexOf("openshell gateway add") ?? -1;
+    const profileDownloadAt = script?.indexOf("curl -LsSfO") ?? -1;
+    const profileImportAt =
+      script?.indexOf("openshell provider profile import") ?? -1;
     const providerAt = script?.indexOf("openshell provider create") ?? -1;
     const inferenceAt = script?.indexOf("openshell inference set") ?? -1;
     expect(gatewayAt).toBeGreaterThanOrEqual(0);
-    expect(gatewayAt).toBeLessThan(providerAt);
+    expect(gatewayAt).toBeLessThan(profileDownloadAt);
+    expect(profileDownloadAt).toBeLessThan(profileImportAt);
+    expect(profileImportAt).toBeLessThan(providerAt);
     expect(providerAt).toBeLessThan(inferenceAt);
   });
 

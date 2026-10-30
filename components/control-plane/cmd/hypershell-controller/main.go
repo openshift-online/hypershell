@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -95,6 +97,27 @@ func helmBinaryPath() string {
 	return "/usr/local/bin/helm"
 }
 
+// buildInfo returns a single-line summary of the binary's provenance for the
+// startup log: Go toolchain, target platform, and the VCS revision and build
+// time recorded by the Go linker. It helps correlate a running controller with
+// the exact commit and image it was built from. Values are best-effort; when
+// build metadata is absent (for example a plain `go run`) they report "unknown".
+func buildInfo() string {
+	revision, vcsTime := "unknown", "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.time":
+				vcsTime = setting.Value
+			}
+		}
+	}
+	return fmt.Sprintf("revision=%s vcs-time=%s go=%s platform=%s/%s",
+		revision, vcsTime, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -111,8 +134,15 @@ func main() {
 	}
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
+	// The console image has no built-in default. Fail here with a clear message
+	// instead of logging a console warning for every gateway later.
+	if err := gateway.ValidateConsoleImage(); err != nil {
+		log.Fatalf("console image: %v", err)
+	}
+
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
 	log.Printf("INFO hypershell-controller starting")
+	log.Printf("INFO build %s", buildInfo())
 	log.Printf("INFO grpc=%s (transport=%s) api=%s namespace=%s managed-cluster-name=%s",
 		cfg.GRPCServerAddr, grpcTransport, cfg.APIServerURL, cfg.Namespace, cfg.ManagedClusterName)
 
@@ -136,6 +166,16 @@ func main() {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
+	unregisterIdentityInfo, identityErr := cpotel.RegisterClusterIdentityInfo(
+		cfg.ManagedClusterName,
+		cfg.ManagedClusterCapabilities,
+		gateway.StaticImageDefaults{}.DefaultGatewayImage(),
+	)
+	if identityErr != nil {
+		log.Printf("WARN cluster identity info metrics unavailable: %v", identityErr)
+	} else {
+		defer func() { _ = unregisterIdentityInfo() }()
+	}
 
 	// Every RPC, including the long-lived watch streams, carries the control
 	// plane's OIDC bearer token; the API server does not exempt watch streams
@@ -195,6 +235,15 @@ func main() {
 		dynamicClient, err = dynamic.NewForConfig(k8sConfig)
 		if err != nil {
 			log.Fatalf("creating dynamic client: %v", err)
+		}
+	}
+
+	// Label this control-plane namespace so the per-cluster provider Vault's
+	// provisioner-role namespace selector admits it (HYPERSHELL-369). Best-effort: if it
+	// fails, per-tenant mount provisioning fails closed later with a clear error.
+	if clientset != nil {
+		if err := gateway.EnsureControlPlaneNamespaceLabel(ctx, clientset, cfg.Namespace); err != nil {
+			log.Printf("WARN could not label control-plane namespace %s (provider-Vault provisioner login may be denied until resolved): %v", cfg.Namespace, err)
 		}
 	}
 
@@ -293,7 +342,7 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
-		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// The Keycloak realm directory projection (GTW-ACC-09) rides the same private
 		// in-cluster channel. It needs Keycloak, so it is served only when a
 		// Keycloak client is configured; the API server dials this one address for
 		// both the provisioner and the directory.
@@ -469,6 +518,23 @@ func main() {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})
 
+	if cfg.CITrustEnabled {
+		if kcClient == nil {
+			log.Printf("WARN CI trust reconciler enabled but no Keycloak client available; CI trust reconciliation will not function until Keycloak is configured")
+		}
+		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
+		supervise("CIProvider watch", func(ctx context.Context) error {
+			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout)
+		})
+		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn, clusterID)
+		supervise("CITrust watch", func(ctx context.Context) error {
+			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
+		})
+		log.Printf("INFO CI trust reconciler launched (CIProvider + CITrust watches)")
+	} else {
+		log.Printf("INFO CI trust reconciler disabled (HYPERSHELL_CI_TRUST_ENABLED=false)")
+	}
+
 	log.Printf("INFO all %d watch streams launched", watchCount)
 
 	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the
@@ -537,12 +603,16 @@ func main() {
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
-				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace, kcClient,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")
+
+			sandboxEventsReconciler := reconciler.NewSandboxEventsReconciler(clientset, dynamicClient, conn, 0, clusterID, 0)
+			supervise("sandbox events reconciler", sandboxEventsReconciler.Run)
+			log.Printf("INFO sandbox events reconciler launched")
 		} else {
-			log.Printf("WARN no dynamic client available, sandbox attention reconciliation disabled")
+			log.Printf("WARN no dynamic client available, sandbox attention and events reconciliation disabled")
 		}
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")

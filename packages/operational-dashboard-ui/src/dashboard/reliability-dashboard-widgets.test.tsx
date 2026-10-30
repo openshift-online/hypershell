@@ -142,7 +142,7 @@ describe("ReliabilitySummaryCard", () => {
   it("shows a dash when a summary metric is omitted", () => {
     renderWithIntl(<ReliabilitySummaryCard metrics={[requestRateMetric]} />);
 
-    expect(screen.getAllByText("-")).toHaveLength(7);
+    expect(screen.getAllByText("-")).toHaveLength(10);
   });
 });
 
@@ -151,6 +151,7 @@ describe("ApiReliabilityTrendCard", () => {
   const errorRateTitle = "API error rate";
   const latencyTitle = "API latency";
 
+  // Verifies: REL-DASH-07.03
   it("renders the current value and sparkline when hourly trend exists", () => {
     renderWithIntl(
       <ApiReliabilityTrendCard
@@ -196,6 +197,7 @@ describe("ApiReliabilityTrendCard", () => {
     expect(screen.getAllByText("Current stale-resource count")).toHaveLength(1);
   });
 
+  // Verifies: REL-DASH-07.04
   it("omits the sparkline when hourly trend is absent", () => {
     renderWithIntl(
       <ApiReliabilityTrendCard
@@ -209,6 +211,7 @@ describe("ApiReliabilityTrendCard", () => {
     expect(screen.queryByText("Last 24 hours")).toBeNull();
   });
 
+  // Verifies: REL-DASH-10.01
   it("renders the metric unavailable empty state when metric is missing", () => {
     renderWithIntl(
       <ApiReliabilityTrendCard metric={undefined} title={latencyTitle} />,

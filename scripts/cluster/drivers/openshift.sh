@@ -1107,13 +1107,17 @@ seed_via_api() {
       api_exec DELETE "/api/hypershell/v1/gateways/${GATEWAY_ID}" >/dev/null
       GATEWAY_ID=""
     fi
-    info "Creating Gateway with OIDC..."
-    local oidc
-    oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    info "Creating Gateway..."
+    # A user create carries only the user-writable fields: name + placement
+    # (PLAT-DATA-23 default-deny field policy). Every other gateway field is
+    # platform-managed and rejected for a user caller by the strict create
+    # endpoint. The control plane supplies them during reconcile: route defaults
+    # to enabled, and the per-gateway Keycloak OIDC client is set by
+    # reconcileKeycloakClient (Keycloak is configured in this environment).
     # Create takes a required placement intent, not a cluster_id. The selector
     # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/openshift.
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"network/public\",\"provider/aws\"]},\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"network/public\",\"provider/aws\"]}}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"
@@ -1260,6 +1264,30 @@ cluster_up() {
   fi
   create_bootstrap_secrets
   apply_cluster_rbac
+  # Stand up the stand-in gateway-provider Vault (HYPERSHELL-369) before the control plane
+  # deploys, so vault-default gateways resolve. One shared openshell-vault per cluster at
+  # the convention address - the production shape. Idempotent, so safe on the shared e2e
+  # cluster across PR environments.
+  header "Stand-in gateway-provider Vault (HYPERSHELL-369)"
+  # Vault setup needs cluster-scoped rights (a namespace and a system:auth-delegator
+  # ClusterRoleBinding). On a developer-owned cluster without cluster-admin these are
+  # forbidden; don't abort the whole bring-up for that. Skip with a clear warning and let
+  # the environment come up. The gateway default is vault, and credential_driver is now
+  # platform-managed (PLAT-DATA-23), so the control plane must be configured for kek-db
+  # here (there is no reachable Vault to fall back to); a user cannot set it per gateway.
+  local vault_log
+  vault_log="$(mktemp)"
+  if CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" bash "${CLUSTER_SCRIPT_DIR}/vault.sh" 2>&1 | tee "${vault_log}"; then
+    :
+  elif grep -qi 'forbidden' "${vault_log}"; then
+    warn "Vault setup is forbidden on this cluster (not cluster-admin); skipping the stand-in Vault."
+    warn "The control plane here must be configured for 'credential_driver: kek-db' (the default is vault and would fail closed without a reachable Vault; credential_driver is platform-managed and cannot be set per gateway by a user)."
+  else
+    rm -f "${vault_log}"
+    error "Stand-in Vault setup failed."
+    exit 1
+  fi
+  rm -f "${vault_log}"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes

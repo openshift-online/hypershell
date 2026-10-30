@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parent
 BUILDER = ('registry.access.redhat.com/hi/python@sha256:'
            '0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7')
 COMMON = ['bash', 'coreutils', 'git-core', 'curl', 'jq', 'tar', 'gzip', 'unzip',
-          'findutils', 'diffutils', 'patch', 'which', 'ca-certificates', 'python3', 'libstdc++']
+          'findutils', 'diffutils', 'patch', 'which', 'ca-certificates', 'python3', 'libstdc++',
+          'openssl']
 FULL = ['rust', 'cargo', 'clippy', 'rustfmt', 'rust-src', 'gcc', 'gcc-c++', 'make',
         'pkgconf-pkg-config', 'python3-devel', 'openssl-devel', 'nodejs24', 'nodejs24-npm']
 NS = {'r': 'http://linux.duke.edu/metadata/repo', 'c': 'http://linux.duke.edu/metadata/common'}

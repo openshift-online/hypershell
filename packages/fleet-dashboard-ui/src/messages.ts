@@ -6,6 +6,71 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  agentActive: {
+    id: "fleet.agents.activity.active",
+    defaultMessage: "Active",
+    description:
+      "Agent liveness state: the agent is running right now (SDLC-AGT-17).",
+  },
+  agentLastSeen: {
+    id: "fleet.agents.activity.lastSeen",
+    defaultMessage: "last seen {ago} ago",
+    description:
+      "Relative time since an agent last reported, shown beside its activity state (SDLC-AGT-17).",
+  },
+  agentMonitoringBlind: {
+    id: "fleet.agents.activity.blind",
+    defaultMessage: "Monitoring blind",
+    description:
+      "Agent liveness state: the telemetry plane is stale, so liveness cannot be asserted (SDLC-AGT-17).",
+  },
+  agentNotActive: {
+    id: "fleet.agents.activity.notActive",
+    defaultMessage: "Not active",
+    description:
+      "Agent liveness state: the agent is not running right now (the normal resting state of a cron agent) (SDLC-AGT-17).",
+  },
+  agentsColActivity: {
+    id: "fleet.agents.col.activity",
+    defaultMessage: "Activity",
+    description: "Agents table column header for the agent activity state.",
+  },
+  agentsColAgent: {
+    id: "fleet.agents.col.agent",
+    defaultMessage: "Agent",
+    description: "Agents table column header for the agent name.",
+  },
+  agentsColDone: {
+    id: "fleet.agents.col.done",
+    defaultMessage: "Done",
+    description: "Agents table column header for items processed.",
+  },
+  agentsColFailed: {
+    id: "fleet.agents.col.failed",
+    defaultMessage: "Failed",
+    description: "Agents table column header for items failed.",
+  },
+  agentsColQueue: {
+    id: "fleet.agents.col.queue",
+    defaultMessage: "Queue",
+    description: "Agents table column header for queue depth.",
+  },
+  agentsColReplicas: {
+    id: "fleet.agents.col.replicas",
+    defaultMessage: "Replicas",
+    description: "Agents table column header for replica count.",
+  },
+  agentsEmptyForCluster: {
+    id: "fleet.agents.emptyForCluster",
+    defaultMessage: "No SDLC agents are reporting on this cluster.",
+    description:
+      "Shown in the Agents tab when no agents are reporting for this cluster.",
+  },
+  agentsTableAria: {
+    id: "fleet.agents.tableAria",
+    defaultMessage: "SDLC agents on this cluster",
+    description: "Accessible name for the per-cluster agents table.",
+  },
   appTitle: {
     id: "fleet.app.title",
     defaultMessage: "HyperShell Operational Status",
@@ -48,6 +113,30 @@ export const messages = defineMessages({
     id: "fleet.instances.column.instance",
     defaultMessage: "Instance",
     description: "Instances table column header for the instance name.",
+  },
+  columnMetricFailLabel: {
+    id: "fleet.agents.columnMetric.failLabel",
+    defaultMessage: "fail",
+    description:
+      "Compact lowercase label for the failed-items count in the SDLC board column runtime strip.",
+  },
+  columnMetricOnLabel: {
+    id: "fleet.agents.columnMetric.onLabel",
+    defaultMessage: "on",
+    description:
+      "Compact lowercase label for the active-replica count in the SDLC board column runtime strip.",
+  },
+  columnMetricQueueLabel: {
+    id: "fleet.agents.columnMetric.queueLabel",
+    defaultMessage: "queue",
+    description:
+      "Compact lowercase label for the queue-depth count in the SDLC board column runtime strip.",
+  },
+  columnMetricRatio: {
+    id: "fleet.agents.columnMetric.ratio",
+    defaultMessage: "{on}/{total}",
+    description:
+      "Compact active/total replica ratio in the SDLC board column runtime strip.",
   },
   columnProvider: {
     id: "fleet.instances.column.provider",
@@ -133,6 +222,12 @@ export const messages = defineMessages({
     defaultMessage:
       "{total} total · {running} running · {provisioning} provisioning · {failed} failed",
     description: "Breakdown of an instance's gateway counts by phase.",
+  },
+  detailGatewayImage: {
+    id: "fleet.map.detail.gatewayImage",
+    defaultMessage: "Default gateway",
+    description:
+      "Detail label for the default OpenShell gateway image the cluster's control plane provisions.",
   },
   detailLinks: {
     id: "fleet.map.detail.links",
@@ -344,6 +439,12 @@ export const messages = defineMessages({
     description:
       "Banner shown when more runs exist in the window than the list returns.",
   },
+  e2eJumpToLatest: {
+    id: "fleet.e2e.log.jumpToLatest",
+    defaultMessage: "Jump to latest",
+    description:
+      "Button that re-pins the log pane to the newest line and resumes auto-follow after the operator scrolled up.",
+  },
   e2eLiveDisconnected: {
     id: "fleet.e2e.live.disconnected",
     defaultMessage: "Live updates disconnected - reconnecting.",
@@ -392,6 +493,36 @@ export const messages = defineMessages({
     id: "fleet.e2e.log.empty",
     defaultMessage: "No log output.",
     description: "Shown when the selected scope has no log lines.",
+  },
+  e2eLogsEndOfHistory: {
+    id: "fleet.e2e.log.endOfHistory",
+    defaultMessage: "Beginning of log history.",
+    description:
+      "Shown at the top of the log pane when all available history for the scope has been loaded (E2E-LOG-26).",
+  },
+  e2eLogsFailed: {
+    id: "fleet.e2e.log.failed",
+    defaultMessage: "Could not load log history.",
+    description:
+      "Shown when a log-history request failed or returned stale; paired with a Retry action instead of a stuck loading indicator (E2E-LOG-26).",
+  },
+  e2eLogsLimited: {
+    id: "fleet.e2e.log.limited",
+    defaultMessage: "Showing the most recent log lines held in memory.",
+    description:
+      "Shown when the in-memory buffer ceiling is reached, distinct from the true end of history (E2E-LOG-26).",
+  },
+  e2eLogsLoadingOlder: {
+    id: "fleet.e2e.log.loadingOlder",
+    defaultMessage: "Loading older log lines",
+    description:
+      "Accessible label for the spinner shown while an older page of log lines is being fetched by infinite scroll.",
+  },
+  e2eLogsRetry: {
+    id: "fleet.e2e.log.retry",
+    defaultMessage: "Retry",
+    description:
+      "Label for the action that re-attempts a failed log-history request (E2E-LOG-26).",
   },
   e2eLogsTruncated: {
     id: "fleet.e2e.log.truncated",
@@ -582,6 +713,25 @@ export const messages = defineMessages({
     defaultMessage: "Stale - showing last known values",
     description:
       "Freshness indicator when the server is serving a last-good value.",
+  },
+  gitopsNoPrs: {
+    id: "fleet.map.bundle.gitopsNoPrs",
+    defaultMessage: "No deployment changes in this range.",
+    description:
+      "Shown in the GitOps (deployment) group when the compare succeeded but found no pull requests.",
+  },
+  gitopsPrSummary: {
+    id: "fleet.map.bundle.gitopsPrSummary",
+    defaultMessage:
+      "{count, plural, one {# PR} other {# PRs}} · deployment changes",
+    description:
+      "Count of GitOps (deployment) pull requests associated with a release bundle.",
+  },
+  gitopsUnavailable: {
+    id: "fleet.map.bundle.gitopsUnavailable",
+    defaultMessage: "Deployment changes are unavailable for this bundle.",
+    description:
+      "Shown in the GitOps (deployment) group when the compare range could not be determined or failed.",
   },
   historyAsOf: {
     id: "fleet.map.history.asOf",
@@ -816,6 +966,12 @@ export const messages = defineMessages({
     defaultMessage: "by {author}",
     description: "Hover tooltip on a pull-request link naming its author.",
   },
+  prEnvironments: {
+    id: "fleet.map.bundle.prEnvironments",
+    defaultMessage: "Deployed to {environments}",
+    description:
+      "Hover tooltip line attributing a GitOps deployment PR to the environments whose revision includes it.",
+  },
   promoBehind: {
     id: "fleet.promotion.state.behind",
     defaultMessage: "Behind",
@@ -832,6 +988,12 @@ export const messages = defineMessages({
     defaultMessage: "Up to date",
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
+  },
+  replicasRatioSeparator: {
+    id: "fleet.agents.replicasRatioSeparator",
+    defaultMessage: "/",
+    description:
+      "Separator between the active and total replica counts in the agent detail panel and per-cluster agents table.",
   },
   sdlcAge: {
     id: "fleet.sdlc.age",
@@ -850,6 +1012,12 @@ export const messages = defineMessages({
     defaultMessage: "{minutes}m",
     description:
       "Compact time-in-phase duration (minutes) for a card under an hour old.",
+  },
+  sdlcAgentDetailAria: {
+    id: "fleet.sdlc.agent.detailAria",
+    defaultMessage: "Open runtime details for the {agent} agent",
+    description:
+      "Accessible label for a row in the per-cluster agents table that opens runtime details.",
   },
   sdlcAxisNow: {
     id: "fleet.sdlc.axis.now",
@@ -1189,6 +1357,12 @@ export const messages = defineMessages({
     defaultMessage: "Unreleased",
     description: "Matrix row for merged work not yet in a released bundle.",
   },
+  sectionCapabilities: {
+    id: "fleet.section.capabilities",
+    defaultMessage: "Capabilities",
+    description:
+      "Heading for the cluster's self-declared capability labels in the detail panel.",
+  },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",
     defaultMessage: "Deployed on",
@@ -1200,6 +1374,12 @@ export const messages = defineMessages({
     defaultMessage: "Gateways",
     description:
       "Heading above the gateway donut + phase breakdown in an instance's detail panel.",
+  },
+  sectionGitopsChanges: {
+    id: "fleet.section.gitopsChanges",
+    defaultMessage: "Deployment changes (GitOps)",
+    description:
+      "Heading above the GitOps delivery-repository deployment pull-request group in a release bundle's details.",
   },
   sectionInBundle: {
     id: "fleet.section.inBundle",
@@ -1354,6 +1534,12 @@ export const messages = defineMessages({
     id: "fleet.status.unknown",
     defaultMessage: "Unknown",
     description: "Status label for an unknown or unrecognized state.",
+  },
+  tabAgents: {
+    id: "fleet.map.tab.agents",
+    defaultMessage: "Agents",
+    description:
+      "Detail-panel tab showing the SDLC agents running on the selected cluster.",
   },
   tabBundle: {
     id: "fleet.map.tab.bundle",

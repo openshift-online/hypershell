@@ -1,0 +1,26 @@
+# Minimal, credential-free provider profile used only to exercise the
+# provider-create path end to end on the e2e gateway (E2E-COV-05.03). The e2e
+# gateway imports no provider profiles by default (profile sources = ["user"]),
+# and the UI example's google-vertex-ai profile is not registered, so P2.11 seeds
+# this throwaway profile and creates a provider against it.
+#
+# It declares a single credential whose value is minted by the gateway at runtime
+# (refresh strategy oauth2_refresh_token is gateway-mintable), so
+# `provider create --runtime-credentials` is valid and needs no static value at
+# create time: no cloud account, secret, or mock. A profile with no credentials
+# at all would be rejected by `--runtime-credentials`, which requires at least one
+# runtime-resolvable credential (see provider_profile_allows_runtime_credentials
+# upstream); this is the minimal shape that satisfies it and passes import
+# validation (oauth2_refresh_token constrains no primary env var and requires no
+# additional outputs).
+id: e2e-parity
+display_name: E2E Parity Provider
+description: Credential-free provider profile for exercising provider-create end to end.
+category: other
+inference_capable: false
+credentials:
+  - name: ACCESS_TOKEN
+    description: Gateway-minted token resolved at runtime; never supplied at create time.
+    required: true
+    refresh:
+      strategy: oauth2_refresh_token

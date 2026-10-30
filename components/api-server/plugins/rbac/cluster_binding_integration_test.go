@@ -68,6 +68,7 @@ func registerTestCluster(t *testing.T) string {
 // whose JWT subject is a registered ManagedCluster may watch and list only its
 // own cluster. Own id is accepted and delivers only that cluster's gateways; a
 // foreign id is PERMISSION_DENIED; a missing id is INVALID_ARGUMENT.
+// Verifies: PLAT-CLUS-10.02, PLAT-CLUS-10.04, PLAT-CLUS-10.05
 func TestGRPCClusterCallerBinding(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -141,6 +142,7 @@ func TestGRPCClusterCallerBinding(t *testing.T) {
 
 // The same caller binding covers the RoleBinding watch and list, which are
 // scoped by the binding's gateway's cluster_id.
+// Verifies: PLAT-CLUS-10.04, PLAT-CLUS-10.05
 func TestGRPCClusterCallerBindingRoleBindings(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -194,6 +196,7 @@ func TestGRPCClusterCallerBindingRoleBindings(t *testing.T) {
 // else the cluster of its referenced gateway (derived placement). Own id is
 // accepted and delivers only the runtimes whose effective cluster is this one; a
 // foreign id is PERMISSION_DENIED; a missing id is INVALID_ARGUMENT.
+// Verifies: PLAT-CLUS-10.01, PLAT-CLUS-10.04, PLAT-CLUS-10.05
 func TestGRPCClusterCallerBindingAgentRuntimes(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -285,6 +288,7 @@ func TestGRPCClusterCallerBindingAgentRuntimes(t *testing.T) {
 
 // Anonymous watch rejected: every Watch* RPC requires a JWT; none is exempted by
 // --auth-bypass-methods.
+// Verifies: PLAT-CLUS-10.06
 func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	conn := dialGRPC(t, h, "")

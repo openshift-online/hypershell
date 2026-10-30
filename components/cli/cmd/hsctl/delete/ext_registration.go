@@ -2,6 +2,8 @@ package delete
 
 import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/agentRuntime"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/ciProvider"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/ciTrust"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/inferenceRoute"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/providerBinding"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/providerSpec"
@@ -20,5 +22,7 @@ func init() {
 		providerBinding.Cmd,
 		inferenceRoute.Cmd,
 		secretSource.Cmd,
+		ciProvider.Cmd,
+		ciTrust.Cmd,
 	)
 }

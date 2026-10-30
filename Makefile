@@ -113,6 +113,7 @@ help:
 	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
+	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
@@ -137,6 +138,9 @@ help:
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
 	@echo "    e2e-console              Run Playwright E2E of the web console and OpenShell console"
+	@echo "    coverage                 Run unit + e2e tests and build a combined coverage report in coverage/"
+	@echo "                             (e2e part needs KIND_COVERAGE=true make kind-up; COVERAGE_E2E=false skips it)"
+	@echo "    coverage-report          Rebuild coverage/report from the data of the last coverage run"
 	@echo "    e2e-performance          Run the performance benchmark (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
@@ -153,6 +157,7 @@ help:
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
 	@echo "    check-deploy-orphans     Verify every deploy/base manifest is referenced by a kustomization"
+	@echo "    check-ci-impact-scopes     Verify the local CI impact graph and tracked-file coverage"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -217,6 +222,14 @@ test-forbidden-terms-policy:
 check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
 
+.PHONY: test-kind-conformance-policy
+test-kind-conformance-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_kind_conformance.py
+
+.PHONY: check-kind-conformance
+check-kind-conformance: test-kind-conformance-policy
+	python3 scripts/check_kind_conformance.py
+
 .PHONY: test-dependency-pin-policy
 test-dependency-pin-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_pins.py
@@ -274,12 +287,36 @@ test-openshell-version-policy:
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
 
+.PHONY: test-spec-ids-policy
+test-spec-ids-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_spec_ids.py
+
+.PHONY: check-spec-ids
+# Spec ID rules and test citation markers (specs/standards/platform/spec-identifiers.spec.md).
+check-spec-ids: test-spec-ids-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py
+
+.PHONY: traceability
+# Print which tests cite which spec requirements and scenarios (STD-IDS-08).
+traceability:
+	@PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_spec_ids.py --report
+
 .PHONY: check-cli-drift
 check-cli-drift: generate-tui-check
 	scripts/generate-cli.sh --check
 
+.PHONY: test-ci-impact-scopes-policy
+test-ci-impact-scopes-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_ci_impact_scopes.py scripts/test_detect_components.py
+
+.PHONY: check-ci-impact-scopes
+# Local CI dependency-aware scope graph and tracked-file coverage audit
+# (specs/platform/mergify-parallel-merge-queue.spec.md, CICD-MRG-03/08/09).
+check-ci-impact-scopes: test-ci-impact-scopes-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift test-release-bundle
+check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -636,16 +673,33 @@ generate-tui-check:
 # The functional e2e suite is the Go testify suite (TestE2E). It auto-detects the
 # infra driver from the current KUBECONFIG context (override with E2E_INFRA_DRIVER).
 # -failfast aborts on the first failing step (see the Three-Outcome Reporting
-# requirement in specs/platform/e2e-testing.spec.md).
+# requirement in specs/platform/e2e-testing.spec.md). TearDownSuite collects
+# failure diagnostics before cleanup for both direct and matrix/promotion runs.
 E2E_GO_TIMEOUT ?= 35m
+# E2E_RUN targets a single phase or step in isolation (the primary gateway is
+# provisioned once in suite setup, so any phase or step is independently runnable).
+# A phase value (Phase-P0..Phase-P3) runs the whole phase; any other value is
+# treated as a step id nested under its phase. Examples:
+#   make e2e E2E_RUN=Phase-P2      # the whole P2 phase
+#   make e2e E2E_RUN=P2.5          # just the P2.5 step
+# Unset, the full TestE2E suite runs. Escape regex metacharacters as needed
+# (e.g. E2E_RUN='P2\.5' to avoid matching P2.50-style ids).
+E2E_RUN ?=
+ifeq ($(strip $(E2E_RUN)),)
+E2E_RUN_TARGET := TestE2E
+else ifeq ($(filter Phase-%,$(E2E_RUN)),$(E2E_RUN))
+E2E_RUN_TARGET := TestE2E/TestPhases/$(E2E_RUN)
+else
+E2E_RUN_TARGET := TestE2E/TestPhases/.*/$(E2E_RUN)
+endif
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E suite (go test TestE2E)"
+	@echo "==> Running E2E suite (go test -run $(E2E_RUN_TARGET))"
 	@echo ""
 	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
 		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
-		go -C tests/e2e test . -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
+		go -C tests/e2e test . -run '$(E2E_RUN_TARGET)' -failfast -v -timeout $(E2E_GO_TIMEOUT)
 
 # Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
 # registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
@@ -678,6 +732,26 @@ e2e-console:
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-console.sh
 
+# Combined unit + e2e coverage (specs/platform/local-development.spec.md
+# DEV-LOC-18). Runs the Go and frontend unit tests with coverage, then e2e and
+# e2e-console against a Kind cluster deployed with KIND_COVERAGE=true make
+# kind-up, plus the hsctl smoke test with a -cover hsctl. It collects the data
+# the instrumented pods and hsctl wrote, and merges everything into
+# coverage/report/. COVERAGE_UNIT, COVERAGE_E2E, COVERAGE_HSCTL_E2E and
+# COVERAGE_CONSOLE_E2E (default true) select the steps.
+.PHONY: coverage
+coverage:
+	@bash scripts/code-coverage/run.sh
+
+# Rebuild coverage/report/ from the data of the last `make coverage` run.
+.PHONY: coverage-report
+coverage-report:
+	@bash scripts/code-coverage/run.sh report
+
+.PHONY: test-coverage-report
+test-coverage-report:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/code-coverage/test_report.py
+
 .PHONY: e2e-performance
 e2e-performance:
 	@echo ""
@@ -688,7 +762,7 @@ e2e-performance:
 	# and success rate; compare runs with `benchstat`.
 	@go -C tests/e2e test . -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
 
-# Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
+# Browser-driven end-to-end trace verification (WEB-TRC-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
 # Jaeger is deployed and the web-console BFF exports to it.
 .PHONY: e2e-tracing

@@ -22,13 +22,24 @@
       "components/api-server/go.mod",
       "components/api-server/go.sum",
       "components/api-server/pkg/api/grpc/**",
+      "components/api-server/pkg/gatewayhealth/**",
+      "components/api-server/pkg/secretstore/**",
       "components/api-server/proto/**",
+      "components/cli/**",
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      "components/api-server/openapi/**",
+      "components/api-server/Makefile",
+      "components/api-server/Dockerfile.openapi",
+      "scripts/generate-cli.sh",
+      "scripts/generate-tui.sh",
+      "scripts/trex-checkout.sh",
+      "scripts/rh-trex-ai.ref",
+      "scripts/lib/**"
     ],
     "unit_tested": true
   },
@@ -49,7 +60,10 @@
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
       ".github/workflows/tests.yml",
-      "components/api-server/Dockerfile.openapi"
+      "components/api-server/Dockerfile.openapi",
+      "scripts/openapi-ir/**",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh"
     ],
     "unit_tested": true
   },
@@ -67,7 +81,9 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh"
     ],
     "unit_tested": true
   },
@@ -84,7 +100,10 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      "components/web-console/domain-probes/**",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh"
     ],
     "unit_tested": true
   },
@@ -98,7 +117,12 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/checks.yml"
+      ".github/workflows/checks.yml",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml"
     ],
     "unit_tested": false
   },
@@ -114,7 +138,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/checks.yml"
+      ".github/workflows/checks.yml",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh"
     ],
     "unit_tested": false
   },
@@ -169,7 +195,9 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      "components/api-server/Dockerfile.openapi",
+      "scripts/trex-checkout.sh"
     ],
     "unit_tested": true
   },
@@ -184,7 +212,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      "components/api-server/Dockerfile.openapi"
     ],
     "unit_tested": true
   },
@@ -196,6 +225,9 @@
       "packages/gateway-management-ui/**",
       "packages/operational-dashboard-ui/**",
       "components/sdk-typescript/**",
+      "components/api-server/openapi/**",
+      "components/api-server/Dockerfile.openapi",
+      "components/api-server/Makefile",
       "package.json",
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
@@ -204,7 +236,11 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      "scripts/sdk-generator/**",
+      "scripts/openapi-ir/**",
+      ".node-version",
+      "scripts/bootstrap_pnpm.sh"
     ],
     "unit_tested": true
   },
@@ -212,7 +248,15 @@
     "directory": "components/agents",
     "paths": [
       "components/agents/**",
-      "components/cli/**"
+      "components/cli/**",
+      "components/api-server/openapi/**",
+      "components/api-server/Makefile",
+      "components/api-server/Dockerfile.openapi",
+      "scripts/generate-cli.sh",
+      "scripts/generate-tui.sh",
+      "scripts/trex-checkout.sh",
+      "scripts/rh-trex-ai.ref",
+      "scripts/lib/**"
     ],
     "unit_tested": false
   }

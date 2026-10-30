@@ -8,7 +8,8 @@ function apply(state: RouteState, ...actions: NavAction[]): RouteState {
 }
 
 describe("reduceRoute", () => {
-  it("switches tabs and keeps each tab's own state (GLASS-NAV-08)", () => {
+  // Verifies: FLT-NAV-08.01
+  it("switches tabs and keeps each tab's own state (FLT-NAV-08)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       { type: "tab", tab: "e2e" },
@@ -35,7 +36,7 @@ describe("reduceRoute", () => {
     expect(off.bundle).toBeNull();
   });
 
-  it("openHistory jumps to the E2E tab with the run selected (GLASS-NAV-08)", () => {
+  it("openHistory jumps to the E2E tab with the run selected (FLT-NAV-08)", () => {
     const state = reduceRoute(DEFAULT_ROUTE, {
       type: "openHistory",
       run: "t/n/r",
@@ -45,7 +46,8 @@ describe("reduceRoute", () => {
     expect(state.e2e.drawer).toBe(true);
   });
 
-  it("openHistory carries the gate step scope and Logs sub-tab into run history (GLASS-NAV-11)", () => {
+  // Verifies: FLT-NAV-11.01
+  it("openHistory carries the gate step scope and Logs sub-tab into run history (FLT-NAV-11)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       { type: "mapSelectGate", id: "g1" },
@@ -61,7 +63,7 @@ describe("reduceRoute", () => {
     expect(state.e2e.exec.tab).toBe("logs");
   });
 
-  it("openHistory keeps an exec context already addressing the same run (GLASS-NAV-11)", () => {
+  it("openHistory keeps an exec context already addressing the same run (FLT-NAV-11)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       // The E2E tab already addresses run t/n/r with its own step scope.
@@ -76,7 +78,7 @@ describe("reduceRoute", () => {
     expect(state.e2e.exec.step).toBe("s2");
   });
 
-  it("openBundleOnMap sets the bundle and switches to the map (GLASS-NAV-08)", () => {
+  it("openBundleOnMap sets the bundle and switches to the map (FLT-NAV-08)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       { type: "tab", tab: "sdlc" },
@@ -86,7 +88,7 @@ describe("reduceRoute", () => {
     expect(state.bundle).toBe("sha256:xyz");
   });
 
-  it("toggles an expanded shipped matrix row by seed (GLASS-NAV-13)", () => {
+  it("toggles an expanded shipped matrix row by seed (FLT-NAV-13)", () => {
     const open = reduceRoute(DEFAULT_ROUTE, {
       type: "sdlcShippedRow",
       seed: "v9",
@@ -141,7 +143,7 @@ describe("reduceRoute", () => {
     expect(closed.bundle).toBeNull();
   });
 
-  it("preserves the gate exec view across an attempt switch (GLASS-NAV-05/10)", () => {
+  it("preserves the gate exec view across an attempt switch (FLT-NAV-05/10)", () => {
     // The auto-pin on open and a pasted deep link must keep their addressed sub-tab
     // and step; a missing step just resolves to whole-run logs in the new attempt.
     const state = apply(
@@ -158,7 +160,7 @@ describe("reduceRoute", () => {
     expect(repinned.map.exec.step).toBe("s1");
   });
 
-  it("distinguishes the live/latest gate mode from a pinned attempt (GLASS-NAV-10)", () => {
+  it("distinguishes the live/latest gate mode from a pinned attempt (FLT-NAV-10)", () => {
     const live = apply(
       DEFAULT_ROUTE,
       { type: "mapSelectGate", id: "g1" },
@@ -183,7 +185,8 @@ describe("reduceRoute", () => {
     expect(whole.e2e.exec.tab).toBe("logs");
   });
 
-  it("opening then closing the run drawer preserves the selection (GLASS-NAV-12)", () => {
+  // Verifies: FLT-NAV-12.01
+  it("opening then closing the run drawer preserves the selection (FLT-NAV-12)", () => {
     const state = reduceRoute(DEFAULT_ROUTE, {
       type: "e2eSelectRun",
       run: "t/n/r",
@@ -194,7 +197,7 @@ describe("reduceRoute", () => {
     expect(closed.e2e.drawer).toBe(false);
   });
 
-  it("changing the selected run resets the exec view (GLASS-NAV-18)", () => {
+  it("changing the selected run resets the exec view (FLT-NAV-18)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       { type: "e2eSelectRun", run: "t/n/r1" },
@@ -205,7 +208,7 @@ describe("reduceRoute", () => {
     expect(other.e2e.exec.step).toBeNull();
   });
 
-  it("opens an escalation card while keeping the list open (GLASS-NAV-13)", () => {
+  it("opens an escalation card while keeping the list open (FLT-NAV-13)", () => {
     const state = apply(
       DEFAULT_ROUTE,
       { type: "tab", tab: "sdlc" },
@@ -242,7 +245,7 @@ describe("reduceRoute", () => {
   });
 });
 
-describe("isReplaceAction (GLASS-NAV-06)", () => {
+describe("isReplaceAction (FLT-NAV-06)", () => {
   it("coalesces text input but pushes meaningful navigation", () => {
     expect(isReplaceAction({ type: "sdlcQuery", value: "a" })).toBe(true);
     expect(isReplaceAction({ type: "e2eQuery", value: "a" })).toBe(true);

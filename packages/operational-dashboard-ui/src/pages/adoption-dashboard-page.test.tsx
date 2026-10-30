@@ -21,6 +21,7 @@ const messageCatalog = Object.fromEntries(
 
 function renderPage(
   metrics = mockAdoptionDashboardMetrics,
+  isAdmin = true,
 ): ReturnType<typeof render> {
   const dashboard = createDashboardOperations({
     controlPlane: {
@@ -42,8 +43,17 @@ function renderPage(
       <QueryClientProvider client={queryClient}>
         <DashboardUiProvider
           dashboard={dashboard}
-          isAdmin
-          navigation={{ collectionHref: "/", navigate: vi.fn() }}
+          isAdmin={isAdmin}
+          navigation={{
+            adoptionHref: "/dashboard/adoption",
+            collectionHref: "/",
+            dashboardHref: "/dashboard",
+            inventoryHref: "/dashboard/inventory",
+            provisioningHref: "/dashboard/provisioning",
+            reliabilityHref: "/dashboard/reliability",
+            usageHref: "/dashboard/usage",
+            navigate: vi.fn(),
+          }}
         >
           <AdoptionDashboardPage metrics={metrics} />
         </DashboardUiProvider>
@@ -62,6 +72,29 @@ function getValue(label: string): string {
 }
 
 describe("AdoptionDashboardPage", () => {
+  it("marks every widget as System data for admins", () => {
+    renderPage();
+
+    const systemWidgets = Array.from(
+      document.querySelectorAll(".hypershell-dashboard-widget--system"),
+    );
+
+    expect(systemWidgets).toHaveLength(3);
+    expect(
+      systemWidgets.every((widget) =>
+        widget.getAttribute("aria-label")?.endsWith("System"),
+      ),
+    ).toBe(true);
+  });
+
+  it("omits System headers for non-admins", () => {
+    renderPage(mockAdoptionDashboardMetrics, false);
+
+    expect(
+      document.querySelector(".hypershell-dashboard-widget--system"),
+    ).toBeNull();
+  });
+
   it("renders aggregate adoption values", () => {
     renderPage();
 

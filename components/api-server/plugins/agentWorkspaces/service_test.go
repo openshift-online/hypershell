@@ -70,6 +70,7 @@ func (noopEvents) FindBySourceAndType(ctx context.Context, source string, eventT
 	return nil, nil
 }
 
+// Verifies: AGT-WSP-06.01, PLAT-DATA-15.02
 func TestCreate_NameCollisionDifferentRuntimeIsConflict(t *testing.T) {
 	existing := &AgentWorkspace{AgentRuntimeId: "r-other", GatewayId: "gw-1", Name: "amber-reviews"}
 	existing.ID = "ws-existing"

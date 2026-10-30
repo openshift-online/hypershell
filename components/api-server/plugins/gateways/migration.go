@@ -4,6 +4,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
 
@@ -46,7 +47,7 @@ func migration() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080312546877",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return dbmigrate.CreateTable(tx, &Gateway{})
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropTable(&Gateway{})
@@ -93,6 +94,67 @@ func migrationAddCredentialDriver() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS credential_driver").Error
+		},
+	}
+}
+
+// migrationBackfillLegacyCredentialDriverKEK pins pre-existing gateways that have no
+// explicit credential_driver to kek-db, so the HYPERSHELL-369 flat vault default applies
+// only to gateways created after it ships (HYPERSHELL-369, CWE-664). Before the flip an
+// empty driver meant kek-db, and those gateways stored provider credentials in the gateway
+// database; resolving them to vault on the next reconcile would make that data unreadable,
+// and the immutability check does not catch an empty-to-vault transition. New gateways are
+// unaffected -- they are created after this one-time backfill. Idempotent: rows with an
+// explicit type (vault, kek-db, kubernetes-secrets) are left untouched, so a re-run is a
+// no-op. Runs after migrationAddCredentialDriver (the column must exist first).
+func migrationBackfillLegacyCredentialDriverKEK() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102000000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`UPDATE gateways
+				SET credential_driver = '{"type":"kek-db"}'::jsonb
+				WHERE credential_driver IS NULL
+				   OR (credential_driver->>'type') IS NULL
+				   OR (credential_driver->>'type') = ''`).Error
+		},
+		// Irreversible: the original NULL/empty values are not recoverable per-row, and
+		// reverting would wrongly clear legitimately kek-db gateways. No-op rollback.
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
+
+// migrationAddGatewayWorkspaceMode persists the per-gateway OpenShell workspace
+// mode (shared/managed/operator). Existing rows stay NULL so legacy gateways
+// keep the chart's shared default; the create path defaults new gateways to
+// managed (openshell-gateway.spec.md, "Gateway Workspace Mode").
+func migrationAddGatewayWorkspaceMode() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102012000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS workspace_mode TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS workspace_mode").Error
+		},
+	}
+}
+
+// migrationAddGatewayDedicatedRoute persists the create-only dedicated_route
+// request flag. It is NULL for every gateway created without the request (and for
+// every pre-existing gateway), which means "not requested": the dedicated
+// per-gateway route and certificate path is still selected by the platform-managed
+// route.certificate sub-key, so the control plane is unaffected. Raw idempotent
+// ALTER TABLE is used instead of AutoMigrate because AutoMigrate's add-column
+// introspection breaks under the test session's lib/pq driver with
+// PreferSimpleProtocol (see migrationAddProvisioningFields).
+func migrationAddGatewayDedicatedRoute() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026102812000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS dedicated_route BOOLEAN").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS dedicated_route").Error
 		},
 	}
 }

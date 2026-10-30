@@ -2,9 +2,13 @@ package exposure
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	fakegwclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/fake"
 )
@@ -31,35 +35,66 @@ func programmed(status metav1.ConditionStatus, reason string) metav1.Condition {
 	}
 }
 
+// Verifies: OSG-ROUT-08.01, OSG-ROUT-08.02
 func TestObserveReadiness(t *testing.T) {
 	tests := []struct {
 		name      string
-		gw        *gatewayv1.Gateway // nil means the per-tenant Gateway does not exist
+		dedicated *gatewayv1.Gateway // Gateway gw-<ns> in the tenant namespace; nil means it does not exist
+		shared    *gatewayv1.Gateway // Gateway in the ingress namespace; nil means it does not exist
 		wantReady bool
 	}{
+		// A dedicated per-tenant Gateway is authoritative when it exists.
 		{
-			name:      "programmed with address is ready",
-			gw:        gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			name:      "dedicated gateway programmed with address is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
 			wantReady: true,
 		},
 		{
-			name:      "programmed false is not ready",
-			gw:        gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionFalse, "Pending")}, []string{"1.2.3.4"}),
+			name:      "dedicated gateway not programmed while shared is programmed is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionFalse, "Pending")}, []string{"1.2.3.4"}),
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
 			wantReady: false,
 		},
 		{
-			name:      "programmed true but no address is not ready",
-			gw:        gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, nil),
+			name:      "dedicated gateway programmed false is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionFalse, "Pending")}, []string{"1.2.3.4"}),
 			wantReady: false,
 		},
 		{
-			name:      "no programmed condition is not ready",
-			gw:        gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}}, []string{"1.2.3.4"}),
+			name:      "dedicated gateway programmed true but no address is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, nil),
 			wantReady: false,
 		},
 		{
-			name:      "missing gateway is not ready",
-			gw:        nil,
+			name:      "dedicated gateway with no programmed condition is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}}, []string{"1.2.3.4"}),
+			wantReady: false,
+		},
+
+		// Without a dedicated Gateway, the shared Gateway is observed
+		// (today's fallback behavior, unchanged).
+		{
+			name:      "no dedicated gateway falls back to shared programmed gateway",
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			wantReady: true,
+		},
+		{
+			name:      "no dedicated gateway and shared not programmed is not ready",
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionFalse, "Pending")}, []string{"1.2.3.4"}),
+			wantReady: false,
+		},
+		{
+			name:      "no dedicated gateway and shared programmed true but no address is not ready",
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, nil),
+			wantReady: false,
+		},
+		{
+			name:      "no dedicated gateway and shared with no programmed condition is not ready",
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}}, []string{"1.2.3.4"}),
+			wantReady: false,
+		},
+		{
+			name:      "no dedicated gateway and missing shared gateway is not ready",
 			wantReady: false,
 		},
 	}
@@ -75,8 +110,11 @@ func TestObserveReadiness(t *testing.T) {
 			// simple tracker's constructor-seeding does not index objects
 			// retrievably in this client version.
 			cs := fakegwclient.NewSimpleClientset()
-			if tt.gw != nil {
-				if _, err := cs.GatewayV1().Gateways(tt.gw.Namespace).Create(context.Background(), tt.gw, metav1.CreateOptions{}); err != nil {
+			for _, gw := range []*gatewayv1.Gateway{tt.dedicated, tt.shared} {
+				if gw == nil {
+					continue
+				}
+				if _, err := cs.GatewayV1().Gateways(gw.Namespace).Create(context.Background(), gw, metav1.CreateOptions{}); err != nil {
 					t.Fatalf("seeding gateway: %v", err)
 				}
 			}
@@ -93,6 +131,38 @@ func TestObserveReadiness(t *testing.T) {
 				t.Fatalf("expected a reason when not ready")
 			}
 		})
+	}
+}
+
+func TestObserveReadinessDedicatedGatewayError(t *testing.T) {
+	t.Setenv("GATEWAY_API_GATEWAY_NAMESPACE", "openshift-ingress")
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "")
+
+	// A shared programmed Gateway exists, so a fallback would report Ready.
+	shared := gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"})
+	cs := fakegwclient.NewSimpleClientset()
+	if _, err := cs.GatewayV1().Gateways(shared.Namespace).Create(context.Background(), shared, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seeding shared gateway: %v", err)
+	}
+	// Fail only the dedicated per-tenant Get: a transient API error must be
+	// returned, not silently read as "no dedicated gateway" and fallen back.
+	cs.PrependReactor("get", "gateways", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.(k8stesting.GetAction).GetNamespace() == "tenant-a" {
+			return true, nil, errors.New("transient apiserver error")
+		}
+		return false, nil, nil
+	})
+
+	adapter := NewGatewayAPIExposure(cs)
+	got, err := adapter.ObserveReadiness(context.Background(), Request{Namespace: "tenant-a"})
+	if err == nil {
+		t.Fatalf("ObserveReadiness expected error, got readiness %+v", got)
+	}
+	if !strings.Contains(err.Error(), "transient apiserver error") {
+		t.Fatalf("error = %v, want it to contain the cause %q", err, "transient apiserver error")
+	}
+	if !strings.Contains(err.Error(), "tenant-a/gw-tenant-a") {
+		t.Fatalf("error = %v, want it to name the dedicated gateway tenant-a/gw-tenant-a", err)
 	}
 }
 

@@ -11,6 +11,8 @@ import {
   gatewayProvisionDurationMeanPromql,
   gatewayProvisionDurationP50Promql,
   gatewayProvisionDurationP95Promql,
+  gatewayProvisionDurationP99DailyPromql,
+  gatewayProvisionDurationP99SevenDayPromql,
   queryGatewayProvisionDuration,
 } from "../src/metrics-gateway-provision-duration.js";
 
@@ -45,7 +47,15 @@ function prometheusSample(value: string) {
   });
 }
 
+function prometheusRangeSample(values: [string, string][]) {
+  return JSON.stringify({
+    status: "success",
+    data: { result: [{ metric: {}, values }] },
+  });
+}
+
 describe("queryGatewayProvisionDuration", () => {
+  // Verifies: OBS-GPT-09.01
   it("maps Prometheus histogram samples into mean, P50, and P95 seconds", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -81,6 +91,62 @@ describe("queryGatewayProvisionDuration", () => {
         observation_count: 2,
         p50_seconds: 288,
         p95_seconds: 726,
+        p99_seconds: null,
+        target_seconds: 300,
+        daily_p99: null,
+      });
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("retains the target and explicit null P99 fields for the 30-day range", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const query = new URL(
+        request.url ?? "",
+        "http://127.0.0.1",
+      ).searchParams.get("query");
+      response.setHeader("content-type", "application/json");
+      const values = new Map<string, string>([
+        ["sum(increase(gateway_provision_duration_seconds_count[30d]))", "2"],
+        [
+          "sum(increase(gateway_provision_duration_seconds_sum[30d])) / sum(increase(gateway_provision_duration_seconds_count[30d]))",
+          "315",
+        ],
+        [
+          "histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket[30d])))",
+          "288",
+        ],
+        [
+          "histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket[30d])))",
+          "726",
+        ],
+      ]);
+      const value = query === null ? undefined : values.get(query);
+      if (value === undefined) {
+        response.statusCode = 400;
+        response.end();
+        return;
+      }
+      response.end(prometheusSample(value));
+    });
+
+    try {
+      await expect(
+        queryGatewayProvisionDuration(
+          `http://127.0.0.1:${String(prometheus.port)}`,
+          5_000,
+          undefined,
+          30,
+        ),
+      ).resolves.toEqual({
+        mean_seconds: 315,
+        observation_count: 2,
+        p50_seconds: 288,
+        p95_seconds: 726,
+        p99_seconds: null,
+        target_seconds: 300,
+        daily_p99: null,
       });
     } finally {
       prometheus.close();
@@ -107,6 +173,67 @@ describe("queryGatewayProvisionDuration", () => {
           5_000,
         ),
       ).rejects.toThrow("No gateway provision duration observations");
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("adds optional seven-day P99, target, and daily trend", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const query = url.searchParams.get("query");
+      response.setHeader("content-type", "application/json");
+      if (url.pathname === "/api/v1/query_range") {
+        if (query === gatewayProvisionDurationP99DailyPromql) {
+          response.end(
+            prometheusRangeSample([
+              ["1704067200", "320"],
+              ["1704153600", "280"],
+            ]),
+          );
+          return;
+        }
+      }
+      const values = new Map<string, string>([
+        ["sum(increase(gateway_provision_duration_seconds_count[7d]))", "2"],
+        [
+          "sum(increase(gateway_provision_duration_seconds_sum[7d])) / sum(increase(gateway_provision_duration_seconds_count[7d]))",
+          "315",
+        ],
+        [
+          "histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket[7d])))",
+          "288",
+        ],
+        [
+          "histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket[7d])))",
+          "726",
+        ],
+        [gatewayProvisionDurationP99SevenDayPromql, "810"],
+      ]);
+      const value = query === null ? undefined : values.get(query);
+      if (value === undefined) {
+        response.statusCode = 400;
+        response.end();
+        return;
+      }
+      response.end(prometheusSample(value));
+    });
+
+    try {
+      const duration = await queryGatewayProvisionDuration(
+        `http://127.0.0.1:${String(prometheus.port)}`,
+        5_000,
+        undefined,
+        7,
+      );
+      expect(duration).toMatchObject({
+        p99_seconds: 810,
+        target_seconds: 300,
+        daily_p99: [
+          { date: "2024-01-01", p99_seconds: 320 },
+          { date: "2024-01-02", p99_seconds: 280 },
+        ],
+      });
     } finally {
       prometheus.close();
     }

@@ -17,20 +17,43 @@ FROM --platform=linux/${BUILDARCH} build-${BUILDARCH} AS build
 
 USER root
 
-COPY scripts/bootstrap_pnpm.sh .
-RUN ./bootstrap_pnpm.sh
+# Install the pinned pnpm CLI from the Hermeto-prefetched npm bootstrap
+# (prefetch/pnpm). `npm ci --prefer-offline` resolves pnpm from the prefetched
+# cache so the build is hermetic (no network); outside Hermeto it falls back to
+# the registry. Replaces the networked scripts/bootstrap_pnpm.sh for the image
+# build while CI keeps using that script.
+COPY prefetch/pnpm/package.json prefetch/pnpm/package-lock.json /opt/pnpm-bootstrap/
+RUN npm ci --prefix /opt/pnpm-bootstrap --prefer-offline --ignore-scripts --no-audit --no-fund --no-progress \
+  && ln -sf /opt/pnpm-bootstrap/node_modules/.bin/pnpm /usr/local/bin/pnpm \
+  && test "$(pnpm --version)" = "11.15.1"
 
 USER ${CONTAINER_DEFAULT_USER}
 
 WORKDIR /app
 
-COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# .npmrc carries Hermeto's injected registry redirect to the prefetched pnpm
+# cache during hermetic builds; a benign committed copy keeps local builds working.
+COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript/package.json components/sdk-typescript/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/operational-dashboard-ui/package.json packages/operational-dashboard-ui/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/package.json components/web-console/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/bff/package.json components/web-console/bff/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
+
+# Hermetic-build registry alignment. In a Hermeto build, Hermeto injects
+# `registry=file://.../deps/pnpm/npm/` into .npmrc, but pnpm-workspace.yaml's
+# `registries.default` (public registry) and `trustLockfile: false` take
+# precedence over .npmrc and would make pnpm fetch from the network (which is off)
+# and reject the Hermeto-rewritten lockfile. Point the default registry at the
+# prefetched cache and trust the lockfile FOR THE HERMETIC BUILD ONLY. Local
+# (non-Hermeto) builds have no injected file:// registry, so this is a no-op and
+# the committed registry default + supply-chain settings are preserved.
+RUN if grep -qE '^registry=file:' .npmrc 2>/dev/null; then \
+      reg="$(grep -E '^registry=file:' .npmrc | head -1 | cut -d= -f2-)"; \
+      sed -i -E "s#^(  default: ).*#\\1${reg}#" pnpm-workspace.yaml; \
+      sed -i -E "s#^(trustLockfile: ).*#\\1true#" pnpm-workspace.yaml; \
+    fi
 
 RUN pnpm install --frozen-lockfile
 
@@ -42,12 +65,29 @@ COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
 RUN pnpm run build:web
 
+# BFF_SOURCE_MAPS=true recompiles the BFF with embedded source maps so
+# NODE_V8_COVERAGE data maps back to TypeScript in local Kind coverage runs
+# (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
+# Release builds leave it off.
+ARG BFF_SOURCE_MAPS=false
+RUN if [ "${BFF_SOURCE_MAPS}" = "true" ]; then \
+    pnpm --filter @openshift-online/hypershell-web-console-bff exec \
+      tsc --project tsconfig.json --sourceMap --inlineSources; \
+  fi
+
 FROM --platform=linux/${TARGETARCH} build-${TARGETARCH} AS bundle
 
 USER root
 
-COPY scripts/bootstrap_pnpm.sh .
-RUN ./bootstrap_pnpm.sh
+# Install the pinned pnpm CLI from the Hermeto-prefetched npm bootstrap
+# (prefetch/pnpm). `npm ci --prefer-offline` resolves pnpm from the prefetched
+# cache so the build is hermetic (no network); outside Hermeto it falls back to
+# the registry. Replaces the networked scripts/bootstrap_pnpm.sh for the image
+# build while CI keeps using that script.
+COPY prefetch/pnpm/package.json prefetch/pnpm/package-lock.json /opt/pnpm-bootstrap/
+RUN npm ci --prefix /opt/pnpm-bootstrap --prefer-offline --ignore-scripts --no-audit --no-fund --no-progress \
+  && ln -sf /opt/pnpm-bootstrap/node_modules/.bin/pnpm /usr/local/bin/pnpm \
+  && test "$(pnpm --version)" = "11.15.1"
 
 USER ${CONTAINER_DEFAULT_USER}
 
@@ -56,6 +96,9 @@ WORKDIR /app
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/package.json /app/package.json
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/pnpm-lock.yaml /app/pnpm-lock.yaml
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/pnpm-workspace.yaml /app/pnpm-workspace.yaml
+# Carry the Hermeto-injected .npmrc so the prod install stage also resolves
+# dependencies from the prefetched cache under network isolation.
+COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/.npmrc /app/.npmrc
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/components /app/components
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/packages /app/packages
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/images /app/images

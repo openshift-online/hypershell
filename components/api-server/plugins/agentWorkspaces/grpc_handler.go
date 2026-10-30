@@ -2,8 +2,8 @@ package agentWorkspaces
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -129,7 +129,7 @@ func (h *agentWorkspaceGRPCHandler) WatchAgentWorkspaces(_ *pb.WatchAgentWorkspa
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchAgentWorkspaces: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchAgentWorkspaces subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header once the subscription is live so a client can seed its
 	// state with a LIST without a list-watch gap (see gateways WatchGateways).
@@ -140,7 +140,7 @@ func (h *agentWorkspaceGRPCHandler) WatchAgentWorkspaces(_ *pb.WatchAgentWorkspa
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchAgentWorkspaces: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchAgentWorkspaces subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -160,13 +160,13 @@ func (h *agentWorkspaceGRPCHandler) WatchAgentWorkspaces(_ *pb.WatchAgentWorkspa
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchAgentWorkspaces: failed to load agent workspace %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchAgentWorkspaces failed to load agent workspace", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.AgentWorkspace = agentWorkspaceToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchAgentWorkspaces: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchAgentWorkspaces send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

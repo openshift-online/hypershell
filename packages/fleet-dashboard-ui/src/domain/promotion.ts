@@ -25,7 +25,7 @@ export interface PromotionGate {
  * One pull request included in a release bundle, as the server reports it (sourced
  * from the delivery GitHub App). Every field is opaque data: `url` is an absolute
  * link the server supplies, `author`/`title`/`number` are shown verbatim. No fleet
- * identity here - these are upstream PRs on the public product repo.
+ * identity here - these are PRs on the public product or GitOps repositories.
  */
 export interface PullRequest {
   readonly number: number;
@@ -33,7 +33,31 @@ export interface PullRequest {
   readonly url: string;
   readonly author: string;
   readonly mergedAt: string | null;
+  /**
+   * The owner/repo the PR belongs to (FLT-BPR-02), so the two PRs that share a
+   * number across the application and GitOps repositories stay distinct and rows
+   * key and link by repository. Absent ("") only on older servers that predate the
+   * field; the bundle-details rendering still qualifies rows by repository+number.
+   */
+  readonly repository?: string;
+  /**
+   * For a GitOps (deployment) PR, the environments whose current source range
+   * includes it (FLT-BPR-06), so a change is attributed to the environments that
+   * actually received it and never implied to have reached one that lacks it. Empty
+   * for application PRs and when the server does not report attribution.
+   */
+  readonly environments?: readonly string[];
 }
+
+/**
+ * Whether a bundle's GitOps deployment-change range could be bounded and compared
+ * (FLT-BPR-10). `"available"` means the comparison succeeded (an empty `gitopsPrs`
+ * is then a genuine "no deployment changes"); `"unavailable"` means no baseline
+ * could be bounded or the compare failed (render an error state). Absent/null means
+ * GitOps grouping was not reported (feature off or an older server), so the UI
+ * omits the GitOps section entirely.
+ */
+export type GitOpsRangeStatus = "available" | "unavailable";
 
 /**
  * A release bundle as reported by the server. `digest` is the image/commit sha
@@ -47,7 +71,26 @@ export interface ReleaseBundle {
   readonly digest: string | null;
   readonly tag: string | null;
   readonly date: string | null;
+  /**
+   * The APPLICATION pull-request group (`openshift-online/hypershell`): the changes
+   * this build introduced "since the previous build" (FLT-BPR-03). Unchanged by the
+   * GitOps group; may be empty.
+   */
   readonly prs: readonly PullRequest[];
+  /**
+   * The GitOps (deployment) pull-request group from the delivery repository:
+   * deployment changes across the bundle's bounded deployment-revision range,
+   * including the lock-update PR and configuration-only PRs (FLT-BPR-04). These are
+   * deployment changes, not changes embedded in the application artifact. Absent on
+   * older servers; empty when the range succeeded with no PRs (see `gitopsStatus`).
+   */
+  readonly gitopsPrs?: readonly PullRequest[];
+  /**
+   * The GitOps group's range state (FLT-BPR-10), letting the UI render an error
+   * state distinctly from an empty-but-successful one. Absent/null hides the GitOps
+   * section (feature off or an older server).
+   */
+  readonly gitopsStatus?: GitOpsRangeStatus | null;
 }
 
 /**
@@ -83,6 +126,19 @@ export interface PromotionEnvironment {
   readonly envLabel: string | null;
   /** Cluster the instance runs on, from delivery labels. */
   readonly cluster: string | null;
+  /**
+   * Self-declared capability labels (`namespace/value` strings, see PLAT-CLUS-06),
+   * reported by the cluster's control plane, or its Argo delivery annotation when
+   * the control plane does not report them. Optional and opaque: absent/omitted
+   * means an empty set, and the UI bakes in no capability vocabulary (FLT-CAP-01).
+   */
+  readonly capabilities?: readonly string[];
+  /**
+   * Default OpenShell gateway image the cluster's control plane provisions, as
+   * reported by that control plane. Optional; null/absent when not reported
+   * (FLT-CAP-07).
+   */
+  readonly gatewayImage?: string | null;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
   /**

@@ -1,33 +1,32 @@
+# yaml-language-server: $schema=https://docs.mergify.com/mergify-configuration-schema.json
+# Open Source plan: one ordered queue with parallel speculative validation.
+# Desired state: specs/platform/mergify-parallel-merge-queue.spec.md (CICD-MRG).
+# Scopes, multi-PR batching, priorities and two-step CI are intentionally absent.
 queue_rules:
   - name: agent/review-code-approved
     queue_conditions:
+      - base = main
       - label = agent/review-code-approved
+      - -draft
+      - check-success = Checks CI Gate
+      - check-success = Tests CI Gate
+    merge_method: squash
+    # Inject any additional GitHub required checks at both entry and merge.
+    # Mergify has a confirmed bypass of the native GitHub merge-queue rule.
+    branch_protection_injection_mode: queue
     commit_message_format:
       title: pr-title
       body: inherit
       trailers: []
 merge_queue:
+  mode: serial
   max_parallel_checks: 10
-scopes:
-  source:
-    files:
-      api-server:
-        include:
-          - components/api-server/**/*
-      cli:
-        include:
-          - components/cli/**/*
-      control-plane:
-        include:
-          - components/control-plane/**/*
-      fleet-dashboard:
-        include:
-          - components/fleet-dashboard/**/*
-          - components/sdk-typescript/**/*
-          - packages/fleet-dashboard-ui/**/*
-      web-console:
-        include:
-          - components/web-console/**/*
-          - components/sdk-typescript/**/*
-          - packages/gateway-management-ui/**/*
-          - packages/operational-dashboard-ui/**/*
+# Native auto-queueing uses the already-enabled Merge Protections product.
+# Workflow Automation is disabled here; pull_request_rules would be ignored.
+merge_protections_settings:
+  auto_merge_conditions:
+    - base = main
+    - label = agent/review-code-approved
+    - -draft
+    - check-success = Checks CI Gate
+    - check-success = Tests CI Gate

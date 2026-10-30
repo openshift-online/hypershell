@@ -7,10 +7,7 @@ import (
 )
 
 func TestGatewayCreateRequestForDriver(t *testing.T) {
-	const (
-		name = "e2e-gateway"
-		oidc = `{"issuer":"https://issuer.example","audience":"hypershell-frontend"}`
-	)
+	const name = "e2e-gateway"
 
 	tests := []struct {
 		name       string
@@ -31,7 +28,7 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := gatewayCreateRequestForDriver(name, tt.driverName, oidc)
+			payload := gatewayCreateRequestForDriver(name, tt.driverName)
 			encoded, err := json.Marshal(payload)
 			if err != nil {
 				t.Fatalf("marshal gateway create payload: %v", err)
@@ -41,11 +38,12 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 			if err := json.Unmarshal(encoded, &got); err != nil {
 				t.Fatalf("unmarshal gateway create payload: %v", err)
 			}
+			// Only the user-writable fields are sent: route, oidc, and the other
+			// platform-managed fields are supplied by the control plane during
+			// reconcile and are rejected if a user supplies them (PLAT-DATA-23).
 			want := map[string]any{
 				"name":      name,
 				"placement": tt.placement,
-				"route":     `{"enabled":true}`,
-				"oidc":      oidc,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("gateway create payload = %#v, want %#v", got, want)

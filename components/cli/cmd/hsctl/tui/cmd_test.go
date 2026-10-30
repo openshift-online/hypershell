@@ -28,6 +28,7 @@ func TestEmbeddedDescriptorBuildsModel(t *testing.T) {
 	}
 }
 
+// Verifies: CLI-TUI-01.01
 func TestNotLoggedIn(t *testing.T) {
 	t.Setenv("HYPERSHELL_CONFIG", filepath.Join(t.TempDir(), "missing.json"))
 	_, err := session()
@@ -36,6 +37,7 @@ func TestNotLoggedIn(t *testing.T) {
 	}
 }
 
+// Verifies: CLI-TUI-01.02
 func TestRequiresInteractiveTerminal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"url":"https://api.example.com","access_token":"token"}`), 0o600); err != nil {
@@ -51,6 +53,7 @@ func TestRequiresInteractiveTerminal(t *testing.T) {
 
 // The command runs the session loader first and returns its error as is, so a
 // missing login never reaches the descriptor, the model or the alternate screen.
+// Verifies: CLI-TUI-01.01
 func TestCommandReportsTheSessionErrorUnchanged(t *testing.T) {
 	t.Setenv("HYPERSHELL_CONFIG", filepath.Join(t.TempDir(), "missing.json"))
 	err := Cmd.RunE(Cmd, nil)

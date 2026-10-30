@@ -230,7 +230,7 @@ export function bundlePRCount(row: AgentSdlcBundleRow): number {
 }
 
 /**
- * One card phase-transition flight (SDLC-VIS-12a/12b): the board analogue of the map's
+ * One card phase-transition flight (SDLC-VIS-20/SDLC-VIS-21): the board analogue of the map's
  * Flight. The whole card flies from its old column slot to its new one.
  */
 export interface CardFlight {
@@ -243,6 +243,11 @@ export interface CardFlight {
   readonly toPhase: string;
   /** True when the card left the board into the Shipped release matrix. */
   readonly toShipped: boolean;
+  /** True when this flight was synthesized on first load to replay a recent transition
+   *  (no prior snapshot to diff), rather than observed live between two polls. Replay
+   *  flights measure their source from the from-phase column anchor, since the card has no
+   *  previous on-screen slot to launch from. */
+  readonly replay?: boolean;
 }
 
 /** Issue numbers that appear as shipped (tracked) in the matrix for a snapshot. */
@@ -259,7 +264,7 @@ function shippedNumbers(data: AgentSdlcData): Set<number> {
 /**
  * Phase-transition flights for the transition prev -> next, derived PURELY by diffing
  * the two already-fetched SDLC snapshots (the board analogue of the map's computeFlights,
- * SDLC-VIS-12b). A flight is emitted when a card's server `phase` changes between the
+ * SDLC-VIS-21). A flight is emitted when a card's server `phase` changes between the
  * snapshots, when a card newly appears on the board (intake entry), or when a board card
  * leaves into the Shipped matrix. Detection keys off the server `phase` ONLY (never the
  * continuously aged copy), so the one-second continuous-aging re-render does not spuriously
@@ -319,5 +324,48 @@ export function computeCardFlights(
     });
   }
 
+  return flights;
+}
+
+/**
+ * Replay flights for cards that arrived in their current phase RECENTLY, synthesized on
+ * first load when there is no prior snapshot to diff. A card whose time-in-phase is within
+ * `windowSeconds` is treated as having just transitioned, and a flight is emitted from its
+ * previous phase (the funnel predecessor column; null for intake, which flies in) to its
+ * current column. This lets the board "catch up" on recent motion the moment it loads,
+ * rather than only animating a transition a viewer happens to be watching live. Cards
+ * resting longer than the window do not replay. Ordered most-recent-first and capped so a
+ * busy board does not launch a swarm. Pure: derived from the snapshot alone.
+ */
+export function computeReplayCardFlights(
+  data: AgentSdlcData,
+  windowSeconds: number,
+  maxFlights = 12,
+): CardFlight[] {
+  const board = boardPhases(data.phases);
+  const indexByKey = new Map(board.map((p, i) => [p.key, i]));
+  const recent = data.cards
+    .filter(
+      (c) =>
+        c.timeInPhaseSeconds >= 0 &&
+        c.timeInPhaseSeconds <= windowSeconds &&
+        indexByKey.has(c.phase),
+    )
+    .slice()
+    .sort((a, b) => a.timeInPhaseSeconds - b.timeInPhaseSeconds)
+    .slice(0, maxFlights);
+
+  const flights: CardFlight[] = [];
+  for (const c of recent) {
+    const idx = indexByKey.get(c.phase) ?? 0;
+    const fromPhase = idx > 0 ? (board[idx - 1]?.key ?? null) : null;
+    flights.push({
+      number: c.number,
+      fromPhase,
+      toPhase: c.phase,
+      toShipped: false,
+      replay: true,
+    });
+  }
   return flights;
 }

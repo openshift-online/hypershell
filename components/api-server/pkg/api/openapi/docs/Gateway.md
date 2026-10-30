@@ -4,38 +4,38 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. | 
-**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
-**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
-**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
-**GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
-**ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly] 
-**ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
-**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
-**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly] 
-**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
-**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
-**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
-**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
-**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
-**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**ClusterId** | **string** | Managed cluster this gateway is assigned to. Empty while a late-bound gateway (one created with a placement selector) is awaiting placement; the API server assigns it when a matching ManagedCluster is available. |
+**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly]
+**ExternalDns** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**TlsMode** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**ServiceType** | Pointer to **string** | Platform-managed; set by the control plane (PLAT-DATA-23) | [optional] [readonly]
+**Status** | Pointer to **string** | Control-plane-observed operational status (PLAT-DATA-23) | [optional] [readonly]
+**Phase** | Pointer to **string** | Control-plane-observed lifecycle phase (PLAT-DATA-23) | [optional] [readonly]
+**Image** | Pointer to **string** | Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
+**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
+**GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly]
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
+**Route** | Pointer to **string** | JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation. | [optional] [readonly]
+**DedicatedRoute** | Pointer to **bool** | Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation. | [optional] [readonly]
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**WorkspaceMode** | Pointer to **string** | How the OpenShell Kubernetes driver maps workspaces to namespaces. \&quot;shared\&quot; places all sandboxes in the gateway namespace; \&quot;managed\&quot; auto-creates per-workspace namespaces; \&quot;operator\&quot; uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \&quot;managed\&quot; at create, and no caller can set or change it. Null (legacy gateways) keeps the chart&#39;s \&quot;shared\&quot; default. | [optional] [readonly]
+**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
+**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly]
+**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly]
+**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly]
+**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly]
+**RepositoryId** | Pointer to **string** | Repository that owns this gateway through the control-plane .hypershell import. Null for gateways created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
+**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly]
+**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly]
 
 ## Methods
 
@@ -516,56 +516,6 @@ SetGatewayVersion sets GatewayVersion field to given value.
 
 HasGatewayVersion returns a boolean if a field has been set.
 
-### GetProvisioningVersion
-
-`func (o *Gateway) GetProvisioningVersion() string`
-
-GetProvisioningVersion returns the ProvisioningVersion field if non-nil, zero value otherwise.
-
-### GetProvisioningVersionOk
-
-`func (o *Gateway) GetProvisioningVersionOk() (*string, bool)`
-
-GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvisioningVersion
-
-`func (o *Gateway) SetProvisioningVersion(v string)`
-
-SetProvisioningVersion sets ProvisioningVersion field to given value.
-
-### HasProvisioningVersion
-
-`func (o *Gateway) HasProvisioningVersion() bool`
-
-HasProvisioningVersion returns a boolean if a field has been set.
-
-### GetImagePinned
-
-`func (o *Gateway) GetImagePinned() bool`
-
-GetImagePinned returns the ImagePinned field if non-nil, zero value otherwise.
-
-### GetImagePinnedOk
-
-`func (o *Gateway) GetImagePinnedOk() (*bool, bool)`
-
-GetImagePinnedOk returns a tuple with the ImagePinned field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetImagePinned
-
-`func (o *Gateway) SetImagePinned(v bool)`
-
-SetImagePinned sets ImagePinned field to given value.
-
-### HasImagePinned
-
-`func (o *Gateway) HasImagePinned() bool`
-
-HasImagePinned returns a boolean if a field has been set.
-
 ### GetOidc
 
 `func (o *Gateway) GetOidc() string`
@@ -616,6 +566,31 @@ SetRoute sets Route field to given value.
 
 HasRoute returns a boolean if a field has been set.
 
+### GetDedicatedRoute
+
+`func (o *Gateway) GetDedicatedRoute() bool`
+
+GetDedicatedRoute returns the DedicatedRoute field if non-nil, zero value otherwise.
+
+### GetDedicatedRouteOk
+
+`func (o *Gateway) GetDedicatedRouteOk() (*bool, bool)`
+
+GetDedicatedRouteOk returns a tuple with the DedicatedRoute field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDedicatedRoute
+
+`func (o *Gateway) SetDedicatedRoute(v bool)`
+
+SetDedicatedRoute sets DedicatedRoute field to given value.
+
+### HasDedicatedRoute
+
+`func (o *Gateway) HasDedicatedRoute() bool`
+
+HasDedicatedRoute returns a boolean if a field has been set.
+
 ### GetCredentialDriver
 
 `func (o *Gateway) GetCredentialDriver() string`
@@ -640,6 +615,31 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *Gateway) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
+
+### GetWorkspaceMode
+
+`func (o *Gateway) GetWorkspaceMode() string`
+
+GetWorkspaceMode returns the WorkspaceMode field if non-nil, zero value otherwise.
+
+### GetWorkspaceModeOk
+
+`func (o *Gateway) GetWorkspaceModeOk() (*string, bool)`
+
+GetWorkspaceModeOk returns a tuple with the WorkspaceMode field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaceMode
+
+`func (o *Gateway) SetWorkspaceMode(v string)`
+
+SetWorkspaceMode sets WorkspaceMode field to given value.
+
+### HasWorkspaceMode
+
+`func (o *Gateway) HasWorkspaceMode() bool`
+
+HasWorkspaceMode returns a boolean if a field has been set.
 
 ### GetActiveSandboxCount
 
@@ -843,5 +843,3 @@ HasCanEdit returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

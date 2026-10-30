@@ -11,7 +11,7 @@ This specification covers the metrics pipeline end to end: the API server collec
 
 ### Relationship to the operational dashboard
 
-The widgetized **operational dashboard** at `/dashboard` is specified separately in `web-console/operational-dashboard.spec.md`. That surface loads fleet-wide gateway phase counts from the same BFF route (`GET /api/metrics/gateways`, Prometheus `hypershell_gateways_total`) and maps phases to display-status buckets (`healthy`, `provisioning`, `degraded`, `failed`).
+The widgetized **operational dashboard** at `/dashboard` is specified separately in `web-console/operational-dashboard.spec.md`. That surface loads gateway phase counts from the same BFF route (`GET /api/metrics/gateways`) and maps phases to display-status buckets (`healthy`, `provisioning`, `degraded`, `failed`). The counts are scoped to the signed-in user (OBS-GMD-05, WEB-OPS-04): a `platform:admin` caller gets fleet-wide counts from Prometheus `hypershell_gateways_total`, and any other authenticated caller gets counts calculated only from the gateways they are authorized to see.
 
 `GatewayMetricsDashboard` remains the canonical embeddable component for raw phase counts. The web console exposes Prometheus phase counts at `/metrics`. The operational dashboard and `GatewayMetricsDashboard` share the Prometheus pipeline but present different widgets and layouts.
 
@@ -21,7 +21,7 @@ The widgetized **operational dashboard** at `/dashboard` is specified separately
 
 The API server SHALL expose a custom Prometheus Collector named `hypershell_gateways_total` with a `phase` label that reports the current count of Gateway instances in each known lifecycle phase. The canonical phase vocabulary SHALL be owned by `components/api-server/pkg/gatewayhealth` (single source of truth shared with the control plane); the web console mirrors it via `gatewayCanonicalPhaseStrings` in `@openshift-online/hypershell-gateway-management-ui`. See `platform/gateway-phase-vocabulary.spec.md`. The BFF metrics route and this collector SHALL emit every phase in that vocabulary on every scrape/response, even when a phase count is zero.
 
-The Collector SHALL query the database once per scrape via `CountByPhase`  -  a single `SELECT phase, count(*) FROM gateways GROUP BY phase`  -  and emit one `GaugeValue` sample per phase. All five canonical phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
+The Collector SHALL query the database once per scrape via `CountByPhase` - a single `SELECT phase, count(*) FROM gateways GROUP BY phase` - and emit one `GaugeValue` sample per phase. All five canonical phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
 
 When the database query fails, the Collector SHALL emit a `prometheus.NewInvalidMetric` so the scrape registers as failed and the error is surfaced to Prometheus rather than silently dropped.
 
@@ -74,7 +74,7 @@ The `/metrics` path SHALL remain unauthenticated, consistent with the existing `
 
 Every cluster to which HyperShell is deployed SHALL include a Prometheus Operator and a Prometheus instance capable of scraping the `hypershell_gateways_total` metric without requiring cluster-specific manual configuration.
 
-The Prometheus Operator SHALL be vendored as `deploy/kind/infrastructure/prometheus-operator-bundle.yaml` (pinned to a specific release) and applied as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager.
+The pinned Prometheus Operator bundle SHALL be applied by `deploy/kind/infrastructure/kustomization.yaml` as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager.
 
 A `Prometheus` CR, a `ServiceAccount`, a `ClusterRole`, and a `ClusterRoleBinding` SHALL be declared in `deploy/base/prometheus/` and applied as application-level resources. The `Prometheus` CR SHALL:
 
@@ -134,11 +134,19 @@ When daily fleet-total history is available, the same route MAY also return opti
 
 When Prometheus is unreachable or returns a non-`200` status, or when the Prometheus response body has `status != "success"`, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT propagate raw Prometheus error messages to the browser.
 
-The `/api/metrics/gateways` route SHALL be exempt from the general `/api/*` proxy handler: it does not forward to the API server, it does not require or forward a bearer token, and it does not require a Prometheus authentication header in its current form.
+The `/api/metrics/gateways` route SHALL be exempt from the general `/api/*` proxy handler. It does not require a Prometheus authentication header in its current form.
 
-When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` WEB-OPS-04 (`platform:admin` only). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
+When OIDC is enabled, the route SHALL apply the signed-in user's resource scope before returning counts, as required by `web-console/operational-dashboard.spec.md` WEB-OPS-04:
 
-Fleet-wide phase counts from Prometheus are intentionally **not** filtered by per-gateway RoleBindings; this route is restricted to dashboard administrators who are authorized to view platform-wide operational data. The operational dashboard gateway-status widget consumes this same route (`operational-dashboard.spec.md` WEB-OPS-23). Per-user gateway visibility for the gateway collection table remains on the RBAC-scoped HyperShell REST list API (`web-console/architecture.spec.md` WEB-DATA-01).
+- A caller with `platform:admin` SHALL receive fleet-wide phase counts from Prometheus `hypershell_gateways_total`.
+- Any other authenticated caller SHALL receive HTTP `200` with counts calculated only from the gateways they are authorized to see. The BFF SHALL build these counts from the RBAC-scoped HyperShell REST gateway list (`GET /api/hypershell/v1/gateways`, all pages), forwarding the caller's bearer token. The legacy `hypershell-admins` role SHALL NOT widen this scope. A caller with no authorized gateways SHALL receive zero counts, not HTTP `403`.
+- Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response.
+
+When the scoped gateway list request fails, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`, the same as a Prometheus failure.
+
+When OIDC is disabled, no session or role is required, and the route SHALL return fleet-wide phase counts from Prometheus.
+
+The browser SHALL NOT receive fleet-wide counts and filter them locally. The operational dashboard gateway-status widget consumes this same route (`operational-dashboard.spec.md` WEB-OPS-23). Per-user gateway visibility for the gateway collection table remains on the RBAC-scoped HyperShell REST list API (`web-console/architecture.spec.md` WEB-DATA-01).
 
 #### Scenario: OBS-GMD-05.01 -- Successful metrics fetch
 
@@ -159,11 +167,14 @@ Fleet-wide phase counts from Prometheus are intentionally **not** filtered by pe
 - WHEN the BFF processes the response
 - THEN the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`
 
-#### Scenario: OBS-GMD-05.04 -- Authenticated non-admin is rejected
+#### Scenario: OBS-GMD-05.04 -- Authenticated non-admin receives counts for authorized gateways only
 
 - GIVEN OIDC is enabled and the caller has only `hypershell-users`
+- AND the caller is authorized for a subset of gateways
 - WHEN the SPA calls `GET /api/metrics/gateways`
-- THEN the BFF SHALL respond with HTTP `403`
+- THEN the BFF SHALL respond with HTTP `200`
+- AND the phase counts SHALL be calculated only from the caller's authorized gateways (WEB-OPS-04.03)
+- AND the BFF SHALL NOT query Prometheus for fleet-wide counts
 
 #### Scenario: OBS-GMD-05.05 -- Dashboard administrator can fetch gateway phase counts
 
@@ -180,12 +191,13 @@ The `gateway-management-ui` shared library SHALL export a `GatewayMetricsDashboa
 
 Each card SHALL display the phase name (localized via `react-intl`) in the PatternFly semantic status color for that phase, the numeric count in a large heading, and a pluralized gateway count label. The phase-to-color mapping SHALL be:
 
-| Phase | PatternFly token |
-|---|---|
-| Running | `--pf-t--global--color--status--success--default` |
-| Provisioning | `--pf-t--global--color--status--info--default` |
-| Degraded | `--pf-t--global--color--status--warning--default` |
-| Failed | `--pf-t--global--color--status--danger--default` |
+| Phase        | PatternFly token                                  |
+| ------------ | ------------------------------------------------- |
+| Pending      | `--pf-t--global--color--status--info--default`    |
+| Running      | `--pf-t--global--color--status--success--default` |
+| Provisioning | `--pf-t--global--color--status--info--default`    |
+| Degraded     | `--pf-t--global--color--status--warning--default` |
+| Failed       | `--pf-t--global--color--status--danger--default`  |
 
 The component SHALL use TanStack Query with `queryKey: ["gateways", "metrics"]` and SHALL refetch every `30_000` ms to stay aligned with the Prometheus scrape interval.
 
@@ -197,8 +209,8 @@ All user-visible strings SHALL be declared with `defineMessages` and rendered th
 
 - GIVEN `GET /api/metrics/gateways` returns `{ counts: { Running: 5, Provisioning: 2, Degraded: 1, Failed: 0 } }`
 - WHEN `GatewayMetricsDashboard` mounts
-- THEN four cards SHALL be rendered, one per phase, each showing the correct count
-- AND the `Failed` card SHALL show `0`
+- THEN five cards SHALL be rendered, one per canonical phase, each showing the correct count
+- AND the `Pending` and `Failed` cards SHALL show `0`
 
 #### Scenario: OBS-GMD-06.02 -- Loading state shows a spinner
 
@@ -225,7 +237,7 @@ All user-visible strings SHALL be declared with `defineMessages` and rendered th
 
 ### Requirement: OBS-GMD-07 -- BFF Metrics Route Registration
 
-The BFF SHALL recognise `/dashboard` and `/metrics` as valid SPA shell routes (returning `index.html` for direct navigation and refresh) alongside `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
+The BFF SHALL recognise `/dashboard` and `/metrics` as valid SPA shell routes (returning `index.html` for direct navigation and refresh) alongside `/`, `/gateways`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
 
 When OIDC is enabled, browser navigations to `/metrics` SHALL require dashboard-operator authorization (WEB-OPS-04). Non-admin users SHALL be redirected to `/`. The SPA route module for `/metrics` SHALL wrap `GatewayMetricsDashboard` in the same `RequireDashboardAdmin` guard used by `/dashboard`.
 

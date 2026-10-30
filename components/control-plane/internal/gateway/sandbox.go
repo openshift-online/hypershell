@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -64,6 +65,30 @@ func isActivePod(pod *corev1.Pod) bool {
 // and the periodic self-heal from its watch cache.
 func IsActiveSandboxPod(pod *corev1.Pod) bool {
 	return hasSandboxLabel(pod) && isActivePod(pod)
+}
+
+// managedSandboxNamespaceRegex matches the per-workspace namespaces the
+// OpenShell Kubernetes driver creates in managed workspace mode:
+// openshell-{gateway_id}-{workspace}. The control plane provisions managed
+// gateways with gateway_id set to the hexadecimal suffix of the gateway's
+// API-assigned namespace, so the owning gateway's namespace is recoverable
+// from the pod namespace alone (openshell-gateway.spec.md, "Gateway Workspace
+// Mode"). A gateway namespace itself (openshell-{id-suffix}) never matches:
+// the pattern requires a workspace segment after the sixteen hex characters.
+var managedSandboxNamespaceRegex = regexp.MustCompile(`^openshell-([0-9a-f]{16})-`)
+
+// SandboxGatewayNamespace returns the gateway namespace a sandbox pod
+// namespace belongs to. A gateway's own namespace is returned unchanged
+// (shared workspace mode keeps every sandbox there). A managed-mode
+// per-workspace namespace maps to the owning gateway's namespace. Any other
+// namespace is returned unchanged; the API server floors an unknown namespace
+// to a no-op, so unrecognized namespaces cost only a dropped adjustment that
+// the periodic self-heal corrects.
+func SandboxGatewayNamespace(namespace string) string {
+	if m := managedSandboxNamespaceRegex.FindStringSubmatch(namespace); m != nil {
+		return "openshell-" + m[1]
+	}
+	return namespace
 }
 
 // CountActiveSandboxes returns the number of active sandbox pods in a gateway

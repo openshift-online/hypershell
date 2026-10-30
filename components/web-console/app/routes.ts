@@ -5,27 +5,22 @@ import {
   type RouteConfig,
 } from "@react-router/dev/routes";
 
-import routeContract from "../route-contract.json";
+import { routes } from "../shared/routes";
 
 export default [
-  route(routeContract.login, "./routes/login.tsx"),
+  route(routes.login, "./routes/login.tsx"),
   layout("./routes/application.tsx", [
     index("./routes/home.tsx"),
-    route(routeContract.dashboard, "./routes/dashboard.tsx"),
-    route(
-      routeContract.dashboardProvisioning,
-      "./routes/dashboard-provisioning.tsx",
-    ),
-    route(routeContract.dashboardInventory, "./routes/dashboard-inventory.tsx"),
-    route(
-      routeContract.dashboardReliability,
-      "./routes/dashboard-reliability.tsx",
-    ),
-    route(routeContract.dashboardUsage, "./routes/dashboard-usage.tsx"),
-    route(routeContract.dashboardAdoption, "./routes/dashboard-adoption.tsx"),
-    route(routeContract.gatewayNew, "./routes/gateway-new.tsx"),
-    route(routeContract.gatewayDetail, "./routes/gateway.tsx"),
-    route(routeContract.metrics, "./routes/metrics.tsx"),
+    route(routes.dashboard, "./routes/dashboard.tsx"),
+    route(routes.dashboardProvisioning, "./routes/dashboard-provisioning.tsx"),
+    route(routes.dashboardInventory, "./routes/dashboard-inventory.tsx"),
+    route(routes.dashboardReliability, "./routes/dashboard-reliability.tsx"),
+    route(routes.dashboardUsage, "./routes/dashboard-usage.tsx"),
+    route(routes.dashboardAdoption, "./routes/dashboard-adoption.tsx"),
+    route(routes.gatewayList, "./routes/gateways.tsx"),
+    route(routes.gatewayNew, "./routes/gateway-new.tsx"),
+    route(routes.gatewayDetail, "./routes/gateway.tsx"),
+    route(routes.metrics, "./routes/metrics.tsx"),
   ]),
   route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

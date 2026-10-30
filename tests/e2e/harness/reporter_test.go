@@ -50,6 +50,7 @@ func TestReporterNilIsDisabledNoOp(t *testing.T) {
 	r.RunFinished(OutcomePassed, time.Second)
 }
 
+// Verifies: E2E-CORE-06.02, E2E-CORE-07.01
 func TestReporterEmitsVersionedEnvelope(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewReporter(&buf, testIdentity())
@@ -121,6 +122,7 @@ func TestReporterRunIDGeneratedWhenAbsent(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-08.01
 func TestReporterRedactsSecrets(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewReporter(&buf, testIdentity())
@@ -152,6 +154,7 @@ func TestReporterRedactsSecrets(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-08.03
 func TestReporterBoundsOversizedLogLine(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewReporter(&buf, testIdentity())
@@ -206,6 +209,7 @@ func TestReporterConcurrentWritesAreNotTorn(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-08.03
 func TestMarshalBoundedKeepsRecordWithinPipeBuf(t *testing.T) {
 	// A control byte expands to a six-byte \uXXXX under JSON escaping, so a message
 	// at the raw maxLogBody bound can marshal far past it. The record (plus its

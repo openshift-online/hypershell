@@ -8,6 +8,8 @@ export interface ProvisionDurationStats {
   meanSeconds: number;
   p50Seconds: number;
   p95Seconds: number;
+  p99Seconds?: number;
+  targetSeconds?: number;
 }
 
 function parseSeconds(value: string | undefined): number | undefined {
@@ -26,6 +28,8 @@ export function parseProvisionDurationStats(
   );
   const p50Seconds = parseSeconds(metric.provisionDuration?.p50);
   const p95Seconds = parseSeconds(metric.provisionDuration?.p95);
+  const p99Seconds = parseSeconds(metric.provisionDuration?.p99);
+  const targetSeconds = parseSeconds(metric.provisionDuration?.target);
 
   if (
     meanSeconds === undefined ||
@@ -35,7 +39,7 @@ export function parseProvisionDurationStats(
     return undefined;
   }
 
-  return { meanSeconds, p50Seconds, p95Seconds };
+  return { meanSeconds, p50Seconds, p95Seconds, p99Seconds, targetSeconds };
 }
 
 export function formatProvisionDurationValue(

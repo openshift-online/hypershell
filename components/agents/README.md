@@ -6,10 +6,33 @@ Build context: repository root. Containerfiles: `Containerfile.agent-runtime` an
 | Contents | agent-runtime-slim | agent-runtime |
 | --- | --- | --- |
 | bash, coreutils, git, curl, jq, ripgrep, tar/gzip/unzip, find/diff/patch/which, CA roots | yes | yes |
-| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`) | yes | yes |
+| Python, hsctl, native Claude Code, Atlassian CLI (`acli`), GitHub CLI (`gh`), `fullsend` CLI | yes | yes |
 | Go, Rust compiler/Cargo/Clippy/rustfmt/standard library/source | | yes |
 | Node.js 24, npm and pnpm 11.15.1 | | yes |
 | GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes |
+
+Both variants bake the same reviewed, SHA-256-locked CLI tools via
+`install-tools.py`, so tooling never drifts between images. The `fullsend` CLI is
+the exception: it is built from pinned clean source (the
+`third_party/fullsend` submodule at tag `v0.49.0`) in a Go builder stage, because
+the upstream release archive is stamped `+dirty` (a non-reproducible binary) and
+is not Hermeto-attributed. Building from a clean checkout yields a reproducible
+binary, and its Go dependency closure is prefetched and attributed through Hermeto
+via the pipeline `prefetch-input` (see
+`specs/platform/konflux-enterprise-contract-conformance.spec.md`, CICD-ECC-02 and
+CICD-ECC-04).
+
+## Fullsend sandbox image
+
+`Containerfile.fullsend-sandbox` builds the image a **Fullsend harness runs the
+agent inside** (the sandbox, not the runner). It extends Fullsend's sandbox base
+(`ghcr.io/fullsend-ai/fullsend-sandbox`, which ships the `tirith` security-hook
+binary, pinned Claude Code, pi, codex and the python hooks) with the Go toolchain
+plus `make`/`gcc`, so coder and update-openshell agents can `go build`/`go vet`/`go
+test` and `make check` in-sandbox. A plain `agent-runtime` image cannot be a
+Fullsend sandbox: it lacks `tirith` and every Bash `PreToolUse` hook fails. Per
+Fullsend's design, per-org sandboxes extend `fullsend-sandbox` rather than replace
+it.
 
 Rust comes from Red Hat's signed RPM toolchain, including its standard library
 and source; rustup and automatic toolchain downloads are not installed. Claude
@@ -23,6 +46,7 @@ cluster tooling and credentials from their harness or a dedicated future variant
 ```sh
 podman build --layers -f components/agents/Containerfile.agent-runtime-slim -t localhost/agent-runtime-slim .
 podman build --layers -f components/agents/Containerfile.agent-runtime -t localhost/agent-runtime .
+podman build --layers -f components/agents/Containerfile.fullsend-sandbox -t localhost/hypershell-fullsend-sandbox .
 ```
 
 Konflux builds Linux amd64 and arm64 natively using the multi-platform controller.

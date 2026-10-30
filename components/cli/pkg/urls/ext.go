@@ -13,6 +13,8 @@ const (
 	InferenceRoutesPath  = ExtAPIPrefix + "/inference_routes"
 	SecretSourcesPath    = ExtAPIPrefix + "/secret_sources"
 	RepositoriesPath     = ExtAPIPrefix + "/repositories"
+	CIProvidersPath      = ExtAPIPrefix + "/ci_providers"
+	CITrustsPath         = ExtAPIPrefix + "/ci_trusts"
 )
 
 func AgentRuntimePath(id string) string { return AgentRuntimesPath + "/" + id }
@@ -28,3 +30,7 @@ func InferenceRoutePath(id string) string { return InferenceRoutesPath + "/" + i
 func SecretSourcePath(id string) string { return SecretSourcesPath + "/" + id }
 
 func RepositoryPath(id string) string { return RepositoriesPath + "/" + id }
+
+func CIProviderPath(id string) string { return CIProvidersPath + "/" + id }
+
+func CITrustPath(id string) string { return CITrustsPath + "/" + id }
