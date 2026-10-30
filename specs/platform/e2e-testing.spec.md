@@ -717,7 +717,7 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 through P2.11 are long-only, each with its own opt-in gate where one applies (defined where the step is specified). P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth, but their direct kube-level internal-posture checks are long-only, because short mode is user-facing and SHALL NOT rely on a Kubernetes context. P1.2 (gateway Deployment/Service/TLS/cert-manager/DB-credential/NetworkPolicy inspection) runs nothing in short mode; the kube sub-checks of P0.1 (the control-plane gRPC-auth controller-log check) and P0.2 (platform-dependency API groups and Deployments) are likewise long-only; and the pod-level readiness wait of P2.1 is long-only. Short mode proves the same user-facing outcomes through the API and CLI path (reaching the gateway over its route, and a sandbox `exec`). In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 through P2.11 are long-only, each with its own opt-in gate where one applies (defined where the step is specified). P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
@@ -764,6 +764,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 #### Scenario: E2E-CORE-13.04 -- Infrastructure Verification
 
 - GIVEN a gateway has reached `Running` phase
+- AND the suite runs in long mode (this kube-level internal-posture check is long-only; short mode proves the same functional outcome by reaching the gateway over its route in P1.5)
 - WHEN the test verifies infrastructure
 - THEN it SHALL confirm: deployment `openshell-gateway` exists and has at least 1 ready replica, service `openshell-gateway` exists with a ClusterIP, TLS secret `openshell-server-tls` exists, certgen job `openshell-gateway-certgen` has succeeded
 
@@ -771,8 +772,8 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN the openshell CLI is connected to the gateway
 - WHEN `sandbox create --name <name>` is invoked
-- THEN a pod matching `default--<name>` SHALL appear in the gateway namespace
-- AND the pod SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds
+- THEN in every mode the CLI `sandbox exec whoami` SHALL succeed, which is the user-facing readiness proof
+- AND in long mode a pod matching `default--<name>` SHALL appear in the gateway namespace and SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds (this pod-level kube check is long-only)
 
 ### Requirement: E2E-CORE-14 -- Active Sandbox Count Accounting
 
@@ -783,9 +784,12 @@ its count.
 
 The suite SHALL create N sandboxes at the same time. N SHALL be 1 in `short` and
 `perf` runs and 2 in `long` runs; the long run proves that concurrent increments
-are not lost. After every sandbox pod is `Running`, the suite SHALL poll the API
-until `active_sandbox_count` equals N. It SHALL then delete all N sandboxes at
-the same time and poll until the count is 0.
+are not lost. Once every sandbox is ready -- proven in short and perf runs by a
+successful CLI `sandbox exec` (no Kubernetes context), and in long runs by every
+sandbox pod reaching `Running` -- the suite SHALL poll the API until
+`active_sandbox_count` equals N. It SHALL then delete all N sandboxes at the same
+time and poll until the count is 0. The `active_sandbox_count` assertions read the
+HyperShell API only and need no kube context in any mode.
 
 The count is an advisory recent value that may lag real time (see
 `openshell-gateway-sandbox-count.spec.md`). Every count assertion SHALL therefore
@@ -796,7 +800,7 @@ without the expected count SHALL fail the step.
 
 - GIVEN P2.1's own newly created `Running` gateway
 - WHEN N sandboxes are created on it concurrently (N is 1 in short and perf, 2 in long)
-- AND every sandbox pod reaches `Running`
+- AND every sandbox is ready (CLI `sandbox exec` succeeds in short and perf; every sandbox pod reaches `Running` in long)
 - THEN polling `GET /api/hypershell/v1/gateways/<id>` SHALL report an
   `active_sandbox_count` of exactly N within `E2E_SANDBOX_TIMEOUT` seconds
 
@@ -1528,22 +1532,35 @@ property, but "does placement by this capability work" is a property of the
 software and the fleet's capability set; running the full suite once per cluster
 is therefore redundant at fleet scale and does not scale to 100+ clusters.
 
-`TestMatrix` SHALL read `GET /managed_clusters`, apply the passive health gate
-below to select the registered, Healthy clusters, and enumerate the **union of
-distinct capability labels** those clusters advertise across the self-declared
-namespaces (`provider/*`, `network/*`, `region/*`, `runtime/*`, `environment/*`;
-see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
-"Requirement: Self-Declared Capability Labels"). It SHALL run the existing
-`E2ESuite` exactly ONCE PER DISTINCT CAPABILITY. Each suite SHALL place its
-positive workflow and provisioning gateways by that one capability selector
-(`placement.selector = [<capability>]`, no `cluster_id`) and SHALL assert the
-gateway deploys to SOME eligible cluster -- any cluster that advertises the
-capability -- rather than to a predetermined cluster. `E2E_MANAGED_CLUSTERS` MAY
-narrow the fleet to an allowlist of cluster names whose capabilities feed the
-enumeration.
+`TestMatrix` SHALL run the existing `E2ESuite` **in short mode** (the user-facing,
+kube-free depth; see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)).
+Because short mode never relies on a Kubernetes context, the matrix needs no kube
+access and runs uniformly whether a suite's gateway lands on the hub or a spoke;
+the matrix itself is a user-facing "does placement by this capability work" check,
+not an internal-posture or operational-health check.
+
+`TestMatrix` SHALL read `GET /managed_clusters` and enumerate the **union of
+distinct capability labels** the registered clusters advertise across the
+self-declared namespaces (`provider/*`, `network/*`, `region/*`, `runtime/*`,
+`environment/*`; see
+[`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels"). It SHALL run the `E2ESuite`
+exactly ONCE PER DISTINCT CAPABILITY. Each suite SHALL place its positive workflow
+and provisioning gateways by that one capability selector
+(`placement.selector = [<capability>]`) and SHALL assert the gateway deploys to
+SOME eligible cluster -- any cluster that advertises the capability -- rather than
+to a predetermined cluster. E2E-CORE-30 refers only to capability selectors.
+
+**No health gating.** The matrix SHALL NOT judge whether a cluster is schedulable:
+it applies no health gate, does not exclude or skip clusters by `oidc_subject`
+registration state or `last_seen_at` age, and does not treat a placement that lands
+on a cluster which then fails as a matrix error -- a failure after placement is a
+valid platform-path signal. Continuous per-cluster operational health, and the
+in-cluster kube-level validation the short-mode matrix defers, are a separate
+platform concern tracked in #858, not the matrix's role.
 
 Across the run `TestMatrix` SHALL assert **full capability coverage**: every
-distinct capability present across the Healthy clusters is exercised by exactly
+distinct capability present across the registered clusters is exercised by exactly
 one suite. It SHALL also report the **union of clusters actually landed on** across
 all suites (the landed-cluster union) as observational output, not as a coverage
 assertion: a single cluster MAY satisfy several capabilities and some clusters MAY
@@ -1551,34 +1568,20 @@ never be landed on, which is expected and SHALL NOT fail the run. The matrix cos
 (the number of `E2ESuite` runs) SHALL equal the distinct-capability count and
 SHALL be independent of the cluster count.
 
-**Passive health gate.** A ManagedCluster with an empty `oidc_subject`
-(unregistered), or whose `last_seen_at` age exceeds `E2E_MANAGED_HEALTHY_WINDOW`
-(stale), SHALL be excluded from the capability enumeration and SHALL NOT
-contribute its capabilities. When such a cluster is explicitly named by
-`E2E_MANAGED_CLUSTERS`, the matrix SHALL report FAIL by default, or SKIP when
-`E2E_MANAGED_SKIP_UNHEALTHY=1` (fail-closed otherwise).
+**Determinism and concurrency.** The per-capability suites SHALL run concurrently
+by **default**, bounded by `E2E_CONCURRENCY` (default greater than 1; the suite
+sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
+deterministic capability order; higher values fan them out within that bound.
 
-**Kubernetes-context scoping.** Kubernetes-level checks for a landed cluster SHALL
-run only under its `E2E_MANAGED_KUBECONTEXT_<name>` mapping. Absent that mapping,
-API-level checks SHALL still run and Kubernetes-level checks SHALL report SKIP; the
-suite SHALL NOT fall back to another cluster's context.
-
-**Determinism and concurrency.** The per-capability suites SHALL run bounded by
-`E2E_CONCURRENCY`: at `E2E_CONCURRENCY=1` they run sequentially in a deterministic
-capability order; higher values fan them out within that bound.
+**Targeting a specific cluster.** Narrowing a test to named clusters is out of
+scope here: targeting a specific cluster lands with the `managed-cluster/<name>`
+placement selector (#857), not an env-var allowlist on this runner.
 
 ```text
-clusters = GET /managed_clusters                         # authenticated
-healthy  = [mc for mc in clusters
-            if mc.oidc_subject != ""
-            and age(mc.last_seen_at) <= E2E_MANAGED_HEALTHY_WINDOW
-            and (E2E_MANAGED_CLUSTERS unset or mc.name in E2E_MANAGED_CLUSTERS)]
-for mc in explicitly selected but excluded (unregistered/stale):
-    report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
-
-capabilities = distinct(union of mc.capabilities for mc in healthy)
+clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
+capabilities = distinct(union of mc.capabilities for mc in clusters)
 for cap in capabilities:                                 # cost = len(capabilities), not len(clusters)
-    suite = E2ESuite { placement: [cap] }
+    suite = E2ESuite { mode: short, placement: [cap] }   # user-facing, kube-free
     run suite                                            # positive creates place via [cap]
     assert gateway landed on some cluster advertising cap
     record landed_cluster(cap)
@@ -1586,61 +1589,36 @@ assert exercised == capabilities                         # full capability cover
 report landed-cluster union                              # observational, never a failure
 ```
 
-Contract-negative creates and late-binding probes SHALL retain the request shape
-required by the behavior they verify. In particular, P2.4 SHALL continue to send
-its negative and late-binding placement requests -- an unregistered `cluster_id`,
-an empty `cluster_id` with no placement, and a placement selector with no
-`cluster_id` -- unchanged; the capability round-robin selector SHALL NOT be
-injected into those requests, and a successful late-bound response (a
-requirement-capability selector) SHALL resolve by random selection among eligible
-clusters.
-
 #### Scenario: E2E-CORE-30.01 -- Suite runs once per distinct fleet capability
 
-- GIVEN `GET /managed_clusters` returns registered Healthy clusters advertising the distinct capabilities `provider/aws`, `provider/ibm`, and `network/public`
+- GIVEN `GET /managed_clusters` returns registered clusters advertising the distinct capabilities `provider/aws`, `provider/ibm`, and `network/public`
 - WHEN `TestMatrix` runs
 - THEN it SHALL run exactly one `E2ESuite` per distinct capability (three suites)
-- AND each suite SHALL place its positive-workflow and provisioning gateways by `placement.selector = [<capability>]` and SHALL NOT send `cluster_id`
+- AND each suite SHALL place its positive-workflow and provisioning gateways by `placement.selector = [<capability>]`
 - AND each such gateway SHALL be asserted to deploy to some cluster that advertises that capability
-- AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
-#### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly
+#### Scenario: E2E-CORE-30.02 -- Full capability coverage asserted and landed-cluster union reported
 
-- GIVEN a selected ManagedCluster is unregistered (empty `oidc_subject`) or stale (`last_seen_at` outside `E2E_MANAGED_HEALTHY_WINDOW`)
-- WHEN `TestMatrix` evaluates the fleet
-- THEN that cluster SHALL be excluded from the capability enumeration and SHALL NOT contribute its capabilities
-- AND when it is explicitly named by `E2E_MANAGED_CLUSTERS` the matrix SHALL report FAIL by default
-- OR it SHALL report SKIP when `E2E_MANAGED_SKIP_UNHEALTHY=1`
-
-#### Scenario: E2E-CORE-30.03 -- Missing Kubernetes context skips Kubernetes checks
-
-- GIVEN a capability suite's gateway lands on a cluster with no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
-- WHEN the suite runs
-- THEN API-level steps SHALL still run
-- AND Kubernetes-level steps SHALL report SKIP rather than use another cluster's context
-
-#### Scenario: E2E-CORE-30.04 -- Full capability coverage asserted and landed-cluster union reported
-
-- GIVEN Healthy clusters where `A` advertises `provider/aws` and `network/public`, and `B` advertises `provider/aws` and `region/us-east-1`
+- GIVEN registered clusters where `A` advertises `provider/aws` and `network/public`, and `B` advertises `provider/aws` and `region/us-east-1`
 - WHEN `TestMatrix` runs
 - THEN it SHALL exercise every distinct capability `{provider/aws, network/public, region/us-east-1}` exactly once
 - AND it SHALL report the union of clusters actually landed on across the suites
 - AND a cluster that is never landed on (because another cluster satisfied its capabilities) SHALL NOT fail the run
 
-#### Scenario: E2E-CORE-30.05 -- Matrix cost is independent of cluster count
+#### Scenario: E2E-CORE-30.03 -- Matrix cost is independent of cluster count
 
-- GIVEN two fleets that advertise the same distinct capability set, one with 2 Healthy clusters and one with 100
+- GIVEN two fleets that advertise the same distinct capability set, one with 2 clusters and one with 100
 - WHEN `TestMatrix` runs against each
 - THEN the number of `E2ESuite` runs SHALL equal the distinct-capability count in both cases
 - AND the suite count SHALL NOT grow with the cluster count
 
-#### Scenario: E2E-CORE-30.06 -- Contract-negative and late-binding shapes are preserved
+#### Scenario: E2E-CORE-30.04 -- Matrix runs short mode with no Kubernetes context
 
-- GIVEN the P2.4 contract-negative and late-binding probes
-- WHEN a capability suite runs
-- THEN it SHALL still send an unregistered `cluster_id`, an empty `cluster_id` with no placement, and a placement selector with no `cluster_id`, unchanged
-- AND the capability round-robin selector SHALL NOT be injected into those requests
-- AND a successful late-bound create (a requirement-capability selector) SHALL resolve by random selection among eligible clusters
+- GIVEN a matrix run against the fleet
+- WHEN each per-capability `E2ESuite` executes
+- THEN it SHALL run in short mode, exercising only the user-facing API and CLI checks (authenticate, create by capability, `Running` plus `route_address` via the API, connect over the route, and a sandbox via the CLI)
+- AND it SHALL NOT require, open, or depend on a Kubernetes context for any cluster
+- AND it SHALL apply no health gate and SHALL NOT reference `cluster_id`
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 
@@ -1785,7 +1763,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `OPENSHIFT_NAMESPACE` | current `oc project` | Platform namespace the OpenShift driver and `make openshift-up` target; Keycloak is `${OPENSHIFT_NAMESPACE}-keycloak` |
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
-| `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each phase, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
+| `E2E_MODE` | `long` | Run depth: `long` runs every step including the kube-level internal-posture checks ("is it built correctly?"); `short` runs only the user-facing API/CLI checks of each phase ("does it work?"), never relies on a Kubernetes context, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
@@ -1831,11 +1809,14 @@ suite reuses the full single-cluster variable set above.
 
 | Env Var                          | Default                  | Description                                                                                  |
 | -------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
-| `E2E_MANAGED_CLUSTERS`           | (unset = all registered) | Optional allowlist of ManagedCluster names whose capabilities feed the distinct-capability enumeration; allowlist only, no denylist |
-| `E2E_MANAGED_SKIP_UNHEALTHY`     | `0`                      | `1` downgrades an explicitly selected unregistered/stale/unreachable cluster from failure to skip |
-| `E2E_MANAGED_HEALTHY_WINDOW`     | `5m`                     | Max `last_seen_at` age for a cluster to count as healthy                                     |
 | `E2E_MANAGED_GATEWAY_PREFIX`     | `e2e`                    | Prefix for each capability suite's uniquely named gateway (`<prefix>-<sanitized-capability>-<runid>`) |
-| `E2E_MANAGED_KUBECONTEXT_<name>` | (unset)                  | Kube context for cluster `<name>`; enables kube-level steps (P1.2, P2.3) for gateways that land on it, else they skip |
+
+The matrix enumerates every registered cluster's capabilities with no allowlist,
+no health window, and no per-cluster kube context, so it adds no `E2E_MANAGED_CLUSTERS`,
+`E2E_MANAGED_SKIP_UNHEALTHY`, `E2E_MANAGED_HEALTHY_WINDOW`, or `E2E_MANAGED_KUBECONTEXT_<name>`
+variable. Targeting a specific cluster for a test lands with the `managed-cluster/<name>`
+placement selector (#857), not an env-var allowlist here; continuous per-cluster
+operational health and in-cluster kube validation are #858.
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
 [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md#environment-variables).
@@ -1887,6 +1868,7 @@ The test suite SHALL verify OIDC integration as part of its standard flow:
 
 #### Scenario: E2E-CORE-33.05 -- Control Plane gRPC Auth
 
+- GIVEN the suite runs in long mode (inspecting control-plane logs needs a kube context, so this is a long-only internal-posture check, not part of the user-facing short path)
 - WHEN the control plane logs are inspected
 - THEN there SHALL be no `Unauthenticated` gRPC errors
 
@@ -2078,6 +2060,28 @@ The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The u
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2e job and the final run of the performance harness are unchanged. At `short` depth (or the harness-set `perf` depth), the suite SHALL run only the `short`-tagged steps, in the suite's normal order, and SHALL `t.Skip` the long-only steps (a skip, never a silent pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)). The suite SHALL fail fast (`t.Fatal`, non-zero `go test` exit) in `SetupSuite` if `E2E_MODE` is set to any value other than `short` or `long`. Depth tagging SHALL be expressed in Go (a step helper that takes the minimum depth and calls `t.Skip` when the active depth is lower), so all depths run the same assertion code; there SHALL be no second copy of any check.
 
+**Short answers "does it work?"; long answers "is it built correctly?".** Short
+mode SHALL be purely user-facing: it SHALL use only the HyperShell API and the
+`openshell` CLI, and SHALL NOT require, open, or depend on a Kubernetes context for
+any cluster. Its path is: authenticate, create a gateway, confirm the gateway is
+`Running` and carries a `route_address` through the API, connect to the gateway
+over its route with the CLI (reaching the gateway proves route discovery, the
+Service, and the Deployment are functional), and exercise a sandbox through the CLI
+(`sandbox create` then `exec whoami`, whose success proves the runtime). Long mode
+SHALL add every direct kube-level internal-posture assertion -- gateway
+Deployment/Service inspection, TLS secrets, the database credential's
+`sslmode=require`, cert-manager Certificates `Ready`, NetworkPolicy posture, vault
+wiring and no-KEK, the orphan reaper, the control-plane gRPC-auth controller-log
+check, the platform-dependency API groups and deployments, and sandbox pod-level
+waits -- which assert the platform is built correctly and run on the hub or Kind.
+The user-facing short checks functionally subsume the kube ones -- reaching the
+gateway over its route proves route, Service, and Deployment; a successful sandbox
+`exec` proves the runtime -- so moving the kube assertions to long mode loses no
+user-facing coverage; it only defers the internal-posture proofs that need a kube
+context. This is what lets the managed-cluster matrix
+([Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)) run
+short mode uniformly across the hub and every spoke with no kube access.
+
 `short` is the canonical quick check. It owns the gateway it creates and its cleanup SHALL delete that gateway on every exit, leaving no API resource behind. It intentionally does not wait for or assert controller-driven namespace garbage collection: that timing-sensitive infrastructure qualification belongs to long mode. `short` therefore validates the API, gateway, and sandbox lifecycle without making a shared-environment promotion gate depend on namespace-GC timing.
 
 `short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users`, not `platform:admin`, an impersonation policy, or Keycloak administrator access -- so it is safe as a live-environment promotion gate. By default (`E2E_GATEWAY_AUTH=identity`) the per-gateway token is a same-subject token exchange onto the per-gateway audience when `E2E_OIDC_GRANT=client_credentials`, which also requires the client to hold exchange rights. With `E2E_GATEWAY_AUTH=service_account` the per-gateway token comes from a short-lived gateway service account and no exchange happens, so exchange rights are not needed; this is the minimal-privilege path for unattended gates (see [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication)). The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
@@ -2090,12 +2094,12 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 |------|--------------------------|--------------------------------|
 | P0.1 Authentication | acquire the admin token via `AcquireOIDCToken`; 401 on an unauthenticated call; the admin token is accepted | BFF PKCE/session contract and the control-plane gRPC-auth check (no `Unauthenticated` controller log lines) |
 | P0.2 Environment readiness | resolve the seeded cluster id | platform-dependency API groups served (Gateway API, cert-manager, agent-sandbox), baseline platform NetworkPolicies, API server and controller Deployments available |
-| P1.1 Provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
-| P1.2 Infrastructure verification | deployment and service present and healthy | server TLS secret populated, cert-manager CA and server Certificates `Ready`, database credentials pin `sslmode=require`, gateway config ConfigMap present, no managed gateway NetworkPolicies |
+| P1.1 Provisioning | reuse-or-create the gateway, wait `Running`, confirm the API reports a `route_address` | n/a (both modes need a running gateway) |
+| P1.2 Infrastructure verification | n/a (kube-free; the user-facing route reachability of P1.5 and sandbox `exec` of P2.1 functionally prove Deployment, Service, and route) | gateway Deployment and Service present and healthy, server TLS secret populated, cert-manager CA and server Certificates `Ready`, database credentials pin `sslmode=require`, gateway config ConfigMap present, no managed gateway NetworkPolicies |
 | P1.3 Token + CA trust | fetch the per-gateway token (the driver's, or with `E2E_GATEWAY_AUTH=service_account` a gateway service account's) and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
 | P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
 | P1.5 Connectivity | one route reachability check | n/a |
-| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
+| P2.1 Sandbox lifecycle + interaction | one sandbox via the CLI: create -> `exec whoami` (the CLI's `exec` success is the readiness proof) -> delete, `active_sandbox_count` 1 then 0 via the API; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | pod-level readiness wait (the sandbox pod reaches `Running` in the gateway namespace); second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
