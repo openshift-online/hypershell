@@ -20,6 +20,13 @@ follow the same pattern. `openshift-development.spec.md` specifies the OpenShift
 lifecycle commands, the ephemeral-namespace model, cluster-scoped RBAC, and the
 OpenShift e2e driver.
 
+## Local agent execution
+
+`make fullsend` provides the local SDLC agent workflow against a remote gateway.
+Its registered-scope gate, shared harnesses, credentials, durable worker lifecycle,
+and terminal UI are specified in [Local SDLC Dispatch](local-sdlc-dispatch.spec.md).
+The setup procedure is [Local Fullsend](../../docs/development/fullsend.md).
+
 ## Components Deployed
 
 | Component | Kind | Image | Purpose |
@@ -892,6 +899,10 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
 | `make coverage` | Run Go and frontend unit tests with coverage, then `make e2e`, the `hsctl` smoke test and `make e2e-console` against a `KIND_COVERAGE=true` cluster, collect the cluster data and write a combined report to `coverage/report/` (DEV-LOC-18) |
+| `make fullsend` | Start or resume local SDLC watch mode for a registered scope (SDLC-LOC-01) |
+| `make fullsend-status` | Show saved job state without claiming live gateway access |
+| `make fullsend-doctor` | Check tools and credential configuration |
+| `make fullsend-help` | Show local commands and setup guidance |
 | `make coverage-report` | Rebuild `coverage/report/` from the data of the last `make coverage` run |
 
 ## Design Decisions
