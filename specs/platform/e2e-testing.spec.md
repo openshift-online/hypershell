@@ -772,8 +772,8 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN the openshell CLI is connected to the gateway
 - WHEN `sandbox create --name <name>` is invoked
-- THEN in every mode the CLI `sandbox exec whoami` SHALL succeed, which is the user-facing readiness proof
-- AND in long mode a pod matching `default--<name>` SHALL appear in the gateway namespace and SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds (this pod-level kube check is long-only)
+- THEN in long mode a pod matching `default--<name>` SHALL appear in the gateway namespace and SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds (this pod-level kube check is long-only and SHALL be verified before the CLI readiness proof)
+- AND in every mode the CLI `sandbox exec whoami` SHALL succeed -- polled to eventual readiness in short mode (which has no pod-level wait, so it retries the exec until ready) -- which is the user-facing readiness proof
 
 ### Requirement: E2E-CORE-14 -- Active Sandbox Count Accounting
 
@@ -1551,13 +1551,18 @@ and provisioning gateways by that one capability selector
 SOME eligible cluster -- any cluster that advertises the capability -- rather than
 to a predetermined cluster. E2E-CORE-30 refers only to capability selectors.
 
-**No health gating.** The matrix SHALL NOT judge whether a cluster is schedulable:
-it applies no health gate, does not exclude or skip clusters by `oidc_subject`
-registration state or `last_seen_at` age, and does not treat a placement that lands
-on a cluster which then fails as a matrix error -- a failure after placement is a
-valid platform-path signal. Continuous per-cluster operational health, and the
-in-cluster kube-level validation the short-mode matrix defers, are a separate
-platform concern tracked in #858, not the matrix's role.
+**No health gating; registered clusters only.** The matrix SHALL NOT judge whether
+a cluster is live: it applies no `last_seen_at` health gate and does not treat a
+placement that lands on a cluster which then fails as a matrix error -- a failure
+after placement is a valid platform-path signal. It SHALL, however, enumerate
+capabilities only from REGISTERED clusters (non-empty `oidc_subject`): an
+unregistered cluster has no control plane to reconcile a gateway and is never a
+placement target, so enumerating its capabilities would manufacture
+guaranteed-unplaceable capabilities rather than exercise a real placement. This is a
+structural placement-eligibility precondition, not a health judgment. Continuous
+per-cluster operational health, and the in-cluster kube-level validation the
+short-mode matrix defers, are a separate platform concern tracked in #858, not the
+matrix's role.
 
 Across the run `TestMatrix` SHALL assert **full capability coverage**: every
 distinct capability present across the registered clusters is exercised by exactly
@@ -1579,7 +1584,8 @@ placement selector (#857), not an env-var allowlist on this runner.
 
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
-capabilities = distinct(union of mc.capabilities for mc in clusters)
+registered = [mc for mc in clusters if mc.oidc_subject != ""]  # placement-eligible, NOT a health gate
+capabilities = distinct(union of mc.capabilities for mc in registered)
 for cap in capabilities:                                 # cost = len(capabilities), not len(clusters)
     suite = E2ESuite { mode: short, placement: [cap] }   # user-facing, kube-free
     run suite                                            # positive creates place via [cap]
@@ -1618,7 +1624,7 @@ report landed-cluster union                              # observational, never 
 - WHEN each per-capability `E2ESuite` executes
 - THEN it SHALL run in short mode, exercising only the user-facing API and CLI checks (authenticate, create by capability, `Running` plus `route_address` via the API, connect over the route, and a sandbox via the CLI)
 - AND it SHALL NOT require, open, or depend on a Kubernetes context for any cluster
-- AND it SHALL apply no health gate and SHALL NOT reference `cluster_id`
+- AND it SHALL apply no `last_seen_at` health gate (while still enumerating only registered clusters) and SHALL NOT reference `cluster_id`
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 
