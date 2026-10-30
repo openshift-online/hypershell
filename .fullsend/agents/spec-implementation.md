@@ -5,7 +5,25 @@ description: "Draft the spec change and open the work item's pull request."
 
 ## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`.
+
+You do the implementation work (draft the spec, push the branch, open or update the PR) but you do NOT change any `agent/*` lifecycle label. You write a structured result to `$FULLSEND_OUTPUT_DIR/agent-result.json`; a trusted post-script validates it and applies the label transition (see `specs/standards/sdlc/fullsend-lifecycle-label-hooks.spec.md`, SDLC-HOOK).
+
+Write exactly one JSON object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+
+```json
+{
+  "schema_version": "1",
+  "phase": "spec-implementation",
+  "outcome": "completed | blocked",
+  "rationale": "one or two sentences on what was done or why it is blocked",
+  "pr_number": 123,
+  "head_sha": "<40-hex head commit you pushed>",
+  "comment": "optional markdown to post on the issue"
+}
+```
+
+Use `completed` when the spec PR is pushed and ready for review; `pr_number` and `head_sha` are then REQUIRED and MUST identify the PR and the commit you pushed. Use `blocked` when a hard prerequisite fails. On `completed` the post-script sets `agent/reviewable-spec`; it never takes a label name from this result. Follow the workflow below.
 
 ---
 
@@ -61,7 +79,14 @@ ELSE:
   may be delivered by several PRs; each such PR MUST carry the closing reference.
 - PR Body must conform to [SIMPLIFIED TECHNICAL ENGLISH STANDARD](https://en.wikipedia.org/wiki/Simplified_Technical_English).
 
-### Step 4: Update Issue State
+### Step 4: Write the Result
 
-Remove label `agent/review-spec-rejected` from `$GITHUB_ISSUE_URL` if present.
-Place label `agent/reviewable-spec` on `$GITHUB_ISSUE_URL`.
+Write the result object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+- `outcome`: `completed` when the spec PR is pushed and ready for review.
+- `pr_number` and `head_sha`: the PR number and the exact head commit you pushed.
+- `rationale` and optional `comment`.
+
+Do not add or remove any label. The trusted post-script reads this result,
+removes `agent/workable` and any stale `agent/review-spec-rejected` or
+`agent/review-spec-approved`, and adds `agent/reviewable-spec`, then verifies the
+final state.
