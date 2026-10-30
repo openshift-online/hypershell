@@ -21,18 +21,43 @@ Both are fixed in code: migrations now create tables with
 `TableName()` / column tags to the clean `ci_providers` / `ci_trusts` names
 (SDLC-CONF-02, SDLC-CONF-08).
 
+### Why the first fix did not converge upgraded hubs (#862)
+
+That first fix rewrote the `CIProvider` / `CITrust` migration **bodies** but kept
+their **existing migration IDs** (`2026102600000001` / `2026102600000002`).
+gormigrate records a migration ID as applied exactly once. On every hub that had
+already recorded those IDs under the old `AutoMigrate` body, the corrected body
+was **skipped**, so the clean tables were never created and the stale
+`c_iproviders` / `c_itrusts` tables remained. Only fresh databases got the fix.
+
+Convergence therefore does **not** come from re-running the original IDs. It
+ships as **new** convergence migrations (`2026103000000001` /
+`2026103000000002`, SDLC-CONF-11) that run on every environment regardless of
+prior state: they create the clean table if missing, copy any rows off the stale
+mangled table, and drop it. A shipped body is immutable; a correction is always a
+new ID (SDLC-CONF-10).
+
 ## Repair
 
-The fix ships as ordinary migrations, so the primary repair is simply **deploy
-the fixed API server image and let migrations run** (the API server runs
-`NewMigrateCommand` / `db.Migrate` on startup). The raw-SQL `CREATE TABLE IF NOT
-EXISTS` migrations create the correctly named `ci_providers` / `ci_trusts`
-tables. No hand-typed SQL patch is required.
+The primary repair is simply **deploy an API server image that includes the
+new-ID convergence migrations and let migrations run** (the API server runs
+`NewMigrateCommand` / `db.Migrate` on startup). Because convergence is a new
+migration ID, it runs even on hubs that already recorded the original IDs,
+creating the correctly named `ci_providers` / `ci_trusts` tables and dropping the
+stale `c_iproviders` / `c_itrusts` tables. No hand-typed SQL patch is required,
+and re-deploying is a no-op.
 
-If a stale, mangled table from the failed `AutoMigrate` remains
-(`c_iproviders` / `c_itrusts`), it is unused by the fixed server. These tables
-never held usable rows (CI-trust writes could not succeed), so dropping them is
-safe. Run against the gateway's PostgreSQL as the migration role:
+Confirm the image carries the convergence migrations before relying on this:
+
+```sql
+-- Both convergence IDs must be recorded after the deploy completes.
+SELECT id FROM migrations WHERE id IN ('2026103000000001', '2026103000000002');
+```
+
+If, exceptionally, you must converge by hand before such an image is available
+(belt-and-suspenders only), the stale mangled tables never held usable rows
+(CI-trust writes could not succeed), so dropping them is safe. Run against the
+gateway's PostgreSQL as the migration role:
 
 ```sql
 -- Idempotent: no-op if the stale tables are already gone.
