@@ -256,9 +256,19 @@ All eight Konflux components are now addressed in PR #779:
   Go builder stage (`-buildvcs=false`, so no `+dirty`), and its gomod closure is
   Hermeto-attributed via an added `prefetch-input` entry (CICD-ECC-04 + CICD-ECC-02).
   Verified locally: the clean checkout builds `vcs.modified=false`, and the konflux
-  hermeto image prefetches its 668-dependency closure cleanly.
-- **`fullsend-sandbox`** -- SHA-256 digest-attribution path (no Hermeto-resolvable
-  from-source ecosystem); base-registry EC violation already fixed by #797 (merged).
+  hermeto image prefetches its 668-dependency closure cleanly. **Resume 2026-10-29:
+  `gh` is now also built from source** from a pinned tool module
+  (`components/agents/tools/gh` @ gh v2.100.0) and dropped from the SHA-256 tool
+  locks, with the module added to each pipeline's gomod `prefetch-input`
+  (CICD-ECC-02.08).
+- **`fullsend-sandbox`** -- base-registry EC violation already fixed by #797 (merged).
+  **Resume 2026-10-29:** its source-available Go tools `gh` and `gitleaks` are now
+  built from source from pinned tool modules (`components/agents/tools/gh` @ v2.100.0,
+  `components/agents/tools/gitleaks` @ v8.30.1) in a digest-pinned Go tool-builder
+  stage, replacing their release-binary downloads; both modules are added to the
+  sandbox pipeline `prefetch-input`, so the sandbox now has a Hermeto-resolvable
+  gomod ecosystem. Its remaining toolchain (Go, Node, shellcheck, ripgrep, fd),
+  `tirith`, and `acli` stay checksum-pinned.
 
 **Verification (live Konflux, head `979f2623`).** All eight component
 `on-pull-request` builds are GREEN. The authoritative combined pr-group EC
@@ -281,25 +291,33 @@ their 2-4 residual warnings are Go `stdlib` (the toolchain standard library, not
 Hermeto-prefetchable dependency) and the component's own first-party main-module
 PURL (a self-reference, not a real dependency gap).
 
-**External blocker for full attribution (concrete, not deferred scope).** The 3406
-remaining warnings on the three agent images are the dependency closures of
-downloaded third-party tools that this repository cannot build from source:
-- `atlassian.com/cli` (**acli**, the Atlassian CLI, ~376 build-info dep modules) is
-  **closed source**; it is a required tool (Jira automation) and cannot be rebuilt
-  through Hermeto. Present in `agent-runtime`, `agent-runtime-slim`, `fullsend-sandbox`.
-- `fullsend-sandbox` additionally inherits tool binaries (`tirith`, `pi`, `codex`,
-  `claude`, ...) from its **upstream base image** `ghcr.io/fullsend-ai/fullsend-sandbox`,
-  not built in this repo (hence 1374 > 1016).
-These are attributed by SHA-256 digest per CICD-ECC-02.06, which the specification
-already sanctions. EC's `sbom_spdx.hermeto_attribution_required` rule (a warning
-today, a failure from 2027-01-15) does not honor that path, so clearing it requires
-a Conforma policy exception in the **tenant** policy
-`rhtap-releng-tenant/app-interface-standard` (scoping out Go `stdlib`, first-party
-main-module PURLs, and SHA-256-attributed closed-source/base-image tools) - a
-Konflux tenant-config action **outside this repository and PR #779** - or upstream
-source availability for `acli`. This is reported as a blocker with exact
-components/rules; it is NOT waived here and the warnings are NOT counted as
-conformance.
+**Resume 2026-10-29 -- maintainer decision supersedes the tenant-exception blocker.**
+The prior pass reported the residual `hermeto_attribution_required` warnings as an
+external blocker requiring a tenant-policy exception. The maintainer resolved this:
+accept checksum/upstream provenance for binaries whose source is **unavailable**,
+while **keeping source-available tool rebuilds in this PR** ("we can't get an
+exception, but it's not enforced in Konflux today so it's more for our peace of
+mind"). This is a repository-side acceptance of residual risk, NOT a tenant-policy
+exception; the tenant policy is not modified and the warnings are not suppressed.
+
+Acting on that decision, the previously-blocking warnings were triaged per tool
+(not all were `acli`, as an earlier pass had claimed): the combined report also
+carried `github.com/cli/cli/v2` (`gh`, runtime + sandbox) and
+`github.com/zricethezav/gitleaks/v8` (sandbox) closures. Those tools are
+**source-available**, so they are now **built from source** through Hermeto
+(CICD-ECC-02.08), removing their warnings. The remaining residual is:
+- `atlassian.com/cli` (**acli**, the Atlassian CLI) -- **closed source**, no
+  published module to build from; required for Jira automation. Attributed by
+  SHA-256 digest + upstream provenance (CICD-ECC-02 checksum path). Its residual
+  warnings are the **accepted repository risk recorded as Requirement CICD-ECC-07**.
+- Go `stdlib` and first-party main-module PURLs on the Go/Node product images
+  (toolchain/self-reference metadata, not real dependency gaps).
+
+`sbom_spdx.hermeto_attribution_required` is a non-enforced `WARNING` in Konflux
+today (`enterprise-contract` result is `WARNING`, not a failure). The acceptance is
+narrow (source-unavailable binaries only) and is recorded in the spec (CICD-ECC-07),
+the PR #779 body, and the independent review. Fresh combined-report evidence is
+captured at the resume head and attached to issue #776.
 
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
