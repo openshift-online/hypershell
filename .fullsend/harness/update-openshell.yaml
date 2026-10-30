@@ -4,7 +4,12 @@ agent: agents/update-openshell.md
 description: Bump pinned OpenShell images to latest stable midstream; open a PR
 role: coder
 slug: fullsend-update-openshell
-image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55
+# Fat agent-runtime image (full variant): Go, Rust, Node.js/npm/pnpm, make, Python,
+# gh, git - so the agent can actually build/vet/test (go build, make check) in the
+# sandbox. The lighter sandbox image lacked a Go toolchain and make. Larger to pull,
+# so sandbox_timeout_seconds is raised below.
+image: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-main@sha256:7d4a3976ae803dcb4b2e8f605a6ef23e4fd655ec6454028b5cd61edf4e131d72
+sandbox_timeout_seconds: 600
 policy: policies/base.yaml
 providers:
   - vertex-ai
