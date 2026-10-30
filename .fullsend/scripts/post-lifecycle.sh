@@ -252,6 +252,28 @@ if (( DRY_RUN_ON )); then
   exit 0
 fi
 
+# Post the agent's comment BEFORE any label change (SDLC-HOOK-10). For a review
+# phase the comment is the required review record, so it must be posted first: if
+# it cannot be posted we fail here, before the verdict labels move, so the verdict
+# never lands without its record and a rerun retries the sticky post and then the
+# transition. For a non-review phase the comment is optional and best effort. The
+# sticky marker makes a reapplied result converge without a duplicate (HOOK-09).
+if [[ -n "${comment}" ]]; then
+  _comment_err="$(mktemp)"
+  if gh_post_sticky_comment "${REPO}" "${NUMBER}" "${MARKER}" "${comment}" \
+        >/dev/null 2>"${_comment_err}"; then
+    rm -f "${_comment_err}"
+  else
+    cat "${_comment_err}" >&2 || true
+    rm -f "${_comment_err}"
+    if lifecycle_phase_requires_comment "${PHASE}"; then
+      echo "post-lifecycle: FAILED to post the required ${PHASE} review comment; not applying the transition so a rerun can retry the comment and the labels" >&2
+      exit 1
+    fi
+    echo "post-lifecycle: WARNING: failed to post the optional ${PHASE} comment; continuing with the transition" >&2
+  fi
+fi
+
 # Remove superseded phase labels first, then add. Order does not affect the
 # final set, but removing first keeps competing outcomes from briefly coexisting.
 for label in ${remove}; do
@@ -262,21 +284,6 @@ gh_add_labels "${REPO}" "${NUMBER}" ${add}
 
 if [[ "${close}" == "1" ]]; then
   gh_close_issue "${REPO}" "${NUMBER}"
-fi
-
-# Post the agent's comment as a sticky comment, so a reapplied result does not
-# duplicate it (SDLC-HOOK-09). Only when the agent provided one.
-if [[ -n "${comment}" ]]; then
-  _comment_err="$(mktemp)"
-  if printf '%s\n' "${comment}" | fullsend issues post-comment \
-        --tracker github --project "${REPO}" --number "${NUMBER}" \
-        --marker "${MARKER}" --result - 2>"${_comment_err}"; then
-    :
-  else
-    echo "post-lifecycle: WARNING: failed to post the ${PHASE} comment" >&2
-    cat "${_comment_err}" >&2 || true
-  fi
-  rm -f "${_comment_err}"
 fi
 
 # ---------------------------------------------------------------------------

@@ -172,3 +172,12 @@ lifecycle_phase_is_review() {
     *) return 1 ;;
   esac
 }
+
+# True when a phase's result MUST carry a comment that the post-script posts as
+# the visible record of the outcome. The review phases produce a verdict whose
+# comment is the review record (the result schemas require a non-empty comment),
+# so a failure to post it is a hard, visible failure rather than a swallowed
+# warning: a verdict must never land without its review record (SDLC-HOOK-10).
+lifecycle_phase_requires_comment() {
+  lifecycle_phase_is_review "$1"
+}
