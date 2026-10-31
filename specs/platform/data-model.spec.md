@@ -298,6 +298,15 @@ request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spe
 field persisted on the Gateway (not merely request-scoped), because it is
 re-evaluated for late binding after create.
 
+**Requirement-capability selection only.** A `placement` selector declares
+requirement capabilities (`provider/*`, `network/*`, and the other self-declared
+namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels") and SHALL resolve by random
+selection among the eligible clusters that match it, so a caller expresses the
+TYPE of placement it wants and SHALL NOT choose a specific cluster through this
+contract. Deterministic single-cluster targeting is out of scope here: it is a
+separate `cluster_name` placement selector tracked in its own issue (#857).
+
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
 SHALL be persisted with an empty `cluster_id`, SHALL hold in the `Pending` phase

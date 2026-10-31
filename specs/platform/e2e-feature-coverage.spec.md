@@ -62,8 +62,8 @@ credentials the suite seeds only in long mode (`s.devCreds()`,
 Backends the Kind CI gate cannot host (a running Vault server; a
 `kata-containers` RuntimeClass) are opt-in: the step reads an enable flag and
 `t.Skipf`s with a reason when the flag or backing infrastructure is absent - the
-suite's three-outcome skip idiom (as the matrix uses `E2E_MANAGED_SKIP_UNHEALTHY`),
-never a false pass. The halves Kind can host (the Kubernetes Secrets credential
+suite's three-outcome skip idiom (the same `t.Skipf`-with-reason pattern a step uses
+when an `E2E_QUALIFY_*` backend is absent), never a false pass. The halves Kind can host (the Kubernetes Secrets credential
 driver, the full `role_bindings` sharing flow, CLI/UI parity, and the
 metric-signal half of alerting) run in long mode on every target, including the
 Kind CI's long runs.

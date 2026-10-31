@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -68,16 +69,27 @@ type E2ESuite struct {
 	clusterID    string
 	sandboxImage string
 
-	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
-	// specific cluster id instead of discovering the seeded one. nameSuffix is
-	// appended to the run id so each per-cluster suite's gateway names are unique.
-	clusterIDOverride string
-	nameSuffix        string
-	kubeContext       string
-	skipKubeChecks    bool
+	// matrixCapability, when set (by the matrix runner), makes every positive
+	// workflow and provisioning create place by that one capability selector
+	// (placement.selector=[matrixCapability]) and assert the gateway lands on some
+	// eligible cluster that advertises it (E2E-CORE-30). matrixEligibleClusters is
+	// the set of cluster ids advertising the capability, used for that assertion;
+	// landed records the clusters positive creates resolved to so the matrix can
+	// report the observational landed-cluster union. A plain single-cluster or
+	// performance run leaves matrixCapability empty and keeps the driver's
+	// requirement selector. nameSuffix is appended to the run id so each
+	// per-capability suite's gateway names are unique.
+	matrixCapability       string
+	matrixEligibleClusters map[string]bool
+	landed                 *landedTracker
+	nameSuffix             string
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
+	// primaryRouteAddress is the API-published route_address of the primary gateway
+	// (grpcs://host:443), captured in P1.1. P1.4/P1.5 discover the gateway endpoint
+	// from it, so route discovery needs no Kubernetes context (E2E-CORE-39).
+	primaryRouteAddress string
 	// primaryWorkspaceMode is the primary gateway's OpenShell workspace mode,
 	// captured when the gateway reaches Running, so sandbox-wait helpers can
 	// locate its sandbox pods (managed mode runs them in per-workspace
@@ -126,11 +138,46 @@ type primaryGatewayState struct {
 	token             driver.Token
 	endpoint          string
 	localName         string
+	routeAddress      string
 }
 
 type gatewayTracker struct {
 	mu  sync.Mutex
 	ids []string
+}
+
+// landedTracker records the distinct clusters a matrix suite's positive creates
+// resolved to, shared across step clones by pointer so the matrix can report the
+// observational landed-cluster union (E2E-CORE-30.02).
+type landedTracker struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func (l *landedTracker) record(id string) {
+	if l == nil || id == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ids == nil {
+		l.ids = map[string]bool{}
+	}
+	l.ids[id] = true
+}
+
+func (l *landedTracker) list() []string {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.ids))
+	for id := range l.ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type cliCache struct {
@@ -236,7 +283,7 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
-	if s.mode == modeLong && !s.skipKubeChecks {
+	if s.mode == modeLong {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
 		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
 		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
@@ -265,7 +312,7 @@ func (s *E2ESuite) SetupSuite() {
 	// from primary-gateway provisioning, so its sweep interval overlaps P1 and P2
 	// and P2.3 only joins the result. An isolated P2.3 run self-seeds the reaper
 	// (see p2_3DeletionAndGC). startOrphanReaper is a no-op outside long mode.
-	if s.mode == modeLong && !s.skipKubeChecks {
+	if s.mode == modeLong {
 		s.startOrphanReaper(s.T())
 	}
 }
@@ -398,7 +445,11 @@ func (s *E2ESuite) TestPhases() {
 	s.Run("Phase-P1", func() {
 		s.ensurePrimaryGateway(s.T())
 		s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
-		s.gate("P1.2", "infra-verification", tagShort, s.p1_2InfraVerification)
+		// P1.2 is the kube-level internal-posture check; it is long-only because short
+		// mode is user-facing and SHALL NOT rely on a Kubernetes context (E2E-CORE-39).
+		// The route reachability of P1.5 and the sandbox exec of P2.1 functionally prove
+		// the Deployment, Service, and route in short mode.
+		s.gate("P1.2", "infra-verification", tagLong, s.p1_2InfraVerification)
 		s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
 		s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
 		s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
@@ -601,9 +652,12 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		admin:                    api,
 		clusterID:                s.clusterID,
 		sandboxImage:             s.sandboxImage,
-		clusterIDOverride:        s.clusterIDOverride,
+		matrixCapability:         s.matrixCapability,
+		matrixEligibleClusters:   s.matrixEligibleClusters,
+		landed:                   s.landed,
 		nameSuffix:               s.nameSuffix,
 		primary:                  s.primary,
+		primaryRouteAddress:      s.primaryRouteAddress,
 		primaryGatewayToken:      s.primaryGatewayToken,
 		primaryLocalName:         s.primaryLocalName,
 		primaryWorkspaceMode:     s.primaryWorkspaceMode,
@@ -649,17 +703,21 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 }
 
 // longOnly runs a long-only sub-check of a short-tagged step as a named subtest.
-// Outside long mode the subtest is skipped rather than silently passed, so the
-// report shows which deep checks a short run did not exercise. A failure inside
-// fn fails the subtest and its parent step.
+// Outside long mode the sub-check is not registered at all (no subtest, no skip
+// line), keeping a short run's output focused on what it actually exercised; the
+// parent step's short-tagged assertions still run and report normally. A failure
+// inside fn fails the subtest and its parent step.
+//
+// This differs from a mode-gated top-level step (see step/parallelStep), which
+// SHALL t.Skip so the per-step pass/fail/skip report and the structured reporter
+// account for it (e2e-testing.spec.md, Three-Outcome Reporting). A longOnly check
+// is a sub-check within a step, not a reported step, so it carries no such record.
 func (s *E2ESuite) longOnly(check string, fn func(t *testing.T)) {
+	if !s.modeAllows(tagLong) {
+		return
+	}
 	s.Run(check, func() {
-		t := s.T()
-		if !s.modeAllows(tagLong) {
-			t.Skipf("%s is long-only; mode is %s", check, s.mode)
-			return
-		}
-		fn(t)
+		fn(s.T())
 	})
 }
 

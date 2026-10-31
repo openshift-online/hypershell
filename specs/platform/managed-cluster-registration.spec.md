@@ -536,3 +536,9 @@ release promotion.
 | No active health probing from the hub | Control planes call in; the hub does not need to reach out. Avoids hub-to-spoke credential management and works across network topologies where the hub cannot initiate connections to spokes. |
 | Role assigned by admin in production, pre-assigned in dev realms | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a production control plane can self-register, providing a human control point for fleet membership. Development realms are code-owned, so the grant ships with them. |
 | JWT-direct enforcement, not DB-synced | `managed-cluster-registrar` is not in `JWTSyncedRoles` because it should never be auto-assigned (unlike `gateway:creator`) and does not need a DB binding lifecycle. A live JWT claim check in `isAuthorized` is sufficient and avoids polluting the sync table with a role that applies to a narrow class of service accounts. |
+
+---
+
+## Retired IDs
+
+- `PLAT-CLUS-14`, `PLAT-CLUS-14.01`, `PLAT-CLUS-14.02`, `PLAT-CLUS-14.03`, `PLAT-CLUS-14.04`, `PLAT-CLUS-14.05`: the server-assigned `managed-cluster/<name>` identity capability is removed. The matrix validates placement per distinct fleet capability (round-robin, `e2e-testing.spec.md`, E2E-CORE-30) instead of pinning a suite to a cluster; deterministic single-cluster targeting moves to a separate `cluster_name` placement selector tracked in its own issue (#857).

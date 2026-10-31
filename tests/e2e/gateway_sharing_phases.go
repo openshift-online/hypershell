@@ -21,9 +21,6 @@ import (
 // This phase owns a dedicated gateway, distinct from the primary gateway the
 // gateway-access-management phase (P2.5) shares through /gateways/{id}/access.
 func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping gateway sharing checks")
-	}
 	ctx := t.Context()
 
 	gw := s.createGateway(t, "e2e-share-"+s.runID)
