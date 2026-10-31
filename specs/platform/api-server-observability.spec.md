@@ -274,6 +274,57 @@ These metrics feed the advisory-lock row of the fleet PostgreSQL dashboard in hy
 - THEN `/metrics` SHALL include `advisory_lock_count` and `advisory_lock_duration` series for that lock type and status
 - AND registering the metrics a second time SHALL NOT fail or panic
 
+### Requirement: API-OBS-11 -- Resilient Request and Response Log Formatting; Root Error Surfacing
+
+The request and response logging path SHALL emit its log record even when a field
+of the request or response holds a value the log formatter cannot serialize (for
+example a `func` value such as `func(int64)`). When a value cannot be serialized,
+the logger SHALL substitute a bounded placeholder for that single value and still
+emit the record; it SHALL NOT drop the record, and it SHALL NOT replace the whole
+record with a formatter error such as `Unable to format request/response for log`
+/ `json: unsupported type: func(int64)`. A broken log formatter SHALL NOT hide the
+request and response detail an operator needs to diagnose a failing request. This
+complements API-OBS-09, which strips headers and bodies from the two HTTP records:
+stripping sensitive content SHALL NOT come at the cost of dropping the whole record
+when one remaining field value is non-serializable.
+
+A statement that fails inside a request's database transaction SHALL surface its
+own error. When a failed statement aborts the transaction and a later statement in
+the same transaction is rejected with `current transaction is aborted`
+(`SQLSTATE 25P02`), the API server SHALL log the original failing statement's error
+as the root cause, not only the downstream `25P02`. The root database error SHALL
+appear in the standard-error output and, when the OTel SDK is initialized and
+`OTEL_LOGS_EXPORTER` is not `none`, in the exported log records of API-OBS-09, so
+an operator can identify the failing statement from the logs alone. This is the
+observability face of the "Never silently swallow partial failures" rule in
+`standards/platform/cross-cutting.spec.md`: an error path that is dropped instead
+of propagated or logged (for example a discarded row-count error that aborts the
+transaction) SHALL still reach the operator through the logs. Root-error
+surfacing SHALL follow the same privacy rules as API-OBS-06 and API-OBS-09: the
+parameterized statement and its error MAY be logged, but bound parameter values,
+credentials, and connection strings SHALL NOT.
+
+**Verification:** A unit test drives the request and response logging path with a
+request or response that carries a `func(int64)` field value and confirms the
+record is still emitted with a placeholder for that value and no
+`json: unsupported type` formatter error. A test that runs a request whose first
+database statement fails confirms the root statement error is logged, not only the
+downstream `25P02`.
+
+#### Scenario: API-OBS-11.01 -- Non-serializable field does not drop the record
+
+- GIVEN a request or response whose log record carries a `func(int64)` field value
+- WHEN the request and response logger formats the record
+- THEN the record SHALL still be emitted with a bounded placeholder for the non-serializable value
+- AND no `json: unsupported type: func(int64)` formatter error SHALL replace the record
+
+#### Scenario: API-OBS-11.02 -- Root statement error is surfaced, not only the downstream 25P02
+
+- GIVEN a request whose first database statement fails and aborts the request transaction
+- WHEN a later statement in the same transaction is rejected with `SQLSTATE 25P02`
+- THEN the log output SHALL contain the original failing statement's error as the root cause
+- AND the operator SHALL be able to identify the failing statement from the logs without additional instrumentation
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -292,6 +343,7 @@ These metrics feed the advisory-lock row of the fleet PostgreSQL dashboard in hy
 | Database spans via a GORM plugin on the base connection, not per data-access object | A GORM plugin installs callbacks once on the base connection, so every plugin's queries are traced without per-plugin changes and callbacks are never duplicated per request; this mirrors the server-level HTTP and gRPC instrumentation |
 | Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |
 | Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
+| Placeholder-and-continue when a log field is non-serializable, not drop the record | A single non-serializable field value (for example a `func(int64)`) must never blank the whole request/response record; the logger that masks the data needed to debug a failure is worse than the failure. A bounded placeholder keeps the rest of the record, so the root error (such as the failing SQL behind a `25P02`) stays visible |
 
 ## Primary Basis
 

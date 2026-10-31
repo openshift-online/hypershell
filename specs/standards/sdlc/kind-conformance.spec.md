@@ -204,6 +204,9 @@ Kinds from the registration sources (SDLC-CONF-01) rather than from a hand-kept
 list, so a newly registered Kind is covered without editing the test. A broken
 migration or a missing CRUD operation for any `ext` Kind SHALL fail the test.
 This operationalizes "100% of generated Kinds work" as an enforced invariant.
+The round-trip SHALL include the find-by-name search step required by
+SDLC-CONF-13, so the list search filter path is exercised, not only the
+unfiltered list.
 
 #### Scenario: SDLC-CONF-06.01 -- A newly registered Kind is covered automatically
 
@@ -401,3 +404,60 @@ test SHALL pass; a convergence regression SHALL fail this test.
 - WHEN the upgrade-path conformance test runs
 - THEN the test SHALL fail and name the Kind whose clean table is missing or whose
   stale table remains
+
+### Requirement: SDLC-CONF-13 -- Extension List Search (Find-by-Name) Conforms and Is Round-Trip Tested
+
+The shared `ext` Kind list path SHALL return 200 with the matching items, or an
+empty item list, for a `search=` filter, and SHALL NOT abort with 500 /
+`SQLSTATE 25P02`. This explicitly includes the find-by-name query `hsctl apply`
+issues to resolve whether a record already exists (`search=name = '<name>'`),
+which is the resolution step every `hsctl apply` of an `ext` Kind performs (per
+`CLI-EXT-02`). A search-filtered list SHALL be as queryable as the unfiltered
+list: the presence of a `search` filter SHALL NOT, by itself, poison the request
+transaction. This is distinct from the migration failures of SDLC-CONF-02 and
+SDLC-CONF-11, where the table itself is unqueryable; here the unfiltered list
+succeeds and only the search code path (the list arguments to SQL translation run
+when `search` is present) fails, so a clean table can still return 500 on a
+`search` filter.
+
+The create -> get -> list -> delete conformance round-trip of SDLC-CONF-06 and
+the upgrade-path conformance test of SDLC-CONF-12 SHALL include a find-by-name
+search list step (`GET /api/hypershell/ext/<kinds>?search=name = '<created-name>'`)
+that asserts the created record is returned. A conformance round-trip that lists
+only without a `search` filter SHALL NOT be sufficient, because the unfiltered
+list and the search path build different queries, so a broken search path for any
+`ext` Kind SHALL fail continuous integration on the FIRST pull request that
+introduces or regresses it, not in a deployed environment.
+
+Because the list/search handling is shared across the `ext` Kinds (the list
+arguments to SQL path), a fix for one Kind's search path SHALL be a fix for every
+`ext` Kind, and the conformance round-trip SHALL exercise the find-by-name search
+for every registered `ext` Kind, not only the Kind a change happened to touch.
+
+#### Scenario: SDLC-CONF-13.01 -- Find-by-name list returns the record, not 500
+
+- GIVEN an `ext` Kind record created over the real HTTP and database stack with name `N`
+- WHEN a client lists that Kind with `search=name = 'N'`
+- THEN the response SHALL be 200 and SHALL contain the created record
+- AND no query SHALL abort with `SQLSTATE 25P02`
+
+#### Scenario: SDLC-CONF-13.02 -- Search with no match returns an empty list, not 500
+
+- GIVEN an `ext` Kind with no record named `N`
+- WHEN a client lists that Kind with `search=name = 'N'`
+- THEN the response SHALL be 200 with an empty item list
+- AND no query SHALL abort with `SQLSTATE 25P02`
+
+#### Scenario: SDLC-CONF-13.03 -- Conformance round-trip exercises find-by-name
+
+- GIVEN the generic CRUD conformance test (SDLC-CONF-06) for an `ext` Kind
+- WHEN it runs the round-trip against the production driver configuration (SDLC-CONF-04)
+- THEN it SHALL include a find-by-name search list that returns the created record
+- AND an `ext` Kind whose search path aborts the request transaction SHALL fail the test and be named
+
+#### Scenario: SDLC-CONF-13.04 -- hsctl apply find-by-name resolution succeeds
+
+- GIVEN `hsctl apply -f <ext-kind>.yaml` for an `ext` Kind
+- WHEN apply resolves whether the record already exists via `search=name = '<name>'`
+- THEN the resolution request SHALL return 200 (the existing record or an empty list)
+- AND `hsctl apply` SHALL NOT fail with 500 on the find-by-name step
