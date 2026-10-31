@@ -380,6 +380,22 @@
   --pf-v6-c-table__toggle--PaddingInlineEnd: 0;
 }
 
+/*
+ * Short rows. PatternFly sets the cell padding on the rows themselves, so
+ * the variables above do not reach it; set the padding directly.
+ */
+.sv-conformance .pf-v6-c-table.pf-m-tree-view > tbody > tr > :is(td, th) {
+  padding-block: 0.125rem;
+}
+
+.sv-conformance__name {
+  line-height: 1.3;
+}
+
+.sv-conformance__name .sv-node__path {
+  line-height: 1.25;
+}
+
 .sv-conformance .pf-v6-c-table__toggle .pf-v6-c-button {
   --pf-v6-c-button--PaddingInlineStart: 0.125rem;
   --pf-v6-c-button--PaddingInlineEnd: 0.125rem;
