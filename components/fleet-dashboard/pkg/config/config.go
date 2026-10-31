@@ -94,6 +94,7 @@ type Config struct {
 	// carries a compiled-in default. Read UNAUTHENTICATED by default (public repo);
 	// UpstreamTokenFile stays empty unless an operator points this at a repo that
 	// needs auth (e.g. a mirror).
+	// The spec viewer (/specs/) also reads its branches from UpstreamRepo.
 	UpstreamRepo      string
 	UpstreamTokenFile string
 	// ReleaseHistoryLimit caps how many distinct release bundles the freight bar

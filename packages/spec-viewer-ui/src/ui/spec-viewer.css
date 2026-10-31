@@ -1,0 +1,556 @@
+/*
+ * Nested resizable drawers: pinned panel | list panel | document. Each
+ * panel scrolls on its own, so the drawers fill the page height.
+ */
+.sv-drawer,
+.sv-drawer .pf-v6-c-drawer__main,
+.sv-drawer__body {
+  height: 100%;
+  min-height: 0;
+}
+
+.sv-drawer__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sv-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sv-panel .pf-v6-c-drawer__panel-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sv-panel--pinned .pf-v6-c-drawer__panel-main {
+  overflow: auto;
+}
+
+/*
+ * Each view fills its panel and scrolls inside its own body, so the
+ * document gets its own scrollbar instead of growing the page.
+ */
+.sv-results,
+.sv-document,
+.sv-list-only {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The list on its own, when the document is hidden. */
+.sv-list-only > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Keep the document's scrollbar visible where the platform allows it. */
+.sv-document__body {
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+}
+
+.sv-results {
+  border-inline-end: var(--pf-t--global--border--width--regular) solid
+    var(--pf-t--global--border--color--default);
+}
+
+.sv-results__search {
+  flex: 1 1 16rem;
+}
+
+.sv-results__count {
+  display: inline-flex;
+  gap: var(--pf-t--global--spacer--sm);
+  align-items: baseline;
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+.sv-results__body,
+.sv-document__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--pf-t--global--spacer--sm);
+}
+
+.sv-document__header {
+  padding: var(--pf-t--global--spacer--md);
+  border-block-end: var(--pf-t--global--border--width--regular) solid
+    var(--pf-t--global--border--color--default);
+}
+
+.sv-document__body {
+  padding: var(--pf-t--global--spacer--lg);
+  scroll-padding-block-start: var(--pf-t--global--spacer--md);
+}
+
+.sv-document__body:focus {
+  outline: none;
+}
+
+.sv-markdown {
+  max-width: 72rem;
+  /* Room to scroll a heading near the end of a file to the top. */
+  padding-block-end: 70vh;
+}
+
+/* A relative link to a file outside the specs folder cannot be opened. */
+.sv-markdown a.sv-link--unresolved {
+  color: inherit;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+/* Occurrences of the search terms in the open document. */
+.sv-markdown mark.sv-match {
+  background-color: var(--pf-t--global--background--color--highlight--default);
+  color: var(--pf-t--global--text--color--on-highlight);
+}
+
+.sv-markdown table {
+  border-collapse: collapse;
+  margin-block-end: var(--pf-t--global--spacer--md);
+}
+
+.sv-markdown th,
+.sv-markdown td {
+  border: var(--pf-t--global--border--width--regular) solid
+    var(--pf-t--global--border--color--default);
+  padding: var(--pf-t--global--spacer--xs) var(--pf-t--global--spacer--sm);
+  vertical-align: top;
+}
+
+.sv-markdown pre {
+  overflow-x: auto;
+  padding: var(--pf-t--global--spacer--sm);
+  background: var(--pf-t--global--background--color--secondary--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+}
+
+.sv-markdown :is(h1, h2, h3, h4, h5, h6) {
+  border-radius: var(--pf-t--global--border--radius--small);
+  scroll-margin-block-start: var(--pf-t--global--spacer--md);
+}
+
+.sv-markdown :is(h1, h2, h3, h4, h5, h6):focus {
+  outline: none;
+}
+
+/* Brief highlight that draws the eye to the selected heading. */
+.sv-flash {
+  animation: sv-flash 2s ease-out;
+}
+
+@keyframes sv-flash {
+  0%,
+  40% {
+    background-color: var(--pf-t--global--color--status--warning--default);
+    box-shadow: 0 0 0 var(--pf-t--global--spacer--xs)
+      var(--pf-t--global--color--status--warning--default);
+  }
+
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 var(--pf-t--global--spacer--xs) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sv-flash {
+    animation-duration: 0.01s;
+    outline: var(--pf-t--global--border--width--strong) solid
+      var(--pf-t--global--color--status--warning--default);
+  }
+}
+
+.sv-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  text-align: start;
+}
+
+/* Requirement IDs read a shade darker than scenario IDs. */
+.pf-v6-c-label.pf-m-blue.sv-id-label--requirement {
+  --pf-v6-c-label--m-blue--BackgroundColor: var(
+    --pf-t--global--color--nonstatus--blue--hover
+  );
+  --pf-v6-c-label--m-blue--Color: var(
+    --pf-t--global--text--color--nonstatus--on-blue--hover
+  );
+}
+
+/* Badges flow inline with the title text so they do not take a line. */
+.sv-node__title > .pf-v6-c-label {
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+  vertical-align: text-bottom;
+}
+
+.sv-node__title--file {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.sv-node--context > .sv-node__title {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.sv-node__path,
+.sv-snippet {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--xs);
+}
+
+.sv-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sv-node__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sv-snippet mark {
+  background: var(--pf-t--global--color--status--warning--default);
+  color: inherit;
+}
+
+.sv-summary {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+.sv-pinned__header {
+  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
+}
+
+.sv-pinned__empty {
+  padding-inline: var(--pf-t--global--spacer--md);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+/*
+ * Dense trees: small row padding, narrow indent, small action buttons.
+ * Doubled class so these win over PatternFly's own declarations.
+ */
+.pf-v6-c-tree-view.sv-tree {
+  /* 12px per level, about half of PatternFly's default. */
+  --pf-v6-c-tree-view__node--nested-indent--base: calc(
+    var(--pf-t--global--spacer--sm) + var(--pf-t--global--spacer--xs)
+  );
+  --pf-v6-c-tree-view__node--PaddingBlockStart: 0.125rem;
+  --pf-v6-c-tree-view__node--PaddingBlockEnd: 0.125rem;
+  --pf-v6-c-tree-view__node--PaddingInlineEnd: var(--pf-t--global--spacer--xs);
+  --pf-v6-c-tree-view__node-toggle--PaddingInlineStart: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingInlineEnd: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingBlockStart: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingBlockEnd: 0.125rem;
+  --pf-v6-c-tree-view__node-icon--PaddingInlineEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-tree-view__action--MarginInlineEnd: 0;
+  --pf-v6-c-tree-view--m-guides__node--before--InsetBlockStart: 0.75rem;
+  --pf-v6-c-tree-view--m-guides__node--before--Width: 0.5rem;
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+.sv-tree .pf-v6-c-tree-view__action .pf-v6-c-button {
+  --pf-v6-c-button--PaddingBlockStart: var(--pf-t--global--spacer--xs);
+  --pf-v6-c-button--PaddingBlockEnd: var(--pf-t--global--spacer--xs);
+  --pf-v6-c-button--PaddingInlineStart: var(--pf-t--global--spacer--xs);
+  --pf-v6-c-button--PaddingInlineEnd: var(--pf-t--global--spacer--xs);
+
+  /*
+   * Quiet gray icons that turn black only on hover, with no button
+   * background. PatternFly colors the icon separately from the button text,
+   * so both sets of variables are needed.
+   */
+  --pf-v6-c-button--m-plain--Color: var(--pf-t--global--icon--color--subtle);
+  --pf-v6-c-button--m-plain--hover--Color: var(
+    --pf-t--global--icon--color--regular
+  );
+  --pf-v6-c-button--m-plain--m-clicked--Color: var(
+    --pf-t--global--icon--color--subtle
+  );
+  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--subtle);
+  --pf-v6-c-button--hover__icon--Color: var(
+    --pf-t--global--icon--color--regular
+  );
+  --pf-v6-c-button--m-clicked__icon--Color: var(
+    --pf-t--global--icon--color--subtle
+  );
+  --pf-v6-c-button--m-plain--BackgroundColor: transparent;
+  --pf-v6-c-button--m-plain--hover--BackgroundColor: transparent;
+  --pf-v6-c-button--m-plain--m-clicked--BackgroundColor: transparent;
+}
+
+.sv-tree .pf-v6-c-tree-view__action .pf-v6-c-button:is(:hover, :focus-visible) {
+  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--regular);
+}
+
+/* Let tree rows shrink to the panel width and wrap long titles and paths. */
+.sv-tree
+  :is(
+    .pf-v6-c-tree-view__content,
+    .pf-v6-c-tree-view__node,
+    .pf-v6-c-tree-view__node-container,
+    .pf-v6-c-tree-view__node-content,
+    .pf-v6-c-tree-view__node-text
+  ) {
+  min-width: 0;
+}
+
+.sv-tree .pf-v6-c-tree-view__node-content {
+  flex: 1 1 auto;
+}
+
+.sv-tree .sv-node {
+  overflow-wrap: break-word;
+  line-height: 1.3;
+}
+
+/* Conformance report. */
+.sv-conformance__metrics {
+  padding: var(--pf-t--global--spacer--sm);
+  border-block-end: var(--pf-t--global--border--width--regular) solid
+    var(--pf-t--global--border--color--default);
+}
+
+.sv-metric {
+  display: flex;
+  flex-direction: column;
+  padding: var(--pf-t--global--spacer--xs) var(--pf-t--global--spacer--sm);
+  border-radius: var(--pf-t--global--border--radius--small);
+  background: var(--pf-t--global--background--color--secondary--default);
+}
+
+.sv-metric__label {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--xs);
+}
+
+.sv-metric__value {
+  font-size: var(--pf-t--global--font--size--lg);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.sv-conformance .pf-v6-c-table {
+  --pf-v6-c-table--cell--PaddingInlineStart: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-table--cell--PaddingInlineEnd: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-table--cell--first-last-child--PaddingInline: var(
+    --pf-t--global--spacer--sm
+  );
+  --pf-v6-c-table__tbody--cell--PaddingBlockStart: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__tbody--cell--PaddingBlockEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+/*
+ * Dense tree table: the toggle sits right at the row start, and each level
+ * adds 14px instead of 32px. Doubled class to win over PatternFly.
+ */
+.sv-conformance .pf-v6-c-table.pf-m-tree-view {
+  --pf-v6-c-table__tree-view-main--indent--base: 1.5rem;
+  --pf-v6-c-table__tree-view-main--nested-indent--base: 0.875rem;
+  --pf-v6-c-table__tree-view-icon--MarginInlineEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__tree-view-main--c-button--MarginInlineEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__toggle--PaddingBlockStart: 0;
+  --pf-v6-c-table__toggle--PaddingBlockEnd: 0;
+  --pf-v6-c-table__toggle--PaddingInlineStart: 0;
+  --pf-v6-c-table__toggle--PaddingInlineEnd: 0;
+}
+
+/*
+ * Short rows. PatternFly sets the cell padding on the rows themselves, so
+ * the variables above do not reach it; set the padding directly.
+ */
+.sv-conformance .pf-v6-c-table.pf-m-tree-view > tbody > tr > :is(td, th) {
+  padding-block: 0.125rem;
+}
+
+.sv-conformance__name {
+  line-height: 1.3;
+}
+
+.sv-conformance__name .sv-node__path {
+  line-height: 1.25;
+}
+
+.sv-conformance .pf-v6-c-table__toggle .pf-v6-c-button {
+  --pf-v6-c-button--PaddingInlineStart: 0.125rem;
+  --pf-v6-c-button--PaddingInlineEnd: 0.125rem;
+  --pf-v6-c-button--PaddingBlockStart: 0;
+  --pf-v6-c-button--PaddingBlockEnd: 0;
+}
+
+.sv-conformance__count {
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-conformance__name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--xs);
+  text-align: start;
+}
+
+.sv-conformance__name .sv-node__path {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sv-conformance__open {
+  color: inherit;
+  text-align: start;
+  white-space: normal;
+}
+
+.sv-conformance__issues {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--xs);
+}
+
+.sv-conformance__percent {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs);
+}
+
+.sv-conformance__bar {
+  flex: 1;
+  min-width: 3rem;
+  --pf-v6-c-progress--GridGap: 0;
+}
+
+.sv-conformance__value {
+  min-width: 2.5rem;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-conformance__row--selected {
+  background: var(--pf-t--global--background--color--primary--clicked);
+}
+
+.sv-conformance__none {
+  padding: var(--pf-t--global--spacer--sm);
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+/* The percentage sits next to the bar; the bar's status icon is redundant. */
+.sv-conformance__bar .pf-v6-c-progress__status {
+  display: none;
+}
+
+/* References view: files that mention the selected ID. */
+.sv-references__header {
+  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
+  border-block-end: var(--pf-t--global--border--width--regular) solid
+    var(--pf-t--global--border--color--default);
+}
+
+.sv-reference__group + .sv-reference__group {
+  margin-block-start: var(--pf-t--global--spacer--md);
+}
+
+.sv-reference__path {
+  overflow-wrap: anywhere;
+}
+
+.sv-reference__line {
+  display: flex;
+  gap: var(--pf-t--global--spacer--sm);
+  min-width: 0;
+}
+
+.sv-reference__line code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--pf-t--global--font--size--xs);
+}
+
+.sv-reference__number {
+  min-width: 2.5rem;
+  color: var(--pf-t--global--text--color--subtle);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Source viewer: Shiki output with line numbers and both color themes. */
+.sv-source__header {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.sv-source pre {
+  margin: 0;
+  padding: var(--pf-t--global--spacer--sm) 0;
+  border-radius: var(--pf-t--global--border--radius--small);
+  font-size: var(--pf-t--global--font--size--sm);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.sv-source code {
+  counter-reset: line;
+}
+
+.sv-source .line {
+  display: inline-block;
+  min-width: 100%;
+  padding-inline-end: var(--pf-t--global--spacer--md);
+}
+
+.sv-source .line::before {
+  display: inline-block;
+  width: 3.5rem;
+  margin-inline-end: var(--pf-t--global--spacer--md);
+  color: var(--pf-t--global--text--color--subtle);
+  text-align: end;
+  content: counter(line);
+  counter-increment: line;
+  user-select: none;
+}
+
+.pf-v6-theme-dark .sv-source .shiki,
+.pf-v6-theme-dark .sv-source .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+
+.sv-source mark.sv-match {
+  background-color: var(--pf-t--global--background--color--highlight--default);
+  color: var(--pf-t--global--text--color--on-highlight);
+}
+
+/* Branch picker in the masthead: wide enough for typical branch names. */
+.sv-ref-picker {
+  width: 18rem;
+}

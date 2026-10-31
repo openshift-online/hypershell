@@ -44,6 +44,7 @@ label schema.
 | `pkg/api` | HTTP handlers for `/api/{fleet,promotion,topology,instances}` |
 | `pkg/auth` | TokenReview + SubjectAccessReview gate |
 | `pkg/server` | HTTP server, static SPA serving, `/healthz` `/readyz` `/metrics` |
+| `pkg/specs` | spec viewer data API (`/specs/api/*`), read from GitHub branches of `FD_UPSTREAM_REPO` |
 | `web` | embeds the built UI bundle (`packages/fleet-dashboard-ui`) |
 
 ## Configuration
@@ -52,3 +53,18 @@ All runtime configuration is via `FD_*` environment variables; see `pkg/config`
 for the full list, defaults, and which values are required. Notable required
 values: `FD_PROM_URL` and `FD_PROMOTER_NAMESPACE`. Authorization attributes
 (`FD_SAR_*`) are required when `FD_AUTH_ENABLED=true` (the default).
+
+## Spec viewer (`/specs/`)
+
+The image also hosts the spec viewer (`packages/spec-viewer-ui`) at `/specs/`.
+It is a separate UI that shares only this binary. `pkg/specs` serves its data
+API at `/specs/api/`, behind the same auth gate as `/api/`.
+
+The viewer's data is never compiled in, because the specs name fleet
+instances. `pkg/specs` downloads branches of `FD_UPSTREAM_REPO` from GitHub at
+runtime (with `FD_UPSTREAM_TOKEN_FILE` when set) and keeps the 3 most recently
+used in memory, about 20 MB of text each, so budget about 100 MB more memory
+for the pod. With an empty `FD_UPSTREAM_REPO`, `/specs/api/*` answers 404 and
+the page says the data source is not configured. See the
+[spec viewer README](../../packages/spec-viewer-ui/README.md) for the API and
+how to remove the viewer.

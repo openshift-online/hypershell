@@ -65,6 +65,7 @@ jobs:
       pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_go: ${{ steps.detect.outputs.sdk_go }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      spec_viewer: ${{ steps.detect.outputs.spec_viewer }}
       web_console: ${{ steps.detect.outputs.web_console }}
     steps:
       - name: Check out repository
@@ -332,6 +333,29 @@ jobs:
           pnpm --filter @openshift-online/hypershell-operational-dashboard-ui run lint
           pnpm --filter @openshift-online/hypershell-operational-dashboard-ui run typecheck
 
+  lint-spec-viewer:
+    name: Spec viewer quality gates
+    needs: detect-changes
+    if: needs.detect-changes.outputs.spec_viewer == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run spec viewer static quality gates
+        run: |
+          pnpm --filter @openshift-online/hypershell-spec-viewer-ui run format:check
+          pnpm --filter @openshift-online/hypershell-spec-viewer-ui run lint
+          pnpm --filter @openshift-online/hypershell-spec-viewer-ui run typecheck
+          pnpm --filter @openshift-online/hypershell-spec-viewer-ui run build
+
   lint-pr-test:
     name: PR test script validation
     needs: detect-changes
@@ -488,6 +512,7 @@ jobs:
       - lint-gateway-management-ui
       - lint-operational-dashboard-ui
       - lint-pr-test
+      - lint-spec-viewer
       - lint-web-console
     if: always()
     runs-on: ubuntu-24.04

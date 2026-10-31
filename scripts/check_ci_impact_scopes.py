@@ -446,6 +446,9 @@ SCENARIOS: list[tuple[str, set[str]]] = [
     ("specs/web-console/mockups/GatewayList.tsx", {"web-console"}),
     # Executable doc helper is repository tooling, not prose-only.
     ("docs/assign-platform-admin-role.sh", {"repository-tooling"}),
+    # The spec viewer ships in the fleet dashboard image; its README stays prose.
+    ("packages/spec-viewer-ui/src/main.tsx", {"fleet-dashboard"}),
+    ("packages/spec-viewer-ui/README.md", {"documentation"}),
     # Architecture source/site is its own lane.
     ("docs/architecture/overview.md", {"architecture-site"}),
     ("tools/architecture-site/astro.config.mjs", {"architecture-site"}),
