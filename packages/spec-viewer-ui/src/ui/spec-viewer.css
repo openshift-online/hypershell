@@ -45,6 +45,18 @@
   overflow: hidden;
 }
 
+/* The conformance table's wrapper; hidden while references show. */
+.sv-list-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sv-list-view[hidden] {
+  display: none;
+}
+
 /* The list on its own, when the document is hidden. */
 .sv-list-only > * {
   flex: 1;
@@ -559,4 +571,124 @@
 /* Branch picker in the masthead: wide enough for typical branch names. */
 .sv-ref-picker {
   width: 18rem;
+}
+
+/* Search box and starred filter in the header. */
+.sv-masthead__search {
+  flex: 0 1 24rem;
+  min-width: 12rem;
+}
+
+.sv-search {
+  flex: 1;
+}
+
+/*
+ * Stars: a light empty outline when off, a filled dark gray when on, and a
+ * stronger, slightly larger icon on hover or keyboard focus.
+ */
+.pf-v6-c-button.pf-m-plain.sv-star {
+  --pf-v6-c-button--PaddingBlockStart: 0.125rem;
+  --pf-v6-c-button--PaddingBlockEnd: 0.125rem;
+  --pf-v6-c-button--PaddingInlineStart: 0.125rem;
+  --pf-v6-c-button--PaddingInlineEnd: 0.125rem;
+  --pf-v6-c-button--m-plain--BackgroundColor: transparent;
+  --pf-v6-c-button--m-plain--hover--BackgroundColor: transparent;
+  --pf-v6-c-button--m-plain--m-clicked--BackgroundColor: transparent;
+  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--disabled);
+  --pf-v6-c-button--hover__icon--Color: var(
+    --pf-t--global--icon--color--regular
+  );
+  --pf-v6-c-button--m-clicked__icon--Color: var(
+    --pf-t--global--icon--color--disabled
+  );
+}
+
+.pf-v6-c-button.pf-m-plain.sv-star--on {
+  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--subtle);
+  --pf-v6-c-button--m-clicked__icon--Color: var(
+    --pf-t--global--icon--color--subtle
+  );
+}
+
+.pf-v6-c-button.pf-m-plain.sv-star:is(:hover, :focus-visible) {
+  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--regular);
+}
+
+.pf-v6-c-button.pf-m-plain.sv-star .pf-v6-c-button__icon {
+  transition: transform var(--pf-t--global--motion--duration--fade--short);
+}
+
+.pf-v6-c-button.pf-m-plain.sv-star:is(:hover, :focus-visible)
+  .pf-v6-c-button__icon {
+  transform: scale(1.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-v6-c-button.sv-star .pf-v6-c-button__icon {
+    transition: none;
+  }
+}
+
+/* Conformance names: star, ID label, then the title (and file path). */
+.sv-conformance__name {
+  align-items: center;
+}
+
+.sv-conformance__title {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A file's path shows on hover or focus; its line keeps its space. */
+.sv-conformance tr .sv-conformance__title .sv-node__path {
+  visibility: hidden;
+}
+
+.sv-conformance
+  tr:is(:hover, :focus-within)
+  .sv-conformance__title
+  .sv-node__path {
+  visibility: visible;
+}
+
+/* The ID label is a button that finds the ID's references. */
+.sv-conformance__name .pf-v6-c-label.pf-m-clickable {
+  cursor: pointer;
+}
+
+/* Search excerpts shown when hovering a matching title. */
+.sv-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+  text-align: start;
+}
+
+.sv-preview__item {
+  display: flex;
+  flex-direction: column;
+}
+
+.sv-preview__title {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.sv-preview .sv-snippet {
+  display: block;
+  color: inherit;
+  font-size: var(--pf-t--global--font--size--sm);
+}
+
+.sv-preview mark {
+  background: var(--pf-t--global--color--status--warning--default);
+  color: var(--pf-t--global--text--color--on-highlight);
+}
+
+/* References header: Back, then the ID and title. */
+.sv-references__header {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--md);
 }

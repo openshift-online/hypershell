@@ -42,7 +42,7 @@ export function PinnedPanel({
       >
         <FlexItem>
           <Title headingLevel="h2" size="md">
-            {intl.formatMessage(messages.pinnedTitle)}
+            {intl.formatMessage(messages.starredTitle)}
           </Title>
         </FlexItem>
         <FlexItem>
@@ -52,23 +52,21 @@ export function PinnedPanel({
             onClick={pins.clear}
             variant="link"
           >
-            {intl.formatMessage(messages.clearPins)}
+            {intl.formatMessage(messages.clearStars)}
           </Button>
         </FlexItem>
       </Flex>
       {tree.length === 0 ? (
         <Content className="sv-pinned__empty" component="p">
-          {intl.formatMessage(messages.pinnedEmpty)}
+          {intl.formatMessage(messages.starredEmpty)}
         </Content>
       ) : (
         <SpecTreeView
-          action="unpin"
           files={tree}
-          idPrefix="pinned"
-          isPinned={pins.isPinned}
-          label={intl.formatMessage(messages.pinnedLabel)}
-          onAction={pins.unpin}
+          idPrefix="starred"
+          label={intl.formatMessage(messages.starredLabel)}
           onSelect={onSelect}
+          onUnstar={pins.unpin}
           selectedNodeId={selectedNodeId}
         />
       )}

@@ -28,18 +28,22 @@ Edits to spec files reload in the open page automatically.
 
 ## Branches
 
-The branch picker in the header switches every view to another branch:
-search, documents, conformance, test markers, and file references.
+The branch picker in the header switches everything to another branch:
+the table, documents, test markers, and file references.
 
 - Locally, **Working tree** (the default) is your checkout with uncommitted
   edits. The other entries are your local branches, read from git.
 - In the fleet dashboard, the default is the repository's default branch, and
   the list holds every branch on GitHub.
 - The branch is kept in the URL (`?ref=feature/x`), so a link opens the same
-  branch. Pins stay across branches; a pin that does not exist on the
-  selected branch is hidden until you switch back.
+  branch. Stars stay across branches; a starred item that does not exist on
+  the selected branch is hidden until you switch back.
 
 ## What it does
+
+The main view is the conformance table (see [Conformance view](#conformance-view)):
+folders, files, requirements, and scenarios. The search box in the header
+filters it.
 
 1. It reads every `.md` file under `specs/`.
 2. It splits each file at its headings and gives each heading a title:
@@ -50,10 +54,10 @@ search, documents, conformance, test markers, and file references.
      the spec above it.
    - Any other heading is a plain markdown title.
 3. The search box takes three kinds of terms. Every term must match.
-   - A plain word is fuzzy. It matches when it appears in the text, when its
-     letters appear in order in a title (`prvdur` finds "Provision
-     Duration"), or when it is one or two letters off (`keybord` finds
-     "Keyboard").
+   - A plain word is fuzzy. It matches when it appears in the text, when it
+     abbreviates a title (`prvdur` finds "Provision Duration": each next
+     word is entered at its first letter), or when it is one or two letters
+     off (`keybord` finds "Keyboard").
    - Text in quotes is literal: `"client secret"` matches only those words,
      in that order. Case and line breaks are ignored.
    - Words in brackets must be on the same line, in any order:
@@ -65,25 +69,31 @@ search, documents, conformance, test markers, and file references.
    "deleted" in one of its scenarios. When one scenario holds every term by
    itself, that scenario is the result.
 
-4. Results show as a tree: file, then spec, then scenario. Text found inside a
-   spec or scenario counts for that spec or scenario. Text found anywhere else
-   counts for the nearest markdown title, shown with a `[nospec] ` prefix.
-5. The pin buttons keep results in the left panel. **Pin results** pins every
-   current result. Pins are saved in the browser.
-6. Clicking a result or a pinned item opens the file, scrolls to that heading,
-   and highlights it briefly. The URL keeps the selection, so reloads and the
-   back button work.
+4. A search keeps only the table rows that match, or that hold a match, and
+   expands the rows above each match. Text found inside a spec or scenario
+   counts for that spec or scenario. Text found anywhere else counts for its
+   file row. Hover a matching title to see the matching text; for a file
+   row, the text outside its requirements, under its nearest markdown title
+   with a `[nospec] ` prefix.
+5. The star to the left of a requirement or scenario keeps it in the
+   **Starred** panel on the left. A starred requirement brings its
+   scenarios. The star next to the search box shows only starred items, and
+   combines with the search. Stars are saved in the browser.
+6. Clicking a title, in the table or the Starred panel, opens the file,
+   scrolls to that heading, and highlights it briefly. The URL keeps the
+   selection, so reloads and the back button work. A file's path shows under
+   its title when you hover the row.
 
 Drag the borders between the panels to resize them, or focus a border and
 use the arrow keys, then Enter. The widths are saved in the browser. The menu
-button in the header hides or shows the pinned panel.
+button in the header hides or shows the Starred panel.
 
 Two buttons at the right of the header change the layout, which is saved in
 the browser:
 
-- **Hide document** gives the list (search, conformance, or references) the
-  full width. Opening an item shows the document again.
-- **Maximize document** folds the pinned and list panels away so the document
+- **Hide document** gives the table (or the references list) the full
+  width. Opening an item shows the document again.
+- **Maximize document** folds the Starred panel and the table away so the document
   takes the full width. **Restore panels** brings them back.
 
 The document scrolls on its own, with its own scrollbar.
@@ -94,9 +104,9 @@ browser.
 
 ## Conformance view
 
-Switch to **Conformance** in the header to see how well the specs follow
-the spec format. The view shows a tree of folders, files, requirements, and
-scenarios. For each folder and file it shows:
+The main table shows how well the specs follow the spec format, as a tree of
+folders, files, requirements, and scenarios. For each folder and file it
+shows:
 
 - **Reqs** - the number of requirements.
 - **Scen.** - the number of scenarios under those requirements.
@@ -143,9 +153,10 @@ so you can see which tests cover which requirement.
   `#### Scenario: ABC-DEF-01.01 -- Title`. The scheme is defined in
   `specs/standards/platform/spec-identifiers.spec.md`.
 
-When the selected requirement or scenario has an ID, the ID appears as an
-extra option in the header. Select it to list every file in the repository
-that mentions the ID, test files first:
+Click a requirement or scenario ID label in the table ("Find references") to
+list every file in the repository that mentions the ID, test files first.
+**Back** returns to the table as you left it, with the same search and
+expanded rows.
 
 1. The list shows each file with the lines that mention the ID.
 2. Click a file or a line to open the file with syntax coloring (Go,
@@ -168,7 +179,7 @@ The code follows the web console's hexagonal layout:
 - `src/domain/` - pure parsing, search, and tree building. No React, no I/O.
 - `src/application/` - ports the UI depends on, and the catalog use case.
 - `src/adapters/` - port implementations: HTTP spec source, `marked`
-  markdown lexer and renderer, `localStorage` pin store.
+  markdown lexer and renderer, `localStorage` store for stars.
 - `src/ui/` - React and PatternFly 6 components.
 - `src/main.tsx` - composition root that binds ports to adapters.
 - `server/` - Vite plugin for the dev server. It serves the data API below

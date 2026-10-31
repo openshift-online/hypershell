@@ -225,13 +225,15 @@ describe("searchSpecs", () => {
   });
 
   it("matches abbreviations only from the start of each word", () => {
-    expect(abbreviationScore("rbac", "role-based access control")).toBe(4 / 19);
+    expect(abbreviationScore("rbac", "role-based access control")).toBe(4 / 13);
     expect(abbreviationScore("cfg", "load the config")).toBe(3 / 6);
     // "foR BRAnCh": the r ends a word, so it cannot start the match.
     expect(abbreviationScore("rbac", "checks gate for branch protection")).toBe(
       0,
     );
     expect(abbreviationScore("ac", "back")).toBe(0);
+    // Skipping words between letters is not an abbreviation.
+    expect(abbreviationScore("rbac", "reject loop flies backward")).toBe(0);
   });
 
   it("requires every term to match", () => {

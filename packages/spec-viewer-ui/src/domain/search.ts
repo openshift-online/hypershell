@@ -186,9 +186,10 @@ const isWordChar = (char: string | undefined): boolean =>
 
 /**
  * Scores `term` as an abbreviation of `text`: its letters in order, where
- * each word the match enters is entered at its first letter. So "prvdur"
- * matches "PRoVision DURation" and "rbac" matches "Role-Based Access
- * Control", but "rbac" does not match "foR BRAnCh", whose "r" ends a word.
+ * each word the match enters is the next word, entered at its first
+ * letter. So "prvdur" matches "PRoVision DURation" and "rbac" matches
+ * "Role-Based Access Control", but "rbac" matches neither "foR BRAnCh",
+ * whose "r" ends a word, nor "Reject loop flies BACkward", which skips words.
  * Tighter matches score higher; matches spread over more than six times
  * the term length fail (word initials need room).
  */
@@ -200,15 +201,15 @@ export function abbreviationScore(term: string, text: string): number {
     if (i === term.length) return previous;
     for (let p = previous + 1; p - start < limit && p < text.length; p += 1) {
       if (text[p] !== term[i]) continue;
-      // Every character in between is part of a word: still the same word.
-      let sameWord = true;
-      for (let k = previous + 1; k <= p; k += 1) {
-        if (!isWordChar(text[k])) {
-          sameWord = false;
-          break;
-        }
+      // Either p is in the same word as the previous letter, or it starts
+      // the very next word: the rest of the word, separators, then p.
+      let k = previous + 1;
+      while (k < p && isWordChar(text[k])) k += 1;
+      const sameWord = k === p && isWordChar(text[p]);
+      if (!sameWord) {
+        while (k < p && !isWordChar(text[k])) k += 1;
+        if (k !== p || k === previous + 1) continue;
       }
-      if (!sameWord && isWordChar(text[p - 1])) continue;
       const end = finish(i + 1, p, start);
       if (end !== -1) return end;
     }

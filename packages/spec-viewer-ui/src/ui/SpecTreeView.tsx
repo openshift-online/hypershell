@@ -3,7 +3,7 @@ import {
   TreeView,
   type TreeViewDataItem,
 } from "@patternfly/react-core";
-import { ThumbtackIcon, TimesIcon } from "@patternfly/react-icons";
+import { StarIcon } from "@patternfly/react-icons";
 import { useIntl, type IntlShape } from "react-intl";
 
 import type { Snippet } from "../domain/search";
@@ -12,21 +12,15 @@ import type { SpecTreeFile, SpecTreeNode } from "../domain/spec-tree";
 import { messages } from "../messages";
 import { NodeLabels } from "./NodeLabels";
 
-export type TreeAction = "pin" | "unpin";
-
 interface SpecTreeViewProps {
   /** Distinguishes DOM ids when several trees are on the page. */
   idPrefix: string;
   label: string;
   files: SpecTreeFile[];
   selectedNodeId: string | undefined;
-  action: TreeAction;
-  /** Whether items start expanded; defaults to true. */
-  defaultExpanded?: boolean;
-  isPinned: (nodeId: string) => boolean;
   onSelect: (nodeId: string) => void;
-  /** Pins or unpins the given node ids, depending on `action`. */
-  onAction: (nodeIds: string[]) => void;
+  /** Unstars the given node ids. */
+  onUnstar: (nodeIds: string[]) => void;
 }
 
 export function nodeTitle(intl: IntlShape, node: SpecNode): string {
@@ -35,7 +29,7 @@ export function nodeTitle(intl: IntlShape, node: SpecNode): string {
     : node.title;
 }
 
-function SnippetText({ snippet }: { snippet: Snippet }) {
+export function SnippetText({ snippet }: { snippet: Snippet }) {
   const parts: React.ReactNode[] = [];
   let cursor = 0;
   for (const [start, end] of snippet.highlights) {
@@ -78,31 +72,24 @@ export function SpecTreeView({
   label,
   files,
   selectedNodeId,
-  action,
-  defaultExpanded = true,
-  isPinned,
   onSelect,
-  onAction,
+  onUnstar,
 }: SpecTreeViewProps) {
   const intl = useIntl();
   const domId = (nodeId: string) => `${idPrefix}:${nodeId}`;
   const nodeIdByDomId = new Map<string, string>();
 
-  const actionButton = (title: string, nodeIds: string[], pinned: boolean) => {
-    const isPinAction = action === "pin";
-    const message = isPinAction && !pinned ? messages.pin : messages.unpin;
-    return (
-      <Button
-        aria-label={intl.formatMessage(message, { title })}
-        {...(isPinAction ? { "aria-pressed": pinned, isClicked: pinned } : {})}
-        icon={isPinAction ? <ThumbtackIcon /> : <TimesIcon />}
-        onClick={() => {
-          onAction(nodeIds);
-        }}
-        variant="plain"
-      />
-    );
-  };
+  const actionButton = (title: string, nodeIds: string[]) => (
+    <Button
+      aria-label={intl.formatMessage(messages.unstar, { title })}
+      className="sv-star sv-star--on"
+      icon={<StarIcon />}
+      onClick={() => {
+        onUnstar(nodeIds);
+      }}
+      variant="plain"
+    />
+  );
 
   const toItem = (treeNode: SpecTreeNode): TreeViewDataItem => {
     const id = domId(treeNode.node.id);
@@ -112,8 +99,8 @@ export function SpecTreeView({
     return {
       id,
       name: <NodeName intl={intl} treeNode={treeNode} />,
-      defaultExpanded,
-      action: actionButton(title, ids, ids.every(isPinned)),
+      defaultExpanded: true,
+      action: actionButton(title, ids),
       ...(treeNode.children.length > 0
         ? { children: treeNode.children.map(toItem) }
         : {}),
@@ -136,12 +123,8 @@ export function SpecTreeView({
           </span>
         </span>
       ),
-      defaultExpanded,
-      action: actionButton(
-        treeFile.file.title,
-        ids,
-        ids.length > 0 && ids.every(isPinned),
-      ),
+      defaultExpanded: true,
+      action: actionButton(treeFile.file.title, ids),
       children: treeFile.children.map(toItem),
     };
   });

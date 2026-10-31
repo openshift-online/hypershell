@@ -1,6 +1,12 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  back: {
+    id: "specViewer.references.back",
+    defaultMessage: "Back",
+    description:
+      "Button that returns from the references list to the conformance table.",
+  },
   catalogSummary: {
     id: "specViewer.catalog.summary",
     defaultMessage: "{files}, {specs}, {scenarios}",
@@ -12,15 +18,10 @@ export const messages = defineMessages({
     description:
       "Collapsed label group text; {remaining} is filled in by PatternFly.",
   },
-  clearPins: {
-    id: "specViewer.pins.clear",
+  clearStars: {
+    id: "specViewer.stars.clear",
     defaultMessage: "Clear",
-    description: "Button that removes every pinned item.",
-  },
-  collapseAll: {
-    id: "specViewer.search.collapseAll",
-    defaultMessage: "Collapse all",
-    description: "Link that collapses every search result to its file.",
+    description: "Button that removes every star.",
   },
   columnConformance: {
     id: "specViewer.conformance.column.conformance",
@@ -163,16 +164,17 @@ export const messages = defineMessages({
     defaultMessage: "Show document",
     description: "Button that brings back the hidden document panel.",
   },
-  expandAll: {
-    id: "specViewer.search.expandAll",
-    defaultMessage: "Expand all",
-    description: "Link that expands every search result.",
-  },
   filesWithoutRequirements: {
     id: "specViewer.conformance.filesWithoutRequirements",
     defaultMessage:
       "{count, plural, one {# file has} other {# files have}} no requirements: {files}.",
     description: "Note listing spec files that contain no requirements.",
+  },
+  findReferences: {
+    id: "specViewer.node.findReferences",
+    defaultMessage: "Find references",
+    description:
+      "Tooltip of an ID label; clicking it lists the files that mention the ID.",
   },
   issueMalformedScenarios: {
     id: "specViewer.conformance.issue.malformedScenarios",
@@ -251,46 +253,11 @@ export const messages = defineMessages({
     defaultMessage: "With scenarios",
     description: "Metric: requirements that have at least one scenario.",
   },
-  noResultsBody: {
-    id: "specViewer.search.noResults.body",
-    defaultMessage: "Try fewer or shorter words.",
-    description: "Hint shown when a search has no results.",
-  },
-  noResultsTitle: {
-    id: "specViewer.search.noResults.title",
-    defaultMessage: "No matches",
-    description: "Title shown when a search has no results.",
-  },
   nospecPrefix: {
     id: "specViewer.node.nospecPrefix",
     defaultMessage: "[nospec] {title}",
     description:
       "Title of a markdown heading that is neither a spec nor a scenario.",
-  },
-  pin: {
-    id: "specViewer.node.pin",
-    defaultMessage: "Pin {title}",
-    description: "Accessible label of the button that pins one item.",
-  },
-  pinnedEmpty: {
-    id: "specViewer.pins.empty",
-    defaultMessage: "Pin search results to keep them here.",
-    description: "Hint shown when nothing is pinned.",
-  },
-  pinnedLabel: {
-    id: "specViewer.pins.label",
-    defaultMessage: "Pinned specs",
-    description: "Accessible label of the pinned specs tree.",
-  },
-  pinnedTitle: {
-    id: "specViewer.pins.title",
-    defaultMessage: "Pinned",
-    description: "Heading of the pinned specs side panel.",
-  },
-  pinResults: {
-    id: "specViewer.search.pinResults",
-    defaultMessage: "Pin results",
-    description: "Button that pins every current search result.",
   },
   productName: {
     id: "specViewer.productName",
@@ -370,36 +337,20 @@ export const messages = defineMessages({
     description:
       "Accessible label of the splitter between the list panel and the document.",
   },
-  resizePinned: {
-    id: "specViewer.resize.pinned",
-    defaultMessage: "Resize the pinned panel",
-    description: "Accessible label of the splitter next to the pinned panel.",
+  resizeStarred: {
+    id: "specViewer.resize.starred",
+    defaultMessage: "Resize the starred panel",
+    description: "Accessible label of the starred panel resize handle.",
   },
   resultCount: {
     id: "specViewer.search.resultCount",
     defaultMessage: "{matches} in {files}",
     description: "Number of search results and the files they are in.",
   },
-  resultsLabel: {
-    id: "specViewer.search.resultsLabel",
-    defaultMessage: "Search results",
-    description: "Accessible label of the search results tree.",
-  },
   scenarioLabel: {
     id: "specViewer.node.scenario",
     defaultMessage: "Scenario",
     description: "Badge marking a scenario in the results and pinned trees.",
-  },
-  searchHintBody: {
-    id: "specViewer.search.hint.body",
-    defaultMessage:
-      'Every word must appear in the same spec or its scenarios; typos and abbreviations still match. Use "quotes" for exact text and [brackets] for words on one line.',
-    description: "Hint shown before the user types a search.",
-  },
-  searchHintTitle: {
-    id: "specViewer.search.hint.title",
-    defaultMessage: "Search the specs",
-    description: "Title shown before the user types a search.",
   },
   searchLabel: {
     id: "specViewer.search.label",
@@ -420,6 +371,31 @@ export const messages = defineMessages({
     id: "specViewer.source.loading",
     defaultMessage: "Loading file",
     description: "Accessible label of the spinner while a file loads.",
+  },
+  star: {
+    id: "specViewer.node.star",
+    defaultMessage: "Star {title}",
+    description: "Accessible label of the button that stars an item.",
+  },
+  starredEmpty: {
+    id: "specViewer.stars.empty",
+    defaultMessage: "Star requirements and scenarios to keep them here.",
+    description: "Hint shown when nothing is starred.",
+  },
+  starredLabel: {
+    id: "specViewer.stars.label",
+    defaultMessage: "Starred specs",
+    description: "Accessible label of the starred specs tree.",
+  },
+  starredOnly: {
+    id: "specViewer.stars.only",
+    defaultMessage: "Show only starred items",
+    description: "Button that filters the conformance table to starred items.",
+  },
+  starredTitle: {
+    id: "specViewer.stars.title",
+    defaultMessage: "Starred",
+    description: "Heading of the starred side panel, and label of its toggle.",
   },
   testMarkersError: {
     id: "specViewer.conformance.testMarkers.error",
@@ -446,42 +422,22 @@ export const messages = defineMessages({
     defaultMessage: "Switch to light theme",
     description: "Button that switches the page to the light theme.",
   },
-  unpin: {
-    id: "specViewer.node.unpin",
-    defaultMessage: "Unpin {title}",
-    description: "Accessible label of the button that unpins one item.",
-  },
   unresolvedLink: {
     id: "specViewer.document.unresolvedLink",
     defaultMessage: "Outside the specs folder: {path}",
     description:
       "Tooltip of a link that points to a file the viewer cannot open.",
   },
+  unstar: {
+    id: "specViewer.node.unstar",
+    defaultMessage: "Unstar {title}",
+    description:
+      "Accessible label of the button that removes the star of an item.",
+  },
   verifiedBy: {
     id: "specViewer.conformance.verifiedBy",
     defaultMessage: "Verified by {method}",
     description:
       "Label of a requirement proven without tests, such as by inspection.",
-  },
-  viewConformance: {
-    id: "specViewer.view.conformance",
-    defaultMessage: "Conformance",
-    description: "View switch option for the conformance report.",
-  },
-  viewLabel: {
-    id: "specViewer.view.label",
-    defaultMessage: "View",
-    description: "Accessible label of the view switch.",
-  },
-  viewReferences: {
-    id: "specViewer.view.references",
-    defaultMessage: "Files referencing {id}",
-    description:
-      "Accessible label of the view option that lists files mentioning the selected ID.",
-  },
-  viewSearch: {
-    id: "specViewer.view.search",
-    defaultMessage: "Search",
-    description: "View switch option for searching specs.",
   },
 });

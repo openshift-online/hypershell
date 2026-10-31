@@ -16,22 +16,29 @@ import {
   DrawerContentBody,
   DrawerPanelContent,
   Page,
+  SearchInput,
   Spinner,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@patternfly/react-core";
 import {
   BarsIcon,
-  CodeIcon,
   CompressIcon,
   ExpandIcon,
   EyeIcon,
   EyeSlashIcon,
   MoonIcon,
+  OutlinedStarIcon,
+  StarIcon,
   SunIcon,
 } from "@patternfly/react-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useIntl } from "react-intl";
 
 import {
@@ -40,7 +47,6 @@ import {
   searchSpecs,
 } from "../domain/search";
 import type { SpecCatalog } from "../domain/spec-document";
-import { buildSpecTree } from "../domain/spec-tree";
 import { messages } from "../messages";
 import { ConformancePanel } from "./ConformancePanel";
 import type { RefName } from "../application/ports";
@@ -49,7 +55,6 @@ import { usePorts } from "./ports-context";
 import { RefPicker } from "./RefPicker";
 import { RefProvider } from "./ref-context";
 import { ReferencesPanel, type SourceLocation } from "./ReferencesPanel";
-import { SearchPanel } from "./SearchPanel";
 import { SourceView } from "./SourceView";
 import { SpecDocument } from "./SpecDocument";
 import { usePins } from "./use-pins";
@@ -57,19 +62,6 @@ import { useSelection } from "./use-selection";
 import { usePanelWidth } from "./use-panel-width";
 import { useSpecCatalog } from "./use-spec-catalog";
 import { useTheme, type Theme } from "./use-theme";
-
-type View = "search" | "conformance" | "references";
-const VIEW_KEY = "hypershell-spec-viewer.view";
-
-function readView(): View {
-  try {
-    return window.localStorage.getItem(VIEW_KEY) === "conformance"
-      ? "conformance"
-      : "search";
-  } catch {
-    return "search";
-  }
-}
 
 /**
  * Which panels show: all of them ("split"), the list without the document
@@ -109,6 +101,9 @@ const EMPTY_INDEX = buildSearchIndex({
   filesByPath: new Map(),
 });
 
+/** Every hit filters the table, so the search is not capped. */
+const ALL_HITS = Number.MAX_SAFE_INTEGER;
+
 /** Runs the search; the results trail typing so input stays responsive. */
 function useSpecSearch(catalog: SpecCatalog | undefined, query: string) {
   const searchedQuery = useDeferredValue(query);
@@ -117,18 +112,31 @@ function useSpecSearch(catalog: SpecCatalog | undefined, query: string) {
     [catalog],
   );
   const hits = useMemo(
-    () => searchSpecs(index, searchedQuery),
+    () => searchSpecs(index, searchedQuery, ALL_HITS),
     [index, searchedQuery],
-  );
-  const tree = useMemo(
-    () => (catalog ? buildSpecTree(catalog, hits).files : []),
-    [catalog, hits],
   );
   const terms = useMemo(
     () => highlightTerms(searchedQuery, hits),
     [searchedQuery, hits],
   );
-  return { searchedQuery, hits, tree, terms };
+  // Undefined while nothing is searched, so the table is not filtered.
+  const hitsById = useMemo(
+    () =>
+      searchedQuery.trim() === ""
+        ? undefined
+        : new Map(hits.map((hit) => [hit.nodeId, hit])),
+    [searchedQuery, hits],
+  );
+  const fileCount = useMemo(() => {
+    if (!catalog) return 0;
+    const paths = new Set<string>();
+    for (const hit of hits) {
+      const path = catalog.nodesById.get(hit.nodeId)?.path;
+      if (path) paths.add(path);
+    }
+    return paths.size;
+  }, [catalog, hits]);
+  return { searchedQuery, hits, hitsById, terms, fileCount };
 }
 
 export function App() {
@@ -166,10 +174,17 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
   const [query, setQuery] = useState("");
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [pinnedWidth, setPinnedWidth] = usePanelWidth("pinned");
-  const [narrowWidth, setNarrowWidth] = usePanelWidth("list");
-  // Conformance needs a wider table, so it keeps its own width.
-  const [wideWidth, setWideWidth] = usePanelWidth("conformance");
-  const [view, setViewState] = useState<View>(readView);
+  // The conformance table is wide, so its width is stored on its own.
+  const [listWidth, setListWidth] = usePanelWidth("conformance");
+  const [starredOnly, setStarredOnly] = useState(false);
+  // The requirement or scenario whose ID references are listed, in place of
+  // the conformance table; null shows the table.
+  const [referencesOf, setReferencesOf] = useState<string | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  // Searching is the first thing to do, so start with the input focused.
+  useEffect(() => {
+    searchInput.current?.focus();
+  }, []);
   // A repository file opened from the references or conformance view
   // replaces the spec document until a spec item is selected or the view
   // changes. `id` is the requirement or scenario ID marked in the file.
@@ -178,17 +193,6 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     id: string | undefined;
     revision: number;
   } | null>(null);
-  const setView = (next: View) => {
-    setViewState(next);
-    setSource(null);
-    // The references view follows the selection, so it is not remembered.
-    if (next === "references") return;
-    try {
-      window.localStorage.setItem(VIEW_KEY, next);
-    } catch {
-      // The view choice is a convenience; blocked storage keeps the default.
-    }
-  };
   const theme = useTheme();
   const [layout, setLayoutState] = useState<Layout>(readLayout);
   const setLayout = (next: Layout) => {
@@ -221,12 +225,27 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     [showDocument],
   );
   const search = useSpecSearch(catalog, query);
+  // Stable, so the conformance table does not rebuild its rows each render.
+  const findReferences = useCallback((nodeId: string) => {
+    setReferencesOf(nodeId);
+  }, []);
+  const referencesNode =
+    referencesOf === null ? undefined : catalog?.nodesById.get(referencesOf);
 
   const node = selection ? catalog?.nodesById.get(selection.nodeId) : undefined;
   const file = node ? catalog?.filesByPath.get(node.path) : undefined;
 
   let summary = "";
-  if (catalog) {
+  if (catalog && search.hitsById) {
+    summary = intl.formatMessage(messages.resultCount, {
+      matches: intl.formatMessage(messages.countMatches, {
+        count: search.hits.length,
+      }),
+      files: intl.formatMessage(messages.countFiles, {
+        count: search.fileCount,
+      }),
+    });
+  } else if (catalog) {
     let specs = 0;
     let scenarios = 0;
     for (const entry of catalog.nodesById.values()) {
@@ -250,7 +269,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
         <MastheadToggle>
           <Button
             aria-expanded={pinnedOpen}
-            aria-label={intl.formatMessage(messages.pinnedTitle)}
+            aria-label={intl.formatMessage(messages.starredTitle)}
             icon={<BarsIcon />}
             onClick={() => {
               setPinnedOpen(!pinnedOpen);
@@ -280,38 +299,41 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
             value={specRef}
             {...(refs.isError ? { error: refs.error.message } : {})}
           />
-          <ToggleGroup
-            aria-label={intl.formatMessage(messages.viewLabel)}
-            isCompact
+          <Flex
+            alignItems={{ default: "alignItemsCenter" }}
+            className="sv-masthead__search"
+            flexWrap={{ default: "nowrap" }}
+            gap={{ default: "gapXs" }}
           >
-            <ToggleGroupItem
-              isSelected={view === "search"}
-              onChange={() => {
-                setView("search");
+            <SearchInput
+              aria-label={intl.formatMessage(messages.searchLabel)}
+              className="sv-search"
+              onChange={(_event, value) => {
+                setQuery(value);
+                // A search lands on the table it filters.
+                setReferencesOf(null);
               }}
-              text={intl.formatMessage(messages.viewSearch)}
-            />
-            <ToggleGroupItem
-              isSelected={view === "conformance"}
-              onChange={() => {
-                setView("conformance");
+              onClear={() => {
+                setQuery("");
               }}
-              text={intl.formatMessage(messages.viewConformance)}
+              placeholder={intl.formatMessage(messages.searchLabel)}
+              ref={searchInput}
+              value={query}
             />
-            {node?.specId ? (
-              <ToggleGroupItem
-                aria-label={intl.formatMessage(messages.viewReferences, {
-                  id: node.specId,
-                })}
-                icon={<CodeIcon />}
-                isSelected={view === "references"}
-                onChange={() => {
-                  setView("references");
+            <Tooltip content={intl.formatMessage(messages.starredOnly)}>
+              <Button
+                aria-label={intl.formatMessage(messages.starredOnly)}
+                aria-pressed={starredOnly}
+                className={starredOnly ? "sv-star sv-star--on" : "sv-star"}
+                icon={starredOnly ? <StarIcon /> : <OutlinedStarIcon />}
+                onClick={() => {
+                  setStarredOnly(!starredOnly);
+                  setReferencesOf(null);
                 }}
-                text={node.specId}
+                variant="plain"
               />
-            ) : null}
-          </ToggleGroup>
+            </Tooltip>
+          </Flex>
           <span className="sv-summary">{summary}</span>
           <FlexItem align={{ default: "alignRight" }}>
             <Flex gap={{ default: "gapXs" }}>
@@ -342,49 +364,47 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       </Alert>
     );
   } else {
-    const wide = view === "conformance";
-    const listWidth = wide ? wideWidth : narrowWidth;
-    const setListWidth = wide ? setWideWidth : setNarrowWidth;
-    const listContent =
-      view === "conformance" ? (
-        <ConformancePanel
-          catalog={catalogQuery.data}
-          onOpenSource={openSource}
-          onSelect={selectNode}
-          selectedNodeId={selection?.nodeId}
-        />
-      ) : view === "references" ? (
-        <ReferencesPanel
-          node={node}
-          onOpen={(location) => {
-            openSource(location, node?.specId);
-          }}
-          selected={source?.location}
-        />
-      ) : (
-        <SearchPanel
-          hits={search.hits}
-          onQueryChange={setQuery}
-          onSelect={selectNode}
-          pins={pins}
-          query={query}
-          searchedQuery={search.searchedQuery}
-          selectedNodeId={selection?.nodeId}
-          tree={search.tree}
-        />
-      );
+    // The table stays mounted under the references list, so Back returns
+    // to it as it was: same filter, expanded rows, and scroll position.
+    const listContent = (
+      <>
+        {referencesNode ? (
+          <ReferencesPanel
+            node={referencesNode}
+            onBack={() => {
+              setReferencesOf(null);
+            }}
+            onOpen={(location) => {
+              openSource(location, referencesNode.specId);
+            }}
+            selected={source?.location}
+          />
+        ) : null}
+        <div className="sv-list-view" hidden={referencesNode !== undefined}>
+          <ConformancePanel
+            catalog={catalogQuery.data}
+            hits={search.hitsById}
+            // A new filter starts with the rows above its matches expanded.
+            key={`${search.searchedQuery}\u0000${String(starredOnly)}`}
+            onFindReferences={findReferences}
+            onOpenSource={openSource}
+            onSelect={selectNode}
+            selectedNodeId={selection?.nodeId}
+            starredOnly={starredOnly}
+            stars={pins}
+          />
+        </div>
+      </>
+    );
     const listPanel = (
       <DrawerPanelContent
         className="sv-panel"
-        defaultSize={
-          listWidth === null ? (wide ? "67%" : "36%") : `${String(listWidth)}px`
-        }
+        defaultSize={listWidth === null ? "67%" : `${String(listWidth)}px`}
         increment={16}
         isResizable
-        key={wide ? "wide" : "list"}
         // Leave the document room, whatever width was saved.
         maxSize="calc(100% - 240px)"
-        minSize={wide ? "480px" : "320px"}
+        minSize="480px"
         onResize={(_event, width) => {
           setListWidth(width);
         }}
@@ -436,7 +456,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       onResize={(_event, width) => {
         setPinnedWidth(width);
       }}
-      resizeAriaLabel={intl.formatMessage(messages.resizePinned)}
+      resizeAriaLabel={intl.formatMessage(messages.resizeStarred)}
     >
       {catalog ? (
         <PinnedPanel

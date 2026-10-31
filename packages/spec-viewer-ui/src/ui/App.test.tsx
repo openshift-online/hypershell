@@ -140,23 +140,50 @@ beforeEach(() => {
   }
 });
 
+/** The conformance table, the main view. */
+const table = () => screen.getByRole("treegrid", { name: "Spec conformance" });
+
+/** Waits for the specs to load and the table to show. */
+async function ready() {
+  await screen.findByRole("treegrid", { name: "Spec conformance" });
+}
+
+async function search(user: ReturnType<typeof userEvent.setup>, text: string) {
+  await user.type(
+    await screen.findByRole("textbox", { name: "Search specs" }),
+    text,
+  );
+}
+
+/** Expands the table row that holds `text`. */
+async function expand(user: ReturnType<typeof userEvent.setup>, text: string) {
+  const row = (await within(table()).findByText(text)).closest("tr");
+  if (!row) throw new Error(`Missing row ${text}`);
+  await user.click(within(row).getByRole("button", { name: /^Expand row/u }));
+}
+
 describe("App", () => {
-  it("finds a scenario and opens it at its heading", async () => {
+  it("filters the table by a search and opens a scenario", async () => {
     const user = userEvent.setup();
     renderApp();
-    const search = await screen.findByRole("textbox", { name: "Search specs" });
-    expect(document.activeElement).toBe(search);
+    await ready();
+    const input = await screen.findByRole("textbox", { name: "Search specs" });
+    expect(document.activeElement).toBe(input);
+    expect(within(table()).getByText("Traced")).toBeTruthy();
 
-    await user.type(search, "expirng");
-    const results = await screen.findByRole("tree", { name: "Search results" });
-    expect(within(results).getByText("Gateway TLS")).toBeTruthy();
-    expect(within(results).getByText("TLS-01")).toBeTruthy();
+    await search(user, "expirng");
+    // The matching scenario shows, with the rows above it expanded.
+    expect(
+      await within(table()).findByText("Expiring certificate"),
+    ).toBeTruthy();
+    expect(within(table()).getByText("Gateway TLS")).toBeTruthy();
+    expect(within(table()).queryByText("Traced")).toBeNull();
+    expect(screen.getByText("1 match in 1 file")).toBeTruthy();
 
-    await user.click(within(results).getByText("Expiring certificate"));
+    await user.click(within(table()).getByText("Expiring certificate"));
     const heading = document.getElementById(headingElementId(3));
     expect(heading?.textContent).toBe("Scenario: Expiring certificate");
     expect(heading?.classList.contains(FLASH_CLASS)).toBe(true);
-    expect(document.activeElement).toBe(heading);
     expect(decodeURIComponent(window.location.hash)).toBe(
       "#platform/tls.spec.md#scenario: expiring certificate",
     );
@@ -165,12 +192,9 @@ describe("App", () => {
   it("highlights the search terms in the open document", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.type(
-      await screen.findByRole("textbox", { name: "Search specs" }),
-      "certifcate",
-    );
-    const results = await screen.findByRole("tree", { name: "Search results" });
-    await user.click(within(results).getByText("Expiring certificate"));
+    await ready();
+    await search(user, "certifcate");
+    await user.click(await within(table()).findByText("Expiring certificate"));
     const document = screen.getByRole("region", { name: "Spec document" });
     const marks = [...document.querySelectorAll(`mark.${MATCH_CLASS}`)].map(
       (mark) => mark.textContent,
@@ -183,58 +207,56 @@ describe("App", () => {
     ]);
   });
 
-  it("collapses and expands every result", async () => {
+  it("shows the matching text when hovering a title", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.type(
-      await screen.findByRole("textbox", { name: "Search specs" }),
-      "renewed",
-    );
-    const results = await screen.findByRole("tree", { name: "Search results" });
-    expect(within(results).getByText("Expiring certificate")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(
-      within(screen.getByRole("tree", { name: "Search results" })).queryByText(
-        "Expiring certificate",
-      ),
-    ).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "Expand all" }));
-    expect(
-      within(screen.getByRole("tree", { name: "Search results" })).getByText(
-        "Expiring certificate",
-      ),
-    ).toBeTruthy();
+    await ready();
+    await search(user, "renewed");
+    await user.hover(await within(table()).findByText("Expiring certificate"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("renewed").tagName).toBe("MARK");
   });
 
-  it("labels text outside any spec with its nearest heading", async () => {
+  it("shows text outside requirements under its file", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.type(
-      await screen.findByRole("textbox", { name: "Search specs" }),
-      "history",
-    );
-    expect(await screen.findByText("[nospec] Background")).toBeTruthy();
-    expect(screen.getByText("history").tagName).toBe("MARK");
+    await ready();
+    await search(user, "history");
+    await user.hover(await within(table()).findByText("Gateway TLS"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("[nospec] Background")).toBeTruthy();
+    expect(within(tooltip).getByText("history").tagName).toBe("MARK");
+    expect(within(table()).queryByText("Certificates rotate")).toBeNull();
   });
 
-  it("pins results and opens them from the pinned panel", async () => {
+  it("stars items, filters to them, and opens them from the starred panel", async () => {
     const user = userEvent.setup();
     const stored = renderApp();
-    await user.type(
-      await screen.findByRole("textbox", { name: "Search specs" }),
-      "renewed",
-    );
+    await ready();
+    await expand(user, "Gateway TLS");
     await user.click(
-      await screen.findByRole("button", { name: "Pin results" }),
+      within(table()).getByRole("button", { name: "Star Certificates rotate" }),
     );
     expect(stored.ids).toEqual([
-      "platform/tls.spec.md#scenario: expiring certificate",
+      "platform/tls.spec.md#requirement: tls-01 -- certificates rotate",
     ]);
+    expect(
+      within(table())
+        .getByRole("button", { name: "Unstar Certificates rotate" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
 
-    const pinned = screen.getByRole("tree", { name: "Pinned specs" });
-    await user.click(within(pinned).getByText("Certificates rotate"));
+    await user.click(
+      screen.getByRole("button", { name: "Show only starred items" }),
+    );
+    // A starred requirement brings its scenarios.
+    expect(
+      await within(table()).findByText("Expiring certificate"),
+    ).toBeTruthy();
+    expect(within(table()).queryByText("Traced")).toBeNull();
+
+    const starred = screen.getByRole("tree", { name: "Starred specs" });
+    await user.click(within(starred).getByText("Certificates rotate"));
     expect(
       document
         .getElementById(headingElementId(2))
@@ -242,13 +264,13 @@ describe("App", () => {
     ).toBe(true);
 
     await user.click(
-      within(pinned).getByRole("button", {
-        name: "Unpin Expiring certificate",
+      within(starred).getByRole("button", {
+        name: "Unstar Certificates rotate",
       }),
     );
     expect(stored.ids).toEqual([]);
     expect(
-      screen.getByText("Pin search results to keep them here."),
+      screen.getByText("Star requirements and scenarios to keep them here."),
     ).toBeTruthy();
   });
 
@@ -260,6 +282,7 @@ describe("App", () => {
     );
     const user = userEvent.setup();
     renderApp();
+    await ready();
     const document = await screen.findByRole("region", {
       name: "Spec document",
     });
@@ -288,20 +311,13 @@ describe("App", () => {
   it("shows spec conformance and opens a requirement from it", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.click(
-      await screen.findByRole("button", { name: "Conformance" }),
-    );
-    const table = screen.getByRole("treegrid", { name: "Spec conformance" });
-    expect(within(table).getByText("platform")).toBeTruthy();
-    expect(within(table).getByText("Gateway TLS")).toBeTruthy();
+    await ready();
+    expect(await within(table()).findByText("platform")).toBeTruthy();
+    expect(within(table()).getByText("Gateway TLS")).toBeTruthy();
     expect(screen.getByText("console.spec.md", { exact: false })).toBeTruthy();
 
-    const fileRow = within(table).getByText("Gateway TLS").closest("tr");
-    if (!fileRow) throw new Error("Missing file row");
-    await user.click(
-      within(fileRow).getByRole("button", { name: /^Expand row/u }),
-    );
-    await user.click(within(table).getByText("Certificates rotate"));
+    await expand(user, "Gateway TLS");
+    await user.click(within(table()).getByText("Certificates rotate"));
     expect(
       document
         .getElementById(headingElementId(2))
@@ -309,20 +325,15 @@ describe("App", () => {
     ).toBe(true);
   });
 
-  it("lists files that reference the selected ID and opens them at the line", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      `#${encodeURIComponent("platform/tls.spec.md#requirement: tls-01 -- certificates rotate")}`,
-    );
+  it("finds an ID's references from its label and goes back", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.click(
-      await screen.findByRole("button", { name: "Files referencing TLS-01" }),
-    );
+    await ready();
+    await expand(user, "Gateway TLS");
+    await user.click(within(table()).getByRole("button", { name: "TLS-01" }));
+
     const tests = await screen.findByRole("tree", { name: "1 test file" });
     await user.click(within(tests).getByText("// Covers TLS-01."));
-
     const source = await screen.findByRole("region", { name: "Source file" });
     await waitFor(() => {
       expect(source.querySelectorAll(".line")).toHaveLength(5);
@@ -332,36 +343,24 @@ describe("App", () => {
     expect(line?.querySelector(`mark.${MATCH_CLASS}`)?.textContent).toBe(
       "TLS-01",
     );
-    expect(
-      screen.getByRole("heading", { name: "pkg/tls/rotate_test.go" }),
-    ).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(within(table()).getByText("Certificates rotate")).toBeTruthy();
   });
 
-  it("offers no ID view when the selection has no ID", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      `#${encodeURIComponent("platform/console.spec.md#console")}`,
-    );
-    renderApp();
-    await screen.findByRole("region", { name: "Spec document" });
-    expect(
-      screen.queryByRole("button", { name: /^Files referencing/u }),
-    ).toBeNull();
-  });
-
-  it("has resizable panels and a toggle for the pinned panel", async () => {
+  it("has resizable panels and a toggle for the starred panel", async () => {
     const user = userEvent.setup();
     renderApp();
+    await ready();
     await screen.findByRole("textbox", { name: "Search specs" });
     expect(
-      screen.getByRole("separator", { name: "Resize the pinned panel" }),
+      screen.getByRole("separator", { name: "Resize the starred panel" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("separator", { name: "Resize the list panel" }),
     ).toBeTruthy();
 
-    const toggle = screen.getByRole("button", { name: "Pinned" });
+    const toggle = screen.getByRole("button", { name: "Starred" });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -370,21 +369,11 @@ describe("App", () => {
   it("shows which test verifies a scenario and opens it", async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.click(
-      await screen.findByRole("button", { name: "Conformance" }),
-    );
-    const table = screen.getByRole("treegrid", { name: "Spec conformance" });
-    const expand = async (text: string) => {
-      const row = (await within(table).findByText(text)).closest("tr");
-      if (!row) throw new Error(`Missing row ${text}`);
-      await user.click(
-        within(row).getByRole("button", { name: /^Expand row/u }),
-      );
-    };
-    await expand("Traced");
-    await expand("Quokka handling");
+    await ready();
+    await expand(user, "Traced");
+    await expand(user, "Quokka handling");
 
-    await user.click(await within(table).findByText("TestFeedsQuokka"));
+    await user.click(await within(table()).findByText("TestFeedsQuokka"));
     const source = await screen.findByRole("region", { name: "Source file" });
     await waitFor(() => {
       expect(source.querySelectorAll(".line")[2]?.classList).toContain(
@@ -394,15 +383,16 @@ describe("App", () => {
     expect(screen.getByText("Tested scenarios")).toBeTruthy();
   });
 
-  it("restores saved pins and the selection from the URL", async () => {
+  it("restores saved stars and the selection from the URL", async () => {
     window.history.replaceState(
       null,
       "",
       `#${encodeURIComponent("platform/tls.spec.md#background")}`,
     );
     renderApp(["platform/tls.spec.md#background"]);
-    const pinned = await screen.findByRole("tree", { name: "Pinned specs" });
-    expect(within(pinned).getByText("[nospec] Background")).toBeTruthy();
+    await ready();
+    const starred = await screen.findByRole("tree", { name: "Starred specs" });
+    expect(within(starred).getByText("[nospec] Background")).toBeTruthy();
     await waitFor(() => {
       expect(
         document
@@ -415,6 +405,7 @@ describe("App", () => {
   it("switches to another branch and keeps it in the URL", async () => {
     const user = userEvent.setup();
     renderApp();
+    await ready();
     expect(await screen.findByText(/^3 files/u)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Branch" }));
@@ -437,12 +428,14 @@ describe("App", () => {
   it("opens the branch named in the URL", async () => {
     window.history.replaceState(null, "", "/?ref=feature%2Fx");
     renderApp();
+    await ready();
     expect(await screen.findByText(/^1 file/u)).toBeTruthy();
   });
 
   it("hides, shows, maximizes, and restores the document", async () => {
     const user = userEvent.setup();
     renderApp();
+    await ready();
     await screen.findByRole("textbox", { name: "Search specs" });
     expect(screen.getByText("No spec selected")).toBeTruthy();
 
@@ -453,12 +446,8 @@ describe("App", () => {
     ).toBeNull();
 
     // Opening an item while the document is hidden shows it again.
-    await user.type(
-      screen.getByRole("textbox", { name: "Search specs" }),
-      "expirng",
-    );
-    const results = await screen.findByRole("tree", { name: "Search results" });
-    await user.click(within(results).getByText("Expiring certificate"));
+    await search(user, "expirng");
+    await user.click(await within(table()).findByText("Expiring certificate"));
     expect(
       await screen.findByRole("button", { name: "Hide document" }),
     ).toBeTruthy();
@@ -478,6 +467,7 @@ describe("App", () => {
   it("switches between the light and dark themes", async () => {
     const user = userEvent.setup();
     renderApp();
+    await ready();
     await screen.findByRole("textbox", { name: "Search specs" });
     const root = document.documentElement;
     expect(root.classList.contains("pf-v6-theme-dark")).toBe(false);

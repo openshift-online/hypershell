@@ -1,6 +1,7 @@
 import {
   Alert,
   Bullseye,
+  Button,
   Content,
   EmptyState,
   EmptyStateBody,
@@ -9,7 +10,12 @@ import {
   TreeView,
   type TreeViewDataItem,
 } from "@patternfly/react-core";
-import { CodeIcon, FileAltIcon, FlaskIcon } from "@patternfly/react-icons";
+import {
+  ArrowLeftIcon,
+  CodeIcon,
+  FileAltIcon,
+  FlaskIcon,
+} from "@patternfly/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useIntl } from "react-intl";
 
@@ -31,6 +37,8 @@ interface ReferencesPanelProps {
   node: SpecNode | undefined;
   selected: SourceLocation | undefined;
   onOpen: (location: SourceLocation) => void;
+  /** Returns to the conformance view. */
+  onBack: () => void;
 }
 
 function locationId(location: SourceLocation): string {
@@ -70,6 +78,7 @@ export function ReferencesPanel({
   node,
   selected,
   onOpen,
+  onBack,
 }: ReferencesPanelProps) {
   const intl = useIntl();
   const { repository } = usePorts();
@@ -165,6 +174,14 @@ export function ReferencesPanel({
   return (
     <div className="sv-results sv-references">
       <div className="sv-references__header">
+        <Button
+          icon={<ArrowLeftIcon />}
+          isInline
+          onClick={onBack}
+          variant="link"
+        >
+          {intl.formatMessage(messages.back)}
+        </Button>
         {node && id ? (
           <Content className="sv-node__title" component="p">
             <NodeLabels node={node} />

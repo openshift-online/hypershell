@@ -10,11 +10,13 @@ import {
   ProgressMeasureLocation,
   ProgressSize,
   ProgressVariant,
+  Tooltip,
 } from "@patternfly/react-core";
 import {
   CheckCircleIcon,
-  FileAltIcon,
   FolderIcon,
+  OutlinedStarIcon,
+  StarIcon,
   SyncAltIcon,
 } from "@patternfly/react-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,7 +44,18 @@ import {
   type ScenarioIssue,
   type ScenarioReport,
 } from "../domain/conformance";
-import { fileEntryId, type SpecCatalog } from "../domain/spec-document";
+import {
+  filterConformance,
+  fileKey,
+  folderKey,
+  type FilteredConformance,
+} from "../domain/conformance-filter";
+import type { SearchHit } from "../domain/search";
+import {
+  fileEntryId,
+  type SpecCatalog,
+  type SpecNode,
+} from "../domain/spec-document";
 import { messages } from "../messages";
 import { buildTraceability, type TestCitation } from "../domain/traceability";
 import { NodeLabels } from "./NodeLabels";
@@ -50,7 +63,8 @@ import { usePorts } from "./ports-context";
 import type { SourceLocation } from "./ReferencesPanel";
 import { useSpecRef } from "./ref-context";
 import { TRACEABILITY_KEY } from "./use-spec-catalog";
-import { nodeTitle } from "./SpecTreeView";
+import { nodeTitle, SnippetText } from "./SpecTreeView";
+import type { Pins } from "./use-pins";
 
 interface ConformancePanelProps {
   catalog: SpecCatalog;
@@ -58,6 +72,13 @@ interface ConformancePanelProps {
   onSelect: (nodeId: string) => void;
   /** Opens a test file at the line of its `Verifies:` marker. */
   onOpenSource: (location: SourceLocation, id: string) => void;
+  /** Lists the repository files that mention a node's ID. */
+  onFindReferences: (nodeId: string) => void;
+  /** Search hits by node id; undefined when nothing is searched. */
+  hits: ReadonlyMap<string, SearchHit> | undefined;
+  stars: Pins;
+  /** Shows only starred items and what they contain. */
+  starredOnly: boolean;
 }
 
 /** At most this many test labels per scenario; the rest are counted. */
@@ -99,8 +120,13 @@ function progressVariant(percent: number): ProgressVariant {
 
 interface Row {
   key: string;
-  name: React.ReactNode;
-  /** Node to open when the row is selected. */
+  kind: "folder" | "file" | "spec" | "scenario";
+  /** The requirement or scenario of the row. */
+  node?: SpecNode;
+  title: string;
+  /** File path, shown under the title on hover. */
+  path?: string;
+  /** Node to open when the title is clicked. */
   nodeId?: string;
   cells: [
     React.ReactNode,
@@ -229,13 +255,10 @@ function requirementRow(
   ).length;
   return {
     key: node.id,
+    kind: "spec",
+    node,
     nodeId: node.id,
-    name: (
-      <span className="sv-conformance__name">
-        <NodeLabels node={node} />
-        <span>{nodeTitle(intl, node)}</span>
-      </span>
-    ),
+    title: nodeTitle(intl, node),
     cells: [
       null,
       scenarios.length,
@@ -258,13 +281,10 @@ function requirementRow(
     ),
     children: scenarios.map((scenario) => ({
       key: scenario.node.id,
+      kind: "scenario",
+      node: scenario.node,
       nodeId: scenario.node.id,
-      name: (
-        <span className="sv-conformance__name">
-          <NodeLabels node={scenario.node} />
-          <span>{scenario.node.title}</span>
-        </span>
-      ),
+      title: scenario.node.title,
       cells: [null, null, null, null, null, null],
       conformance: (
         <span className="sv-conformance__issues">
@@ -283,17 +303,11 @@ function fileRow(
   openSource: OpenSource,
 ): Row {
   return {
-    key: `file:${report.file.path}`,
+    key: fileKey(report.file.path),
+    kind: "file",
     nodeId: fileEntryId(report.file),
-    name: (
-      <span className="sv-conformance__name">
-        <FileAltIcon />
-        <span>
-          {report.file.title}
-          <span className="sv-node__path">{report.file.path}</span>
-        </span>
-      </span>
-    ),
+    title: report.file.title,
+    path: report.file.path,
     cells: countCells(report.counts),
     conformance: percentCell(intl, report.file.title, report.counts),
     children: report.requirements.map((r) =>
@@ -309,13 +323,9 @@ function folderRows(
 ): Row[] {
   return [
     ...folder.folders.map((child): Row => ({
-      key: `folder:${child.path}`,
-      name: (
-        <span className="sv-conformance__name">
-          <FolderIcon />
-          <span>{child.path}</span>
-        </span>
-      ),
+      key: folderKey(child.path),
+      kind: "folder",
+      title: child.path,
       cells: countCells(child.counts),
       conformance: percentCell(intl, child.path, child.counts),
       children: folderRows(intl, child, openSource),
@@ -324,11 +334,53 @@ function folderRows(
   ];
 }
 
+/** The search excerpts a row's title shows on hover. */
+function hitPreview(
+  intl: IntlShape,
+  row: Row,
+  hits: ReadonlyMap<string, SearchHit> | undefined,
+  filtered: FilteredConformance | null,
+  catalog: SpecCatalog,
+): React.ReactNode {
+  if (row.kind === "file") {
+    const textHits = row.path ? filtered?.textHits.get(row.path) : undefined;
+    if (!textHits || textHits.length === 0) return null;
+    return (
+      <span className="sv-preview">
+        {textHits.slice(0, MAX_PREVIEWS).map((hit) => {
+          const node = catalog.nodesById.get(hit.nodeId);
+          return (
+            <span className="sv-preview__item" key={hit.nodeId}>
+              <span className="sv-preview__title">
+                {node ? nodeTitle(intl, node) : hit.nodeId}
+              </span>
+              {hit.snippet ? <SnippetText snippet={hit.snippet} /> : null}
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+  const snippet = row.nodeId ? hits?.get(row.nodeId)?.snippet : undefined;
+  return snippet ? (
+    <span className="sv-preview">
+      <SnippetText snippet={snippet} />
+    </span>
+  ) : null;
+}
+
+/** At most this many excerpts in a file row's hover preview. */
+const MAX_PREVIEWS = 3;
+
 export function ConformancePanel({
   catalog,
   selectedNodeId,
   onSelect,
   onOpenSource,
+  onFindReferences,
+  hits,
+  stars,
+  starredOnly,
 }: ConformancePanelProps) {
   const intl = useIntl();
   const { repository } = usePorts();
@@ -355,18 +407,42 @@ export function ConformancePanel({
     () => folderRows(intl, report.root, onOpenSource),
     [intl, report, onOpenSource],
   );
-  // Folders start expanded so every file is visible; files and
-  // requirements start collapsed.
+  const starredIds = starredOnly ? stars.ids : undefined;
+  const filtered = useMemo(
+    () =>
+      filterConformance(report.root, {
+        ...(hits ? { hits } : {}),
+        ...(starredIds ? { starred: new Set(starredIds) } : {}),
+      }),
+    [report, hits, starredIds],
+  );
+  // Without a filter, folders start expanded so every file is visible, and
+  // files and requirements start collapsed. A filter expands the rows above
+  // its matches. The parent remounts this panel when the filter changes.
   const [expanded, setExpanded] = useState<Set<string>>(
     () =>
       new Set(
-        rows.flatMap(function folderKeys(row): string[] {
-          return row.key.startsWith("folder:")
-            ? [row.key, ...row.children.flatMap(folderKeys)]
-            : [];
-        }),
+        filtered
+          ? filtered.expanded
+          : rows.flatMap(function folderKeys(row): string[] {
+              return row.kind === "folder"
+                ? [row.key, ...row.children.flatMap(folderKeys)]
+                : [];
+            }),
       ),
   );
+
+  /**
+   * Children to show under a row. A filtered row shows its matching
+   * children; a row that matched by itself shows all of them when opened.
+   */
+  const shownChildren = (row: Row): Row[] => {
+    if (!filtered) return row.children;
+    const matching = row.children.filter((child) =>
+      filtered.visible.has(child.key),
+    );
+    return matching.length > 0 ? matching : row.children;
+  };
 
   const toggle = (key: string) => {
     setExpanded((current) => {
@@ -376,12 +452,89 @@ export function ConformancePanel({
     });
   };
 
+  const starButton = (row: Row): React.ReactNode => {
+    const { nodeId } = row;
+    if (!nodeId || (row.kind !== "spec" && row.kind !== "scenario")) {
+      return null;
+    }
+    const isStarred = stars.isPinned(nodeId);
+    return (
+      <Button
+        aria-label={intl.formatMessage(
+          isStarred ? messages.unstar : messages.star,
+          { title: row.title },
+        )}
+        aria-pressed={isStarred}
+        className={isStarred ? "sv-star sv-star--on" : "sv-star"}
+        icon={isStarred ? <StarIcon /> : <OutlinedStarIcon />}
+        onClick={() => {
+          if (isStarred) stars.unpin([nodeId]);
+          else stars.pin([nodeId]);
+        }}
+        variant="plain"
+      />
+    );
+  };
+
+  const nameCell = (row: Row): React.ReactNode => {
+    const { nodeId, node } = row;
+    const preview = hitPreview(intl, row, hits, filtered, catalog);
+    const title = nodeId ? (
+      <Button
+        className="sv-conformance__open"
+        isInline
+        onClick={() => {
+          onSelect(nodeId);
+        }}
+        variant="link"
+      >
+        {row.title}
+      </Button>
+    ) : (
+      <span>{row.title}</span>
+    );
+    return (
+      <span className="sv-conformance__name">
+        {starButton(row)}
+        {row.kind === "folder" ? <FolderIcon /> : null}
+        {node ? (
+          <NodeLabels
+            node={node}
+            {...(node.specId
+              ? {
+                  onClick: () => {
+                    onFindReferences(node.id);
+                  },
+                }
+              : {})}
+          />
+        ) : null}
+        <span className="sv-conformance__title">
+          {preview ? (
+            <Tooltip
+              className="sv-preview__tooltip"
+              content={preview}
+              maxWidth="40rem"
+              position="bottom-start"
+            >
+              {title}
+            </Tooltip>
+          ) : (
+            title
+          )}
+          {row.path ? <span className="sv-node__path">{row.path}</span> : null}
+        </span>
+      </span>
+    );
+  };
+
   // Row position among the rendered rows; PatternFly names the expand
   // toggles after it.
   let rowIndex = 0;
   const renderRows = (list: Row[], level: number): React.ReactElement[] =>
     list.flatMap((row, index) => {
       const isExpanded = expanded.has(row.key);
+      const children = shownChildren(row);
       rowIndex += 1;
       const treeRow: TdProps["treeRow"] = {
         rowIndex,
@@ -392,7 +545,7 @@ export function ConformancePanel({
           isExpanded,
           "aria-level": level,
           "aria-posinset": index + 1,
-          "aria-setsize": row.children.length,
+          "aria-setsize": children.length,
         },
       };
       const { nodeId } = row;
@@ -410,20 +563,7 @@ export function ConformancePanel({
             dataLabel={intl.formatMessage(messages.columnName)}
             treeRow={treeRow}
           >
-            {nodeId ? (
-              <Button
-                className="sv-conformance__open"
-                isInline
-                onClick={() => {
-                  onSelect(nodeId);
-                }}
-                variant="link"
-              >
-                {row.name}
-              </Button>
-            ) : (
-              row.name
-            )}
+            {nameCell(row)}
           </Td>
           {row.cells.map((cell, cellIndex) => (
             <Td className="sv-conformance__count" key={cellIndex}>
@@ -436,7 +576,7 @@ export function ConformancePanel({
         </TreeRowWrapper>
       );
       return isExpanded
-        ? [element, ...renderRows(row.children, level + 1)]
+        ? [element, ...renderRows(children, level + 1)]
         : [element];
     });
 
@@ -530,7 +670,14 @@ export function ConformancePanel({
               </Th>
             </Tr>
           </Thead>
-          <Tbody>{renderRows(rows, 1)}</Tbody>
+          <Tbody>
+            {renderRows(
+              filtered
+                ? rows.filter((row) => filtered.visible.has(row.key))
+                : rows,
+              1,
+            )}
+          </Tbody>
         </Table>
         {report.filesWithoutRequirements.length > 0 ? (
           <Content className="sv-conformance__none" component="p">
