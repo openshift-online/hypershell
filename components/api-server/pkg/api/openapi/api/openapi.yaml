@@ -424,6 +424,14 @@ paths:
         schema:
           type: string
         style: form
+      - description: Restricts the list to gateways the authenticated caller owns
+        explode: true
+        in: query
+        name: mine
+        required: false
+        schema:
+          type: boolean
+        style: form
       responses:
         "200":
           content:
@@ -4297,6 +4305,15 @@ components:
       schema:
         type: string
       style: form
+    mine:
+      description: Restricts the list to gateways the authenticated caller owns
+      explode: true
+      in: query
+      name: mine
+      required: false
+      schema:
+        type: boolean
+      style: form
     gatewayId:
       description: Selected Gateway ID
       in: path
@@ -4832,6 +4849,17 @@ components:
             items:
               $ref: "#/components/schemas/Gateway"
             type: array
+          has_other_owned_gateways:
+            description: "Browser-safe existence flag reporting whether the caller's\
+              \ full authorized gateway list (before search, optional filters, and\
+              \ the `mine` ownership filter) contains at least one gateway the caller\
+              \ does not own. It is computed server-side with a bounded authorization-scoped\
+              \ existence query rather than by enumerating pages, so a console can\
+              \ decide whether to show the \"Show only my gateways\" toggle without\
+              \ downloading every page. It is evaluated only over the caller's authorized\
+              \ gateways and never discloses the existence of gateways the caller\
+              \ is not authorized to see (SEC-RBAC-10)."
+            type: boolean
         type: object
       example:
         total: 1
@@ -4923,6 +4951,7 @@ components:
           name: name
           namespace: namespace
           status: status
+        has_other_owned_gateways: true
     GatewayPatchRequest:
       description: "The only user-writable gateway field on update is name (rename).\
         \ Every other gateway field is platform-managed and control-plane-only; it\

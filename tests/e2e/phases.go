@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,41 +165,119 @@ func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 
 // --- Phase P1: primary gateway up and reachable ---
 
-// Verifies: E2E-CORE-13.02
-func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
-	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
-	if s.matrixCapability != "" {
-		prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
-	}
-	name := fmt.Sprintf("%s-%s", prefix, s.runID)
-	created := s.createGateway(t, name)
-	s.trackGateway(created.ID)
+// gatewayWorkspaceModes is the workspace-mode vocabulary the API server accepts
+// (shared, managed, operator; see field_policy.go gatewayWorkspaceModes, with
+// managed the create-time default). P1.1 asserts the primary gateway reports one
+// of these.
+var gatewayWorkspaceModes = []string{"shared", "managed", "operator"}
 
-	s.primary = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
+// ensurePrimaryGateway provisions the shared primary gateway exactly once and
+// records its artifacts on the suite (or step clone), so every step that reads the
+// primary gateway -- the P1 assertion steps and the P2/P3 steps that reuse it --
+// sees the same ready gateway, token, endpoint, and CLI handle. It is idempotent:
+// a full or Phase-P1 run provisions eagerly at Phase-P1 start, while an isolated
+// step provisions lazily on first call. Safe for concurrent step clones because
+// provisioning runs under primaryState.once.
+func (s *E2ESuite) ensurePrimaryGateway(t *testing.T) {
+	t.Helper()
+	st := s.primaryState
+	st.once.Do(func() { st.provision(s, t) })
+	// Copy the shared result into this suite/clone so the existing readers
+	// (s.primary, s.primaryGatewayToken, s.primaryLocalName, ...) work unchanged.
+	s.primary = st.ref
+	s.primaryReadyGateway = st.ready
+	s.primaryProvisionDuration = st.provisionDuration
+	s.primaryWorkspaceMode = st.workspaceMode
+	s.primaryGatewayToken = st.token
+	s.primaryEndpoint = st.endpoint
+	s.primaryLocalName = st.localName
+	s.primaryRouteAddress = st.routeAddress
+}
+
+// provision creates (or adopts) the primary gateway, waits for it to reach Running
+// with settled provisioning conditions, acquires its per-gateway token, discovers
+// its endpoint, and registers it with the CLI, recording each artifact on st. It
+// runs under primaryState.once, so a provisioning failure (a testify FailNow)
+// stops the calling step.
+func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
+	t.Helper()
+	start := time.Now()
+
+	var created *sdktypes.Gateway
+	if adoptID := os.Getenv("E2E_PRIMARY_GATEWAY_ID"); adoptID != "" {
+		// Fast local iteration: adopt an already-running gateway and leave it in
+		// place. It is never tracked for deletion, so TearDownSuite keeps it.
+		s.Logf("adopting existing primary gateway %s (E2E_PRIMARY_GATEWAY_ID); it will not be deleted in teardown", adoptID)
+		gw, err := s.admin.Gateways().Get(t.Context(), adoptID)
+		s.Require().NoError(err, "get adopted primary gateway %s", adoptID)
+		created = gw
+	} else {
+		prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
+		if s.matrixCapability != "" {
+			prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
+		}
+		name := fmt.Sprintf("%s-%s", prefix, s.runID)
+		created = s.createGateway(t, name)
+		s.trackGateway(created.ID)
+	}
+	st.ref = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
 
 	running := s.waitGatewayRunning(t, created.ID)
-	s.primary.Namespace = running.Namespace
-	s.primaryWorkspaceMode = running.WorkspaceMode
-	s.Require().Equal("Running", running.Phase, "gateway must reach Running")
-	s.Require().NotEmpty(running.RouteAddress, "running gateway publishes route_address")
+	st.ref.Namespace = running.Namespace
+	st.workspaceMode = running.WorkspaceMode
+	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
+	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
+
 	var conditionsErr error
 	conditionsWaitErr := harness.Poll(t.Context(), 5*time.Second, durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
 		current, err := s.admin.Gateways().Get(ctx, created.ID)
 		if err != nil {
 			return false, nil
 		}
-		conditionsErr = validateProvisioningConditions(current.ProvisioningConditions)
-		return conditionsErr == nil, nil
+		if conditionsErr = validateProvisioningConditions(current.ProvisioningConditions); conditionsErr == nil {
+			running = current
+			return true, nil
+		}
+		return false, nil
 	})
-	s.Require().NoError(conditionsWaitErr, "gateway provisioning conditions did not settle: %v", conditionsErr)
-	s.primaryRouteAddress = running.RouteAddress
-	s.Logf("primary gateway %s (%s) Running in namespace %s route=%s", running.Name, running.ID, running.Namespace, running.RouteAddress)
-	// The orphan reaper is a long-only kube assertion; startOrphanReaper no-ops
-	// outside long mode, where a kube context is always available.
-	s.startOrphanReaper(t)
+	s.Require().NoError(conditionsWaitErr, "primary gateway provisioning conditions did not settle: %v", conditionsErr)
+	st.ready = running
+	st.provisionDuration = time.Since(start)
+	st.routeAddress = running.RouteAddress
+	s.Logf("primary gateway %s (%s) Running in namespace %s route=%s after %s", running.Name, running.ID, running.Namespace, running.RouteAddress, st.provisionDuration)
+
+	// Per-gateway token (the P1.3 artifact): a token exchange in identity mode, a
+	// client_credentials token in service_account mode.
+	tok := s.requireGatewayToken(t, t.Context(), st.ref, "acquire primary gateway token with openshell-admin role")
+	s.Require().NotEmpty(tok.AccessToken, "primary gateway token")
+	st.token = tok
+
+	// Endpoint discovery + CLI registration (the P1.4 artifacts). The endpoint is
+	// derived from the API-published route_address, so no per-cluster kube context
+	// is required; short mode and the matrix register the CLI too (E2E-CORE-39).
+	endpoint, err := gatewayEndpointFromRouteAddress(running.RouteAddress)
+	s.Require().NoError(err, "derive primary gateway endpoint from route_address")
+	st.endpoint = endpoint
+	st.localName = s.registerGateway(t, st.ref, endpoint, tok.AccessToken)
+}
+
+// p1_1Provisioning asserts the shared primary gateway (created in setup via
+// ensurePrimaryGateway) reconciled to Running with valid provisioning conditions
+// and workspace mode, and logs the recorded provisioning duration (TTR). The
+// gateway itself is created in setup, not here, so this step runs in isolation.
+// Verifies: E2E-CORE-13.02
+func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
+	s.ensurePrimaryGateway(t)
+	s.Require().NotNil(s.primaryReadyGateway, "primary gateway provisioned in setup")
+	s.Require().Equal("Running", s.primaryReadyGateway.Phase, "primary gateway reached Running")
+	s.Require().NotEmpty(s.primaryReadyGateway.RouteAddress, "running primary gateway publishes route_address")
+	s.Require().NoError(validateProvisioningConditions(s.primaryReadyGateway.ProvisioningConditions), "primary gateway provisioning conditions complete")
+	s.Assert().Containsf(gatewayWorkspaceModes, s.primaryWorkspaceMode, "primary gateway workspace mode %q is valid", s.primaryWorkspaceMode)
+	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
 }
 
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
 	ctx := t.Context()
 	ns := s.primary.Namespace
@@ -342,44 +421,42 @@ func certificateReady(certificate *unstructured.Unstructured) bool {
 	return false
 }
 
+// p1_3TokenAndCATrust asserts the per-gateway token acquired during setup is
+// present (CA trust is installed process-wide for the SDK and consumed by the CLI
+// via SSL_CERT_FILE in P1.4/P1.5) and exercises the per-gateway OAuth device
+// authorization path. It reads the setup-recorded token rather than acquiring one,
+// so it runs in isolation.
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
-	// The per-gateway Keycloak client is "<gw-name>-<gw-id>"; block until the
-	// admin role lands in a token for it (roles reconcile asynchronously).
+	s.ensurePrimaryGateway(t)
+	// The per-gateway Keycloak client is "<gw-name>-<gw-id>".
 	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
-	if s.usesGatewayServiceAccount() {
-		s.runner.Comment("create a gateway service account for client %s and mint its client_credentials token (no token exchange)", clientID)
-	} else {
-		s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
-	}
-	tok := s.requireGatewayToken(t, t.Context(), s.primary, "acquire gateway token with openshell-admin role")
-	s.Require().NotEmpty(tok.AccessToken, "gateway token")
-	s.primaryGatewayToken = tok
+	s.Require().NotEmpty(s.primaryGatewayToken.AccessToken, "primary gateway token acquired in setup")
 	s.longOnly("device-authorization", func(t *testing.T) {
 		if s.driver.Name() != "kind" {
 			t.Skipf("device authorization check runs on kind only; driver is %s", s.driver.Name())
 		}
 		s.Require().NoError(s.driver.ValidateGatewayDeviceAuthorization(t.Context(), clientID), "per-gateway OAuth device authorization with PKCE")
 	})
-	// CA trust is already installed process-wide for the SDK (no insecure bypass);
-	// the CLI consumes the same CA via SSL_CERT_FILE in P1.4/P1.5.
 }
 
-// p1_4RouteAndCLIRegistration discovers the gateway endpoint from the API-published
-// route_address (asserted present in P1.1) and registers the gateway with the
-// openshell CLI (writes its per-gateway config). It needs no Kubernetes context, so
-// it runs in short mode (E2E-CORE-39).
+// p1_4RouteAndCLIRegistration asserts the gateway endpoint was discovered and the
+// CLI handle registered during setup, so the route-discovery + CLI-registration
+// outcome is verified without redoing it. The endpoint is derived from the
+// API-published route_address, so it needs no Kubernetes context and runs in short
+// mode (E2E-CORE-39).
 func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
-	endpoint, err := gatewayEndpointFromRouteAddress(s.primaryRouteAddress)
-	s.Require().NoError(err, "derive gateway endpoint from API route_address")
-	s.Logf("gateway endpoint (from route_address): %s", endpoint)
-
-	s.primaryLocalName = s.registerGateway(t, s.primary, endpoint, s.primaryGatewayToken.AccessToken)
+	s.ensurePrimaryGateway(t)
+	s.Assert().NotEmpty(s.primaryEndpoint, "primary gateway endpoint discovered in setup")
+	s.Require().NotEmpty(s.primaryLocalName, "primary gateway registered with the CLI in setup")
+	s.Logf("primary gateway endpoint: %s (CLI handle %s)", s.primaryEndpoint, s.primaryLocalName)
 }
 
 // p1_5Connectivity verifies the openshell CLI connects and reports status over the
-// trusted TLS established in P1.3. Reaching the gateway over its route proves route
-// discovery, the Service, and the Deployment are functional without a kube context.
+// trusted TLS established for the primary gateway in setup. Reaching the gateway over
+// its route proves route discovery, the Service, and the Deployment are functional
+// without a kube context (E2E-CORE-39).
 func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	s.Require().NotEmpty(s.primaryLocalName, "primary gateway registered with the CLI")
 	s.cliStatusConnected(t, s.primaryLocalName, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
 }
@@ -387,13 +464,14 @@ func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
 // --- Phase P2 / P3 ---
 
 // p2_1SandboxLifecycle creates a sandbox via the CLI and execs into it (the CLI
-// `exec whoami` success is the user-facing readiness proof), deletes it, and
-// verifies the gateway's active_sandbox_count tracks create/delete through the API.
-// It owns its own gateway so the count assertion is isolated, and discovers the
-// gateway endpoint from the API-published route_address, so the user-facing path
-// needs no Kubernetes context (E2E-CORE-39). Long mode adds the pod-level readiness
-// wait before the CLI exec (E2E-CORE-13.05).
-// Verifies: E2E-CORE-13.05, E2E-CORE-14.01, E2E-CORE-14.02
+// `exec whoami` success is the user-facing readiness proof), deletes it, verifies the
+// gateway's active_sandbox_count tracks create/delete through the API, and confirms
+// each sandbox is fully deleted from the gateway store within a time bound. It owns
+// its own gateway so the count assertion is isolated, and discovers the gateway
+// endpoint from the API-published route_address, so the user-facing path needs no
+// Kubernetes context (E2E-CORE-39). Long mode adds the pod-level readiness wait before
+// the CLI exec (E2E-CORE-13.05).
+// Verifies: E2E-CORE-13.05, E2E-CORE-13.06, E2E-CORE-14.01, E2E-CORE-14.02
 func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	ctx := t.Context()
 
@@ -472,9 +550,47 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.runSandboxCLIConcurrently(t, local, "delete", names)
 	s.pollActiveSandboxCount(t, gw.ID, 0)
 
+	// active_sandbox_count tracks sandbox PODS, so it can reach 0 while a sandbox is
+	// still wedged in the gateway's object store (phase Deleting) - the exact failure
+	// mode of openshift-online/hypershell#827. Short mode must therefore confirm each
+	// sandbox is FULLY deleted (gone from `openshell sandbox list`) within a time bound.
+	s.waitSandboxesFullyDeleted(t, local, names, durationSecondsEnv("E2E_SANDBOX_DELETE_TIMEOUT", 120*time.Second))
+
 	// The CLI is done with this gateway: retire its service account (a no-op in
 	// identity mode).
 	s.retireGatewayServiceAccount(ref)
+}
+
+// waitSandboxesFullyDeleted polls `openshell sandbox list` until none of the given
+// sandbox names remain, failing after timeout. This is the regression guard for
+// openshift-online/hypershell#827: active_sandbox_count tracks sandbox pods, so it can
+// reach 0 while a sandbox is still wedged in the gateway's object store (phase Deleting,
+// object-store finalization failed). The CLI list reflects that store, so a wedged
+// sandbox stays visible here until it is truly finalized.
+func (s *E2ESuite) waitSandboxesFullyDeleted(t *testing.T, local string, names []string, timeout time.Duration) {
+	t.Helper()
+	var remaining []string
+	err := pollNoCtx(timeout, 5*time.Second, func() bool {
+		out, err := s.cli(t, local, "sandbox", "list", "--names")
+		if err != nil {
+			s.Logf("sandbox list (awaiting full deletion) returned an error (continuing): %v", err)
+			return false
+		}
+		listed := make(map[string]struct{})
+		for _, line := range strings.Split(stripANSI(out), "\n") {
+			if n := strings.TrimSpace(line); n != "" {
+				listed[n] = struct{}{}
+			}
+		}
+		remaining = remaining[:0]
+		for _, n := range names {
+			if _, ok := listed[n]; ok {
+				remaining = append(remaining, n)
+			}
+		}
+		return len(remaining) == 0
+	})
+	s.Require().NoErrorf(err, "sandboxes not fully deleted within %s (still present: %v); active_sandbox_count tracks pods, this check reads the gateway store - openshift-online/hypershell#827", timeout, remaining)
 }
 
 func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
@@ -539,10 +655,10 @@ func (s *E2ESuite) deleteSandboxAndWaitForCount(t *testing.T, local, name, gatew
 }
 
 // p2_2RBACEnforcement checks the developer vs platform-admin boundary at the API:
-// the developer may list gateways; gateway-create depends on the deployment's
-// RBAC default (gateway:creator grants create, otherwise 403); platform-admin
-// holds the elevated permissions including gateway delete. The developer
-// sandbox-create positive case needs the CLI and lands with the CLI wave.
+// the developer may list gateways; gateway-create follows whether the caller's
+// own token carries gateway:creator (E2E-CORE-15); platform-admin holds the
+// elevated permissions including gateway delete. The developer sandbox-create
+// positive case needs the CLI and lands with the CLI wave.
 // Verifies: E2E-CORE-15.02, E2E-CORE-15.03, E2E-CORE-15.04, E2E-CORE-15.05
 func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	ctx := t.Context()
@@ -556,20 +672,22 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
 	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
-	// Developer gateway-create: environment-dependent on the RBAC default. This probe
-	// tests the gateway:creator permission, not cluster targeting, so it uses the
-	// driver's requirement selector and does not assert which cluster it resolved to.
+	// Developer gateway-create: follows whether the developer's own token carries
+	// gateway:creator (the shared developer seed omits it on every environment so the
+	// denial path is exercised consistently, CICD-CRED-13). This probe tests the
+	// gateway:creator permission, not cluster targeting, so it uses the driver's
+	// requirement selector and does not assert which cluster it resolved to.
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
-	if s.rbacDefaultIncludesCreator(t) {
-		s.Assert().Truef(st == http.StatusCreated || st == http.StatusOK, "with gateway:creator default, developer create should succeed, got %d (%s)", st, string(body))
+	if s.tokenHasRealmRole(t, s.devCreds(), "gateway:creator") {
+		s.Assert().Truef(st == http.StatusCreated || st == http.StatusOK, "with gateway:creator, developer create should succeed, got %d (%s)", st, string(body))
 		var created sdktypes.Gateway
 		if json.Unmarshal(body, &created) == nil && created.ID != "" {
 			_ = s.admin.Gateways().Delete(ctx, created.ID) // clean up
 		}
 	} else {
-		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
+		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator, developer create must be 403 (body: %s)", string(body))
 		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
@@ -582,8 +700,8 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	platformCreate := s.gatewayCreateRequestForSuite("e2e-padmin-create-" + s.runID)
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodPost, "/gateways", platformCreate)
 	s.Require().NoError(err, "platform-admin POST /gateways")
-	if s.rbacDefaultIncludesCreator(t) {
-		s.Require().Truef(st == http.StatusCreated || st == http.StatusOK, "platform-admin gateway create should follow the gateway:creator default, got %d (%s)", st, string(body))
+	if s.tokenHasRealmRole(t, s.platformAdminCreds(), "gateway:creator") {
+		s.Require().Truef(st == http.StatusCreated || st == http.StatusOK, "platform-admin gateway create should follow its token's gateway:creator role, got %d (%s)", st, string(body))
 		var platformCreated sdktypes.Gateway
 		s.Require().NoError(json.Unmarshal(body, &platformCreated), "decode platform-admin-created gateway")
 		if platformCreated.ID != "" {
@@ -609,9 +727,14 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	ctx := t.Context()
 
-	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
-	// account is revoked, verified, and deleted here (a no-op in identity mode).
-	s.retireGatewayServiceAccount(s.primary)
+	// The orphan reaper is normally seeded in SetupSuite (long mode) so its sweep
+	// interval overlaps P1 and P2. Seed it here too, so an isolated P2.3 run -- where
+	// setup did not start it -- still has an orphan to assert against. The primary
+	// gateway's service account is NOT retired here (TearDownSuite retires it, so it
+	// never races with P2.5's use of the primary gateway).
+	if s.orphan == nil {
+		s.startOrphanReaper(t)
+	}
 
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
 	gw := s.createGateway(t, "e2e-del-"+s.runID)
@@ -645,8 +768,9 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	}), "deleted gateway API record reaches 404")
 	s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
 
-	// Periodic-reaper path: P1.1 seeded the orphan and started this wait in the
-	// background, overlapping it with P1.2-P1.5 and the P2 fan-out.
+	// Periodic-reaper path: SetupSuite seeded the orphan and started this wait in
+	// the background (an isolated P2.3 run self-seeded it above), overlapping the
+	// sweep interval with P1 and the P2 fan-out.
 	s.longOnly("orphan-reaper", func(t *testing.T) {
 		s.Require().NotNil(s.orphan, "background orphan reaper was started")
 		select {
@@ -834,6 +958,7 @@ func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time
 // and the unprivileged hypershell-control-plane service account.
 // Verifies: E2E-CORE-21.01, E2E-CORE-21.02, PLAT-USR-03.02, PLAT-USR-03.04
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 
 	privilegedLabel := "platform-admin"
@@ -1177,27 +1302,45 @@ func (s *E2ESuite) podLogs(ctx context.Context, ns, selector string, tail int64)
 	return b.String(), nil
 }
 
-// rbacDefaultIncludesCreator reports whether the deployed api-server grants the
-// gateway:creator role by default (so a plain developer may create gateways). It
-// reads RBAC_DEFAULT_ROLES on the api-server deployment; unset means the Kind
-// default, which includes gateway:creator.
-func (s *E2ESuite) rbacDefaultIncludesCreator(t *testing.T) bool {
-	dep, err := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace()).Get(t.Context(), "hypershell-api-server", metav1.GetOptions{})
+// jwtRealmRoles decodes the realm_access.roles claim from a JWT without
+// verifying its signature: the suite already trusts the issuing driver, and
+// the claim is not available any other way now that the API server merges no
+// default role of its own (SEC-RBAC-13).
+func jwtRealmRoles(token string) ([]string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("malformed JWT: expected 3 segments, got %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		s.Logf("WARN read api-server RBAC default (assuming creator-default): %v", err)
-		return true
+		return nil, fmt.Errorf("decode JWT payload: %w", err)
 	}
-	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name != "api-server" {
-			continue
-		}
-		for _, e := range c.Env {
-			if e.Name == "RBAC_DEFAULT_ROLES" {
-				return strings.Contains(e.Value, "gateway:creator")
-			}
+	var claims struct {
+		RealmAccess struct {
+			Roles []string `json:"roles"`
+		} `json:"realm_access"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("unmarshal JWT claims: %w", err)
+	}
+	return claims.RealmAccess.Roles, nil
+}
+
+// tokenHasRealmRole reports whether creds' current OIDC token carries role in
+// its realm_access.roles claim (E2E-CORE-15): the expected create-gateway
+// result follows the caller's own token, not API server Deployment
+// configuration.
+func (s *E2ESuite) tokenHasRealmRole(t *testing.T, creds driver.Credentials, role string) bool {
+	tok, err := s.driver.AcquireOIDCToken(t.Context(), creds)
+	s.Require().NoErrorf(err, "acquire token for %s", creds.Username)
+	rolesList, err := jwtRealmRoles(tok.AccessToken)
+	s.Require().NoErrorf(err, "decode realm roles for %s", creds.Username)
+	for _, r := range rolesList {
+		if r == role {
+			return true
 		}
 	}
-	return true // unset -> Kind default includes gateway:creator
+	return false
 }
 
 // deleteUnexpectedlyCreatedGateway removes a gateway that a create call made

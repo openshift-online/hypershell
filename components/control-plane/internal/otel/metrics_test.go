@@ -25,12 +25,25 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousGatewaySandboxExpiring := gatewaySandboxExpiring
 	previousGatewaySandboxIdle := gatewaySandboxIdle
 	previousGatewaySandboxTotal := gatewaySandboxTotal
+	previousGatewaySandboxReady := gatewaySandboxReady
+	previousGatewaySandboxReadySourceAvailable := gatewaySandboxReadySourceAvailable
 	previousGatewaySandboxLifetime := gatewaySandboxLifetime
+	previousGatewayCertificateValid := gatewayCertificateValid
+	previousGatewayCertificateExpired := gatewayCertificateExpired
+	previousGatewayCertificateUnavailable := gatewayCertificateUnavailable
+	previousGatewayCertificateDaysToExpiryMin := gatewayCertificateDaysToExpiryMin
+	previousGatewayCertificateSourceAvailable := gatewayCertificateSourceAvailable
+	previousOIDCObserved := oidcClientObservedTimestamp
+	previousOIDCSuccess := oidcClientSuccessTimestamp
+	previousOIDCClientSynced := oidcClientSynced
+	previousOIDCClientExpected := oidcClientExpected
+	previousOIDCClientKeycloakConnected := oidcClientKeycloakConnected
 	previousReconcileErrors := reconcileErrors
 	previousReconciliationFailures := reconciliationFailures
 	previousReconciliationRetries := reconciliationRetries
 	previousReconciliationLag := reconciliationLag
 	previousStaleResourceStatusCount := staleResourceStatusCount
+	previousReconciliationResourcesTotal := reconciliationResourcesTotal
 	previousWatchReconnects := watchReconnects
 	previousReconcileOutcomes := reconcileOutcomes
 	previousReconcileFailed := reconcileFailed
@@ -49,12 +62,31 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewaySandboxExpiring = nil
 	gatewaySandboxIdle = nil
 	gatewaySandboxTotal = nil
+	gatewaySandboxReady = nil
+	gatewaySandboxReadySourceAvailable = nil
 	gatewaySandboxLifetime = nil
+	gatewayCertificateValid = nil
+	gatewayCertificateExpired = nil
+	gatewayCertificateUnavailable = nil
+	gatewayCertificateDaysToExpiryMin = nil
+	gatewayCertificateSourceAvailable = nil
+	oidcClientObservedTimestamp = nil
+	oidcClientSuccessTimestamp = nil
+	oidcClientSynced = nil
+	oidcClientExpected = nil
+	oidcClientKeycloakConnected = nil
 	reconcileErrors = nil
 	reconciliationFailures = nil
 	reconciliationRetries = nil
 	reconciliationLag = nil
 	staleResourceStatusCount = nil
+	reconciliationResourcesTotal = nil
+	gatewayPopulations.Lock()
+	gatewayPopulations.byCluster = make(map[string]map[string]bool)
+	gatewayPopulations.seeded = make(map[string]bool)
+	gatewayPopulations.seeding = make(map[string]bool)
+	gatewayPopulations.pending = make(map[string]map[string]*bool)
+	gatewayPopulations.Unlock()
 	watchReconnects = nil
 	reconcileOutcomes = nil
 	reconcileFailed = nil
@@ -71,12 +103,25 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		gatewaySandboxExpiring = previousGatewaySandboxExpiring
 		gatewaySandboxIdle = previousGatewaySandboxIdle
 		gatewaySandboxTotal = previousGatewaySandboxTotal
+		gatewaySandboxReady = previousGatewaySandboxReady
+		gatewaySandboxReadySourceAvailable = previousGatewaySandboxReadySourceAvailable
 		gatewaySandboxLifetime = previousGatewaySandboxLifetime
+		gatewayCertificateValid = previousGatewayCertificateValid
+		gatewayCertificateExpired = previousGatewayCertificateExpired
+		gatewayCertificateUnavailable = previousGatewayCertificateUnavailable
+		gatewayCertificateDaysToExpiryMin = previousGatewayCertificateDaysToExpiryMin
+		gatewayCertificateSourceAvailable = previousGatewayCertificateSourceAvailable
+		oidcClientObservedTimestamp = previousOIDCObserved
+		oidcClientSuccessTimestamp = previousOIDCSuccess
+		oidcClientSynced = previousOIDCClientSynced
+		oidcClientExpected = previousOIDCClientExpected
+		oidcClientKeycloakConnected = previousOIDCClientKeycloakConnected
 		reconcileErrors = previousReconcileErrors
 		reconciliationFailures = previousReconciliationFailures
 		reconciliationRetries = previousReconciliationRetries
 		reconciliationLag = previousReconciliationLag
 		staleResourceStatusCount = previousStaleResourceStatusCount
+		reconciliationResourcesTotal = previousReconciliationResourcesTotal
 		watchReconnects = previousWatchReconnects
 		reconcileOutcomes = previousReconcileOutcomes
 		reconcileFailed = previousReconcileFailed
@@ -96,6 +141,8 @@ func TestReconciliationMetrics(t *testing.T) {
 	RecordReconcileError(context.Background(), "Gateway")
 	RecordReconciliationRetry(context.Background(), "Gateway", ReasonK8sConflict)
 	RecordReconciliationLag(context.Background(), "Gateway", 2*time.Second)
+	observed := int64(0)
+	ReplaceGatewayPopulation(context.Background(), "cluster-a", []GatewayPopulationState{{ResourceID: "one", Generation: 1, ObservedGeneration: &observed}})
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "two", true)
@@ -320,6 +367,162 @@ func TestRecordSandboxUsageMetrics(t *testing.T) {
 	}
 	if !foundLifetime {
 		t.Fatal("gateway.sandbox.lifetime metric was not collected")
+	}
+}
+
+func TestRecordDashboardHealthGauges(t *testing.T) {
+	reader := testMetricsReader(t)
+	minimum := 4.5
+	RecordSandboxReady(t.Context(), "cluster-a", 3)
+	RecordCertificateHealth(t.Context(), "cluster-a", 7, 1, 2, &minimum)
+	RecordOIDCClientHealth(t.Context(), "cluster-a", 4, 5, true)
+
+	wantInt := map[string]int64{
+		"gateway.sandbox.ready":                  3,
+		"gateway.sandbox.ready.source.available": 1,
+		"gateway.certificate.valid":              7,
+		"gateway.certificate.expired":            1,
+		"gateway.certificate.unavailable":        2,
+		"gateway.certificate.source.available":   1,
+		"oidc.client.synced":                     4,
+		"oidc.client.expected":                   5,
+		"oidc.client.keycloak_connected":         1,
+	}
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			if expected, ok := wantInt[item.Name]; ok {
+				gauge, ok := item.Data.(metricdata.Gauge[int64])
+				if !ok {
+					t.Fatalf("%s type = %T", item.Name, item.Data)
+				}
+				if len(gauge.DataPoints) != 1 || gauge.DataPoints[0].Value != expected {
+					t.Fatalf("%s = %#v, want %d", item.Name, gauge.DataPoints, expected)
+				}
+				delete(wantInt, item.Name)
+			}
+			if item.Name == "gateway.certificate.days_to_expiry_min" {
+				gauge := item.Data.(metricdata.Gauge[float64])
+				if len(gauge.DataPoints) != 1 || gauge.DataPoints[0].Value != minimum {
+					t.Fatalf("expiry minimum = %#v", gauge.DataPoints)
+				}
+			}
+		}
+	}
+	if len(wantInt) != 0 {
+		t.Fatalf("missing metrics: %v", wantInt)
+	}
+}
+
+func TestDashboardHealthSourceAvailabilityClearsSuccessfulObservation(t *testing.T) {
+	reader := testMetricsReader(t)
+	minimum := 4.5
+	RecordSandboxReady(t.Context(), "cluster-a", 3)
+	RecordCertificateHealth(t.Context(), "cluster-a", 7, 0, 0, &minimum)
+	RecordSandboxReadyUnavailable(t.Context(), "cluster-a")
+	RecordCertificateHealthUnavailable(t.Context(), "cluster-a")
+
+	want := map[string]int64{
+		"gateway.sandbox.ready.source.available": 0,
+		"gateway.certificate.source.available":   0,
+	}
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			expected, ok := want[item.Name]
+			if !ok {
+				continue
+			}
+			gauge, ok := item.Data.(metricdata.Gauge[int64])
+			if !ok || len(gauge.DataPoints) != 1 || gauge.DataPoints[0].Value != expected {
+				t.Fatalf("%s = %#v, want %d", item.Name, item.Data, expected)
+			}
+			delete(want, item.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing availability metrics: %v", want)
+	}
+}
+
+func TestGatewayPopulationSnapshotUpdateAndDelete(t *testing.T) {
+	reader := testMetricsReader(t)
+	observedOne := int64(1)
+	observedTwo := int64(2)
+	ReplaceGatewayPopulation(t.Context(), "cluster-a", []GatewayPopulationState{
+		{ResourceID: "stale", Generation: 2, ObservedGeneration: &observedOne},
+		{ResourceID: "current", Generation: 2, ObservedGeneration: &observedTwo},
+	})
+	UpdateGatewayPopulation(t.Context(), "cluster-a", GatewayPopulationState{ResourceID: "current", Generation: 2, ObservedGeneration: &observedTwo}, true)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int64{"hypershell.stale.resource.status.count": 1, "hypershell.reconciliation.resources.total": 1}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			expected, ok := want[item.Name]
+			if !ok {
+				continue
+			}
+			gauge := item.Data.(metricdata.Gauge[int64])
+			var matched bool
+			for _, point := range gauge.DataPoints {
+				cluster, _ := point.Attributes.Value(attribute.Key("hypershell.cluster_id"))
+				if cluster.AsString() != "cluster-a" {
+					continue
+				}
+				matched = true
+				if point.Value != expected {
+					t.Fatalf("%s = %d, want %d", item.Name, point.Value, expected)
+				}
+			}
+			if !matched {
+				t.Fatalf("%s has no cluster-a point: %#v", item.Name, gauge.DataPoints)
+			}
+			delete(want, item.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing population metrics: %v", want)
+	}
+}
+
+func TestGatewayPopulationSeedPreservesConcurrentWatchEvents(t *testing.T) {
+	_ = testMetricsReader(t)
+	observedCurrent := int64(2)
+	observedStale := int64(1)
+
+	BeginGatewayPopulationSeed("cluster-a")
+	UpdateGatewayPopulation(t.Context(), "cluster-a", GatewayPopulationState{
+		ResourceID: "deleted-during-list", Generation: 2, ObservedGeneration: &observedCurrent,
+	}, true)
+	UpdateGatewayPopulation(t.Context(), "cluster-a", GatewayPopulationState{
+		ResourceID: "created-during-list", Generation: 2, ObservedGeneration: &observedCurrent,
+	}, false)
+	ReplaceGatewayPopulation(t.Context(), "cluster-a", []GatewayPopulationState{
+		{ResourceID: "deleted-during-list", Generation: 2, ObservedGeneration: &observedCurrent},
+		{ResourceID: "stale", Generation: 2, ObservedGeneration: &observedStale},
+	})
+
+	gatewayPopulations.Lock()
+	defer gatewayPopulations.Unlock()
+	population := gatewayPopulations.byCluster["cluster-a"]
+	if _, exists := population["deleted-during-list"]; exists {
+		t.Fatal("seed snapshot resurrected a gateway deleted by the concurrent watch")
+	}
+	if stale, exists := population["created-during-list"]; !exists || stale {
+		t.Fatalf("concurrent create = (%v, %v), want present and current", exists, stale)
+	}
+	if stale, exists := population["stale"]; !exists || !stale {
+		t.Fatalf("snapshot stale gateway = (%v, %v), want present and stale", exists, stale)
 	}
 }
 
@@ -732,4 +935,37 @@ func assertAttribute(t *testing.T, set attribute.Set, key, want string) {
 	if got := attributeString(t, set, key); got != want {
 		t.Fatalf("attribute %q = %q, want %q", key, got, want)
 	}
+}
+
+func TestOIDCHealthFreshnessUsesProducerTimes(t *testing.T) {
+	reader := testMetricsReader(t)
+	observed := time.Unix(1000, 0)
+	RecordOIDCClientFreshness(t.Context(), "cluster-a", observed, time.Time{})
+	assertTimes := func(wantObserved, wantSuccess int64) {
+		t.Helper()
+		var collected metricdata.ResourceMetrics
+		if err := reader.Collect(t.Context(), &collected); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]int64{"oidc.client.health.observed_timestamp_seconds": wantObserved, "oidc.client.health.success_timestamp_seconds": wantSuccess}
+		for _, scope := range collected.ScopeMetrics {
+			for _, item := range scope.Metrics {
+				if value, ok := want[item.Name]; ok {
+					points := item.Data.(metricdata.Gauge[int64]).DataPoints
+					if len(points) != 1 || points[0].Value != value {
+						t.Fatalf("%s = %v, want %d", item.Name, points, value)
+					}
+					delete(want, item.Name)
+				}
+			}
+		}
+		if len(want) != 0 {
+			t.Fatalf("missing metrics: %v", want)
+		}
+	}
+	assertTimes(1000, 0)
+	RecordOIDCClientFreshness(t.Context(), "cluster-a", observed.Add(time.Minute), observed)
+	assertTimes(1060, 1000)
+	// Re-exporting without another observation cannot renew freshness.
+	assertTimes(1060, 1000)
 }

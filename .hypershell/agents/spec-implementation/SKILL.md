@@ -53,7 +53,11 @@ file or directory you set out to edit. Before finishing:
 
 ### Step 3: Commit and Push
 
-Commit the specification changes.
+Commit the specification changes as a single `docs(spec): ...` commit. This is the
+FIRST commit of the work item's one funnel pull request (one PR carries both the
+spec and code phases; see "Pull request and commit model" in
+`../../execute-sdlc/SKILL.md`). The code phase later adds per-component commits to
+this same PR, so do not open or expect a separate code PR.
 
 IF `$EXISTING_PR` IS NOT NULL:
 - Push to existing PR's branch
@@ -74,5 +78,21 @@ ELSE:
 
 ### Step 4: Update Issue State
 
-Remove label `agent/review-spec-rejected` from `$GITHUB_ISSUE_URL` if present.
-Place label `agent/reviewable-spec` on `$GITHUB_ISSUE_URL`.
+Advance the phase on `$GITHUB_ISSUE_URL`:
+- Place label `agent/reviewable-spec`.
+- Remove the prior PHASE labels this transition supersedes, if present:
+  `agent/workable` (the phase that triggered this step) and
+  `agent/review-spec-rejected` (a prior spec-review verdict). Removing a label
+  that is already absent is a no-op.
+
+**Protected labels (never remove).** `agent/review-spec-blocked` is NOT a phase
+label - it is an OPTIONAL human gate a person applies to force a human spec
+sign-off before any code is written. NEVER remove it in this step, even while
+normalizing phase state; removing it silently destroys a human's intent to gate
+the spec-to-code transition. The role markers are likewise NOT phase labels and
+MUST NOT be removed here: `agent/allowed` (authorization gate), `agent/scope/*`
+(scope selector), and `agent/execution-record` (canonical-link marker). The
+paused-state holds `agent/blocked`, `agent/needs-input`, and `agent/duplicate` are
+also NOT phase labels and MUST NOT be removed here; removing one would silently
+un-pause the item. This step removes ONLY the prior phase labels named above - it
+is not a license to remove everything but one label.

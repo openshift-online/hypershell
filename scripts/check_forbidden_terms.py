@@ -77,6 +77,12 @@ def _read_text(relative_path: str) -> str | None:
     if not path.exists() and not path.is_symlink():
         return None
 
+    # A tracked path that is a directory on disk is a submodule gitlink (git
+    # ls-files lists it as a single entry). Its contents live in another
+    # repository and are not human-authored prose in this tree, so skip it.
+    if path.is_dir() and not path.is_symlink():
+        return None
+
     if path.is_symlink():
         data = os.fsencode(os.readlink(path))
     else:

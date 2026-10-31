@@ -103,10 +103,42 @@ type E2ESuite struct {
 	serviceAccounts *gatewayServiceAccountStore
 	// primaryLocalName is the CLI's local handle for the primary gateway.
 	primaryLocalName string
-	gateways         *gatewayTracker
-	cliCache         *cliCache
-	orphan           *orphanReaper
-	gcTimingLease    *namespaceGCTimingLease
+	// primaryReadyGateway is the primary gateway's Running response (status
+	// conditions, workspace mode, route address) recorded during provisioning so
+	// P1.1 can assert it without re-provisioning.
+	primaryReadyGateway *sdktypes.Gateway
+	// primaryProvisionDuration is the measured create-to-Running time (TTR) P1.1
+	// logs.
+	primaryProvisionDuration time.Duration
+	// primaryEndpoint is the discovered primary gateway endpoint recorded during
+	// provisioning for P1.4.
+	primaryEndpoint string
+	// primaryState provisions the shared primary gateway exactly once, whether that
+	// happens eagerly at Phase-P1 start or lazily when an isolated step that reads
+	// the primary gateway calls ensurePrimaryGateway. It is shared across step
+	// clones through an explicit pointer so every step observes the same gateway.
+	primaryState  *primaryGatewayState
+	gateways      *gatewayTracker
+	cliCache      *cliCache
+	orphan        *orphanReaper
+	gcTimingLease *namespaceGCTimingLease
+}
+
+// primaryGatewayState holds the shared primary-gateway provisioning result. A full
+// run (eager at Phase-P1 start), a Phase-P1 run, and an isolated step that reads
+// the primary gateway all drive provisioning through once, so the gateway is
+// created a single time and every step clone reads the same recorded artifacts.
+type primaryGatewayState struct {
+	once sync.Once
+
+	ref               driver.GatewayRef
+	ready             *sdktypes.Gateway
+	provisionDuration time.Duration
+	workspaceMode     string
+	token             driver.Token
+	endpoint          string
+	localName         string
+	routeAddress      string
 }
 
 type gatewayTracker struct {
@@ -163,10 +195,11 @@ type orphanReaper struct {
 
 func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 	return &E2ESuite{
-		driver:   d,
-		clients:  clients,
-		gateways: &gatewayTracker{},
-		cliCache: &cliCache{},
+		driver:       d,
+		clients:      clients,
+		gateways:     &gatewayTracker{},
+		cliCache:     &cliCache{},
+		primaryState: &primaryGatewayState{},
 	}
 }
 
@@ -275,6 +308,13 @@ func (s *E2ESuite) SetupSuite() {
 	s.clusterID = clusterID
 	s.Logf("seed ids: cluster=%s", clusterID)
 
+	// Seed the synthetic orphan and start its background reaper here, decoupled
+	// from primary-gateway provisioning, so its sweep interval overlaps P1 and P2
+	// and P2.3 only joins the result. An isolated P2.3 run self-seeds the reaper
+	// (see p2_3DeletionAndGC). startOrphanReaper is a no-op outside long mode.
+	if s.mode == modeLong {
+		s.startOrphanReaper(s.T())
+	}
 }
 
 // TearDownSuite restores GC timing, deletes the gateways the suite created, calls
@@ -330,7 +370,9 @@ func (s *E2ESuite) TearDownSuite() {
 	// Gateway service accounts are credentials, not resources kept for inspection:
 	// they are revoked and deleted, and their local secrets removed, even with
 	// E2E_SKIP_CLEANUP=1. This runs before the gateways are deleted because the
-	// service-account API lives under the gateway.
+	// service-account API lives under the gateway. It also retires the primary
+	// gateway's service account here (rather than in P2.3) so that retirement
+	// never races with the P2 steps -- notably P2.5 -- that use the primary gateway.
 	var saClient gatewayServiceAccountClient
 	if cleanupAPI != nil {
 		saClient = cleanupAPI.OpenShellGatewayServiceAccounts()
@@ -384,20 +426,37 @@ func (s *E2ESuite) TearDownSuite() {
 // than cascading into dependent steps. P2 and P3 use bounded parallel subtests;
 // E2E_CONCURRENCY=1 preserves strict canonical order for debugging.
 func (s *E2ESuite) TestPhases() {
-	// Phase P0 -- preflight gate.
-	s.gate("P0.1", "authentication", tagShort, s.p0_1Authentication)
-	s.gate("P0.2", "environment-readiness", tagShort, s.p0_2EnvironmentReadiness)
+	// Phase P0 -- preflight gate. Wrapped in a Phase-P0 subtest so a phase or step
+	// can be targeted uniformly (TestE2E/TestPhases/Phase-P0[/P0.1-...]). A gate
+	// failure FailNows its subtest, which marks this parent failed; the check below
+	// stops the run before any dependent phase, preserving the fail-fast semantics.
+	s.Run("Phase-P0", func() {
+		s.gate("P0.1", "authentication", tagShort, s.p0_1Authentication)
+		s.gate("P0.2", "environment-readiness", tagShort, s.p0_2EnvironmentReadiness)
+	})
+	if s.T().Failed() {
+		s.T().FailNow()
+	}
 
-	// Phase P1 -- primary gateway up and reachable.
-	s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
-	// P1.2 is the kube-level internal-posture check; it is long-only because short
-	// mode is user-facing and SHALL NOT rely on a Kubernetes context (E2E-CORE-39).
-	// The route reachability of P1.5 and the sandbox exec of P2.1 functionally prove
-	// the Deployment, Service, and route in short mode.
-	s.gate("P1.2", "infra-verification", tagLong, s.p1_2InfraVerification)
-	s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
-	s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
-	s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
+	// Phase P1 -- primary gateway up and reachable. The shared primary gateway is
+	// provisioned once here (eager for full and Phase-P1 runs); isolated P2/P3
+	// steps provision it lazily via ensurePrimaryGateway. The P1 steps are pure
+	// functional assertions over that recorded provisioning.
+	s.Run("Phase-P1", func() {
+		s.ensurePrimaryGateway(s.T())
+		s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
+		// P1.2 is the kube-level internal-posture check; it is long-only because short
+		// mode is user-facing and SHALL NOT rely on a Kubernetes context (E2E-CORE-39).
+		// The route reachability of P1.5 and the sandbox exec of P2.1 functionally prove
+		// the Deployment, Service, and route in short mode.
+		s.gate("P1.2", "infra-verification", tagLong, s.p1_2InfraVerification)
+		s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
+		s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
+		s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
+	})
+	if s.T().Failed() {
+		s.T().FailNow()
+	}
 
 	// Phase P2 -- hard behaviors, released in canonical phase order and bounded
 	// by the configured concurrency.
@@ -579,33 +638,37 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	// output is attributed to the correct step rather than guessed.
 	runner.SetLogger(logger)
 	clone := &E2ESuite{
-		logger:                 logger,
-		driver:                 s.driver,
-		clients:                s.clients,
-		runner:                 runner,
-		reporter:               s.reporter,
-		mode:                   s.mode,
-		concurrency:            s.concurrency,
-		ctx:                    s.ctx,
-		runID:                  s.runID,
-		startedAt:              s.startedAt,
-		apiHost:                s.apiHost,
-		admin:                  api,
-		clusterID:              s.clusterID,
-		sandboxImage:           s.sandboxImage,
-		matrixCapability:       s.matrixCapability,
-		matrixEligibleClusters: s.matrixEligibleClusters,
-		landed:                 s.landed,
-		nameSuffix:             s.nameSuffix,
-		primary:                s.primary,
-		primaryRouteAddress:    s.primaryRouteAddress,
-		primaryGatewayToken:    s.primaryGatewayToken,
-		primaryLocalName:       s.primaryLocalName,
-		primaryWorkspaceMode:   s.primaryWorkspaceMode,
-		serviceAccounts:        s.serviceAccounts,
-		gateways:               s.gateways,
-		cliCache:               s.cliCache,
-		orphan:                 s.orphan,
+		logger:                   logger,
+		driver:                   s.driver,
+		clients:                  s.clients,
+		runner:                   runner,
+		reporter:                 s.reporter,
+		mode:                     s.mode,
+		concurrency:              s.concurrency,
+		ctx:                      s.ctx,
+		runID:                    s.runID,
+		startedAt:                s.startedAt,
+		apiHost:                  s.apiHost,
+		admin:                    api,
+		clusterID:                s.clusterID,
+		sandboxImage:             s.sandboxImage,
+		matrixCapability:         s.matrixCapability,
+		matrixEligibleClusters:   s.matrixEligibleClusters,
+		landed:                   s.landed,
+		nameSuffix:               s.nameSuffix,
+		primary:                  s.primary,
+		primaryRouteAddress:      s.primaryRouteAddress,
+		primaryGatewayToken:      s.primaryGatewayToken,
+		primaryLocalName:         s.primaryLocalName,
+		primaryWorkspaceMode:     s.primaryWorkspaceMode,
+		primaryReadyGateway:      s.primaryReadyGateway,
+		primaryProvisionDuration: s.primaryProvisionDuration,
+		primaryEndpoint:          s.primaryEndpoint,
+		primaryState:             s.primaryState,
+		serviceAccounts:          s.serviceAccounts,
+		gateways:                 s.gateways,
+		cliCache:                 s.cliCache,
+		orphan:                   s.orphan,
 	}
 	clone.SetT(t)
 	return clone

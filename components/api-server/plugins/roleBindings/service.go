@@ -3,7 +3,6 @@ package roleBindings
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -55,30 +54,22 @@ func NewRoleBindingService(
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
 	events services.EventService,
-	defaultRoles []string,
 ) RoleBindingService {
-	for _, r := range defaultRoles {
-		if !roles.JWTSyncedRoles[r] {
-			slog.Warn("RBAC_DEFAULT_ROLES role is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", "role", r)
-		}
-	}
 	return &sqlRoleBindingService{
-		lockFactory:  lockFactory,
-		rbDao:        rbDao,
-		roleDao:      roleDao,
-		events:       events,
-		defaultRoles: defaultRoles,
+		lockFactory: lockFactory,
+		rbDao:       rbDao,
+		roleDao:     roleDao,
+		events:      events,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory  db.LockFactory
-	rbDao        RoleBindingDao
-	roleDao      roles.RoleDao
-	events       services.EventService
-	defaultRoles []string
+	lockFactory db.LockFactory
+	rbDao       RoleBindingDao
+	roleDao     roles.RoleDao
+	events      services.EventService
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -121,16 +112,6 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
-		if roles.JWTSyncedRoles[r] {
-			jwtRoleSet[r] = true
-		}
-	}
-	// Default roles are always merged regardless of what the JWT carries.
-	// They represent the platform's baseline posture: every authenticated
-	// principal receives these capabilities unless explicitly disabled via
-	// RBAC_DEFAULT_ROLES=. Only roles in JWTSyncedRoles participate in the
-	// sync lifecycle (idempotent add, never revoked by JWT absence).
-	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}
@@ -233,11 +214,25 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		}
 	}
 
+	// ci-federation:admin is API-assignable (SEC-RBAC-21), unlike the Keycloak-owned
+	// roles below: authorization over ci_providers is HyperShell's own RBAC decision,
+	// not a Keycloak realm role. It is a platform-wide grant, so only a platform:admin
+	// -- or the narrow ci-federation:grantor bootstrap role (SEC-RBAC-23) -- may hand
+	// it out. It is NOT in JWTSyncedRoles, so the binding created here is not revoked
+	// by the recipient's next sign-in.
+	if role.Name == roles.RoleCIFederationAdmin {
+		if err := s.validateCallerCanGrantCIFederationAdmin(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	// Keycloak-owned entitlements: platform-wide roles whose bindings SyncJWTRoles
 	// reconciles from the caller's JWT. A binding created here would be removed by
 	// that caller's next sign-in, so assignment goes through the identity provider.
+	// ci-federation:grantor is in this set: it is itself bootstrapped from a Keycloak
+	// realm role (SEC-RBAC-23), not granted through this API.
 	if role.Name == roles.RoleGatewayCreator || role.Name == roles.RolePlatformAdmin ||
-		role.Name == roles.RoleGatewayDedicatedRouteCreator || role.Name == roles.RoleCIFederationAdmin {
+		role.Name == roles.RoleGatewayDedicatedRouteCreator || role.Name == roles.RoleCIFederationGrantor {
 		return nil, errors.Forbidden("%s can only be assigned via Keycloak", role.Name)
 	}
 
@@ -272,6 +267,14 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 
 	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
 		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
+			return err
+		}
+	}
+
+	// Revoking a ci-federation:admin binding is as privileged as granting it:
+	// require platform:admin or ci-federation:grantor (SEC-RBAC-23).
+	if role.Name == roles.RoleCIFederationAdmin {
+		if err := s.validateCallerCanGrantCIFederationAdmin(ctx); err != nil {
 			return err
 		}
 	}
@@ -547,9 +550,44 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 	return errors.Forbidden("caller must be gateway:owner on the target gateway to grant bindings")
 }
 
+// validateCallerCanGrantCIFederationAdmin authorizes granting or revoking the
+// API-assignable ci-federation:admin role (SEC-RBAC-21/23): the caller must hold a
+// global-scope platform:admin OR ci-federation:grantor binding. The grantor is the
+// narrow, gitops-managed bootstrap role whose only power is this grant, so CI
+// federation can be set up declaratively without handing out platform:admin. As
+// with validateCallerOwnsGateway, an absent caller identity (server-initiated,
+// non-request context) is allowed -- internal grants carry no request principal.
+func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx context.Context) *errors.ServiceError {
+	callerUserID := rbac.GetUserIDFromContext(ctx)
+	if callerUserID == "" {
+		return nil
+	}
+
+	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)
+	if err != nil {
+		return errors.GeneralError("unable to look up caller bindings: %s", err)
+	}
+
+	for _, b := range callerBindings {
+		if b.Scope != ScopeGlobal {
+			continue
+		}
+		role, roleErr := s.roleDao.Get(ctx, b.RoleID)
+		if roleErr != nil {
+			continue
+		}
+		if role.Name == roles.RolePlatformAdmin || role.Name == roles.RoleCIFederationGrantor {
+			return nil
+		}
+	}
+
+	return errors.Forbidden("caller must be platform:admin or %s to grant %s",
+		roles.RoleCIFederationGrantor, roles.RoleCIFederationAdmin)
+}
+
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}

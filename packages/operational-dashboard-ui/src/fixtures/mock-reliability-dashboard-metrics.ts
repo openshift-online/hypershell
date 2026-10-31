@@ -90,6 +90,25 @@ export const mockReliabilityDashboardMetrics: OperationalDashboardMetrics =
       }),
       Object.freeze({
         hourlyTrend: Object.freeze({
+          points: Object.freeze(buildHourlyTrendPoints(0.31, 0.005)),
+        }),
+        id: "api-p95-latency",
+        unit: "sec",
+        value: "0.425",
+      }),
+      Object.freeze({
+        id: "oidc-client-sync",
+        oidcClientSync: Object.freeze({
+          accuracyPercent: "98.7",
+          expectedClients: "75",
+          keycloakStatus: "connected",
+          syncedClients: "74",
+        }),
+        unit: "%",
+        value: "98.7",
+      }),
+      Object.freeze({
+        hourlyTrend: Object.freeze({
           points: Object.freeze(
             buildHourlyCountTrendPoints([
               0, 1, 0, 2, 1, 0, 3, 0, 1, 2, 0, 1, 0, 0, 2, 1, 0, 4, 0, 1, 0, 2,
@@ -153,6 +172,17 @@ export const mockReliabilityDashboardMetrics: OperationalDashboardMetrics =
         id: "stale-resource-status-count",
         unit: "count",
         value: "22",
+      }),
+      Object.freeze({
+        id: "state-accuracy",
+        stateAccuracy: Object.freeze({
+          accuracyPercent: "98.3",
+          observedMatchingDesired: "118",
+          staleResources: "2",
+          totalResources: "120",
+        }),
+        unit: "%",
+        value: "98.3",
       }),
     ]),
   });

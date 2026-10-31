@@ -6,13 +6,6 @@
     "sha256": "0292fa22ac2fd43e16be9d0e511ddd8347280d6e0ebaca744ef5b27e05d8d0f8"
   },
   {
-    "name": "gh",
-    "version": "2.102.0",
-    "url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_arm64.tar.gz",
-    "sha256": "7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484",
-    "member": "gh_2.102.0_linux_arm64/bin/gh"
-  },
-  {
     "name": "acli",
     "version": "1.3.39-stable",
     "url": "https://acli.atlassian.com/linux/1.3.39-stable/acli_1.3.39-stable_linux_arm64.tar.gz",
@@ -25,12 +18,5 @@
     "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-gnu.tar.gz",
     "sha256": "a740b91c82eaf9914cfedd353572f2791cbe0162c84101ee0951058f4dcbc90d",
     "member": "ripgrep-15.2.0-aarch64-unknown-linux-gnu/rg"
-  },
-  {
-    "name": "fullsend",
-    "version": "0.49.0",
-    "url": "https://github.com/fullsend-ai/fullsend/releases/download/v0.49.0/fullsend_0.49.0_linux_arm64.tar.gz",
-    "sha256": "71483e2c58e523f56a7f474cb73fcc898918cf144340e89f8c5920b0d04dede3",
-    "member": "fullsend"
   }
 ]

@@ -185,8 +185,10 @@ patches:
   # (gateway:creator/owner/viewer). It is the sole gate for that model
   # (plugins/rbac/plugin.go) -- independent of --enable-authz, which only adds
   # the framework's identity-presence check. admin carries gateway:creator (via
-  # the realm_access.roles mapper in deploy/base/keycloak); developers do not,
-  # so their POST /gateways is rejected with 403.
+  # the realm_access.roles mapper in deploy/base/keycloak). The shared test-user
+  # seed gives developer only hypershell-users on every environment, so admin
+  # can POST /gateways and developer gets 403 (ephemeral-test-credentials.spec.md,
+  # CICD-CRED-13; rbac-enforcement.spec.md, SEC-RBAC-13).
   #
   # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
   # plane's service account. The control plane writes gateway status via the

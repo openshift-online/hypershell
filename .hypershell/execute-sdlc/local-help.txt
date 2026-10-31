@@ -1,0 +1,24 @@
+FULLSEND / Local development
+
+Commands
+  make fullsend          Start or resume the interactive dispatcher.
+  make fullsend-status   Summarize saved jobs for your scope.
+  make fullsend-doctor   Check local tools and credential configuration.
+  make fullsend-help     Show this help.
+
+First run
+  1. Follow docs/development/fullsend.md to install tools and sign in.
+  2. Save your scope and settings in .hypershell/fullsend.env (gitignored).
+  3. Run make fullsend-doctor, fix any reported problems, then make fullsend.
+
+Overrides
+  make fullsend CONCURRENCY=4
+  make fullsend MODEL=YOUR_APPROVED_MODEL_ID
+  make fullsend SCOPE=agent/scope/YOUR_NAME/fullsend ENV_FILE=/path/to/file
+
+In the dashboard
+  Enter logs   d details   H history   s sign in   ? shortcuts   q detach
+  Detaching keeps workers running. Run make fullsend again to resume monitoring.
+
+Advanced dispatcher flags
+  .hypershell/execute-sdlc/funnel-dispatch.sh --help

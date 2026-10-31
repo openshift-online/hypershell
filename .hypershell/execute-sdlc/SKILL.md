@@ -84,6 +84,33 @@ fan those subtasks out concurrently, one subtask per in-scope work item. Under
 `USE_HEADLESS=true` the same steps run one item at a time, because serial CLI
 shell-outs are the only safe option there.
 
+## Pull request and commit model
+
+Each execution record has exactly ONE funnel pull request that carries BOTH the
+spec and code phases (1:1 issue<->PR; see `One Pull Request Across Spec and Code
+Phases` in `specs/standards/sdlc/jira-github-sync.spec.md`). Never open a second
+PR for the code phase: the code phase pushes onto the existing PR's branch.
+
+Within that single PR, commits are structured for review as **one PR, many
+commits**:
+
+- The **spec phase** lands the specification changes as their own commit (the
+  first commit on the branch): a single `docs(spec): ...` commit.
+- The **code phase** lands implementation as **one commit per component**, not one
+  squashed blob. Use the same component boundaries the full-stack-pipeline waves
+  use: separate conventional-commit commits for api-server, CLI, SDK (Go/TS),
+  proto/gRPC, control-plane, tests, and docs, as applicable. A reviewer reads the
+  PR commit-by-commit along those boundaries.
+
+So the branch reads top to bottom as: spec commit, then one commit per touched
+component. Because `main` takes squashed merges (one conventional commit per PR),
+these fine-grained commits are a review aid, not the final history - they are
+squashed on merge, so do not fear "too many" commits.
+
+The sub-skills honor this model: `spec-implementation` makes the spec its own
+first commit on the one funnel PR; `code-implementation` adds per-component
+commits to that same PR and never opens a second PR.
+
 ## Workflow Steps
 
 Mechanically execute the following steps.
@@ -369,10 +396,24 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 
   # Normalize to a single phase label (idempotent, self-correcting). The invoked
   # skill applies the OUTPUT phase label for this transition. Remove EVERY other
-  # phase label (including `$CURRENT_PHASE` and any stale label) so exactly one
+  # PHASE label (including `$CURRENT_PHASE` and any stale label) so exactly one
   # phase label remains on the record. This keeps the state single-valued whether
   # the funnel runs end-to-end or is re-entered, and removes the whole class of
   # stale-label bugs. Removing a label that is already absent is a no-op.
+  #
+  # "PHASE label" here means ONLY the phase-machine labels enumerated above:
+  # `agent/workable`, `agent/reviewable-spec`, `agent/review-spec-approved`,
+  # `agent/review-spec-rejected`, `agent/reviewable-code`,
+  # `agent/review-code-rejected`, and the terminal `agent/review-code-approved`.
+  # It EXCLUDES the human gate `agent/review-spec-blocked` (NOT a phase label - see
+  # the gate description above; removing it would destroy a human's spec sign-off
+  # intent), the role markers `agent/allowed`, `agent/scope/*`, and
+  # `agent/execution-record`, and the paused-state holds `agent/blocked`,
+  # `agent/needs-input`, and `agent/duplicate` (a person or a worker set these to
+  # pause the item; removing one would silently un-pause it - eg. resume a
+  # 3-rejection spec hold or drop a human needs-input hold). NEVER remove any of
+  # those here. "Remove every other phase label" is NOT a license to remove
+  # everything but one label.
 
   # Keep Jira converged with the new phase: derived status, artifact remote links,
   # and an attributed phase-narrative comment. Idempotent and dry-run aware.

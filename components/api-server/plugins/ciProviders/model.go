@@ -8,11 +8,17 @@ import (
 type CIProvider struct {
 	api.Meta
 	Forge          string  `json:"forge"`
-	Issuer         string  `json:"issuer"`
+	Issuer         string  `json:"issuer" gorm:"uniqueIndex"`
 	JwksUrl        string  `json:"jwks_url"`
 	Audience       string  `json:"audience"`
 	StatusIdpAlias *string `json:"status_idp_alias"`
 }
+
+// TableName pins the table to the clean plural "ci_providers" that the OpenAPI
+// path and the ci_trusts cross-reference DAO use. Without it GORM's default
+// naming mangles "CIProvider" to "c_iproviders", so ci_trust creation could
+// never resolve ci_provider_id (SDLC-CONF-08).
+func (CIProvider) TableName() string { return "ci_providers" }
 
 type CIProviderList []*CIProvider
 

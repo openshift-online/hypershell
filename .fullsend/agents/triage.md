@@ -1,11 +1,11 @@
 ---
-name: triage
+name: issue-triage
 description: "Triage and label new issues."
 ---
 
-## Runtime context (supplied by the harness as environment variables)
+## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a clean checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
 
 ---
 
@@ -31,6 +31,11 @@ Supported arguments:
 ## Workflow
 
 ### Step 1: Read Issues
+
+When `GITHUB_ISSUE_URL` is supplied, read and classify
+only that issue. Re-check that it carries both `LABEL_SCOPE` and `agent/allowed`.
+Do not scan or modify other issues.
+The scope-wide discovery below applies only when no individual issue is supplied.
 
 Using the GitHub API, fetch the issues in `$GITHUB_REPO_URL` that have the
 labels `agent/allowed` AND `$LABEL_SCOPE`. You MUST NOT read any issue that does not have the `agent/allowed` or `$LABEL_SCOPE` labels.

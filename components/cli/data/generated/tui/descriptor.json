@@ -7959,7 +7959,7 @@
           "style": "form",
           "explode": true,
           "type": "string",
-          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nno explicit ordering will be applied."
+          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nthe gateway list defaults to newest-first ordering: creation time\ndescending with a stable secondary order by gateway identifier,\napplied before pagination so the first page holds the newest\naccessible gateways overall and equal creation timestamps are\ndeterministic across pages."
         },
         {
           "name": "fields",
@@ -7969,6 +7969,15 @@
           "explode": true,
           "type": "string",
           "description": "Supplies a comma-separated list of fields to be returned.\nFields of sub-structures and of arrays use \u003cstructure\u003e.\u003cfield\u003e notation.\n\u003cstucture\u003e.* means all field of a structure\nExample: For each Subscription to get id, href, plan(id and kind) and labels (all fields)\n\n```\ncurl '/api/v1/subscriptions?fields=id,href,plan.id,plan.kind,labels.*\u0026fetchLabels=true'\n```"
+        },
+        {
+          "name": "mine",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "boolean",
+          "description": "When `true`, restricts the list to gateways the authenticated caller\nowns (the caller holds `gateway:owner`), matched by the caller's stable\nidentity against the authoritative owner bindings rather than a display\nname. The filter is applied before pagination, so the returned items,\ntotal, and page count reflect the filtered set, and it composes with\nthe search query and ordering. It operates only over the caller's\nauthorized gateways and never discloses gateways the caller is not\nauthorized to see (see `has_other_owned_gateways` and SEC-RBAC-10)."
         }
       ],
       "response": {

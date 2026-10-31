@@ -47,7 +47,9 @@ import {
 } from "../dashboard/reliability-dashboard-layout-template";
 import {
   ApiReliabilityTrendCard,
+  OidcClientSyncCard,
   ReliabilitySummaryCard,
+  StateAccuracyCard,
 } from "../dashboard/reliability-dashboard-widgets";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
@@ -58,7 +60,7 @@ import { useGetReliabilityMetricsData } from "./get-reliability-metrics-data";
 
 const baseTemplate = defaultReliabilityDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.reliability-dashboard.layout.v2";
+const LAYOUT_STORAGE_KEY = "hypershell.reliability-dashboard.layout.v3";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: RELIABILITY_DASHBOARD_COLUMN_COUNT,
   lg: RELIABILITY_DASHBOARD_COLUMN_COUNT,
@@ -157,7 +159,7 @@ function createWidgetMapping(
         w: RELIABILITY_DASHBOARD_COLUMN_COUNT,
       },
       config: {
-        icon: <TachometerAltIcon />,
+        icon: <ChartLineIcon />,
         title: intl.formatMessage(messages.reliabilitySummaryWidget),
       },
       renderWidget: () => <ReliabilitySummaryCard metrics={metrics.metrics} />,
@@ -202,6 +204,50 @@ function createWidgetMapping(
         title: intl.formatMessage(messages.apiLatencyWidget),
       },
       renderWidget: () => renderTrend("api-latency", messages.apiLatencyWidget),
+    },
+    "api-p95-latency": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <OutlinedClockIcon />,
+        title: intl.formatMessage(messages.apiP95LatencyWidget),
+      },
+      renderWidget: () =>
+        renderTrend("api-p95-latency", messages.apiP95LatencyWidget),
+    },
+    "oidc-client-sync": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <SyncAltIcon />,
+        title: intl.formatMessage(messages.oidcClientSyncWidget),
+      },
+      renderWidget: () => (
+        <OidcClientSyncCard metric={metricById.get("oidc-client-sync")} />
+      ),
+    },
+    "state-accuracy": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <TachometerAltIcon />,
+        title: intl.formatMessage(messages.stateAccuracyWidget),
+      },
+      renderWidget: () => (
+        <StateAccuracyCard metric={metricById.get("state-accuracy")} />
+      ),
     },
     "reconciliation-failures": {
       defaults: {

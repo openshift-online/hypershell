@@ -35,7 +35,7 @@ const (
 //     Vault unreachable to the control plane and provisioning a gateway through the product API.
 //
 // The templated per-tenant policy itself (round-trip under the token's own
-// openshell-gw/<namespace>/.../provider-credentials/*, no list, no metadata delete, no reach
+// openshell-gw/<namespace>/.../provider-credentials/*, no list, metadata delete allowed, no reach
 // into another tenant's mount) is the GitOps Contract, authored in hypershell-gitops. It is
 // verified once, in the Vault fixture, by scripts/cluster/vault.sh's own self-test -- not by
 // the suite reaching into Vault with a synthetic identity. See

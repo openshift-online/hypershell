@@ -24,6 +24,7 @@ func (s *E2ESuite) p2_9KataRuntime(t *testing.T) {
 	if envOrDefault("E2E_QUALIFY_KATA", "0") != "1" {
 		t.Skip("Kata runtime qualification requires E2E_QUALIFY_KATA=1 and a kata-containers RuntimeClass configured on the cluster's control plane")
 	}
+	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	runtimeClass := envOrDefault("E2E_KATA_RUNTIME_CLASS", "kata-containers")
 	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)

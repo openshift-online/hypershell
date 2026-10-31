@@ -49,6 +49,23 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
+
+Scoped reconciliation of the approved operational and reliability dashboard
+spec changes. Added control-plane resource-readiness, certificate-health, OIDC
+client-sync, and exact reconciliation-population telemetry; BFF routes and
+derived SLI fields; and the corresponding role-aware dashboard cards, trends,
+targets, sources, fixtures, messages, and adapter coverage. API reliability now
+includes current and hourly P95 latency, gateway provisioning includes the
+seven-day P99 and 300-second target, and reconciliation state accuracy is only
+reported for a valid non-empty population. The approved reliability mockup was
+updated with a directly capturable parity surface and its full 11-item summary.
+
+Control-plane focused tests/vet/build, BFF tests, web-console and dashboard UI
+checks, adapter tests, i18n, mockup PatternFly checks, and Storybook builds are
+green. The mandatory UI build gate is Complete for both dashboards after
+production/mockup captures at 1440x900 and 390x844 were inspected and accepted.
+
 ### HYPERSHELL-445 -- Fleet-dashboard capability chips from the delivery annotation (done, issue #707)
 
 Scoped reconciliation of `specs/platform/fleet-dashboard-capability-chips.spec.md`
@@ -140,6 +157,167 @@ Prior: 2026-10-20 (scoped reconciliation of HYPERSHELL-415 / issue #621 / PR #63
   - **REPO-C-OWN - Repository ownership mark on the five remaining import kinds**: added the nullable, read-only `repository_id` ownership mark (TEXT FK) to `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`, and `SecretSource` (AgentRuntime already had it from #497). Mirrors the #497 AgentRuntime pattern: model field + raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migrations (`2026101500000001`..`5`, registered in each plugin), presenter read-exposure, and OpenAPI `repository_id` property marked `readOnly: true`. The mark is NULL for resources created directly through the REST API or `hsctl apply` (never pruned by the import) and is set only server-side by the deferred control-plane import reconciler, so it is read-only in the client contract: `Convert*` does not map it and it is absent from every `*CreateRequest`/`*PatchRequest` in the regenerated SDKs. OpenAPI Go client (`make generate`), Go + TS SDKs (`make generate-sdk`), and the embedded TUI descriptor (`make generate-tui`) regenerated with no residual drift. New `plugins/sandboxTemplates/repository_ownership_test.go` drives the full HTTP stack (direct create -> null; client-supplied `repository_id` ignored; re-read confirms no mark) and the five plugin testmains boot the new migrations cleanly. Gate: `make check`, `make lint-api-server`, `make lint-cli`, api-server `go build`/`go vet`/`gofmt`, control-plane build/vet, and the affected plugin integration tests all green; `make lint-sdk-typescript` could not run (host Node v22 < required 24.11) but the TS change is purely mechanical generated output (one `repository_id` line per read model, correctly omitted from create/patch) with zero generator drift.
 
 **Update (2026-10-16, REPO-C-IMPORT final wave, PR #590):** built the end-to-end `RepositoryReconciler` the #590 re-spec unblocked by replacing git-clone + `hsctl`-binary render with a GitHub-API subtree read + an in-process kustomize library. Green and landed: (1) **`pkg/kustomize` shared library** in `components/cli` (`Build`/`BuildYAML` over a `filesys.FileSystem`, plugins disabled + root-only load restriction via kustomize defaults; dep `sigs.k8s.io/kustomize/api@v0.21.2` + `kyaml@v0.21.2`, both published 2026-09-28/30, >= 14 days old; `k8s.io/kube-openapi` pinned via `replace` to the smd-v6 line `20260721` to avoid the smd-v7 break against apimachinery v0.36.3), unit-tested in memory incl. bases/overlays. (2) **hsctl refactor** - `apply/cmd.go` `loadFromKustomize` now calls `pkg/kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)` instead of shelling out to the `kustomize` binary; the `exec` path is gone and its tests run in-process (no skip-if-missing). (3) **cli->CP wiring** - `components/control-plane/go.mod` requires + locally `replace`s the cli module. (4) **`RepositoryReconciler`** (`internal/reconciler/repository_{reconciler,github,writer}.go`) - periodic idempotent loop: enumerate Repositories -> resolve credential (per-Repository `secret_source_id` via `pkg/secretstore` + `SecretSourceService` lookup takes precedence over the default platform GitHub App token) -> read ONLY the `import_path` subtree over the GitHub git-trees/blobs API into an in-memory `filesys` (no clone, no disk) -> render via `pkg/kustomize.Build` -> filter to the 7 canonical importable Kinds, excluding `Repository` + admin kinds (ManagedCluster/Role/RoleBinding) -> UPSERT over the gRPC write path with server-side ownership via the `x-hypershell-import-repository-id` binding (#585) -> PRUNE Repository-owned resources no longer present, scoped per Repository. Wired into `main.go` behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED` (default off) + `HYPERSHELL_GITHUB_TOKEN_FILE`. Fake-backed tests cover render/filter/7-kind/Repository+admin exclusion, upsert, prune, per-Repository prune scoping, credential precedence, the GitHub fetcher (httptest), and ownership-metadata attachment. **FLAGGED (reconcile honesty clause):** the production gRPC writer fully supports the FIVE import-write ext Kinds (SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource - exactly the rbac import-write set). `Gateway` and `AgentRuntime` are accepted by the importable filter but return a collected `ErrKindNotWritable`: `Gateway`'s proto message has NO `repository_id` ownership field (cannot be ownership-marked or pruned) and `AgentRuntime` has NO gRPC Create/Update/Delete (only status) - the API surface they need does not exist yet, so a declared Gateway/AgentRuntime is surfaced as a per-resource error, never silently dropped. The "platform GitHub App credential" is consumed as a mounted installation-token file (ESO-refreshed, mirroring fleet-dashboard); full App-JWT->installation-token minting from AppID + private key is not implemented. Gate: `make check` (incl. dependency-age), `make lint-cli`, `make lint-control-plane` (gofmt/vet/golangci-lint 0 issues), cli + control-plane `go build`/`go test` all green; no generated-artifact drift.
+
+**Scoped analysis (2026-10-26, CICD-ECC, issue #776 / PR #779):** reconciled the new
+`specs/platform/konflux-enterprise-contract-conformance.spec.md` (CICD-ECC-01..06).
+Landed the issue-sanctioned **Hermeto pilot** for the single validated Go-only
+component (CICD-ECC-02): `api-server` now sets `hermetic: "true"`,
+`enable-package-registry-proxy: "true"`, and a single-object `prefetch-input`
+`{"type":"gomod","path":"components/api-server"}` in all three pipeline files
+(push, pull-request, merge-queue) - 3 `.tekton` files, additive params in
+`spec.params`. Its build check `hypershell-api-server-main-on-pull-request` is
+**green** with hermetic on, proving the prefetch recipe against the live Konflux
+build. CICD-ECC-05 (single pipeline source) already satisfied: redundant Konflux
+PR **#774 is CLOSED** and `fullsend-sandbox` keeps one authoritative `.tekton` set
+on `main`.
+
+**Completion (2026-10-27, review follow-up, PR #779):** the earlier revision set the
+three hermetic params on all three `api-server` pipeline files but only the
+pull-request pipeline was migrated to Trusted Artifacts (`git-clone-oci-ta`,
+`prefetch-dependencies-oci-ta`, `buildah-remote-oci-ta`); the push and merge-queue
+pipelines kept the standard (non-TA) `prefetch-dependencies` task. Per the review
+root-cause (the standard prefetch task produces no `status.results`, so Conforma's
+`task.rego` cannot read `enable-package-registry-proxy` and the deny rule fires),
+setting the proxy param on a non-TA pipeline has no effect: the **shipped** image is
+built by the push pipeline, so leaving push non-TA would have kept `api-server`
+non-conformant on `main` even though the PR build was green. Converted the push and
+merge-queue pipelines to the identical multi-arch Trusted-Artifacts `pipelineSpec`
+as the green pull-request pipeline, so all three `api-server` files now share one
+`pipelineSpec` (the repo convention already followed by the `agent-runtime`,
+`agent-runtime-slim`, and `fullsend-sandbox` trios). The task graph is unchanged
+(no task added or removed, so no `trusted_task.trusted` violation, CICD-ECC-03);
+only the task variants and Trusted-Artifact wiring (`SOURCE_ARTIFACT` /
+`PREFETCH_ARTIFACT`, `ociStorage`) changed, plus the shared PVC workspace was
+dropped. Verification: all three `pipelineSpec` bodies are byte-identical, the
+pull-request pipeline (the only CI-verifiable form pre-merge) is unchanged except
+its description text and stays green, and push/merge-queue mirror it. The push and
+merge-queue builds themselves can only be confirmed on the first `main` build after
+merge (push pipelines do not run pre-merge), which matches how the proven
+`agent-runtime` TA push pipelines were landed.
+
+**Review follow-up (2026-10-28, code-review rejection, PR #779):** addressed the two
+blocking findings from the maintainer code review. (1) The PR body auto-closed the
+tracking issue (`Closes #776`) while only the `api-server` pilot of eight components
+is conformant; changed to `Part of #776` so merging this increment does not close
+the issue before the acceptance criteria are met. (2) The Trusted-Artifacts
+conversion builds `api-server` as a native multi-arch (`linux/amd64` + `linux/arm64`)
+image index (`ALWAYS_BUILD_INDEX: "true"`), where `main` shipped amd64 only. This is
+intended, not a template side effect: the `api-server` Dockerfile on `main` already
+carries per-arch base images and a `BUILDARCH`/`TARGETARCH` split and documents "Bump
+amd64 and arm64 together", matching the agent-runtime trio's native multi-arch layout.
+Recorded the decision in CICD-ECC-02 (new paragraph + Scenario CICD-ECC-02.07): Go
+components whose Dockerfile carries per-arch base images build the multi-arch index;
+components whose Dockerfile does not stay single-arch until they add them. No pipeline
+mechanics changed, so the green `hypershell-api-server-main-on-pull-request` build is
+preserved.
+
+**Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
+also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
+cross-compile loop" and therefore safe. The live Konflux build disproved that:
+`hypershell-cli-main-on-pull-request` went **red** with hermetic on (api-server,
+with the identical three params, stayed green - so the cause is cli-build-specific,
+not param syntax). Per the issue's mandate ("do one Go-only component end to end
+first, confirm it is green, then fan out") and the reviewer's guidance, the cli
+pipeline changes were **reverted** to hermetic off at that time. (This was later
+superseded: cli was converted to a full hermetic TA build and confirmed green -
+see the full-scope delivery note below.) The honesty-clause takeaway: do not flip
+a hermetic flag on an unverified "it looks like a pure cross-compile" assumption -
+require a green build first.
+
+**Full-scope delivery (2026-10-29, maintainer "ship FULL scope in one PR", PR #779):**
+The maintainer rejected partial-scope delivery and reran the funnel. Two earlier
+claims are **corrected** here: (1) the prior note that "this environment has no
+Go/pnpm toolchain and no Konflux / `ec validate` access" is FALSE in the rerun
+environment (go 1.26.7, node 24, pnpm 11, npm, podman/docker, helm, skopeo, and
+live Konflux read access via `oc login` are all present); and (2) the fullsend
+`+dirty` binary was wrongly reasoned to be an unfixable upstream blocker (a clean
+`git` checkout builds a clean binary - see below). No component is deferred; the
+full scope lives in this one PR.
+
+All eight Konflux components are now addressed in PR #779:
+- **`api-server`, `cli`** -- full hermetic Trusted-Artifacts builds
+  (`hermetic: "true"`, proxy, gomod `prefetch-input`), all three pipeline files each.
+- **`control-plane`** -- full hermetic TA. `helm` was a networked
+  `go install helm@v3.14.0`; it is now a tracked tool module
+  (`components/control-plane/tools/helm` with a Go `tool` directive + committed
+  `go.sum`) built from the Hermeto cache, so no build-time network fetch.
+- **`web-console`, `fleet-dashboard`** -- hermetic pnpm (+ gomod for
+  fleet-dashboard). The networked `bootstrap_pnpm.sh` is replaced by a prefetched
+  pnpm bootstrap (`prefetch/pnpm`), and Hermeto's injected root `.npmrc` (registry
+  -> prefetched `file://` cache) is now propagated into every pnpm install stage
+  (the earlier `ERR_PNPM_FETCH_404` was a missing `.npmrc`, not a proxy problem;
+  `.dockerignore` had stripped it). `PNPM_CONFIG_TRUST_LOCKFILE=true` for
+  pnpm 11.15.1 comes from Hermeto `generate-env`, applied by the buildah task.
+- **`agent-runtime`, `agent-runtime-slim`** -- gomod attributed in all three
+  pipeline files each, kept `hermetic: "false"` (their Python/Node tool closures
+  are SHA-256-locked `install-tools.py` downloads). The `fullsend` binary is no
+  longer downloaded from the `+dirty` upstream release: it is built from pinned
+  clean source (`components/agents/third_party/fullsend` submodule @ v0.49.0) in a
+  Go builder stage (`-buildvcs=false`, so no `+dirty`), and its gomod closure is
+  Hermeto-attributed via an added `prefetch-input` entry (CICD-ECC-04 + CICD-ECC-02).
+  Verified locally: the clean checkout builds `vcs.modified=false`, and the konflux
+  hermeto image prefetches its 668-dependency closure cleanly. **Resume 2026-10-29:
+  `gh` is now also built from source** from a pinned tool module
+  (`components/agents/tools/gh` @ gh v2.100.0) and dropped from the SHA-256 tool
+  locks, with the module added to each pipeline's gomod `prefetch-input`
+  (CICD-ECC-02.08).
+- **`fullsend-sandbox`** -- base-registry EC violation already fixed by #797 (merged).
+  **Resume 2026-10-29:** its source-available Go tools `gh` and `gitleaks` are now
+  built from source from pinned tool modules (`components/agents/tools/gh` @ v2.100.0,
+  `components/agents/tools/gitleaks` @ v8.30.1) in a digest-pinned Go tool-builder
+  stage, replacing their release-binary downloads; both modules are added to the
+  sandbox pipeline `prefetch-input`, so the sandbox now has a Hermeto-resolvable
+  gomod ecosystem. Its remaining toolchain (Go, Node, shellcheck, ripgrep, fd),
+  `tirith`, and `acli` stay checksum-pinned.
+
+**Verification (live Konflux, head `979f2623`).** All eight component
+`on-pull-request` builds are GREEN. The authoritative combined pr-group EC
+PipelineRun (`hypershell-main-enterprise-contract-5fvxs`, snapshot pinning all
+eight PR images) reports `0 failures, 3567 warnings` (`WARNING`), with NO `+dirty`
+entries. (Individual-component snapshots mix stale `main` images and must NOT be
+read as PR state.) This confirms:
+- **CICD-ECC-01 / -03:** 0 EC violations; attestation is trusted (0 attestation
+  violations).
+- **CICD-ECC-04:** no `+dirty` / non-reproducible binary anywhere; `fullsend` is
+  now built from pinned clean source and its dependency closure is Hermeto
+  attributed (no `fullsend-ai` PURLs remain in the warnings).
+- **CICD-ECC-05:** `#774` is CLOSED; `fullsend-sandbox` has one pipeline source.
+
+**Attribution (CICD-ECC-02) - verified per component.** Missing-Hermeto-attribution
+warnings by component: `web-console 0`, `api-server 4`, `cli 4`, `control-plane 2`,
+`fleet-dashboard 4`, `agent-runtime 1016`, `agent-runtime-slim 1016`,
+`fullsend-sandbox 1374`. The Go/Node components are effectively fully attributed;
+their 2-4 residual warnings are Go `stdlib` (the toolchain standard library, not a
+Hermeto-prefetchable dependency) and the component's own first-party main-module
+PURL (a self-reference, not a real dependency gap).
+
+**Resume 2026-10-29 -- maintainer decision supersedes the tenant-exception blocker.**
+The prior pass reported the residual `hermeto_attribution_required` warnings as an
+external blocker requiring a tenant-policy exception. The maintainer resolved this:
+accept checksum/upstream provenance for binaries whose source is **unavailable**,
+while **keeping source-available tool rebuilds in this PR** ("we can't get an
+exception, but it's not enforced in Konflux today so it's more for our peace of
+mind"). This is a repository-side acceptance of residual risk, NOT a tenant-policy
+exception; the tenant policy is not modified and the warnings are not suppressed.
+
+Acting on that decision, the previously-blocking warnings were triaged per tool
+(not all were `acli`, as an earlier pass had claimed): the combined report also
+carried `github.com/cli/cli/v2` (`gh`, runtime + sandbox) and
+`github.com/zricethezav/gitleaks/v8` (sandbox) closures. Those tools are
+**source-available**, so they are now **built from source** through Hermeto
+(CICD-ECC-02.08), removing their warnings. The remaining residual is:
+- `atlassian.com/cli` (**acli**, the Atlassian CLI) -- **closed source**, no
+  published module to build from; required for Jira automation. Attributed by
+  SHA-256 digest + upstream provenance (CICD-ECC-02 checksum path). Its residual
+  warnings are the **accepted repository risk recorded as Requirement CICD-ECC-07**.
+- Go `stdlib` and first-party main-module PURLs on the Go/Node product images
+  (toolchain/self-reference metadata, not real dependency gaps).
+
+`sbom_spdx.hermeto_attribution_required` is a non-enforced `WARNING` in Konflux
+today (`enterprise-contract` result is `WARNING`, not a failure). The acceptance is
+narrow (source-unavailable binaries only) and is recorded in the spec (CICD-ECC-07),
+the PR #779 body, and the independent review. Fresh combined-report evidence is
+captured at the resume head and attached to issue #776.
 
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 

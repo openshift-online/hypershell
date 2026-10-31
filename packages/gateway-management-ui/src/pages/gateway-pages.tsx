@@ -16,6 +16,8 @@ import {
   Tabs,
   TabTitleText,
   Title,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -309,6 +311,10 @@ export function GatewaysPage({
         page: currentCollectionState.page,
         size: currentCollectionState.size,
         total: gateways.length,
+        // An externally supplied gateway list carries no server-computed
+        // authorized-set existence flag, so the ownership toggle stays hidden
+        // unless it is already enabled (WEB-UIEX-07, WEB-API-01).
+        hasOtherOwnedGateways: undefined as boolean | undefined,
       }
     : gatewayQuery.data;
   const placementClusterIds = [
@@ -336,25 +342,51 @@ export function GatewaysPage({
     sortColumnId: currentCollectionState.sortField,
     sortDirection: currentCollectionState.sortDirection,
   };
-  const changeTableState = (
-    nextState: ResourceTableState,
+  const onlyMine = currentCollectionState.onlyMine ?? false;
+  const applyCollectionState = (
+    nextCollectionState: GatewayListRequest,
     reason: ResourceTableStateChangeReason,
   ) => {
-    const nextCollectionState: GatewayListRequest = {
-      page: nextState.page,
-      search: nextState.query,
-      size: nextState.pageSize,
-      sortDirection: nextState.sortDirection,
-      sortField: isGatewaySortField(nextState.sortColumnId)
-        ? nextState.sortColumnId
-        : "name",
-    };
     if (onCollectionStateChange) {
       onCollectionStateChange(nextCollectionState, reason);
     } else {
       setLocalCollectionState(nextCollectionState);
     }
   };
+  const changeTableState = (
+    nextState: ResourceTableState,
+    reason: ResourceTableStateChangeReason,
+  ) => {
+    applyCollectionState(
+      {
+        page: nextState.page,
+        search: nextState.query,
+        size: nextState.pageSize,
+        sortDirection: nextState.sortDirection,
+        sortField: isGatewaySortField(nextState.sortColumnId)
+          ? nextState.sortColumnId
+          : "name",
+        // Preserve the ownership filter across search, sort, and pagination; it
+        // is not part of the shared table state (WEB-UIEX-07).
+        onlyMine,
+      },
+      reason,
+    );
+  };
+  // Toggling the ownership filter resets to the first page and composes with the
+  // active search and sort (WEB-UIEX-07).
+  const changeOwnershipFilter = (nextOnlyMine: boolean) => {
+    applyCollectionState(
+      { ...currentCollectionState, onlyMine: nextOnlyMine, page: 1 },
+      "filter",
+    );
+  };
+  // Show the toggle only when the caller's full authorized list contains a
+  // gateway owned by someone else, and keep it visible while enabled so the user
+  // can restore the full list (WEB-UIEX-07). Server-computed over the authorized
+  // set only (WEB-API-01, SEC-RBAC-10).
+  const showOwnershipFilter =
+    onlyMine || (visiblePage?.hasOtherOwnedGateways ?? false);
   const columns: readonly ResourceTableColumn<GatewayConnection>[] = [
     {
       id: "name",
@@ -476,7 +508,26 @@ export function GatewaysPage({
         <ResourceTable
           ariaLabel={intl.formatMessage(messages.gateways)}
           columns={columns}
+          filterControls={
+            showOwnershipFilter ? (
+              <ToggleGroup
+                aria-label={intl.formatMessage(messages.gatewayOwnershipFilter)}
+              >
+                <ToggleGroupItem
+                  buttonId="gateways-only-mine"
+                  isSelected={onlyMine}
+                  onChange={() => {
+                    changeOwnershipFilter(!onlyMine);
+                  }}
+                  text={intl.formatMessage(messages.showOnlyMyGateways)}
+                />
+              </ToggleGroup>
+            ) : undefined
+          }
           getRowKey={({ id }) => id}
+          hasActiveFilters={
+            onlyMine || currentCollectionState.search.trim().length > 0
+          }
           id="gateways"
           itemCount={visiblePage?.total ?? 0}
           labels={{
@@ -484,11 +535,30 @@ export function GatewaysPage({
             clearFilters: intl.formatMessage(messages.clearFilters),
             emptyBody: intl.formatMessage(messages.gatewaysEmptyBody),
             emptyTitle: intl.formatMessage(messages.gatewaysEmptyTitle),
-            noResultsBody: intl.formatMessage(messages.noMatchingGatewaysBody),
-            noResultsTitle: intl.formatMessage(messages.noMatchingGateways),
+            noResultsBody: intl.formatMessage(
+              onlyMine
+                ? messages.noOwnedGatewaysBody
+                : messages.noMatchingGatewaysBody,
+            ),
+            noResultsTitle: intl.formatMessage(
+              onlyMine
+                ? messages.noOwnedGatewaysTitle
+                : messages.noMatchingGateways,
+            ),
             resultsCountContext: intl.formatMessage(messages.results),
             searchAriaLabel: intl.formatMessage(messages.filterGateways),
             searchPlaceholder: intl.formatMessage(messages.filterGateways),
+          }}
+          onClearFilters={() => {
+            applyCollectionState(
+              {
+                ...currentCollectionState,
+                onlyMine: false,
+                page: 1,
+                search: "",
+              },
+              "filter",
+            );
           }}
           primaryAction={
             <Button

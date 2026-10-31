@@ -109,12 +109,38 @@ WRITE action when `--dry-run` is set.
    into `$REJECTION_RATIONALE`, so the next `code-implementation` pass acts on a
    concrete diagnosis instead of re-discovering the failure from scratch.
 
+5. Name the failing phase or step ID explicitly in `$REJECTION_RATIONALE` (for
+   example `P2.5`, or the whole `Phase-P2`). The Go E2E suite runs each phase and
+   step in isolation, so a named step lets the next `code-implementation` pass
+   reproduce ONLY that step instead of the whole suite, which is far faster:
+   - Whole phase: `make e2e E2E_RUN=Phase-P2`
+     (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/Phase-P2' -v`)
+   - Single step: `make e2e E2E_RUN='P2\.5'`
+     (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/.*/P2\.5' -v`)
+   - Reproduce the `Tests / E2E / OpenShift` failure on the same driver with
+     `E2E_INFRA_DRIVER=openshift make e2e E2E_RUN=...`.
+   The suite provisions the primary gateway in setup (`ensurePrimaryGateway`), so a
+   step that needs it provisions it on demand when run alone; set
+   `E2E_PRIMARY_GATEWAY_ID=<id>` to adopt an already-running gateway and skip its
+   teardown, cutting single-step turnaround further.
+
 
 ### Step 3: Communicate Outcome
 
 _Note: If a label does not exist, create it._
 
 Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
+
+**Protected labels (never remove).** The human gate `agent/review-spec-blocked`
+and the role markers are NOT phase labels and MUST NOT be removed by this step,
+even while normalizing phase state: `agent/review-spec-blocked` (human spec gate),
+`agent/allowed` (authorization gate), `agent/scope/*` (scope selector), and
+`agent/execution-record` (canonical-link marker). The paused-state holds
+`agent/blocked`, `agent/needs-input`, and `agent/duplicate` are also NOT phase
+labels and MUST NOT be removed here; removing one would silently un-pause the item
+(eg. resume a 10-rejection issue that this step itself just blocked). This step
+mutates ONLY the phase labels named in the verdict branches below - it is not a
+license to remove everything but one label.
 
 **Always post the review as a comment on `$GITHUB_ISSUE_URL`, for BOTH an
 approved and a rejected verdict.** An approved review MUST NOT be silent: the

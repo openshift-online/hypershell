@@ -33,7 +33,8 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
-| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
+| `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -75,6 +76,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
@@ -96,7 +98,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 9 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -147,14 +149,16 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 14 |
+| `REL-DASH` | `web-console/reliability-dashboard.spec.md` | 16 |
 
 ### SDLC
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
-| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 14 |
+| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 12 |
+| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
+| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 10 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
 
 ### SEC
@@ -162,7 +166,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 22 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
@@ -208,14 +212,14 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
-| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 30 |
+| `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
 | `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
-| `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
+| `WEB-UIEX` | `web-console/architecture.spec.md` | 7 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
 | `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 

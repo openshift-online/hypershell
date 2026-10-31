@@ -25,15 +25,21 @@ type Resource struct {
 	GetResponseType        string
 	Models                 []Model
 	ListParameters         []Field
-	Fields                 []Field
-	CreateFields           []Field
-	RequiredFields         []string
-	PatchFields            []Field
-	StatusPatchFields      []Field
-	HasDelete              bool
-	HasPatch               bool
-	HasStatusPatch         bool
-	Actions                []string
+	// ListExtraFields are properties declared on the list response schema beyond
+	// the shared ListMeta/ObjectReference envelope and the `items` array (for
+	// example a browser-safe existence flag). They are projected onto the
+	// generated `<Resource>List` type so custom list response fields survive
+	// regeneration instead of being added to the generated SDK by hand.
+	ListExtraFields   []Field
+	Fields            []Field
+	CreateFields      []Field
+	RequiredFields    []string
+	PatchFields       []Field
+	StatusPatchFields []Field
+	HasDelete         bool
+	HasPatch          bool
+	HasStatusPatch    bool
+	Actions           []string
 
 	// Scoped-resource capabilities (data-driven from the OpenAPI spec).
 	HasGet                bool     // item GET exists
@@ -91,6 +97,13 @@ type Spec struct {
 	APIPrefix string
 	Module    string
 	Project   string
+	// ExtraListParameters are query parameters accepted by list operations
+	// beyond the shared pagination/search/order/fields set (for example an
+	// ownership filter). They are projected onto the shared ListOptions type and
+	// the query-string builder so custom list filters survive regeneration
+	// instead of being added to the generated SDK by hand. The union is deduped
+	// by name and sorted for deterministic output.
+	ExtraListParameters []Field
 }
 
 func toGoName(snakeName string) string {

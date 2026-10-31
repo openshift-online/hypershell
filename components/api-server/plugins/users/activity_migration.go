@@ -6,6 +6,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
+
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
 )
 
 func activityMigration() *gormigrate.Migration {
@@ -17,7 +19,7 @@ func activityMigration() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026091116000001",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&UserDailyActivity{})
+			return dbmigrate.CreateTable(tx, &UserDailyActivity{})
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropTable(&UserDailyActivity{})

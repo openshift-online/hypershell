@@ -1050,6 +1050,10 @@ describe("web-console BFF with OIDC enabled", () => {
       "/api/metrics/registered-users",
       "/api/metrics/adoption",
       "/api/metrics/api-reliability",
+      "/api/metrics/control-plane-reconciliation",
+      "/api/metrics/resource-readiness",
+      "/api/metrics/certificate-health",
+      "/api/metrics/oidc-client-sync",
     ]) {
       const response = await app.inject({
         headers: { cookie },

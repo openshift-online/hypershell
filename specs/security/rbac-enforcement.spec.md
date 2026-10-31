@@ -18,15 +18,16 @@ Keycloak is the authority for identity and platform-wide role assignment. The AP
 middleware reads JWT claims, lazily provisions User and RoleBinding records, and evaluates
 authorization against the database projection.
 
-**Production posture: Keycloak-only.** Production deployments SHALL run with
-`RBAC_ENFORCE=true` and `RBAC_DEFAULT_ROLES=` (explicit empty string). No role is
-auto-assigned; every gateway and fleet permission must be explicitly granted in Keycloak.
-This applies equally to human users, control-plane service accounts, and spoke service
-accounts.
+**Keycloak-only, everywhere.** Every deployment SHALL run with `RBAC_ENFORCE=true`. The
+API server SHALL NOT auto-assign any role; every gateway and fleet permission flows
+exclusively from a role present in the caller's Keycloak JWT. This applies equally to
+human users, control-plane service accounts, and spoke service accounts, and equally
+across Kind, OpenShift, PR environments, and the fleet hubs.
 
-`RBAC_DEFAULT_ROLES=gateway:creator` exists as a local-development convenience to avoid
-stranding users before Keycloak is fully configured. It SHALL NOT be set in any
-production or staging overlay.
+An operator who wants every signed-in user to start with a role (for example
+`gateway:creator` on a local Kind cluster) grants it through Keycloak's realm default
+role (`default-roles-<realm>`), not through API server configuration. See "Requirement:
+SEC-RBAC-13" below.
 
 Users gain gateway access by being assigned `gateway:creator` or `platform:admin` in
 Keycloak, or by being granted a per-gateway binding (`gateway:owner`, `gateway:admin`,
@@ -115,7 +116,8 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
-| `ci-federation:admin` | global | Keycloak JWT | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
+| `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
+| `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 
 ### Permission Matrix
 
@@ -126,9 +128,10 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:owner` | full (one gateway) | full incl. delete | grant owner/admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
-| `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
+| `managed-cluster-registrar` | none (unless also granted `gateway:creator` directly, or through the realm default role, in Keycloak) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 | `gateway:dedicated-route-creator` | none by itself (marker for `dedicated_route` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 | `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
+| `ci-federation:grantor` | none | none | create/delete a `ci-federation:admin` binding only | none | none | none (bootstrap grantor; see SEC-RBAC-23) |
 
 `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
@@ -160,9 +163,11 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `ci-federation:admin`, and `platform:admin` roles. A
+Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `ci-federation:grantor`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
-admin console or API.
+admin console or API. (`ci-federation:admin` is the exception: it is granted
+through the RoleBinding API by a `platform:admin` or `ci-federation:grantor`, not
+from a Keycloak realm role; see SEC-RBAC-21 and SEC-RBAC-23.)
 
 The API server middleware SHALL extract roles from the JWT `realm_access.roles` claim
 (or an equivalent configurable claim path) and lazily create or update the corresponding
@@ -180,7 +185,7 @@ requiring a separate sync process.
 
 #### Scenario: SEC-RBAC-01.02 -- Keycloak admin revokes gateway:creator
 
-- GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
+- GIVEN a production deployment
 - AND user A previously had `gateway:creator` assigned in Keycloak
 - WHEN the Keycloak admin removes the role
 - THEN user A's next API request carries a JWT without `gateway:creator`
@@ -302,7 +307,7 @@ This binding is created in the same database transaction as the gateway.
 
 #### Scenario: SEC-RBAC-04.02 -- User without creator role cannot create gateways
 
-- GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
+- GIVEN a production deployment
 - AND user A has only `gateway:viewer` on some gateway
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the request returns 403 Forbidden
@@ -463,7 +468,7 @@ Future iterations may expand platform:admin permissions to include these resourc
 
 #### Scenario: SEC-RBAC-07.06 -- Platform admin cannot create gateways without creator role
 
-- GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
+- GIVEN a production deployment
 - AND user A has `platform:admin` only (no `gateway:creator` in Keycloak)
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the response is 403 Forbidden
@@ -952,16 +957,22 @@ convention (SEC-RBAC-10). `gateway:creator` alone SHALL NOT authorize
 `ci_providers`; the generic ext creator gate does not apply to this kind
 (SEC-RBAC-19).
 
-**Assignment (Keycloak-owned, JWT-synced).** The role SHALL be JWT-synced, like
-`gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin`:
-assignment is owned by Keycloak (a realm role synced to a global-scope
-RoleBinding on sign-in), the RoleBinding API SHALL reject a direct assignment
-with 403 and a gateway-scoped binding with 400 (the role requires scope=global),
-and a binding whose role the JWT no longer carries SHALL be removed on the
-caller's next sign-in. The role record SHALL be seeded by an additive,
-idempotent migration with `built_in: true`, mirroring how `gateway:admin` and
-`gateway:dedicated-route-creator` were added (SEC-RBAC-15); the seed SHALL be
-re-runnable without error and SHALL NOT alter existing bindings.
+**Assignment (API-assignable, platform-admin-granted).** Unlike
+`gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin`, this
+role SHALL NOT be Keycloak-owned/JWT-synced: authorization over `ci_providers`
+is a decision HyperShell makes from its own RBAC, not one delegated to a Keycloak
+realm role. The role SHALL be assignable through the RoleBinding API as a
+global-scope binding, and only a caller holding `platform:admin` or the narrow
+`ci-federation:grantor` bootstrap role (SEC-RBAC-23) SHALL be permitted to grant
+or revoke it; a caller holding neither SHALL be rejected with 403. A
+gateway-scoped binding SHALL be rejected with 400 (the role requires
+scope=global). Because the role is not JWT-synced, a JWT carrying a realm role of
+the same name SHALL NOT produce a binding, and an API-created binding SHALL NOT
+be revoked by the recipient's next sign-in. The role record SHALL be seeded by an
+additive, idempotent migration with `built_in: true`, mirroring how
+`gateway:admin` and `gateway:dedicated-route-creator` were added (SEC-RBAC-15);
+the seed SHALL be re-runnable without error and SHALL NOT alter existing
+bindings.
 
 **Grants nothing else.** Holding `ci-federation:admin` SHALL grant no gateway
 creation, no per-gateway access, no OpenShell mapping, no ManagedCluster
@@ -995,13 +1006,15 @@ remains owner-equivalent and also qualifies.
 - WHEN the caller manages a `CIProvider`
 - THEN the request SHALL be authorized (owner-equivalent)
 
-#### Scenario: SEC-RBAC-21.05 -- Assignment is Keycloak-owned
+#### Scenario: SEC-RBAC-21.05 -- Assignment is API-driven, platform-admin- or grantor-gated
 
 - GIVEN an attempt to create a `ci-federation:admin` RoleBinding through the RoleBinding API
-- WHEN the binding is global-scoped
-- THEN the create SHALL be rejected with 403 (the role can only be assigned via Keycloak)
+- WHEN the binding is global-scoped AND the caller holds `platform:admin` or `ci-federation:grantor` (SEC-RBAC-23)
+- THEN the create SHALL succeed
+- AND WHEN the caller holds neither THEN the create SHALL be rejected with 403
 - AND a gateway-scoped binding SHALL be rejected with 400 (the role requires scope=global)
-- AND a JWT carrying the realm role SHALL sync the global binding the gate checks
+- AND the role SHALL NOT be JWT-synced: a JWT carrying the realm role SHALL NOT create a binding, and an API-created binding SHALL survive the recipient's next sign-in
+- AND deleting a `ci-federation:admin` binding SHALL require the same authority (`platform:admin` or `ci-federation:grantor`)
 
 ### Requirement: SEC-RBAC-22 -- CITrust Per-Gateway Tenancy
 
@@ -1073,14 +1086,14 @@ singleton GET leaks resource existence.
 For list endpoints, the middleware SHALL return 200 with an empty items array when the
 caller has no matching resources. Collection `GET /gateways` SHALL be authorized for
 any authenticated caller, including a user whose JWT carries only `hypershell-users`
-and who has no `gateway:creator`, `platform:admin`, or per-gateway RoleBinding
-(OpenShift `RBAC_DEFAULT_ROLES=`). The list handler then returns the empty collection.
+and who has no `gateway:creator`, `platform:admin`, or per-gateway RoleBinding.
+The list handler then returns the empty collection.
 Denying that list with 403 is a product bug: the web console treats it as
 "Gateways could not be loaded".
 
 #### Scenario: SEC-RBAC-10.01 -- Developer with no gateway bindings lists gateways
 
-- GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
+- GIVEN a production deployment
 - AND user A is authenticated
 - AND user A's JWT does not carry `gateway:creator` or `platform:admin`
 - AND user A has no per-gateway RoleBinding
@@ -1115,36 +1128,49 @@ Platform administrator actions SHALL be logged with:
 High-privilege operations (gateway deletion by platform:admin) SHALL be logged at INFO
 level or higher to ensure visibility in operational monitoring and security audits.
 
-### Requirement: SEC-RBAC-13 -- Default Role Bootstrap (Development Mode Only)
+### Requirement: SEC-RBAC-13 -- Platform Role Bootstrap via Keycloak Realm Default Role
 
-The API server supports a configurable set of default roles applied to every authenticated
-user, controlled by `RBAC_DEFAULT_ROLES` (comma-separated role names). This feature
-exists solely as a local-development convenience.
+The API server SHALL NOT read any environment-based default-role configuration and
+SHALL NOT merge any role into a caller's bindings beyond what `SyncJWTRoles` reads
+from the JWT (SEC-RBAC-01, SEC-RBAC-03). The JWT-synced platform-wide roles
+(`gateway:creator`, `platform:admin`, `gateway:dedicated-route-creator`,
+`ci-federation:grantor`) are populated exclusively from the caller's JWT
+`realm_access.roles` claim, in every deployment, with no server-side opt-in or
+opt-out.
 
-- Production and staging deployments SHALL set `RBAC_DEFAULT_ROLES=` (explicit empty).
-- Local development may set `RBAC_DEFAULT_ROLES=gateway:creator` to avoid configuring
-  Keycloak roles before testing. This MUST NOT reach any production or staging environment.
-- Default roles are merged alongside JWT-carried roles on every request.
-- Only roles in `JWTSyncedRoles` are eligible; a startup warning is emitted otherwise.
-- Because defaults re-apply on every request, Keycloak cannot revoke a role that is also
-  a default. This is the defining reason defaults must be disabled in production.
+An operator who wants every signed-in user to start with a role - for example
+`gateway:creator` on a local Kind cluster - grants it through Keycloak's realm
+default role (`default-roles-<realm>`), which Keycloak merges into every new user's
+`realm_access.roles` claim on sign-in. This is a Keycloak-side configuration
+decision, not an API server feature: it requires no code path, no startup warning,
+and no per-environment flag. Because the realm default role is an ordinary Keycloak
+role composite, an administrator can narrow or remove it from an individual user, or
+remove it from the realm entirely, through Keycloak alone.
 
-#### Scenario: SEC-RBAC-13.01 -- Local development with defaults (NOT for production)
+#### Scenario: SEC-RBAC-13.01 -- Realm default role grants an initial role to every new user
 
-- GIVEN `RBAC_DEFAULT_ROLES=gateway:creator` (local dev only)
-- AND a developer authenticates with a JWT carrying no Keycloak realm roles
-- WHEN any authenticated API request is processed
-- THEN the middleware creates a `gateway:creator` RoleBinding automatically
-- AND the developer can create gateways without Keycloak configuration
+- GIVEN a Keycloak administrator adds `gateway:creator` to the realm's default role
+  (`default-roles-hypershell`)
+- WHEN a new user signs in for the first time
+- THEN the user's JWT carries `gateway:creator` in `realm_access.roles`
+- AND the middleware creates the corresponding RoleBinding
+- AND the user can create gateways without a per-user Keycloak role assignment
 
-#### Scenario: SEC-RBAC-13.02 -- Production mode -- no defaults, Keycloak is authoritative
+#### Scenario: SEC-RBAC-13.02 -- Keycloak is the only source of platform roles
 
-- GIVEN `RBAC_DEFAULT_ROLES=` (production)
-- AND `RBAC_ENFORCE=true`
-- AND a user has no Keycloak realm roles assigned
-- WHEN the user makes an authenticated API request
-- THEN no default binding is created
-- AND the user cannot create gateways until a Keycloak admin assigns `gateway:creator`
+- GIVEN any deployment: Kind, OpenShift, a PR environment, or a fleet hub
+- WHEN a user authenticates
+- THEN the set of platform-wide roles granted SHALL be exactly the set present in the
+  JWT's `realm_access.roles` claim
+- AND no additional role SHALL be merged from API server configuration
+
+#### Scenario: SEC-RBAC-13.03 -- Removing the role from the realm default role revokes it
+
+- GIVEN a user's `gateway:creator` role came only from the realm default role
+- WHEN the Keycloak admin removes `gateway:creator` from the realm default role
+- THEN the user's next request carries a JWT without `gateway:creator`
+- AND the middleware removes the corresponding RoleBinding
+- AND the user can no longer create new gateways
 
 ### Requirement: SEC-RBAC-14 -- Production Rollout
 
@@ -1152,9 +1178,8 @@ RBAC enforcement SHALL be gated behind the `RBAC_ENFORCE` configuration flag. Wh
 disabled, all authenticated requests pass. When enabled, all requests are evaluated
 against bindings.
 
-Production deployments SHALL enable enforcement and disable defaults:
+Production deployments SHALL enable enforcement:
 - `RBAC_ENFORCE=true`
-- `RBAC_DEFAULT_ROLES=` (empty)
 
 No database migration or CLI command is needed to bootstrap users -- built-in Role
 records are seeded via migration; RoleBindings are created dynamically from JWT claims
@@ -1205,21 +1230,21 @@ ensuring bindings exist before enforcement is turned on.
 
 #### Operator Note: Production Deployment Requirements
 
-The OpenShift overlay (`deploy/openshift/kustomization.yaml`) SHALL ship with both:
+The OpenShift overlay (`deploy/openshift/kustomization.yaml`) SHALL ship with:
 - `RBAC_ENFORCE=true`
-- `RBAC_DEFAULT_ROLES=` (empty)
 
 Applying this to a cluster requires that Keycloak realm roles are configured first:
 
 1. Define `gateway:creator`, `platform:admin`, and `managed-cluster-registrar` realm roles in Keycloak.
-2. Assign `gateway:creator` to users and service accounts that need to create gateways.
+2. Assign `gateway:creator` to users and service accounts that need to create gateways
+   (directly, or through the realm default role for a blanket grant; SEC-RBAC-13).
 3. Assign `platform:admin` to operators who need global view/delete access.
 4. Assign `managed-cluster-registrar` to every control-plane service account, including the control plane co-located with the hub (every control plane registers; see `platform/control-plane.spec.md`).
 5. Ensure Keycloak emits these roles in the `realm_access.roles` claim.
 
-With `RBAC_DEFAULT_ROLES=` set, no authenticated principal receives any role
-automatically. Every permission flows exclusively from Keycloak. Callers without an
-appropriate role receive 403 on mutation endpoints and 404 on singleton GETs.
+No authenticated principal receives a role automatically from the API server. Every
+permission flows exclusively from Keycloak. Callers without an appropriate role
+receive 403 on mutation endpoints and 404 on singleton GETs.
 
 ### Requirement: SEC-RBAC-16 -- Managed Cluster Self-Registration RBAC
 
@@ -1249,10 +1274,10 @@ development realms ship it pre-assigned to the `hypershell-control-plane` client
 source of truth; the API server does not re-verify role assignment beyond reading the
 JWT claim.
 
-**Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`),
-a spoke service account holding only `managed-cluster-registrar` has no gateway
-permissions through the HTTP API. No role is auto-assigned; the spoke's HTTP access is
-exactly what Keycloak grants. This is the required production configuration. Once the
+**Isolation guarantee:** In production (`RBAC_ENFORCE=true`), a spoke service account
+holding only `managed-cluster-registrar` has no gateway permissions through the HTTP
+API. No role is auto-assigned; the spoke's HTTP access is exactly what Keycloak
+grants. This is the required production configuration. Once the
 spoke registers, its JWT `sub` is a control-plane identity on the gRPC API: the gRPC
 interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry (see
 `platform/managed-cluster-registration.spec.md`, "Control-Plane Identity").
@@ -1274,7 +1299,7 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 
 #### Scenario: SEC-RBAC-16.03 -- managed-cluster-registrar grants no gateway access
 
-- GIVEN production deployment with `RBAC_DEFAULT_ROLES=` and `RBAC_ENFORCE=true`
+- GIVEN a production deployment with `RBAC_ENFORCE=true`
 - AND a spoke service account has only `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200 with an empty items array
@@ -1284,10 +1309,57 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 
 Integration tests SHALL exercise RBAC enforcement with the new five-role model, including
 `managed-cluster-registrar` grant and deny scenarios, and the JWT-direct enforcement path.
-They SHALL also run the api-server as the GitOps hubs run it (`RBAC_ENFORCE=true`,
-`RBAC_DEFAULT_ROLES` unset, a one-entry allowlist) and show that an ordinary user and a
+They SHALL also run the api-server as the GitOps hubs run it (`RBAC_ENFORCE=true`, a
+one-entry allowlist) and show that an ordinary user and a
 foreign control plane are refused ManagedCluster writes and cross-tenant or cross-cluster
 gRPC writes (`components/api-server/test/authz`).
+
+### Requirement: SEC-RBAC-23 -- CI Federation Grantor Role
+
+A narrow role `ci-federation:grantor` SHALL authorize creating and deleting a
+global-scope `ci-federation:admin` RoleBinding (SEC-RBAC-21) -- and SHALL
+authorize nothing else. It exists so the CI-federation seeder's `ci_providers`
+authorization can be granted **declaratively from gitops** without handing out
+`platform:admin`: a dedicated bootstrap identity holds `ci-federation:grantor` and
+performs the one-time grant, separating "who may grant" from "who may act". The
+grantor confers no `ci_providers` authority of its own, no gateway or platform
+authority, and no ability to grant any role other than `ci-federation:admin`.
+
+**Authorization.** At the RoleBinding create/delete path, a `ci-federation:admin`
+binding SHALL be permitted when the caller holds `platform:admin` **or**
+`ci-federation:grantor` (both global scope), and SHALL otherwise be rejected with
+403. Holding `ci-federation:grantor` SHALL NOT authorize creating or deleting a
+binding for any other role (for example `platform:admin`, `gateway:creator`, or a
+gateway role); such attempts SHALL be denied.
+
+**Assignment (Keycloak-owned, JWT-synced).** Unlike `ci-federation:admin`, the
+grantor role SHALL be JWT-synced: it is assigned from a Keycloak realm role (so a
+gitops Terraform module can grant it to the bootstrap identity), the RoleBinding
+API SHALL reject a direct assignment with 403 and a gateway-scoped binding with
+400 (it requires scope=global). The role record SHALL be seeded by an additive,
+idempotent migration with `built_in: true`.
+
+#### Scenario: SEC-RBAC-23.01 -- Grantor grants ci-federation:admin
+
+- GIVEN a caller holding only `ci-federation:grantor`
+- WHEN the caller creates a global-scope `ci-federation:admin` RoleBinding for the seeder
+- THEN the create SHALL be authorized
+- AND the caller MAY also delete that binding
+
+#### Scenario: SEC-RBAC-23.02 -- Grantor is confined to ci-federation:admin
+
+- GIVEN a caller holding only `ci-federation:grantor`
+- WHEN the caller attempts to create a RoleBinding for any other role (for example `platform:admin` or a gateway role)
+- THEN the request SHALL be denied
+- AND the caller SHALL NOT thereby gain `ci_providers` authority (the grantor does not authorize the `ci_providers` ext kind itself)
+
+#### Scenario: SEC-RBAC-23.03 -- Grantor assignment is Keycloak-owned
+
+- GIVEN an attempt to create a `ci-federation:grantor` RoleBinding through the RoleBinding API
+- WHEN the binding is global-scoped
+- THEN the create SHALL be rejected with 403 (the role is assigned via Keycloak)
+- AND a gateway-scoped binding SHALL be rejected with 400 (the role requires scope=global)
+- AND a JWT carrying the realm role SHALL sync the global binding the grant path checks
 
 ---
 
@@ -1315,13 +1387,14 @@ gRPC writes (`components/api-server/test/authz`).
 | `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
-| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. Operators who want strict isolation must also set `RBAC_DEFAULT_ROLES=` to disable the universal `gateway:creator` default. |
+| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. |
 | `gateway:dedicated-route-creator` separate from `gateway:creator` | A dedicated per-gateway route and certificate is a rate-limited resource (one certificate order, load balancer, and wildcard DNS record per gateway). A distinct platform-wide entitlement lets operators grant it narrowly instead of to every creator; it is a marker role checked at the create boundary and grants nothing else (SEC-RBAC-20). |
 | `managed-cluster-registrar` is JWT-direct, not DB-synced | The role is for specific service accounts, not users in general. There is no reason to maintain a DB binding for it. Checking from the live JWT claim in `isAuthorized` is sufficient, consistent with other JWT-direct roles, and avoids `JWTSyncedRoles` entanglement. |
 | Role assigned by admin, not auto-granted | Provides a human control point for fleet membership. A new spoke cannot join the fleet without an explicit Keycloak admin action. |
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
-| `gateway:creator` assigned exclusively via Keycloak in production | Production deployments set `RBAC_DEFAULT_ROLES=` so only Keycloak-assigned roles apply. `RBAC_DEFAULT_ROLES=gateway:creator` exists as a local-dev escape hatch only. The role cannot be self-assigned via the API. |
+| `gateway:creator` assigned exclusively via Keycloak | Every deployment sources the role only from Keycloak, directly or through the realm default role for a blanket grant (SEC-RBAC-13). The role cannot be self-assigned via the API. |
+| Removed the API server's blanket default-role environment variable entirely | It defaulted to "on" (`gateway:creator`) when unset, so a deployment that forgot to set it was open by default. Because `SyncJWTRoles` re-merged it on every request, Keycloak could never revoke a role that was also a default. It forced special cases in the authorization code, the e2e suite, and the specs, and the spec and the code disagreed about what the setting was for. Keycloak's realm default role (SEC-RBAC-13) covers the same initial-role need without any of those costs (HYPERSHELL-465). |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |

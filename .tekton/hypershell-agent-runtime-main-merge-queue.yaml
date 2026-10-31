@@ -29,6 +29,12 @@ spec:
     value: components/agents/Containerfile.agent-runtime
   - name: path-context
     value: .
+  - name: hermetic
+    value: "false"
+  - name: enable-package-registry-proxy
+    value: "true"
+  - name: prefetch-input
+    value: '[{"type": "gomod", "path": "components/cli"}, {"type": "gomod", "path": "components/agents/third_party/fullsend"}, {"type": "gomod", "path": "components/agents/tools/gh"}, {"type": "gomod", "path": "components/agents/tools/gitleaks"}]'
   pipelineSpec:
     description: |
       Build native Linux AMD64 and ARM64 agent images and publish their combined image index.

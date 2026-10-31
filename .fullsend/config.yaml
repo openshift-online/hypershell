@@ -5,7 +5,7 @@ agents:
       source: harness/ingest.yaml
     - name: reconcile
       source: harness/reconcile.yaml
-    - name: triage
+    - name: issue-triage
       source: harness/triage.yaml
     - name: spec-implementation
       source: harness/spec-implementation.yaml

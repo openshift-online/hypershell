@@ -260,8 +260,8 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   ).toBeVisible();
 
   await expect(
-    page.getByRole("columnheader", { name: "Gateway name" }),
-  ).toHaveAttribute("aria-sort", "ascending");
+    page.getByRole("columnheader", { name: "Created", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
   await page.getByRole("button", { name: "Cluster" }).click();
   await expect(
     page.getByRole("columnheader", { name: "Cluster" }),
@@ -274,12 +274,14 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\?q=Cluster\+East&sort=cluster$/u);
+  await expect(page).toHaveURL(
+    /\?q=Cluster\+East&sort=cluster&direction=asc$/u,
+  );
   await page.goBack();
   await expect(page).toHaveURL(/\/gateways$/u);
   await expect(
-    page.getByRole("columnheader", { name: "Gateway name" }),
-  ).toHaveAttribute("aria-sort", "ascending");
+    page.getByRole("columnheader", { name: "Created", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);

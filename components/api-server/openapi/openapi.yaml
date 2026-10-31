@@ -324,6 +324,13 @@ components:
       description: Supplies a comma-separated list of fields to be returned
       schema:
         type: string
+    mine:
+      name: mine
+      in: query
+      required: false
+      description: Restricts the list to gateways the authenticated caller owns
+      schema:
+        type: boolean
   responses:
     UnauthorizedError:
       description: Access token is missing or invalid

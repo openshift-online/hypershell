@@ -236,7 +236,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
-	cpotel.SetResourceStatusStale(ctx, r.clusterID, "Gateway", event.ResourceID, false)
+	if event.Type != watcher.EventDeleted {
+		observedGeneration := gw.ObservedGeneration
+		cpotel.SetResourceStatusStale(
+			ctx,
+			r.clusterID,
+			"Gateway",
+			event.ResourceID,
+			observedGeneration == nil || *observedGeneration < gw.GetGeneration(),
+		)
+	}
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
@@ -1174,19 +1183,11 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	// An unparseable route is treated as not opted in: the provisioning path
 	// reports the invalid value, and publishing the shared-domain address keeps
 	// the button consistent with what the console exposure actually serves.
-	routeConfig := gateway.RouteConfig{}
-	if gw.Route != nil {
-		parsed, parseErr := parseGatewayRouteConfig(*gw.Route)
-		if parseErr != nil {
-			log.Printf("WARN console address for %s: invalid route config: %v", gatewayID, parseErr)
-		} else {
-			routeConfig = parsed
-		}
-	}
-	url, hasURL := gateway.ConsoleURLFor(gateway.NamespaceConfig{
+	nsConfig := gateway.NamespaceConfig{
 		Name:    namespace,
-		Gateway: gateway.GatewayConfig{Route: routeConfig},
-	})
+		Gateway: gateway.GatewayConfig{Route: consoleRouteConfig(gw)},
+	}
+	url, hasURL := gateway.ConsoleURLFor(nsConfig)
 	ready := false
 	if hasURL {
 		ready, _, err = gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)
@@ -1197,8 +1198,12 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	if ready {
 		// The selected public exposure must be Ready before the reconciler
-		// publishes the address.
-		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, namespace, ingressMode)
+		// publishes the address. ConsoleExposureReady also verifies the exposure
+		// actually serves the derived console host (and, for a dedicated-route
+		// gateway, its per-tenant parent), so a console provisioned onto the
+		// shared ingress is reported not servable instead of advertising a URL
+		// that presents a mismatched certificate.
+		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, nsConfig, ingressMode)
 		if exposureErr != nil {
 			log.Printf("WARN console exposure readiness for %s: %v", namespace, exposureErr)
 			return false
@@ -1221,6 +1226,26 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	log.Printf("INFO console address for %s set to %q (consoleReady=%v)", gatewayID, desired, ready)
 	return ready
+}
+
+// consoleRouteConfig resolves the route config every console path keys on:
+// the gateway's parsed route document, with the dedicated per-gateway
+// certificate opt-in intact. Both the console-address publisher
+// (syncConsoleAddress) and the console self-heal (selfHealConsole) must derive
+// the console host and parent from this one helper, or the two drift apart and
+// the self-heal re-parents a dedicated-route console onto the shared ingress
+// while the published address keeps pointing at the dedicated host. An absent
+// route is enabled (matching effectiveRouteConfig); an unparseable route is
+// reported by the provisioning path and treated here as not opted in, keeping
+// the published address and the self-heal consistent with the exposure the
+// shared path actually serves.
+func consoleRouteConfig(gw *pb.Gateway) gateway.RouteConfig {
+	routeConfig, err := effectiveRouteConfig(gw)
+	if err != nil {
+		log.Printf("WARN console route config for gateway %s: invalid route config: %v", gw.GetMetadata().GetId(), err)
+		return gateway.RouteConfig{}
+	}
+	return routeConfig
 }
 
 // updateObservedGeneration records the generation the control plane has

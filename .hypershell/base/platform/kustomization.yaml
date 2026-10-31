@@ -5,6 +5,7 @@ kind: Kustomization
 # every agent instance under ../../agents. No cluster information: the control
 # plane assigns a ManagedCluster by capability-label matching.
 resources:
+  - ci-trust.yaml
   - repository.yaml
   - gateway.yaml
   - sandbox-template.yaml

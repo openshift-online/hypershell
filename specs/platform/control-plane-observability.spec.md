@@ -311,6 +311,91 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - THEN `watch.reconnects` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
 
+### Requirement: OBS-CPL-10 -- Dashboard Health Gauges
+
+The control plane SHALL export these low-cardinality OpenTelemetry gauges for dashboard health calculations:
+
+| OTel instrument | Prometheus series | Meaning |
+| --- | --- | --- |
+| `gateway.sandbox.ready` | `gateway_sandbox_ready` | Provisioned sandboxes whose Kubernetes Ready condition is true |
+| `gateway.certificate.valid` | `gateway_certificate_valid` | Evaluated gateway and console TLS certificates that are currently valid |
+| `gateway.certificate.expired` | `gateway_certificate_expired` | Evaluated certificates whose `notAfter` is in the past |
+| `gateway.certificate.unavailable` | `gateway_certificate_unavailable` | Missing or unreadable certificate status |
+| `gateway.certificate.days_to_expiry_min` | `gateway_certificate_days_to_expiry_min` | Minimum whole or fractional days to expiry among valid evaluated certificates |
+| `oidc.client.synced` | `oidc_client_synced` | Desired gateway OIDC clients present in Keycloak with matching managed state |
+| `oidc.client.expected` | `oidc_client_expected` | Desired gateway OIDC client count from the API-server resource model |
+| `oidc.client.keycloak_connected` | `oidc_client_keycloak_connected` | `1` when the Keycloak comparison completed, otherwise `0` |
+| `oidc.client.health.observed_timestamp_seconds` | `oidc_client_health_observed_timestamp_seconds` | Producer Unix timestamp of the last completed comparison, successful or failed |
+| `oidc.client.health.success_timestamp_seconds` | `oidc_client_health_success_timestamp_seconds` | Producer Unix timestamp of the last fully synchronized comparison; zero until first success |
+| `hypershell.reconciliation.resources.total` | `hypershell_reconciliation_resources_total` | Non-deleted Gateways in the same watch population as the stale-resource gauge, per OBS-CRM-01 |
+
+The sandbox-ready gauge SHALL use the same population and cluster scope as `gateway.sandbox.total`. Certificate gauges SHALL be derived from the gateway and console TLS secrets or routes that the control plane already reconciles. Missing data or a certificate parse failure SHALL increment unavailable; it SHALL NOT increment valid or expired. Certificate contents, private keys, subject names, and secret data SHALL NOT appear in metrics or logs.
+
+Fleet certificate counts SHALL deduplicate control-plane replicas with
+`max by (hypershell_cluster_id)` and then sum the per-cluster values. Fleet
+`soonest_days_to_expiry` SHALL instead deduplicate replicas and take the minimum
+across clusters:
+
+```promql
+min(
+  max by (hypershell_cluster_id) (
+    gateway_certificate_days_to_expiry_min
+  )
+)
+```
+
+The BFF SHALL omit `soonest_days_to_expiry` when no cluster has a valid finite
+sample. It SHALL NOT sum per-cluster minimums.
+
+OIDC gauges SHALL compare the desired gateway client set with the clients returned by the Keycloak Admin API using the existing configured admin credentials. A failed or indeterminate Keycloak request SHALL report disconnected or unknown through the connectivity gauge and SHALL NOT synthesize a 100-percent result from an empty expected-client set.
+
+OIDC health comparison SHALL run independently of sandbox and certificate
+inspection every 30 seconds, with a 25-second overall timeout. Completion,
+including an API/Keycloak error, advances the observation timestamp. Only a
+completed comparison with synchronized count equal to expected count advances
+the success timestamp. A successfully determined empty client set is a completed
+comparison, while its dashboard percentage remains unknown as specified below.
+Neither metric collection nor exporter retries may advance these timestamps.
+
+Fleet **alerts** SHALL retain current Kubernetes pod identity and UID from OTel
+resource enrichment. A failing pod must not be hidden by a healthy peer or by
+retained metrics from an old pod. Missing/stale producer timestamps represent
+unknown telemetry and require a separate alert. This differs from the BFF's
+fleet-count aggregation below: pod identity is resource metadata, not a new
+per-gateway metric attribute. Workload inventory and alert thresholds are defined
+in the GitOps fleet-alerting runbook.
+
+Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attribute where cluster scope applies. Fleet dashboard-count PromQL SHALL deduplicate replicas with `max by (hypershell_cluster_id)` before applying the metric's fleet operation: summation for counts and minimum for `gateway_certificate_days_to_expiry_min`. No gauge SHALL contain Gateway, sandbox, certificate, namespace, user, or client identifiers.
+
+#### Scenario: OBS-CPL-10.01 -- Unreadable certificate is unavailable
+
+- GIVEN a TLS secret is missing certificate data or its certificate cannot be parsed
+- WHEN certificate health gauges are refreshed
+- THEN `gateway.certificate.unavailable` SHALL include that certificate
+- AND valid and expired counts SHALL NOT include it
+
+#### Scenario: OBS-CPL-10.02 -- Empty OIDC denominator is unknown
+
+- GIVEN the expected OIDC client count is zero or cannot be determined
+- WHEN OIDC sync accuracy is calculated
+- THEN the dashboard contract SHALL report accuracy as unknown
+- AND it SHALL NOT report 100 percent
+
+#### Scenario: OBS-CPL-10.03 -- Gauge labels remain bounded
+
+- GIVEN health gauges are exported from multiple control-plane replicas
+- WHEN Prometheus aggregates fleet health
+- THEN replica observations SHALL be deduplicated by cluster identity
+- AND no resource identifier or secret-derived value SHALL appear as a label
+
+#### Scenario: OBS-CPL-10.04 -- Fleet expiry uses the soonest cluster value
+
+- GIVEN one cluster reports a minimum certificate expiry of 20 days
+- AND another cluster reports a minimum certificate expiry of 5 days
+- WHEN the BFF calculates fleet certificate health
+- THEN `soonest_days_to_expiry` SHALL be 5 days
+- AND it SHALL NOT sum the per-cluster minimums
+
 ### Requirement: OBS-CPL-08 -- Development Trace Export
 
 When local development tracing is enabled (`KIND_JAEGER=true`), the control plane Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317` and `OTEL_METRICS_EXPORTER` set to `none`, so a developer can view the control plane reconcile spans alongside the API server and web console spans in Jaeger. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the control plane to that endpoint.
