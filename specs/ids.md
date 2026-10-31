@@ -26,7 +26,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `API-OBS` | `platform/api-server-observability.spec.md` | 8 |
+| `API-OBS` | `platform/api-server-observability.spec.md` | 11 |
 
 ### CICD
 
@@ -156,7 +156,7 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
-| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 12 |
+| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 13 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
 | `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 10 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
