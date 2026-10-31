@@ -2,6 +2,7 @@ import { markedMarkdown } from "../adapters/marked-markdown";
 import {
   buildSearchIndex,
   highlightTerms,
+  abbreviationScore,
   parseQuery,
   queryTerms,
   searchSpecs,
@@ -221,6 +222,16 @@ describe("searchSpecs", () => {
   it("tolerates typos and abbreviations", () => {
     expect(titles("keybord")).toContain("Keyboard access");
     expect(titles("prvdur")).toContain("Provision Duration Contract");
+  });
+
+  it("matches abbreviations only from the start of each word", () => {
+    expect(abbreviationScore("rbac", "role-based access control")).toBe(4 / 19);
+    expect(abbreviationScore("cfg", "load the config")).toBe(3 / 6);
+    // "foR BRAnCh": the r ends a word, so it cannot start the match.
+    expect(abbreviationScore("rbac", "checks gate for branch protection")).toBe(
+      0,
+    );
+    expect(abbreviationScore("ac", "back")).toBe(0);
   });
 
   it("requires every term to match", () => {

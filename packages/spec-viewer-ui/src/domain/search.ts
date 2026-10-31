@@ -1,7 +1,8 @@
 // Spec search. A query is a list of clauses, and every clause must match:
 //
-//   word            fuzzy: a substring, an in-order character subsequence of
-//                   a heading (abbreviation), or a word a letter or two off
+//   word            fuzzy: a substring, an abbreviation of a heading (its
+//                   letters in order, entering each word at its first
+//                   letter), or a word a letter or two off
 //   "some phrase"   the literal text, ignoring case and line breaks
 //   [two words]     all the words, in any order, on one source line
 //
@@ -180,29 +181,43 @@ export function editDistance(a: string, b: string, max: number): number {
   return previous[b.length] ?? max + 1;
 }
 
+const isWordChar = (char: string | undefined): boolean =>
+  char !== undefined && /[\p{L}\p{N}]/u.test(char);
+
 /**
- * Scores `term` as an in-order subsequence of `text`. Tighter matches score
- * higher; matches spread over more than three times the term length fail.
+ * Scores `term` as an abbreviation of `text`: its letters in order, where
+ * each word the match enters is entered at its first letter. So "prvdur"
+ * matches "PRoVision DURation" and "rbac" matches "Role-Based Access
+ * Control", but "rbac" does not match "foR BRAnCh", whose "r" ends a word.
+ * Tighter matches score higher; matches spread over more than six times
+ * the term length fail (word initials need room).
  */
-export function subsequenceScore(term: string, text: string): number {
+export function abbreviationScore(term: string, text: string): number {
+  const limit = term.length * 6;
   let best = 0;
-  let start = text.indexOf(term[0] ?? "");
-  while (start !== -1) {
-    let position = start;
-    let matched = true;
-    for (let i = 1; i < term.length; i += 1) {
-      position = text.indexOf(term[i] ?? "", position + 1);
-      if (position === -1) {
-        matched = false;
-        break;
+  /** Smallest end index matching term[i..] after `previous`; -1 if none. */
+  const finish = (i: number, previous: number, start: number): number => {
+    if (i === term.length) return previous;
+    for (let p = previous + 1; p - start < limit && p < text.length; p += 1) {
+      if (text[p] !== term[i]) continue;
+      // Every character in between is part of a word: still the same word.
+      let sameWord = true;
+      for (let k = previous + 1; k <= p; k += 1) {
+        if (!isWordChar(text[k])) {
+          sameWord = false;
+          break;
+        }
       }
+      if (!sameWord && isWordChar(text[p - 1])) continue;
+      const end = finish(i + 1, p, start);
+      if (end !== -1) return end;
     }
-    if (!matched) break;
-    const span = position - start + 1;
-    if (span <= term.length * 3) {
-      best = Math.max(best, term.length / span);
-    }
-    start = text.indexOf(term[0] ?? "", start + 1);
+    return -1;
+  };
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== term[0] || isWordChar(text[start - 1])) continue;
+    const end = finish(1, start, start);
+    if (end !== -1) best = Math.max(best, term.length / (end - start + 1));
   }
   return best;
 }
@@ -306,7 +321,7 @@ function matchWord(term: string, part: IndexedPart): ClauseMatch | null {
   // on any word; a typo of a heading word beats a loose subsequence.
   let best: ClauseMatch | null = null;
   if (term.length >= 2) {
-    const fuzzy = subsequenceScore(term, part.headingLower);
+    const fuzzy = abbreviationScore(term, part.headingLower);
     if (fuzzy > 0) best = { score: 4 * fuzzy, highlights: [] };
   }
   const typos = allowedTypos(term);
