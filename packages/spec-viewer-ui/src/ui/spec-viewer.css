@@ -550,6 +550,12 @@
   color: var(--pf-t--global--text--color--on-highlight);
 }
 
+/* The header row fills the masthead, so its last item can sit at the edge. */
+.sv-masthead__bar {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Branch picker in the masthead: wide enough for typical branch names. */
 .sv-ref-picker {
   width: 18rem;

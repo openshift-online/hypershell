@@ -436,6 +436,16 @@ export const messages = defineMessages({
     defaultMessage: "Reload test markers",
     description: "Button that re-runs the traceability report.",
   },
+  themeDark: {
+    id: "specViewer.theme.dark",
+    defaultMessage: "Switch to dark theme",
+    description: "Button that switches the page to the dark theme.",
+  },
+  themeLight: {
+    id: "specViewer.theme.light",
+    defaultMessage: "Switch to light theme",
+    description: "Button that switches the page to the light theme.",
+  },
   unpin: {
     id: "specViewer.node.unpin",
     defaultMessage: "Unpin {title}",

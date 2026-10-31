@@ -27,6 +27,8 @@ import {
   ExpandIcon,
   EyeIcon,
   EyeSlashIcon,
+  MoonIcon,
+  SunIcon,
 } from "@patternfly/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
@@ -54,6 +56,7 @@ import { usePins } from "./use-pins";
 import { useSelection } from "./use-selection";
 import { usePanelWidth } from "./use-panel-width";
 import { useSpecCatalog } from "./use-spec-catalog";
+import { useTheme, type Theme } from "./use-theme";
 
 type View = "search" | "conformance" | "references";
 const VIEW_KEY = "hypershell-spec-viewer.view";
@@ -186,6 +189,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       // The view choice is a convenience; blocked storage keeps the default.
     }
   };
+  const theme = useTheme();
   const [layout, setLayoutState] = useState<Layout>(readLayout);
   const setLayout = (next: Layout) => {
     setLayoutState(next);
@@ -263,6 +267,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       <MastheadContent>
         <Flex
           alignItems={{ default: "alignItemsCenter" }}
+          className="sv-masthead__bar"
           gap={{ default: "gapLg" }}
         >
           <RefPicker
@@ -309,7 +314,10 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
           </ToggleGroup>
           <span className="sv-summary">{summary}</span>
           <FlexItem align={{ default: "alignRight" }}>
-            <LayoutButtons layout={layout} onChange={setLayout} />
+            <Flex gap={{ default: "gapXs" }}>
+              <LayoutButtons layout={layout} onChange={setLayout} />
+              <ThemeButton onToggle={theme.toggle} theme={theme.theme} />
+            </Flex>
           </FlexItem>
         </Flex>
       </MastheadContent>
@@ -476,7 +484,7 @@ function LayoutButtons({ layout, onChange }: LayoutButtonsProps) {
     maximized ? messages.documentRestore : messages.documentMaximize,
   );
   return (
-    <Flex gap={{ default: "gapXs" }}>
+    <>
       <Tooltip content={hideLabel}>
         <Button
           aria-label={hideLabel}
@@ -499,6 +507,29 @@ function LayoutButtons({ layout, onChange }: LayoutButtonsProps) {
           variant="plain"
         />
       </Tooltip>
-    </Flex>
+    </>
+  );
+}
+
+interface ThemeButtonProps {
+  theme: Theme;
+  onToggle: () => void;
+}
+
+/** Switches between the light and dark themes. */
+function ThemeButton({ theme, onToggle }: ThemeButtonProps) {
+  const intl = useIntl();
+  const label = intl.formatMessage(
+    theme === "dark" ? messages.themeLight : messages.themeDark,
+  );
+  return (
+    <Tooltip content={label}>
+      <Button
+        aria-label={label}
+        icon={theme === "dark" ? <SunIcon /> : <MoonIcon />}
+        onClick={onToggle}
+        variant="plain"
+      />
+    </Tooltip>
   );
 }

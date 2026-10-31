@@ -474,4 +474,22 @@ describe("App", () => {
       screen.getByRole("button", { name: "Maximize document" }),
     ).toBeTruthy();
   });
+
+  it("switches between the light and dark themes", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole("textbox", { name: "Search specs" });
+    const root = document.documentElement;
+    expect(root.classList.contains("pf-v6-theme-dark")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to dark theme" }),
+    );
+    expect(root.classList.contains("pf-v6-theme-dark")).toBe(true);
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch to light theme" }),
+    );
+    expect(root.classList.contains("pf-v6-theme-dark")).toBe(false);
+  });
 });

@@ -32,16 +32,6 @@ const ports: SpecViewerPorts = {
   highlighter: shikiHighlighter,
 };
 
-const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
-const applyScheme = () => {
-  document.documentElement.classList.toggle(
-    "pf-v6-theme-dark",
-    darkScheme.matches,
-  );
-};
-applyScheme();
-darkScheme.addEventListener("change", applyScheme);
-
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Missing #root element");

@@ -88,6 +88,10 @@ the browser:
 
 The document scrolls on its own, with its own scrollbar.
 
+The last header button switches between the light and dark themes. Until you
+pick one, the viewer follows the system setting; your pick is saved in the
+browser.
+
 ## Conformance view
 
 Switch to **Conformance** in the header to see how well the specs follow
