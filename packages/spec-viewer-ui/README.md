@@ -78,6 +78,16 @@ Drag the borders between the panels to resize them, or focus a border and
 use the arrow keys, then Enter. The widths are saved in the browser. The menu
 button in the header hides or shows the pinned panel.
 
+Two buttons at the right of the header change the layout, which is saved in
+the browser:
+
+- **Hide document** gives the list (search, conformance, or references) the
+  full width. Opening an item shows the document again.
+- **Maximize document** folds the pinned and list panels away so the document
+  takes the full width. **Restore panels** brings them back.
+
+The document scrolls on its own, with its own scrollbar.
+
 ## Conformance view
 
 Switch to **Conformance** in the header to see how well the specs follow

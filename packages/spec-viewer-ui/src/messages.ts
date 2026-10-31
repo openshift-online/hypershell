@@ -135,10 +135,33 @@ export const messages = defineMessages({
     defaultMessage: "No spec selected",
     description: "Title of the empty document panel.",
   },
+  documentHide: {
+    id: "specViewer.layout.documentHide",
+    defaultMessage: "Hide document",
+    description:
+      "Button that hides the document panel so the list takes the full width.",
+  },
   documentLabel: {
     id: "specViewer.document.label",
     defaultMessage: "Spec document",
     description: "Accessible label of the spec document panel.",
+  },
+  documentMaximize: {
+    id: "specViewer.layout.documentMaximize",
+    defaultMessage: "Maximize document",
+    description:
+      "Button that hides the pinned and list panels so the document takes the full width.",
+  },
+  documentRestore: {
+    id: "specViewer.layout.documentRestore",
+    defaultMessage: "Restore panels",
+    description:
+      "Button that brings back the pinned and list panels after maximizing the document.",
+  },
+  documentShow: {
+    id: "specViewer.layout.documentShow",
+    defaultMessage: "Show document",
+    description: "Button that brings back the hidden document panel.",
   },
   expandAll: {
     id: "specViewer.search.expandAll",

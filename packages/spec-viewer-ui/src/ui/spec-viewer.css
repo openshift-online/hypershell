@@ -31,12 +31,30 @@
   overflow: auto;
 }
 
+/*
+ * Each view fills its panel and scrolls inside its own body, so the
+ * document gets its own scrollbar instead of growing the page.
+ */
 .sv-results,
-.sv-document {
+.sv-document,
+.sv-list-only {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The list on its own, when the document is hidden. */
+.sv-list-only > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Keep the document's scrollbar visible where the platform allows it. */
+.sv-document__body {
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
 }
 
 .sv-results {
@@ -228,24 +246,17 @@
  * Doubled class so these win over PatternFly's own declarations.
  */
 .pf-v6-c-tree-view.sv-tree {
-  --pf-v6-c-tree-view__node--nested-indent--base: var(
-    --pf-t--global--spacer--md
+  /* 12px per level, about half of PatternFly's default. */
+  --pf-v6-c-tree-view__node--nested-indent--base: calc(
+    var(--pf-t--global--spacer--sm) + var(--pf-t--global--spacer--xs)
   );
-  --pf-v6-c-tree-view__node--PaddingBlockStart: var(--pf-t--global--spacer--xs);
-  --pf-v6-c-tree-view__node--PaddingBlockEnd: var(--pf-t--global--spacer--xs);
+  --pf-v6-c-tree-view__node--PaddingBlockStart: 0.125rem;
+  --pf-v6-c-tree-view__node--PaddingBlockEnd: 0.125rem;
   --pf-v6-c-tree-view__node--PaddingInlineEnd: var(--pf-t--global--spacer--xs);
-  --pf-v6-c-tree-view__node-toggle--PaddingInlineStart: var(
-    --pf-t--global--spacer--xs
-  );
-  --pf-v6-c-tree-view__node-toggle--PaddingInlineEnd: var(
-    --pf-t--global--spacer--xs
-  );
-  --pf-v6-c-tree-view__node-toggle--PaddingBlockStart: var(
-    --pf-t--global--spacer--xs
-  );
-  --pf-v6-c-tree-view__node-toggle--PaddingBlockEnd: var(
-    --pf-t--global--spacer--xs
-  );
+  --pf-v6-c-tree-view__node-toggle--PaddingInlineStart: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingInlineEnd: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingBlockStart: 0.125rem;
+  --pf-v6-c-tree-view__node-toggle--PaddingBlockEnd: 0.125rem;
   --pf-v6-c-tree-view__node-icon--PaddingInlineEnd: var(
     --pf-t--global--spacer--xs
   );
@@ -307,6 +318,7 @@
 
 .sv-tree .sv-node {
   overflow-wrap: break-word;
+  line-height: 1.3;
 }
 
 /* Conformance report. */
@@ -337,7 +349,42 @@
 .sv-conformance .pf-v6-c-table {
   --pf-v6-c-table--cell--PaddingInlineStart: var(--pf-t--global--spacer--sm);
   --pf-v6-c-table--cell--PaddingInlineEnd: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-table--cell--first-last-child--PaddingInline: var(
+    --pf-t--global--spacer--sm
+  );
+  --pf-v6-c-table__tbody--cell--PaddingBlockStart: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__tbody--cell--PaddingBlockEnd: var(
+    --pf-t--global--spacer--xs
+  );
   font-size: var(--pf-t--global--font--size--sm);
+}
+
+/*
+ * Dense tree table: the toggle sits right at the row start, and each level
+ * adds 14px instead of 32px. Doubled class to win over PatternFly.
+ */
+.sv-conformance .pf-v6-c-table.pf-m-tree-view {
+  --pf-v6-c-table__tree-view-main--indent--base: 1.5rem;
+  --pf-v6-c-table__tree-view-main--nested-indent--base: 0.875rem;
+  --pf-v6-c-table__tree-view-icon--MarginInlineEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__tree-view-main--c-button--MarginInlineEnd: var(
+    --pf-t--global--spacer--xs
+  );
+  --pf-v6-c-table__toggle--PaddingBlockStart: 0;
+  --pf-v6-c-table__toggle--PaddingBlockEnd: 0;
+  --pf-v6-c-table__toggle--PaddingInlineStart: 0;
+  --pf-v6-c-table__toggle--PaddingInlineEnd: 0;
+}
+
+.sv-conformance .pf-v6-c-table__toggle .pf-v6-c-button {
+  --pf-v6-c-button--PaddingInlineStart: 0.125rem;
+  --pf-v6-c-button--PaddingInlineEnd: 0.125rem;
+  --pf-v6-c-button--PaddingBlockStart: 0;
+  --pf-v6-c-button--PaddingBlockEnd: 0;
 }
 
 .sv-conformance__count {

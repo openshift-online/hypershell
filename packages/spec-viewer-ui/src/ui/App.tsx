@@ -10,6 +10,8 @@ import {
   MastheadToggle,
   Button,
   Drawer,
+  FlexItem,
+  Tooltip,
   DrawerContent,
   DrawerContentBody,
   DrawerPanelContent,
@@ -18,7 +20,14 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@patternfly/react-core";
-import { BarsIcon, CodeIcon } from "@patternfly/react-icons";
+import {
+  BarsIcon,
+  CodeIcon,
+  CompressIcon,
+  ExpandIcon,
+  EyeIcon,
+  EyeSlashIcon,
+} from "@patternfly/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { useIntl } from "react-intl";
@@ -56,6 +65,22 @@ function readView(): View {
       : "search";
   } catch {
     return "search";
+  }
+}
+
+/**
+ * Which panels show: all of them ("split"), the list without the document
+ * ("list"), or the document alone ("document").
+ */
+type Layout = "split" | "list" | "document";
+const LAYOUT_KEY = "hypershell-spec-viewer.layout";
+
+function readLayout(): Layout {
+  try {
+    const stored = window.localStorage.getItem(LAYOUT_KEY);
+    return stored === "list" || stored === "document" ? stored : "split";
+  } catch {
+    return "split";
   }
 }
 
@@ -161,18 +186,36 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       // The view choice is a convenience; blocked storage keeps the default.
     }
   };
+  const [layout, setLayoutState] = useState<Layout>(readLayout);
+  const setLayout = (next: Layout) => {
+    setLayoutState(next);
+    try {
+      window.localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // The layout is a convenience; blocked storage keeps the default.
+    }
+  };
+  // Opening something while the document is hidden shows it again.
+  const showDocument = useCallback(() => {
+    setLayoutState((current) => (current === "list" ? "split" : current));
+  }, []);
   const selectNode = (nodeId: string) => {
     setSource(null);
     select(nodeId);
+    showDocument();
   };
   // Stable, so the conformance table does not rebuild its rows each render.
-  const openSource = useCallback((location: SourceLocation, id?: string) => {
-    setSource((current) => ({
-      location,
-      id,
-      revision: (current?.revision ?? 0) + 1,
-    }));
-  }, []);
+  const openSource = useCallback(
+    (location: SourceLocation, id?: string) => {
+      showDocument();
+      setSource((current) => ({
+        location,
+        id,
+        revision: (current?.revision ?? 0) + 1,
+      }));
+    },
+    [showDocument],
+  );
   const search = useSpecSearch(catalog, query);
 
   const node = selection ? catalog?.nodesById.get(selection.nodeId) : undefined;
@@ -265,6 +308,9 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
             ) : null}
           </ToggleGroup>
           <span className="sv-summary">{summary}</span>
+          <FlexItem align={{ default: "alignRight" }}>
+            <LayoutButtons layout={layout} onChange={setLayout} />
+          </FlexItem>
         </Flex>
       </MastheadContent>
     </Masthead>
@@ -291,6 +337,34 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     const wide = view === "conformance";
     const listWidth = wide ? wideWidth : narrowWidth;
     const setListWidth = wide ? setWideWidth : setNarrowWidth;
+    const listContent =
+      view === "conformance" ? (
+        <ConformancePanel
+          catalog={catalogQuery.data}
+          onOpenSource={openSource}
+          onSelect={selectNode}
+          selectedNodeId={selection?.nodeId}
+        />
+      ) : view === "references" ? (
+        <ReferencesPanel
+          node={node}
+          onOpen={(location) => {
+            openSource(location, node?.specId);
+          }}
+          selected={source?.location}
+        />
+      ) : (
+        <SearchPanel
+          hits={search.hits}
+          onQueryChange={setQuery}
+          onSelect={selectNode}
+          pins={pins}
+          query={query}
+          searchedQuery={search.searchedQuery}
+          selectedNodeId={selection?.nodeId}
+          tree={search.tree}
+        />
+      );
     const listPanel = (
       <DrawerPanelContent
         className="sv-panel"
@@ -300,64 +374,48 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
         increment={16}
         isResizable
         key={wide ? "wide" : "list"}
+        // Leave the document room, whatever width was saved.
+        maxSize="calc(100% - 240px)"
         minSize={wide ? "480px" : "320px"}
         onResize={(_event, width) => {
           setListWidth(width);
         }}
         resizeAriaLabel={intl.formatMessage(messages.resizeList)}
       >
-        {view === "conformance" ? (
-          <ConformancePanel
-            catalog={catalogQuery.data}
-            onOpenSource={openSource}
-            onSelect={selectNode}
-            selectedNodeId={selection?.nodeId}
-          />
-        ) : view === "references" ? (
-          <ReferencesPanel
-            node={node}
-            onOpen={(location) => {
-              openSource(location, node?.specId);
-            }}
-            selected={source?.location}
-          />
-        ) : (
-          <SearchPanel
-            hits={search.hits}
-            onQueryChange={setQuery}
-            onSelect={selectNode}
-            pins={pins}
-            query={query}
-            searchedQuery={search.searchedQuery}
-            selectedNodeId={selection?.nodeId}
-            tree={search.tree}
-          />
-        )}
+        {listContent}
       </DrawerPanelContent>
     );
-    content = (
-      <Drawer className="sv-drawer" isExpanded isInline position="start">
-        <DrawerContent panelContent={listPanel}>
-          <DrawerContentBody className="sv-drawer__body">
-            {source ? (
-              <SourceView
-                id={source.id}
-                location={source.location}
-                revision={source.revision}
-              />
-            ) : (
-              <SpecDocument
-                catalog={catalogQuery.data}
-                file={file}
-                highlightTerms={search.terms}
-                node={node}
-                revision={selection?.revision ?? 0}
-              />
-            )}
-          </DrawerContentBody>
-        </DrawerContent>
-      </Drawer>
-    );
+    content =
+      layout === "list" ? (
+        <div className="sv-list-only">{listContent}</div>
+      ) : (
+        <Drawer
+          className="sv-drawer"
+          isExpanded={layout === "split"}
+          isInline
+          position="start"
+        >
+          <DrawerContent panelContent={listPanel}>
+            <DrawerContentBody className="sv-drawer__body">
+              {source ? (
+                <SourceView
+                  id={source.id}
+                  location={source.location}
+                  revision={source.revision}
+                />
+              ) : (
+                <SpecDocument
+                  catalog={catalogQuery.data}
+                  file={file}
+                  highlightTerms={search.terms}
+                  node={node}
+                  revision={selection?.revision ?? 0}
+                />
+              )}
+            </DrawerContentBody>
+          </DrawerContent>
+        </Drawer>
+      );
   }
 
   const pinnedPanel = (
@@ -387,7 +445,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     <Page className="sv-page" isContentFilled masthead={masthead}>
       <Drawer
         className="sv-drawer"
-        isExpanded={pinnedOpen}
+        isExpanded={pinnedOpen && layout !== "document"}
         isInline
         position="start"
       >
@@ -398,5 +456,49 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
         </DrawerContent>
       </Drawer>
     </Page>
+  );
+}
+
+interface LayoutButtonsProps {
+  layout: Layout;
+  onChange: (layout: Layout) => void;
+}
+
+/** Hides or shows the document, and maximizes or restores it. */
+function LayoutButtons({ layout, onChange }: LayoutButtonsProps) {
+  const intl = useIntl();
+  const hidden = layout === "list";
+  const maximized = layout === "document";
+  const hideLabel = intl.formatMessage(
+    hidden ? messages.documentShow : messages.documentHide,
+  );
+  const maximizeLabel = intl.formatMessage(
+    maximized ? messages.documentRestore : messages.documentMaximize,
+  );
+  return (
+    <Flex gap={{ default: "gapXs" }}>
+      <Tooltip content={hideLabel}>
+        <Button
+          aria-label={hideLabel}
+          aria-pressed={hidden}
+          icon={hidden ? <EyeIcon /> : <EyeSlashIcon />}
+          onClick={() => {
+            onChange(hidden ? "split" : "list");
+          }}
+          variant="plain"
+        />
+      </Tooltip>
+      <Tooltip content={maximizeLabel}>
+        <Button
+          aria-label={maximizeLabel}
+          aria-pressed={maximized}
+          icon={maximized ? <CompressIcon /> : <ExpandIcon />}
+          onClick={() => {
+            onChange(maximized ? "split" : "document");
+          }}
+          variant="plain"
+        />
+      </Tooltip>
+    </Flex>
   );
 }

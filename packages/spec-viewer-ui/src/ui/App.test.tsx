@@ -439,4 +439,39 @@ describe("App", () => {
     renderApp();
     expect(await screen.findByText(/^1 file/u)).toBeTruthy();
   });
+
+  it("hides, shows, maximizes, and restores the document", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole("textbox", { name: "Search specs" });
+    expect(screen.getByText("No spec selected")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Hide document" }));
+    expect(screen.queryByText("No spec selected")).toBeNull();
+    expect(
+      screen.queryByRole("separator", { name: "Resize the list panel" }),
+    ).toBeNull();
+
+    // Opening an item while the document is hidden shows it again.
+    await user.type(
+      screen.getByRole("textbox", { name: "Search specs" }),
+      "expirng",
+    );
+    const results = await screen.findByRole("tree", { name: "Search results" });
+    await user.click(within(results).getByText("Expiring certificate"));
+    expect(
+      await screen.findByRole("button", { name: "Hide document" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("separator", { name: "Resize the list panel" }),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Maximize document" }));
+    const restore = screen.getByRole("button", { name: "Restore panels" });
+    expect(restore.getAttribute("aria-pressed")).toBe("true");
+    await user.click(restore);
+    expect(
+      screen.getByRole("button", { name: "Maximize document" }),
+    ).toBeTruthy();
+  });
 });
