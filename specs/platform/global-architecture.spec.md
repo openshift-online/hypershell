@@ -581,8 +581,7 @@ Steps (Route mode on ROKS):
 3. **Provision a test tenant gateway** with `route.enabled=true`. The control
    plane creates an OpenShift `Route` (`passthrough`) `openshell-gateway` in the
    tenant namespace with host `gw-<tenant>.<base-domain>`, backed by
-   `Service openshell-gateway:8080`, plus the `openshell-gateway-allow-router`
-   NetworkPolicy, and publishes `grpcs://<host>:443` as the gateway's route address.
+   `Service openshell-gateway:8080`, and publishes `grpcs://<host>:443` as the gateway's route address.
    The tenant workload images (gateway, supervisor, gateway database) must be
    **node-reachable**; on ROKS they are mirrored into the internal registry and
    referenced by its in-cluster service address (see `ibm-cluster` Step 5).
@@ -674,7 +673,7 @@ therefore requires the router to negotiate HTTP/2 to the backend, so the cluster
 
 - GIVEN a provisioned tenant gateway with a routing object for the active mode
 - WHEN ingress is disabled (`route.enabled=false`) or the gateway is deleted
-- THEN the control plane SHALL delete the tenant's `Route` (route mode) or `GRPCRoute`/`BackendTLSPolicy` (gateway-api mode) and the `openshell-gateway-allow-router` NetworkPolicy
+- THEN the control plane SHALL delete the tenant's `Route` (route mode) or `GRPCRoute`/`BackendTLSPolicy` (gateway-api mode)
 - AND it SHALL clear the gateway's route address
 
 ### Requirement: PLAT-ARCH-07 -- Cloud-Agnostic Gateway Manifests
@@ -999,7 +998,6 @@ graph TB
         end
         
         subgraph Security
-            NP[NetworkPolicies]
             SA[ServiceAccounts]
             ROLE[Roles]
             RB[RoleBindings]
@@ -1030,12 +1028,12 @@ graph TB
 **Resources per Gateway Namespace**:
 - **Workloads**: Gateway StatefulSet (with Supervisor sidecar), dynamic Sandbox pods
 - **Config**: ConfigMaps, TLS secrets (cert-manager or certgen), Vault-backed secrets, `openshell-gateway-db-credentials`
-- **Security**: NetworkPolicies, ServiceAccounts, Roles, RoleBindings
+- **Security**: ServiceAccounts, Roles, RoleBindings
 
 **Gateway Database (outside the cluster)**: Provisioned by the control plane on the registered PostgreSQL server - a per-gateway database and login role (`gw_<gateway-id>`). See the [naming & multi-tenancy standard](../standards/platform/naming-multitenancy.spec.md).
 
 This namespace-per-gateway strategy provides:
-- Isolation boundary for RBAC and network policies
+- Isolation boundary for RBAC
 - Resource quotas per gateway
 - Self-contained workload lifecycle (delete namespace = delete gateway workload; the gateway database is dropped independently)
 - One shared server per installation, reducing the Postgres footprint across gateways
@@ -1234,7 +1232,7 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |
 | Prometheus metrics hierarchy | ManagedCluster → Cloud Hub → Global Hub; supports cloud-level and cross-cloud dashboards |
-| Namespace-per-gateway | Isolation boundary for RBAC, NetworkPolicy, and resource quotas; the gateway database lives on the registered server outside the cluster |
+| Namespace-per-gateway | Isolation boundary for RBAC and resource quotas; the gateway database lives on the registered server outside the cluster |
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
