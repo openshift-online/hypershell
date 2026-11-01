@@ -478,3 +478,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `WEB-OPS-21` | `web-console/operational-dashboard.spec.md` | - | Optional platform inventory widgets folded into the widget catalog (#788). Not recorded as retired at the time. |
 | `WEB-OPS-22` | `web-console/operational-dashboard.spec.md` | - | Platform inventory summary legacy layout removed (#788). Not recorded as retired at the time. |
 | `WEB-OPS-22.01` | `web-console/operational-dashboard.spec.md` | - | Removed with WEB-OPS-22 (#788). |
+| `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |

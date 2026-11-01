@@ -453,9 +453,3 @@ The control plane SHALL validate configuration at startup and fail fast with cle
 - [Gateway database spec](./openshell-gateway-database.spec.md)
 - [Gateway console spec](./openshell-gateway-console.spec.md)
 - [Gateway credentials spec](./openshell-gateway-credentials.spec.md)
-
----
-
-## Retired IDs
-
-- `OSG-HELM-04`: retired. It described the one-time move from static manifests to the Helm chart. That move is complete, and the Helm release is now the only deployment path (see Purpose).
