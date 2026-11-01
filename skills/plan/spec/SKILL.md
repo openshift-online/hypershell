@@ -51,7 +51,8 @@ Follow the spec format:
 - **Scenarios** -- concrete Given/When/Then examples
 - **IDs** -- a new requirement or scenario in an existing file gets the next
   free counter in that file's registered group (see "Requirement and
-  Scenario IDs" below); never reuse a counter retired from that group. A new
+  Scenario IDs" below); never reuse a counter listed in the Retired IDs
+  table of `specs/id-rename-map.md`. A new
   file registers its `MODULE-GROUP` in `specs/ids.md` before its first
   requirement is drafted.
 
@@ -128,8 +129,9 @@ drafting:
 - **Scenario IDs** are `<requirement-ID>.SS`, a 2-digit counter restarting
   at `01` for each requirement.
 - **Never renumber or reuse.** Reordering requirements doesn't change their
-  IDs. A deleted requirement's ID is retired (listed under a `## Retired
-  IDs` section in its spec), never reassigned.
+  IDs. A deleted requirement's or scenario's ID is retired: add a row to the
+  Retired IDs table in `specs/id-rename-map.md` (ID, former file, replacing
+  ID or `-`, reason), never a section in the spec itself. Never reassign it.
 - **One file, one group**, unless the file already hosts more than one
   clearly distinct, independently-evolving sub-area -- check
   `specs/ids.md`'s "Multi-Group Files" section before assuming a second

@@ -1235,7 +1235,3 @@ The current `deploy/openshift/` overlay has **unresolved runtime dependencies** 
 2. **Keycloak bundled but without external Route**: The overlay bundles Keycloak with `KC_HOSTNAME=https://keycloak.hypershell.localhost` (a Kind-only hostname). On real OpenShift clusters, this hostname is unreachable, so tokens minted by the bundled Keycloak carry a bogus, externally-unreachable issuer. The bootstrap workflow deploys Keycloak via the `deploy/keycloak/` overlay (which adds a Route and patches `KC_HOSTNAME`) and creates the `hypershell-api-config` Secret from the actual Route host.
 
 3. **Hardcoded `GATEWAY_API_BASE_DOMAIN` placeholder**: The overlay hardcodes `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which is a placeholder. This value is only used if Gateway API ingress mode is enabled (via setting `GATEWAY_INGRESS_MODE=gateway-api`); Route mode (the default) does not require it. The bootstrap workflow or operator automation must parameterize this value when switching to Gateway API mode.
-
-## Retired IDs
-
-- `DEV-OCP-09`, `DEV-OCP-09.01`, `DEV-OCP-09.02` - recorded the removal of `components/pr-test/e2e-openshell.sh`. Replaced by the ROKS pr-test Component requirement in `ephemeral-pr-environments.spec.md`, which states the `pr_test` scope.

@@ -1238,10 +1238,3 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
-
-## Retired IDs
-
-- `PLAT-ARCH-01`, `PLAT-ARCH-02`, `PLAT-ARCH-03`, `PLAT-ARCH-04`: never named a
-  requirement. The ID migration stamped them on four plain `### Requirements`
-  sub-headings by mistake. The requirements under those headings now start
-  at PLAT-ARCH-05.
