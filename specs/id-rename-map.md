@@ -485,3 +485,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-ROUT-01` | `platform/openshell-gateway-routing.spec.md` | - | Superseded placeholder: the control plane creates no NetworkPolicies in gateway namespaces (#339). |
 | `OSG-CON-06` | `platform/openshell-gateway-console.spec.md` | - | Required the console NetworkPolicies `openshell-console-allow-router` and `openshell-gateway-allow-console`, removed with all gateway-namespace NetworkPolicies (#339). |
 | `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |
+| `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |
