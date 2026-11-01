@@ -478,3 +478,7 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `WEB-OPS-21` | `web-console/operational-dashboard.spec.md` | - | Optional platform inventory widgets folded into the widget catalog (#788). Not recorded as retired at the time. |
 | `WEB-OPS-22` | `web-console/operational-dashboard.spec.md` | - | Platform inventory summary legacy layout removed (#788). Not recorded as retired at the time. |
 | `WEB-OPS-22.01` | `web-console/operational-dashboard.spec.md` | - | Removed with WEB-OPS-22 (#788). |
+| `OSG-CORE-04` | `platform/openshell-gateway.spec.md` | - | Described loading static gateway manifests from `/manifests/gateway/` and substituting placeholders. The control plane installs the gateway through the upstream Helm chart. |
+| `OSG-CORE-04.01` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
+| `OSG-CORE-04.02` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
+| `OSG-CORE-17` | `platform/openshell-gateway.spec.md` | - | Described SSH-over-gRPC payload delivery into sandboxes, which was never built. OSG-CORE-16 places agent configuration out of scope. |
