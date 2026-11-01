@@ -122,7 +122,7 @@ or group is added here before any requirement uses it.
 | `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
-| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 4 |
+| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
 | `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 6 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
