@@ -487,3 +487,9 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |
 | `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |
 | `WEB-PKG-03` | `web-console/architecture.spec.md` | `WEB-PKG-02` | Tracked the one-time npm-to-pnpm migration, which is complete. Its lasting rule (the dependency-age check inspects every pnpm package and workspace importer) moved to WEB-PKG-02. |
+| `OSG-NSGC-02.03` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Covered namespaces left unlabeled from before the instance label existed. No longer needed: the fleet has no such namespaces that a live Gateway still uses (checked 2026-11-01). |
+| `OSG-NSGC-02.04` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Covered namespaces left unlabeled from before the instance label existed; reconcile labeling is OSG-NSGC-03.02. |
+| `OSG-NSGC-04` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Startup backfill of the instance label onto namespaces created before the label existed. No longer needed: the fleet has no such namespaces that a live Gateway still uses (checked 2026-11-01). |
+| `OSG-NSGC-04.01` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
+| `OSG-NSGC-04.02` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
+| `OSG-NSGC-04.03` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
