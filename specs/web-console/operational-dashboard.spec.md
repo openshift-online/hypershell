@@ -892,9 +892,3 @@ status, Active sandboxes, and Attention required.
 - THEN `gateway-status#1` SHALL occupy column 2 on the top row
 - AND `gateway-releases#1` SHALL occupy column 3 on the second row
 - AND no `provisioned-sandboxes` widget SHALL appear on the grid
-
----
-
-## Retired IDs
-
-- `WEB-OPS-17.02`: replaced by WEB-OPS-17.03. The pods widget no longer renders a trend sparkline. It appears only on the Provisioning dashboard, which shows current pod state only (`web-console/provisioning-dashboard.spec.md` FR-011).

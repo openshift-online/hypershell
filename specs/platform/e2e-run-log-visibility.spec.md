@@ -934,9 +934,6 @@ state.
 - Owning the log pipeline. The central Loki receiver, retention, the
   ClusterLogForwarder, and the `X-Scope-OrgID` override are owned by
   hypershell-gitops; this spec consumes them.
-- Restoring the removed Bash E2E suite or adding a migration/fallback runner. The
-  current Go `TestE2E` suite is the single production suite
-  (`e2e-testing.spec.md`).
 - Manufacturing a successful promotion. Observability SHALL NOT become a dependency
   for test success or alter the Promoter decision path.
 - Exposing Loki, its queries, or its credentials to the browser.
