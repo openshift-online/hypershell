@@ -1,11 +1,10 @@
-# E2E Coverage for Credential Drivers, Gateway Sharing, Kata, Alerting, and CLI/UI Parity
+# E2E Coverage for Gateway Sharing, Kata, Alerting, and CLI/UI Parity
 
 **Date:** 2026-10-06
 **Status:** Draft
 **Jira:** HYPERSHELL-368
 **Related:** `e2e-testing.spec.md` (the Go `testify/suite` framework, the named phase model P0.x-P3.x, `E2E_MODE` short/long, the `E2EInfraDriver` contract, the `harness` helpers, the parallel scheduler, and the TLS-trust rule);
              `e2e-console-browser-testing.spec.md` (browser suite; install-docs link);
-             `openshell-gateway-credentials.spec.md` (credential driver fields, TOML, RBAC, Vault SA token, KEK);
              `managed-cluster-registration.spec.md` (registration, orphan-on-delete, user-id discovery via `/users`);
              `openshell-gateway-oidc.spec.md` and `specs/security/rbac-enforcement.spec.md` (`gateway:owner`/`gateway:viewer` -> `openshell-admin`/`openshell-user`);
              `control-plane-reconciliation-metrics.spec.md` (reconcile outcome/error metrics the alerting phase asserts on)
@@ -14,31 +13,29 @@
 
 ## Purpose
 
-Five platform features are implemented and shipped but carry no (or only
+Four platform features are implemented and shipped but carry no (or only
 indirect) end-to-end coverage in the Go functional suite (`E2ESuite`,
-`tests/e2e/`) or the browser suite (`tests/e2e/e2e-console.sh`): per-gateway
-provider credential storage drivers (Vault and Kubernetes Secrets), sharing a
+`tests/e2e/`) or the browser suite (`tests/e2e/e2e-console.sh`): sharing a
 gateway between users through the `role_bindings` API, Kata-runtime sandboxes,
 automated alerting / incident signal, and parity between the CLI commands the web
 console renders and the commands the e2e suite actually executes. This
 specification defines the e2e coverage that closes those gaps.
 
-The e2e suite was refactored from Bash to a Go `testify/suite` (`E2ESuite`,
+The e2e suite is a Go `testify/suite` (`E2ESuite`,
 `tests/e2e/suite.go`). Work is organized into **named phase steps** with dotted
 identifiers (P0.x preflight, P1.x the provisioning gate, P2.x parallel feature
 waves, P3.x admin/validation), registered in `TestPhases` (`suite.go`) via
 `s.gate(...)` (serial) or `s.parallelStep(...)` (parallel wave) and marked
-`tagShort` or `tagLong`. There is no longer a numbered "area" model.
+`tagShort` or `tagLong`.
 
-The five feature gaps become **new long-tagged phase steps** appended to the P2
+The four feature gaps become **new long-tagged phase steps** appended to the P2
 parallel wave (`p2ParallelSteps()`), each a `func (s *E2ESuite) p2_N<name>(t *testing.T)`.
 This spec additionally defines one **cross-component coverage addition**: an
 extension of the existing `managedcluster-lifecycle` phase (P2.4) (see
 [Cross-Component Route Coverage Additions](#cross-component-route-coverage-additions)).
 Proposed identifiers below (P2.8-P2.11) are assigned when the steps are appended;
-the slug is the stable name. P2.7 is the separately-owned `vault-fail-closed`
-phase; credential-driver selection is control-plane-only under PLAT-DATA-23 and is
-not exercised as a dedicated per-gateway phase (see Requirement E2E-COV-01).
+the slug is the stable name. P2.7 is the separately-owned serial
+`vault-fail-closed` phase (`e2e-testing.spec.md`).
 
 | Proposed step | Slug | Feature |
 |---|---|---|
@@ -59,18 +56,17 @@ credentials the suite seeds only in long mode (`s.devCreds()`,
 `harness.Clients`, `harness.Poll`/`Retry`, and testify assertions, and adds no new
 `E2EInfraDriver` methods.
 
-Backends the Kind CI gate cannot host (a running Vault server; a
-`kata-containers` RuntimeClass) are opt-in: the step reads an enable flag and
+Backends the Kind CI gate cannot host (a `kata-containers` RuntimeClass; a
+firing alert path) are opt-in: the step reads an enable flag and
 `t.Skipf`s with a reason when the flag or backing infrastructure is absent - the
 suite's three-outcome skip idiom (as the matrix uses `E2E_MANAGED_SKIP_UNHEALTHY`),
-never a false pass. The halves Kind can host (the Kubernetes Secrets credential
-driver, the full `role_bindings` sharing flow, CLI/UI parity, and the
-metric-signal half of alerting) run in long mode on every target, including the
+never a false pass. The halves Kind can host (the full `role_bindings` sharing
+flow, CLI/UI parity, and the metric-signal half of alerting) run in long mode on every target, including the
 Kind CI's long runs.
 
 ### Scope
 
-In scope: the five new feature phase steps, the cross-component coverage addition,
+In scope: the four new feature phase steps, the cross-component coverage addition,
 their mode placement, and the environment variables they add. Out of
 scope: the feature implementations themselves (owned by the specs cross-referenced
 above), the browser console suite's own areas (owned by
@@ -81,23 +77,6 @@ counterpart), and authoring a `PrometheusRule` for the alerting feature (see
 ---
 
 ## Requirements
-
-### Requirement: E2E-COV-01 -- Provider Credential Driver Coverage
-
-A gateway's `credential_driver` is a control-plane-only field. Per PLAT-DATA-23
-(`data-model.spec.md`) and `openshell-gateway-credentials.spec.md`, `name` is the
-only user-writable gateway field and the API rejects a user-supplied
-`credential_driver` on both create and update; the control plane resolves the
-driver from the deployment's `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
-(`defaultCredentialDriverType()` in
-`components/control-plane/internal/gateway/helm_deploy.go`), not from a per-gateway
-create request. There is therefore no API path for the suite to provision a gateway
-with an explicit per-gateway driver, so the earlier dedicated `credential-drivers`
-phase and its per-type create assertions are NOT part of this coverage. Driver
-behavior is exercised instead by the deployment default applied to every gateway
-and by the separately-owned serial `vault-fail-closed` phase (P2.7). This
-requirement records that explicit per-gateway driver e2e coverage is intentionally
-dropped under PLAT-DATA-23; it defines no scenarios.
 
 ### Requirement: E2E-COV-02 -- Gateway Sharing Coverage
 
@@ -213,12 +192,10 @@ false-pass) until both are resolved:
    no `PrometheusRule` and no alert definition in any spec. Asserting an alert
    fires requires a rule to exist first.
 
-2. **No API-reachable reconcile fault.** The suite previously provoked a metric
-   fault by creating a Vault-backed gateway whose serving-CA source Secret is
-   absent. Under PLAT-DATA-23 `credential_driver` (and every gateway field except
-   `name`) is control-plane-only and rejected on create, so a user can no longer
-   provision a gateway that deterministically faults; the serial `vault-fail-closed`
-   phase (P2.7) exercises that fault path itself.
+2. **No API-reachable reconcile fault.** Under PLAT-DATA-23 every gateway field
+   except `name` is control-plane-only and rejected on create, so a user cannot
+   provision a gateway that deterministically faults. The serial
+   `vault-fail-closed` phase (P2.7) exercises the reconcile-fault path itself.
 
 When a qualification harness supplies both a reachable fault and an authored alert
 rule (plus a reachable Alertmanager/Prometheus), the phase SHALL provoke the rule's
@@ -247,14 +224,13 @@ condition resolves, restoring any state it perturbed on every exit path.
 
 The e2e test suite SHALL assert that the CLI commands the web console renders are
 the same commands the e2e suite executes, and that they stay valid across
-OpenShell upgrades. This is the `cli-ui-parity` phase (P2.11), long-tagged. Today
-the UI's `buildOpenShellInstallCommand` / `buildProviderCreateCommand`
+OpenShell upgrades. This is the `cli-ui-parity` phase (P2.11), long-tagged. The UI's
+`buildOpenShellInstallCommand` / `buildProviderCreateCommand`
 (`packages/gateway-management-ui/src/gateways/gateway-connections.ts`) and the
-suite's version-derivation logic (`openshell_cli_image_tag` in
-`tests/e2e/lib.sh`, still Bash and used by the console suite; the Go suite has no
-port of it) share version-derivation logic coupled only by the UI's "keep in
-sync" comment (which points at the Bash helper) and separate unit tests; nothing
-asserts identical command strings end to end.
+Go phase each derive the installer version on their own. The Go phase ports
+`openshell_cli_image_tag` and `openshell_cli_matches_version` from
+`tests/e2e/lib.sh` (`tests/e2e/cli_parity_phases.go`). Unit tests keep the two
+derivations equal, and this phase asserts identical command strings end to end.
 
 The suite SHALL derive the install command the UI would render for the live,
 reconciled `gateway_version` (invoking the same `buildOpenShellInstallCommand`
@@ -321,13 +297,7 @@ phase asserts.
 
 Of the routes no phase exercises today, exactly one carries untested
 cross-component behavior: `DELETE /managed_clusters/{id}` (orphan-and-restore),
-which extends the existing `managedcluster-lifecycle` phase (P2.4) below. (The
-GatewayRelease and GatewayNetwork kinds were removed from the API on 2026-10-06 -
-their plugins are gone and registered migrations drop the `gateway_releases` and
-`gateway_networks` tables - so `PATCH /gateway_releases/{id}` and the
-`/gateway_networks` routes no longer exist and are not coverage targets;
-`gateway-release-rollout.spec.md` and `gateway-release-reconciliation.spec.md`
-still describe the removed API and need their own reconciliation.) The remaining
+which extends the existing `managedcluster-lifecycle` phase (P2.4) below. The remaining
 uncovered routes are pure CRUD or reads (`GET /roles`, `GET /role_bindings/{id}`,
 `GET /metrics/gateways`, metadata/openapi/healthcheck): their
 only observable effects are covered by the trex integration tests, by a prior
@@ -430,19 +400,17 @@ The `gateway-sharing-rolebindings` phase reuses the suite's existing
 token (`authentication` phase P0.1, `admin-inventory-validation` phase P3.1) for
 `/users` discovery, and resolves the `gateway:viewer` role id from `Roles().List`.
 The `alerting-signal` phase is deferred (see Requirement E2E-COV-04): no
-PrometheusRule is authored yet, and the reconcile-fault provocation it relied on is
-no longer reachable through the API under PLAT-DATA-23, so it skips unless
-`E2E_QUALIFY_ALERTING=1`.
+PrometheusRule is authored yet, and no reconcile fault is reachable through the API
+under PLAT-DATA-23, so it skips unless `E2E_QUALIFY_ALERTING=1`.
 The `cli-ui-parity` phase reuses `OPENSHELL_BIN` and
-`scripts/install-openshell.sh`, and ports the version helpers
-(`openshell_cli_image_tag`, `openshell_cli_matches_version`) from
-`tests/e2e/lib.sh` (the Go suite has no version-derivation logic today). The
+`scripts/install-openshell.sh`, and the version helpers it ports from
+`tests/e2e/lib.sh` (`openshell_cli_image_tag`, `openshell_cli_matches_version`). The
 cross-component addition reuses the existing `E2E_MULTICLUSTER` and
 `E2E_SEED_CLUSTER_NAME_2`.
 
 ## Design Decisions
 
-- **New phase steps in the Go suite, not a parallel structure.** The five feature
+- **New phase steps in the Go suite, not a parallel structure.** The four feature
   gaps plus the cluster-delete addition register as
   long-tagged steps of the existing `E2ESuite` (`p2ParallelSteps()` / the P2.4
   phase), reusing the driver contract, typed `apiclient`, `harness` helpers, and
@@ -454,18 +422,14 @@ cross-component addition reuses the existing `E2E_MULTICLUSTER` and
   HTTP, so re-issuing those routes in e2e adds nothing. e2e earns its cost only
   where a route drives cross-component reconciliation no phase asserts - which,
   across the whole uncovered set, is exactly one route
-  (`DELETE /managed_clusters/{id}` orphan-and-restore; the GatewayRelease and
-  GatewayNetwork routes this analysis once counted were removed from the API on
-  2026-10-06). Everything else uncovered is pure CRUD or is covered at a
+  (`DELETE /managed_clusters/{id}` orphan-and-restore). Everything else uncovered is pure CRUD or is covered at a
   better layer (a prior phase, or a unit test the owning spec assigns), so it is
   left to those layers.
-- **Opt-in backends skip, they do not block.** Vault, Kata, and alert-firing need
-  infrastructure the Kind CI environment does not provide. Rather than reusing
-  the Bash suite's `E2E_QUALIFY_*` qualification flags (still live in
-  `tests/e2e/lib.sh` for the console suite), each is a new opt-in flag of the Go
-  suite whose step `t.Skipf`s (the suite's three-outcome skip idiom)
+- **Opt-in backends skip, they do not block.** Kata and alert-firing need
+  infrastructure the Kind CI environment does not provide. Each has its own opt-in
+  flag of the Go suite whose step `t.Skipf`s (the suite's three-outcome skip idiom)
   when the flag or infrastructure is absent - never a pass, never a failure. The
-  Kind-hostable halves (Kubernetes Secrets, the `role_bindings` sharing flow,
+  Kind-hostable halves (the `role_bindings` sharing flow,
   CLI/UI parity, the metric tier of alerting) run in long mode on
   every target.
 - **Alerting follows the feature.** No alert artifact exists in the repository
