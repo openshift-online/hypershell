@@ -75,7 +75,7 @@ steps. The ordering reflects the actual dependency chain in the reconciler.
 | 1 | `EnvironmentReady` | Preparing environment | Namespace creation, RBAC setup, cluster prerequisites |
 | 2 | `DatabaseReady` | Provisioning database | Admin credential read, per-gateway DDL, credential Secret |
 | 3 | `IdentityProviderReady` | Configuring identity provider | Keycloak client provisioning, OIDC config persistence |
-| 4 | `GatewayDeployed` | Deploying gateway | TLS certificates, config validation, Deployment, Service, NetworkPolicy, routing resources |
+| 4 | `GatewayDeployed` | Deploying gateway | TLS certificates, config validation, Deployment, Service, routing resources |
 | 5 | `GatewayHealthy` | Verifying gateway health | Deployment readiness, route readiness, phase transition to `Running` |
 
 **Step grouping rationale:**
