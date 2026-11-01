@@ -636,7 +636,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address) | `gateways.proto` | W5 ✅ |
 | G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
-| G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
+| G4 | Gateway Manifest Templating | Retired | OSG-CORE-04 retired; gateways install through Helm chart values | `internal/helm/values.go` | - |
 | G5 | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | W2 ✅ |
 | G6 | Trusted CA Bundle Injection | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
 | G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | - |
@@ -649,7 +649,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G14 | OpenShift-Specific Provisioning | Present | - | `reconcileOpenShiftSCC()` | W2 ✅ |
 | G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | - |
 | G16 | Separation from Agent Config | Present | - | - | - |
-| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
+| G17 | SSH Payload Delivery | Retired | OSG-CORE-17 retired; agent configuration is out of scope (OSG-CORE-16) | - | - |
 | G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
 
 ### openshell-gateway-database.spec.md
