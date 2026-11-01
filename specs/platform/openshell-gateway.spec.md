@@ -28,7 +28,7 @@ The control plane SHALL provision and reconcile OpenShell gateway deployments in
 
 This specification covers core gateway provisioning. OIDC, TLS, routing, and database concerns are defined in dedicated sub-specs (see table above).
 
-- **Core Provisioning** - Gateway as API resource, GatewayReconciler, shared kustomize library, manifest templating, config validation, kustomize overlays, gateway deployment resources, failure handling
+- **Core Provisioning** - Gateway as API resource, GatewayReconciler, shared kustomize library, Helm chart values, config validation, kustomize overlays, gateway deployment resources, failure handling
 - **Keycloak Integration** - Automated per-gateway OIDC client provisioning, RBAC-driven role assignment, visibility scoping (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md))
 - **OpenShift-Specific** - SCC bindings, security context adjustments
 
@@ -40,7 +40,7 @@ This specification covers core gateway provisioning. OIDC, TLS, routing, and dat
 
 ```
 hsctl apply -k overlays/tenant-a/
-    │  renders kustomization.yaml (Project + Gateway)
+    │  renders kustomization.yaml (Gateway and other HyperShell kinds)
     │  POST/PATCH each resource to API server
     ▼
 API Server (PostgreSQL)
@@ -240,10 +240,9 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
 #### Scenario: OSG-CORE-02.02 -- Supported kinds
 
 - GIVEN the shared kustomize library renders manifests
-- THEN it SHALL support the following HyperShell resource kinds:
-  - `Project`
-  - `Gateway` *(new)*
-- AND documents with unrecognized `kind` values SHALL be skipped with a warning
+- THEN it SHALL return every rendered document, including `Gateway` documents, without filtering by kind
+- AND `hsctl apply` SHALL apply only the HyperShell kinds it recognizes, including `Gateway`
+- AND `hsctl apply` SHALL skip documents with unrecognized `kind` values with a warning
 
 #### Scenario: OSG-CORE-02.03 -- Unit testability
 
@@ -296,28 +295,6 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - WHEN namespace creation fails
 - THEN reconciliation SHALL fail without applying namespaced resources
 - AND it SHALL retry on the next reconciliation cycle
-
----
-
-### Requirement: OSG-CORE-04 -- Gateway Manifest Templating
-
-The GatewayReconciler SHALL load gateway resource manifests from the container filesystem and apply namespace-specific substitutions. This reuses the existing manifest loading and templating logic from the `internal/gateway/manifests.go` module.
-
-#### Scenario: OSG-CORE-04.01 -- Load gateway manifests from filesystem
-
-- GIVEN the HyperShell container includes gateway manifests at `/manifests/gateway/`
-- WHEN the GatewayReconciler loads manifests
-- THEN it SHALL read all YAML files from the manifests directory
-- AND it SHALL parse each file into Kubernetes resource objects
-- AND it SHALL substitute `NAMESPACE_PLACEHOLDER` with the target namespace name
-- AND it SHALL substitute `IMAGE_PLACEHOLDER` with the Gateway resource's `image` field
-
-#### Scenario: OSG-CORE-04.02 -- Required manifest files missing
-
-- GIVEN the `/manifests/gateway/` directory is missing or empty
-- WHEN the GatewayReconciler attempts to load manifests
-- THEN it SHALL log an error and fail gracefully
-- AND it SHALL NOT crash the control plane
 
 ---
 
@@ -398,34 +375,31 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 
 ### Requirement: OSG-CORE-08 -- Kustomize Overlay Structure for Gateways
 
-Gateway resources SHALL be expressible in the existing `examples/` kustomize overlay structure alongside Project resources.
+Gateway resources SHALL be expressible in a kustomize base and overlay structure.
 
 #### Scenario: OSG-CORE-08.01 -- Gateway in a tenant overlay
 
-- GIVEN the directory `examples/overlays/tenant-a/`:
+- GIVEN the directory `overlays/tenant-a/`:
   ```
   kustomization.yaml
-  project.yaml          # kind: Project
   gateway.yaml          # kind: Gateway
   ```
-- AND `kustomization.yaml` references all resources:
+- AND `kustomization.yaml` references the base and the Gateway:
   ```yaml
   kind: Kustomization
   bases:
     - ../../base
   resources:
-    - project.yaml
     - gateway.yaml
   ```
-- WHEN a user runs `hsctl apply -k examples/overlays/tenant-a/`
-- THEN the Project and Gateway SHALL all be applied in order
-- AND the ProjectReconciler SHALL create the Project namespace
-- AND the GatewayReconciler SHALL create the Gateway's distinct API-assigned namespace
+- WHEN a user runs `hsctl apply -k overlays/tenant-a/`
+- THEN the Gateway SHALL be applied
+- AND the GatewayReconciler SHALL create the Gateway's API-assigned namespace
 - AND the GatewayReconciler SHALL deploy the gateway into its assigned namespace
 
 #### Scenario: OSG-CORE-08.02 -- Gateway base with per-tenant patches
 
-- GIVEN a base gateway configuration in `examples/base/gateway.yaml` that declares only
+- GIVEN a base gateway configuration in `base/gateway.yaml` that declares only
   user-writable manifest fields (`name` + placement, per PLAT-DATA-23):
   ```yaml
   kind: Gateway
@@ -437,13 +411,12 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  project: tenant-a
   placement:
     selector:
       - network/public
   ```
 - WHEN the kustomize engine resolves the overlay
-- THEN the merged Gateway SHALL carry the base `name` and the overlay's placement selector and project
+- THEN the merged Gateway SHALL carry the base `name` and the overlay's placement selector
 - AND a base or overlay that declared a platform-managed field (for example `image` or `serverDnsNames`) SHALL be rejected on apply/import, because those fields are control-plane-managed (PLAT-DATA-23)
 
 ---
@@ -886,7 +859,7 @@ When gateway deployment fails (e.g., ImagePullBackOff, insufficient permissions)
 - GIVEN a Gateway resource specifies an image that does not exist
 - WHEN Kubernetes attempts to pull the image
 - THEN the Deployment SHALL enter ImagePullBackOff state
-- AND the GatewayReconciler SHALL log an error with the Gateway name, project, and failure reason
+- AND the GatewayReconciler SHALL log an error with the Gateway name and failure reason
 - AND the GatewayReconciler SHALL retry on the next reconcile cycle
 
 #### Scenario: OSG-CORE-15.02 -- Insufficient RBAC permissions
@@ -901,28 +874,6 @@ When gateway deployment fails (e.g., ImagePullBackOff, insufficient permissions)
 ### Requirement: OSG-CORE-16 -- Separation from Agent Configuration
 
 Gateway provisioning SHALL be independent of agent definitions. Agent-specific configuration (schedules, prompts, policies) is out of scope for this specification.
-
----
-
-### Requirement: OSG-CORE-17 -- Payload Delivery via SSH-over-gRPC
-
-When the control plane needs to write payload files (`.mcp.json`, `CLAUDE.md`, credential configs) into a running sandbox, it SHALL use the OpenShell SSH-over-gRPC mechanism rather than `ExecSandbox`. Sandbox containers use a read-only root filesystem, so `ExecSandbox`-based writes (which run as the sandbox user) fail with "Permission denied". The SSH path routes through the supervisor's embedded SSH server (russh), which runs as root and can write to any path.
-
-**Data path:**
-```
-Control Plane
-  → gRPC: CreateSshSession(sandbox_id) → authorization token
-  → gRPC: ForwardTcp (bidirectional stream)
-      → TcpForwardInit: sandbox_id, service_id, SshRelayTarget, token
-      → SSH handshake over the gRPC stream (net.Conn adapter)
-      → Validate sandbox_path against allowlist regex (reject shell metacharacters, traversal)
-      → SSH session: "mkdir -p '<dir>' && cat > '<path>'" with content piped to stdin
-  → Repeat for each payload file over the same SSH connection
-```
-
-**Path validation:** Before constructing the shell command, each `sandbox_path` is validated against the regex `^/[a-zA-Z0-9/_.\\-]+$` and checked for `..` traversal segments. Paths that fail validation are rejected before any SSH session is opened.
-
-**Implementation:** `internal/openshell/ssh_upload.go` - `GatewayClient.UploadPayloads()`
 
 ---
 
@@ -982,35 +933,11 @@ NOT request it.
 ```yaml
 kind: Gateway
 name: openshell-gateway
-project: tenant-a
 placement:
   selector:
     - network/public
 # image, oidc, route, serverDnsNames, tls_mode, service_type, external_dns,
 # credential_driver are control-plane-managed: read-only, not declarable here.
-```
-
----
-
-## Data Model Changes
-
-The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, and `routeAddress` fields:
-
-```
-Gateway {
-    ...existing fields...
-    jsonb  oidc         "nullable - OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
-    jsonb  route        "nullable - route exposure config (host, certificate: per-gateway dedicated route/cert opt-in, provision-time only)"
-    text   routeAddress "nullable - read-only external address populated by control plane"
-}
-```
-
-Database migrations SHALL add the columns to the `gateways` table:
-
-```sql
-ALTER TABLE gateways ADD COLUMN oidc JSONB;
-ALTER TABLE gateways ADD COLUMN route JSONB;
-ALTER TABLE gateways ADD COLUMN route_address TEXT;
 ```
 
 ---
@@ -1061,21 +988,6 @@ The GatewayReconciler creates RBAC resources within each tenant namespace for th
 
 ---
 
-## Template Packaging
-
-The control plane deploys gateways via Helm at reconcile time. The static
-manifest packaging below is historical and SHALL NOT be the install path for
-`dev_build` or `dev_build_metadata`; those fields are Helm
-values (`podLabels`, `podAnnotations`).
-
-Gateway manifests SHALL be:
-- Stored in the HyperShell codebase at `components/hypershell-control-plane/manifests/gateway/`
-- Generated once during development using `helm template` (NOT Helm at runtime)
-- Packaged into the HyperShell container image at build time
-- Read from the container filesystem at `/manifests/gateway/` at runtime
-
----
-
 ## Upstream Helm Chart Provenance
 
 The control plane installs the OpenShell gateway by supplying values to the upstream Helm chart at reconcile time (`internal/helm/values.go`, `internal/gateway/helm_deploy.go`). This section maps Gateway fields and cluster facts to those chart values. `podLabels` and `podAnnotations` carry branch-build identity. Cert-manager resources and OpenShift adjustments that the chart does not own remain the GatewayReconciler's responsibility.
@@ -1088,28 +1000,22 @@ This section documents which upstream Helm chart values each HyperShell behavior
 - **Source:** <https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell>
 - **Docs:** <https://docs.nvidia.com/openshell/kubernetes/openshift>, <https://docs.nvidia.com/openshell/kubernetes/managing-certificates>
 
-The baseline `helm template` command that produced the static manifests:
+Each row names a chart value and the HyperShell input that sets it:
 
-```bash
-helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
-  --namespace NAMESPACE_PLACEHOLDER \
-  --set "pkiInitJob.serverDnsNames={openshell-gateway.NAMESPACE_PLACEHOLDER.svc.cluster.local}"
-```
-
-| Helm `--set` value | HyperShell equivalent | Implementation location |
+| Helm chart value | HyperShell equivalent | Implementation location |
 |---|---|---|
 | `sandbox.image.{repository,tag,digest}` | Vendored chart default for `[openshell.drivers.kubernetes].default_image`; e2e and Kind preload track it through `OPENSHELL_SANDBOX_IMAGE` | `charts/openshell/values.yaml`, `scripts/sync_openshell_version.py` |
 | `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS` env var; omitted from values when unset. The chart conditionally renders this into `gateway.toml` `default_runtime_class_name` and sets `runtimeClassName` on sandbox pods | `internal/helm/values.go` |
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
-| `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource; substituted into cert-manager Certificate SANs at reconcile time | `internal/reconciler/gateway_reconciler.go` |
-| `certManager.enabled=true` | Auto-detected: GatewayReconciler checks for `cert-manager.io` API group at startup via `detectCertManager()`. When present, creates Issuer/Certificate resources inline | `internal/reconciler/gateway_reconciler.go` |
-| `podSecurityContext.fsGroup=null` | On OpenShift only: `applyOpenShiftOverrides()` clears `fsGroup` from the Deployment pod securityContext before apply | `internal/gateway/reconciler.go` |
-| `securityContext.runAsUser=null` | On OpenShift only: `applyOpenShiftOverrides()` clears `runAsUser` from container securityContext | `internal/gateway/reconciler.go` |
+| `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource. When cert-manager is present, the same names also go to `certManager.serverDnsNames`, because the chart then ignores `pkiInitJob.serverDnsNames` | `internal/helm/values.go` |
+| `certManager.enabled=true` | Auto-detected: the control plane checks for the `cert-manager.io` API group once at startup through `gateway.DetectCertManager()`. The result sets `certManager.enabled` | `internal/gateway/reconciler.go`, `internal/reconciler/reconciler.go`, `internal/helm/values.go` |
+| `podSecurityContext.fsGroup=null` | On OpenShift only: set to null so the SCC assigns `fsGroup` | `internal/helm/values.go` (`buildOpenShiftValues`) |
+| `securityContext.runAsUser=null` | On OpenShift only: set to null so the SCC assigns `runAsUser` | `internal/helm/values.go` (`buildOpenShiftValues`) |
 | `server.disableTls=true` | **NOT used.** BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to serve TLS. TLS remains enabled on all clusters | N/A |
 | `server.externalDbSecret` | `openshell-gateway-db-credentials`, provisioned by the control plane; the chart injects the Secret's `uri` key as `OPENSHELL_DB_URL`. The chart reads no other key and cannot mount a database CA, so the `uri` uses `sslmode=require` | `internal/gateway/database.go`, `internal/helm/values.go` |
-| `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/reconciler/gateway_reconciler.go` |
-| `server.oidc.*` | `oidc` field on Gateway resource; injected into `gateway.toml` ConfigMap by `ApplyConfigOverrides` | `internal/gateway/manifests.go` |
+| `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/helm/values.go` |
+| `server.oidc.*` | `oidc` field on the Gateway resource, set as `server.oidc.*` chart values; the chart renders them into `gateway.toml` | `internal/helm/values.go` |
 | `replicaCount` | HyperShell uses 1 replica (Deployment default) | N/A |
 | `resources` | `GATEWAY_RESOURCES` when set, else requests `cpu: 100m`, `memory: 512Mi` and limits `cpu: 500m`, `memory: 1Gi`. Always set: the chart default is `{}`, which would leave the gateway BestEffort with no memory limit | `internal/helm/values.go`, `internal/helm/resources.go` |
 
@@ -1133,8 +1039,8 @@ The NVIDIA docs recommend cert-manager v1.20+. HyperShell test environments curr
 | NVIDIA doc instruction | HyperShell equivalent |
 |---|---|
 | `oc adm policy add-scc-to-user privileged -z openshell-gateway-sandbox -n <ns>` | `reconcileOpenShiftSCC()` creates a RoleBinding granting `system:openshift:scc:privileged` ClusterRole to the `openshell-gateway-sandbox` ServiceAccount |
-| `--set podSecurityContext.fsGroup=null` | `applyOpenShiftOverrides()` clears `fsGroup` via `unstructured.RemoveNestedField()` |
-| `--set securityContext.runAsUser=null` | `applyOpenShiftOverrides()` clears `runAsUser` via `unstructured.RemoveNestedField()` |
+| `--set podSecurityContext.fsGroup=null` | `buildOpenShiftValues()` sets `podSecurityContext.fsGroup` to null in the chart values |
+| `--set securityContext.runAsUser=null` | `buildOpenShiftValues()` sets `securityContext.runAsUser` to null in the chart values |
 | `--set server.disableTls=true` | **NOT used** - BackendTLSPolicy re-encrypts to the pod |
 
 The NVIDIA docs note that the OpenShift install path is experimental and recommends `server.disableTls=true` for evaluation. HyperShell diverges from this recommendation by keeping TLS enabled, because BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to terminate TLS on the backend segment.
