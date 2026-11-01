@@ -6,8 +6,7 @@
 **Related:** `local-development.spec.md` -- Kind lifecycle and component swap;
              `e2e-testing.spec.md` -- driver interface contract and Kind CI;
              `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) -- pull-request
-             OpenShift CI, timebox, GitHub-brokered Keycloak, and `e2e-openshell.sh`
-             deprecation;
+             OpenShift CI, timebox, and GitHub-brokered Keycloak;
              `control-plane.spec.md` -- reconciler behavior;
              `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
 
@@ -24,8 +23,8 @@ This spec owns the OpenShift lifecycle (`make openshift-up` / `make openshift-do
 the `scripts/cluster/drivers/openshift.sh` lifecycle driver), the `deploy/openshift/`
 overlay, and the cluster bootstrap. It does **not** own the e2e driver: the e2e
 suite is now Go (`testify/suite`), and `e2e-testing.spec.md` owns both the
-`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`),
-which replaced the former shell `tests/e2e/drivers/openshift.sh`. This spec
+`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`).
+The shell `tests/e2e/drivers/openshift.sh` serves only the smoke and browser launchers. This spec
 supplies the OpenShift environment facts that Go driver depends on (the Routes,
 the shared Gateway base domain, the Keycloak Route issuer, RBAC and SCC posture).
 Automated pull-request CI on OpenShift -- namespace naming, continuous
@@ -792,8 +791,7 @@ build, which run the baseline image, and the exact image each one runs.
 ### Requirement: DEV-OCP-07 -- OpenShift E2E Driver Environment
 
 The OpenShift e2e driver is the Go `driver/openshift.go` implementation of the
-`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md` (it
-replaced the former shell `tests/e2e/drivers/openshift.sh`). This spec does not
+`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md`. This spec does not
 re-specify that interface; it records the OpenShift environment facts the Go driver
 depends on, which `make openshift-up` and the cluster bootstrap guarantee. The Go
 driver reaches the cluster through the shared `client-go`/controller-runtime client
@@ -929,46 +927,13 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
   `hypershell-controller` cluster-scoped RBAC
 - AND the harness fails if the swap path uses the internal image registry
 
-### Requirement: DEV-OCP-09 -- E2E Script Consolidation
-
-The legacy `components/pr-test/e2e-openshell.sh` script has been superseded by the
-shared e2e harness and the pull-request workflow in
-`ephemeral-pr-environments.spec.md`, which owns the record of its removal
-(HYPERSHELL-250). The ROKS variant `components/pr-test/e2e-openshell-roks.sh` was
-out of scope for that removal and remains. The `pr_test` component and its CI
-wiring remain, rescoped to the ROKS script, until it is also retired or rehomed.
-
-The end state after the Go rewrite: OpenShift-specific e2e logic lives in the Go
-`tests/e2e/driver/openshift.go` (`e2e-testing.spec.md`), the infrastructure-agnostic
-suite is the Go `E2ESuite`, and no OpenShift e2e logic remains hardcoded outside the
-`E2EInfraDriver` model. The former Bash `tests/e2e/e2e-openshell.sh` and
-`tests/e2e/drivers/openshift.sh` are removed by that rewrite's cutover (see Shell
-Suite Removal in `e2e-testing.spec.md`). This spec SHALL NOT require the ROKS script
-or the `pr_test` component to already be removed.
-
-#### Scenario: DEV-OCP-09.01 -- Legacy OpenShift script has been removed
-
-- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
-- WHEN this spec is in effect
-- THEN the script SHALL NOT be present in the repository
-- AND `ephemeral-pr-environments.spec.md` is the contract that recorded its removal
-- AND `components/pr-test/` is not removed while the ROKS variant still lives there
-
-#### Scenario: DEV-OCP-09.02 -- No dangling references after eventual ROKS retirement
-
-- GIVEN the ROKS variant has been retired or rehomed in the future
-- WHEN a maintainer inspects CI configuration and component registration
-- THEN no workflow references the removed path
-- AND `.github/component-paths.json` no longer contains a `pr_test` entry that
-  points to a removed path
-
 ### Requirement: DEV-OCP-10 -- Pull-Request CI Uses This Lifecycle
 
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
 naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the
-`e2e-openshell.sh` deprecation window. This spec SHALL NOT restate those
+access comment, GitHub-brokered Keycloak, e2e grant selection, and the scope
+of the ROKS `pr_test` component. This spec SHALL NOT restate those
 requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
@@ -1270,3 +1235,7 @@ The current `deploy/openshift/` overlay has **unresolved runtime dependencies** 
 2. **Keycloak bundled but without external Route**: The overlay bundles Keycloak with `KC_HOSTNAME=https://keycloak.hypershell.localhost` (a Kind-only hostname). On real OpenShift clusters, this hostname is unreachable, so tokens minted by the bundled Keycloak carry a bogus, externally-unreachable issuer. The bootstrap workflow deploys Keycloak via the `deploy/keycloak/` overlay (which adds a Route and patches `KC_HOSTNAME`) and creates the `hypershell-api-config` Secret from the actual Route host.
 
 3. **Hardcoded `GATEWAY_API_BASE_DOMAIN` placeholder**: The overlay hardcodes `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which is a placeholder. This value is only used if Gateway API ingress mode is enabled (via setting `GATEWAY_INGRESS_MODE=gateway-api`); Route mode (the default) does not require it. The bootstrap workflow or operator automation must parameterize this value when switching to Gateway API mode.
+
+## Retired IDs
+
+- `DEV-OCP-09`, `DEV-OCP-09.01`, `DEV-OCP-09.02` - recorded the removal of `components/pr-test/e2e-openshell.sh`. Replaced by the ROKS pr-test Component requirement in `ephemeral-pr-environments.spec.md`, which states the `pr_test` scope.

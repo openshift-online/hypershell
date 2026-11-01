@@ -124,7 +124,7 @@ This spec covers:
 This spec does not change the realm's service-account users, the `hypershell-e2e`
 confidential client, or the GitHub-brokered authentication model - those remain
 defined in `ephemeral-pr-environments.spec.md` and `e2e-testing.spec.md`. It adds
-`de_seed_test_users` to the e2e driver contract (owned in `e2e-testing.spec.md`)
+`DeSeedTestUsers` to the e2e driver contract (owned in `e2e-testing.spec.md`)
 as a no-op on every driver so a test run cannot delete live environment users.
 It does not govern the Keycloak master-realm bootstrap admin.
 It does not prescribe Terraform resource names, IAM JSON, or ESO Helm values; GitOps
@@ -510,7 +510,7 @@ close, or the reaper). Destroying the namespace group removes Keycloak; that is
 the only required cleanup of these accounts. E2e SHALL NOT alter, rotate, or
 delete anything in AWS Secrets Manager or the ESO Secret.
 
-The suite SHALL still call driver function `de_seed_test_users` from the cleanup
+The suite SHALL still call driver method `DeSeedTestUsers` from the cleanup
 trap as `e2e-testing.spec.md` defines. Every driver SHALL no-op that step so a
 test run cannot delete live environment users (Kind static seeds, local OpenShift
 static seeds, and CI-owned rotated seeds alike).
@@ -782,7 +782,7 @@ Requirement: SEC-RBAC-13).
 | CI-owned OpenShift password-grant does not fall back to username-equals-password | A missing Secret on a public PR environment must fail closed. Falling back to `admin`/`admin` would republish the exposure this spec exists to close. Developer-owned OpenShift keeps those seeds on purpose |
 | CI-owned seed failure is fail-closed | Brokered e2e and impersonation need the users to exist. Warning and continuing would post an access comment for an environment whose impersonation targets were never seeded. Same rule as missing OAuth material |
 | Seed accounts last for the environment lifetime; e2e does not de-seed | `/pr-extend` and other automation (agents, password-grant, impersonation) need the principals after e2e. Closing the password-login window at e2e exit made a retained environment unusable without another seed. Namespace destroy is the cleanup. The AWS secret and ESO Secret are longer-lived alignment copies |
-| Driver `de_seed_test_users` is a no-op on every target | Reuses the suite's established driver-override model (`de_seed_test_users` in `e2e-testing.spec.md`) so the cleanup trap stays one call site. Kind, local OpenShift, and CI-owned PR environments all keep their seeded users until the environment itself is gone |
+| Driver `DeSeedTestUsers` is a no-op on every target | Reuses the suite's established driver-override model (`DeSeedTestUsers` in `e2e-testing.spec.md`) so the cleanup trap stays one call site. Kind, local OpenShift, and CI-owned PR environments all keep their seeded users until the environment itself is gone |
 | Developer-owned environments keep static credentials, Kind or OpenShift | A human running e2e from a laptop - against Kind or after `make openshift-up` - needs `admin`/`admin` and `developer`/`developer`. Restricting those seeds to Kind would break manual OpenShift e2e. AWS and ESO on a laptop would add infrastructure for no local-dev benefit |
 | Developer-owned OpenShift may still publish guessable logins | Those namespaces are the developer's isolation boundary (`ephemeral-pr-environments.spec.md` already excludes them from the CI timebox and reaper) and SHALL NOT use `pr-*` / `hypershell-ci-pr-*` names. The guessable-login closure applies to CI-owned `pr-*` environments, not to a developer exercising the suite by hand |
 | Master bootstrap admin left out of scope | It is Keycloak's own console login, a different credential class from the realm test users |
