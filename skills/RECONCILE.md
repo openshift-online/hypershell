@@ -736,8 +736,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | WEB-ARCH-02 | Gateway management routes | Present | - | `routes.ts`, `gateway-ui/` | - |
 | WEB-ARCH-03 | Source/runtime boundaries | Present | - | `eslint.architecture.mjs` | - |
 | WEB-PKG-01 | pnpm workspace | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | - |
+| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml`, `check_dependency_age.py` | - |
 | WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
 | WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
 | WEB-AUTH-04 | No-auth dev mode | Present | - | `vite.config.ts` | - |

@@ -486,3 +486,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CON-06` | `platform/openshell-gateway-console.spec.md` | - | Required the console NetworkPolicies `openshell-console-allow-router` and `openshell-gateway-allow-console`, removed with all gateway-namespace NetworkPolicies (#339). |
 | `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |
 | `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |
+| `WEB-PKG-03` | `web-console/architecture.spec.md` | `WEB-PKG-02` | Tracked the one-time npm-to-pnpm migration, which is complete. Its lasting rule (the dependency-age check inspects every pnpm package and workspace importer) moved to WEB-PKG-02. |
