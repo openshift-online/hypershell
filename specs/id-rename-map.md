@@ -483,3 +483,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CORE-04.02` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
 | `OSG-CORE-17` | `platform/openshell-gateway.spec.md` | - | Described SSH-over-gRPC payload delivery into sandboxes, which was never built. OSG-CORE-16 places agent configuration out of scope. |
 | `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |
+| `WEB-PKG-03` | `web-console/architecture.spec.md` | `WEB-PKG-02` | Tracked the one-time npm-to-pnpm migration, which is complete. Its lasting rule (the dependency-age check inspects every pnpm package and workspace importer) moved to WEB-PKG-02. |

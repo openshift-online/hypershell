@@ -808,7 +808,3 @@ The gateway table SHALL display each gateway's backend-resolved managed-cluster 
 - [Storybook accessibility testing](https://storybook.js.org/docs/writing-tests/accessibility-testing)
 - [Core Web Vitals](https://web.dev/articles/vitals)
 - [OpenTelemetry JavaScript status](https://opentelemetry.io/docs/languages/js/)
-
-## Retired IDs
-
-- `WEB-PKG-03`: the pnpm migration it tracked is complete; its lasting rules moved to WEB-PKG-01 and WEB-PKG-02.
