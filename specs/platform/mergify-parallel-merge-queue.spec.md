@@ -385,10 +385,3 @@ the approval label from affected original PRs and dequeue them before repair;
 reapply approval only when ready. Avoid external merges and edits to queued PRs,
 which invalidate speculative work. Monitor runner wait, required-check duration,
 queue latency and reruns before increasing concurrency above ten.
-
-## Retired IDs
-
-- `CICD-MRG-01.01` - independent-lane behavior superseded by serial speculation.
-- `CICD-MRG-01.03` - independent-lane behavior superseded by serial speculation.
-- `CICD-MRG-04.01` - independent-lane behavior superseded by serial speculation.
-- `CICD-MRG-04.02` - independent-lane behavior superseded by serial speculation.
