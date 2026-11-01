@@ -269,6 +269,37 @@ be investigated rather than retaining the old pin silently.
    **FOR TRIAGE ONLY** (to find which release notes to read); it is NOT the update trigger.
    Never conclude "no update needed" because the NVIDIA base matches - compare the full tags.
 
+   **Check for an already-open PR before creating a new branch/PR.** Every run
+   creates a branch named `implementer/update-openshell-<target>`. A naive
+   per-run agent that only checks "is `main` pinned to `<target>`" will create a
+   brand-new PR every time the upstream tag list advances, even though the
+   previous run's PR for the prior target is still open and unreviewed - this
+   happened for four runs in a row (`#810` rhaiv.4, `#822` rhaiv.0, `#845`
+   rhaiv.1, `#874` rhaiv.2), leaving a pile of stale, unreviewed, mutually
+   superseding PRs that a human has to sort out by hand. Before opening a new
+   PR:
+
+   ```bash
+   gh pr list --repo <REPOSITORY> --state open \
+     --search 'implementer/update-openshell- in:head' \
+     --json number,headRefName,title,mergeStateStatus
+   ```
+
+   - If an open PR's `headRefName` already matches
+     `implementer/update-openshell-<resolved-target>` exactly, **do not open a
+     duplicate.** That PR already covers this run's target. Verify it is still
+     current (its CI failures, if any, are pre-existing/unrelated - reproduce
+     the failing check against `main` HEAD before assuming the PR itself is
+     broken), add anything this run learned as a PR comment or a commit on that
+     same branch, and stop. Report the run as a no-op skip, not a new PR.
+   - If older open PRs target a tag that is no longer the latest (superseded by
+     the resolved target, including by this run's own new PR), do not silently
+     leave them to accumulate. This skill does not close PRs itself (closing is
+     a human's call, same as merging), but call them out explicitly in the new
+     PR's body ("supersedes #N, #M - these targeted now-stale tags and should be
+     closed") so a maintainer can clear them in one pass instead of discovering
+     the pile later.
+
    **Agent build track (unmerged upstream branch/commit):**
 
    Invoke the HyperShell build agent, specifying the NVIDIA/OpenShell branch or
@@ -510,6 +541,37 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Skill correction (2026-11-01, duplicate-PR pollution across runs):** This
+  scheduled run resolved the same target (`v0.1.6-rhaiv.2`) as the prior run and
+  found that the prior run's PR, `#874`, was still open and already current -
+  `v0.1.6-rhaiv.2` is still the latest stable midstream tag today, nothing on
+  `main` had changed that affects the footprint, and `#874`'s triage/spec work
+  was already complete and correct. Opening a fifth PR would have been an exact
+  duplicate. Checked the branch-name history instead of just the version
+  resolution step and found three more stale, still-open PRs from the same
+  branch-naming pattern that earlier runs never closed or even flagged:
+  `#810` (`rhaiv.4`), `#822` (`rhaiv.0`), `#845` (`rhaiv.1`) - each superseded by
+  the next day's run, none mentioning the others. This is the
+  create-and-ignore anti-pattern the repo's own CLAUDE.md warns against
+  ("Reconcile, don't create-or-skip"), just applied to PRs instead of resources.
+  Fix: added a "check for an already-open PR" step right after the version
+  exit-condition (see above) that greps open PRs for the
+  `implementer/update-openshell-` branch prefix before creating a new one, skips
+  opening a duplicate when one already matches the resolved target, and
+  requires a new PR's body to call out any older open PRs it supersedes so a
+  human can clear them in one pass. This run took no bump action: no new
+  branch, no new PR. It left a comment on `#874` noting (a) the target is
+  still current, (b) the three stale superseded PRs for a maintainer to close,
+  and (c) that `#874`'s failing "Unit / Shell" check is a pre-existing,
+  unrelated flake in `scripts/funnel-dispatch_test.sh` (reproduced identically
+  against `main` HEAD with no OpenShell-related changes applied, and also seen
+  failing on unrelated branches such as `konflux/references/main` in the same
+  CI window) - not something the version bump introduced, and not something
+  this skill's scope covers fixing. Pushed this skill correction itself as a
+  new commit onto `#874`'s existing branch rather than opening a dedicated PR
+  for a documentation-only change, since `#874` was already open, already
+  about this exact version, and still unmerged.
 
 - **v0.1.6-rhaiv.2 (2026-10-31, v0.1.5-rhaiv.3 -> v0.1.6-rhaiv.2, no-arg scheduled run):**
   Mechanical pin bump. This run's sandbox had a full Go toolchain and `make`
