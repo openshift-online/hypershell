@@ -83,7 +83,7 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 
 ### Requirement: WEB-ARCH-02 -- Gateway Management Experience
 
-HyperShell SHALL provide one focused application experience. Its landing page SHALL list every gateway visible to the authenticated user and provide gateway provisioning without a separate directory, administration shell, overview, or cluster collection. Gateway details SHALL combine operational configuration with direct OpenShell console and CLI connection actions.
+HyperShell SHALL provide one focused gateway management experience. The gateway collection at `/gateways` SHALL list every gateway visible to the authenticated user and provide gateway provisioning. Gateway details SHALL combine operational configuration with direct OpenShell console and CLI connection actions.
 
 The API server SHALL scope gateway visibility by per-gateway RBAC RoleBindings and the platform:admin global role -- users see gateways where they have a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if they have the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) for scope-aware filtering, platform:admin global access, and the UI pagination/search requirements, and [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge). The console SHALL present exactly the gateways the API returns without additional client-side filtering. The API SHALL remain the authorization boundary for every read and mutation; route presence and visible controls SHALL NOT grant access. Capability-based UI controls (such as delete actions for platform:admin users) MAY be introduced when the API exposes an authorization contract, without adding a separate `/admin` route hierarchy.
 
@@ -113,20 +113,28 @@ The gateway collection SHALL default to newest-first ordering. When the user has
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
-The initial route model SHALL include:
+The console SHALL expose these routes. `components/web-console/route-contract.json` SHALL declare the same set, and each page's behavior is defined by the listed specification.
 
-```text
-/login
-/
-/gateways/new
-/gateways/:gatewayId
-```
+| Route | Page | Defined in |
+| --- | --- | --- |
+| `/login` | Sign-in | WEB-AUTH-01 |
+| `/` | Homepage; the operational dashboard on the dashboard host | [`homepage.spec.md`](./homepage.spec.md) WEB-HOME-01 |
+| `/gateways` | Gateway collection with the provisioning action | This requirement |
+| `/gateways/new` | Gateway provisioning | [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) |
+| `/gateways/:gatewayId` | Gateway detail | WEB-UIEX-03, WEB-UIEX-05 |
+| `/dashboard` | Operational dashboard | [`operational-dashboard.spec.md`](./operational-dashboard.spec.md) |
+| `/dashboard/provisioning` | Provisioning dashboard | [`provisioning-dashboard.spec.md`](./provisioning-dashboard.spec.md) |
+| `/dashboard/inventory` | Platform inventory dashboard | [`platform/platform-inventory.spec.md`](../platform/platform-inventory.spec.md) |
+| `/dashboard/reliability` | Reliability dashboard | [`reliability-dashboard.spec.md`](./reliability-dashboard.spec.md) |
+| `/dashboard/usage` | Usage dashboard | [`usage-dashboard.spec.md`](./usage-dashboard.spec.md) |
+| `/dashboard/adoption` | Adoption dashboard | [`adoption-dashboard.spec.md`](./adoption-dashboard.spec.md) |
+| `/metrics` | Gateway metrics dashboard | [`platform/gateway-metrics-dashboard.spec.md`](../platform/gateway-metrics-dashboard.spec.md) |
 
-Removed `/admin` paths and the former directory experience SHALL NOT be retained as aliases or redirects. Unsupported paths SHALL use the standard not-found experience so the route model remains unambiguous.
+Unsupported paths SHALL use the standard not-found experience so the route model remains unambiguous.
 
 The `gatewayId` SHALL be included in gateway-detail query keys, mutations, authorization requests, breadcrumbs, and relevant telemetry dimensions. Route presence, separate shells, and hidden controls SHALL NOT be treated as authorization enforcement. The API SHALL independently authorize every operation and enforce the relationships and scope required by `standards/security/security.spec.md`.
 
-**Verification:** Inspect route definitions and query keys. Confirm that `/` is the only gateway collection, provides provisioning, and does not expose a separate directory, administration shell, or cluster collection. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
+**Verification:** Inspect route definitions and query keys. Confirm that the route definitions and `route-contract.json` match the route table, that `/gateways` is the only gateway collection and provides provisioning, and that an unknown path renders the not-found page. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
 
 ### Requirement: WEB-ARCH-03 -- Source and Runtime Boundaries
 
@@ -140,9 +148,9 @@ TypeScript SHALL use strict checking. Browser and server compilation SHALL use m
 
 HyperShell JavaScript packages SHALL use one repository-root pnpm workspace. The workspace SHALL include `components/sdk-typescript`, `packages/gateway-management-ui`, `components/web-console`, the web-console BFF, and the web-console domain probes; use one root `pnpm-lock.yaml`; and use the `workspace:` protocol for internal package dependencies. The root `package.json` SHALL be private and SHALL declare an exact pnpm version in `packageManager`.
 
-After migration, npm, Yarn, Bun, nested lockfiles, and per-package installation workflows SHALL NOT be used for repository JavaScript packages. `shamefullyHoist` SHALL NOT be enabled. Packages SHALL declare every dependency they import.
+Repository JavaScript packages SHALL use pnpm only: no npm, Yarn, or Bun lockfile, no nested lockfile, and no per-package installation workflow. The isolated pnpm bootstrap manifest under `prefetch/pnpm` is not a workspace package and is outside this rule. `shamefullyHoist` SHALL NOT be enabled. Packages SHALL declare every dependency they import.
 
-**Verification:** Run a clean root install, enumerate workspace projects, and inspect manifests and tracked files. Confirm that the web console resolves the local SDK through `workspace:` and that no npm/Yarn/Bun lockfile remains.
+**Verification:** Run a clean root install, enumerate workspace projects, and inspect manifests and tracked files. Confirm that the web console resolves the local SDK through `workspace:` and that no npm, Yarn, or Bun lockfile exists outside `prefetch/pnpm`.
 
 #### Scenario: WEB-PKG-01.01 -- Workspace SDK Consumption
 
@@ -212,26 +220,13 @@ The repository SHALL pin pnpm and all direct npm dependencies exactly. CI and co
 - explicit allowlisting of dependency lifecycle/build scripts; and
 - no broad package-name or scope exception to the release-age policy.
 
+The repository dependency-age check (`scripts/check_dependency_age.py`) SHALL inspect every resolved package in `pnpm-lock.yaml` and every workspace importer. It SHALL accept only exact direct declarations, plus explicit `workspace:` references for local packages.
+
 Any exception SHALL identify an exact package version and satisfy the repository exception policy. Integrity mismatches SHALL fail closed and SHALL NOT be bypassed without an independently verified, reviewable lockfile change.
 
 The build SHALL NOT depend on Node's bundled Corepack. Developer tooling MAY use Corepack or another bootstrap mechanism, but CI and container builds SHALL install or copy the exact declared pnpm artifact through an immutable, reviewable mechanism.
 
-**Verification:** Modify a manifest without updating the lockfile, introduce an undeclared import, request a too-new version, remove publish-time metadata in the policy test, and add an unapproved lifecycle script. Each case fails before build or merge.
-
-### Requirement: WEB-PKG-03 -- Policy Migration Completeness
-
-Adopting pnpm SHALL NOT reduce existing dependency-policy coverage. The migration that creates `pnpm-lock.yaml` SHALL also:
-
-1. teach `scripts/check_dependency_age.py` and its tests to inspect every resolved pnpm package and every workspace importer;
-2. enforce exact direct declarations while allowing only explicit `workspace:` references for local packages;
-3. remove the SDK `package-lock.json`;
-4. convert Makefile and CI commands from per-package npm installs to root pnpm filters or recursive commands;
-5. update CI cache keys and dependency paths to use the root lockfile; and
-6. document the pinned pnpm bootstrap procedure.
-
-Until these changes land together, the existing npm SDK workflow remains the actual state, and the pnpm migration SHALL be considered incomplete.
-
-**Verification:** Run all dependency-policy unit tests and `make check` against a pnpm-only tree. Confirm that a deliberately too-new transitive dependency in `pnpm-lock.yaml` fails the independent repository check.
+**Verification:** Modify a manifest without updating the lockfile, introduce an undeclared import, request a too-new version, remove publish-time metadata in the policy test, and add an unapproved lifecycle script. Each case fails before build or merge. Run the dependency-policy unit tests and confirm that a deliberately too-new transitive dependency in `pnpm-lock.yaml` fails the repository check.
 
 ### Requirement: WEB-SDK-01 -- Browser-Compatible Generated SDK
 
@@ -761,22 +756,9 @@ The UI SHALL NOT infer authorization solely from object visibility, guess whethe
 
 The API server scopes gateway visibility by per-gateway RoleBindings and the platform:admin global role -- the gateway list returns gateways where the authenticated user has a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if the user has the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)). The provisioning action SHALL be available in the primary gateway experience. The gateway provisioning form SHALL NOT collect OIDC configuration -- the control plane auto-provisions Keycloak OIDC clients and populates OIDC fields when a gateway is created. Gateway provisioning requires the `gateway:creator` role (from Keycloak); the creator automatically becomes `gateway:owner` on the new gateway, which provides admin-tier access via the OIDC Role Bridge (see [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md)).
 
-The gateway table SHALL display each gateway's backend-resolved managed-cluster name in a sortable Cluster column. The provisioning form SHALL submit only a gateway name and a placement intent as defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01); it SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`, and the backend SHALL resolve and assign the concrete cluster identifier, or late-bind the gateway when no cluster matches the selector yet (WEB-PLC-07). The form SHALL NOT collect a Kubernetes namespace because the API server owns its assignment. The gateway provisioning contract has no fleet, release, or database field. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+The gateway table SHALL display each gateway's backend-resolved managed-cluster name in a sortable Cluster column. The provisioning form SHALL submit only a gateway name and a placement intent as defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01); it SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`, and the backend SHALL resolve and assign the concrete cluster identifier, or late-bind the gateway when no cluster matches the selector yet (WEB-PLC-07). The form SHALL NOT collect a Kubernetes namespace because the API server owns its assignment. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, the default newest-first order with its stable identifier tiebreak applied before pagination, the "my gateways" ownership filter applied before pagination with accurate totals and composed with search and sort, the authorized-set existence flag computed without enumerating pages and without disclosing unauthorized gateways, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or fleet, release, or namespace fields.
-
-## Initial Delivery Sequence
-
-Implementation SHOULD proceed in these dependency-ordered increments:
-
-1. Migrate the SDK to the root pnpm workspace and update repository policy checks.
-2. Make the generated SDK ESM- and browser-compatible with an injectable transport.
-3. Scaffold React Router SPA mode, PatternFly, localization, test tooling, and one root route.
-4. Extract the canonical gateway workflows into the private gateway management UI workspace package and consume them through host adapters from the standalone console.
-5. Implement the BFF session and API proxy against the selected OIDC provider.
-6. Deliver the authenticated HyperShell gateway list and connection detail journey.
-7. Add gateway provisioning after the local-cluster, validation, permission, concurrency, CSRF, and recovery contracts are verified.
-8. Establish field telemetry, performance budgets, and the full release matrix before production availability.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, the default newest-first order with its stable identifier tiebreak applied before pagination, the "my gateways" ownership filter applied before pagination with accurate totals and composed with search and sort, the authorized-set existence flag computed without enumerating pages and without disclosing unauthorized gateways, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; provisioning submits a placement intent rather than a user-selected cluster identifier (per `gateway-provision-placement.spec.md`); the create request omits namespace; the response contains an API-assigned namespace and a backend-resolved cluster; and the provisioning form does not expose a cluster selector or a namespace field.
 
 ## Design Decisions
 
@@ -826,3 +808,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 - [Storybook accessibility testing](https://storybook.js.org/docs/writing-tests/accessibility-testing)
 - [Core Web Vitals](https://web.dev/articles/vitals)
 - [OpenTelemetry JavaScript status](https://opentelemetry.io/docs/languages/js/)
+
+## Retired IDs
+
+- `WEB-PKG-03`: the pnpm migration it tracked is complete; its lasting rules moved to WEB-PKG-01 and WEB-PKG-02.
