@@ -337,7 +337,3 @@ placement without pointer input.
 - Capacity-aware cluster selection or placement scoring.
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.
-
-## Retired IDs
-
-- `WEB-PLC-11`: replaced by the preview-card rule in WEB-PLC-04

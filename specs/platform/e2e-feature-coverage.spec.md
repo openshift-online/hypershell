@@ -443,7 +443,3 @@ cross-component addition reuses the existing `E2E_MULTICLUSTER` and
   contract itself - binding by `role_id`, the non-owner authorization guard, the
   Keycloak-only role refusals, and binding delete - which the `/access` phase
   never touches.
-
-## Retired IDs
-
-- `E2E-COV-01` - recorded that per-gateway credential-driver e2e coverage was dropped because the credential driver is control-plane-only. It had no scenarios. P2.7 `vault-fail-closed` (`e2e-testing.spec.md`) covers the Vault fault path.

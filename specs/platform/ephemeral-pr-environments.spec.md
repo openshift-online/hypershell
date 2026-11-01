@@ -1478,9 +1478,3 @@ scoped to that script. The `lint-pr-test` job SHALL syntax-check
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers the developer-tier checks without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
 | `pr_test` holds only the ROKS script | This workflow is the canonical pull-request OpenShift e2e path, and new coverage lands only in `tests/e2e/`. ROKS is outside this workflow, so the `pr_test` component and `lint-pr-test` job stay, scoped to `e2e-openshell-roks.sh`, until that script is retired or rehomed |
-
-## Retired IDs
-
-- `CICD-PREN-12.01` - recorded the removal of `components/pr-test/e2e-openshell.sh` (HYPERSHELL-250); the removal is done.
-- `CICD-PREN-12.03` - required documentation to stop citing the removed script; done.
-- `CICD-PREN-12.04` - forbade recreating the removed script; replaced by the ROKS pr-test Component requirement, which states the `pr_test` scope.

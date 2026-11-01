@@ -69,6 +69,12 @@ def base_tree():
     }
 
 
+def retired_table(*rows):
+    """A Retired IDs section for the ID history file."""
+    head = "\n## Retired IDs\n\n| ID | Former file | Replaced by | Reason |\n|----|-------------|-------------|--------|\n"
+    return head + "".join(row + "\n" for row in rows)
+
+
 def run_tree(tree):
     """Write the tree to a temp dir, load it like main() does, analyze it."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -158,24 +164,72 @@ class CheckTest(unittest.TestCase):
     # Verifies: STD-IDS-04.02
     def test_rule4_retired_id_reused(self):
         tree = base_tree()
-        tree["specs/platform/tls.spec.md"] += "\n## Retired IDs\n\n- `OSG-TLS-07` replaced by none\n"
+        tree["specs/id-rename-map.md"] += retired_table("| `OSG-TLS-07` | `platform/tls.spec.md` | - | gone |")
         tree["specs/platform/tls.spec.md"] = tree["specs/platform/tls.spec.md"].replace(
             "### Requirement: OSG-TLS-02 --", "### Requirement: OSG-TLS-07 --"
         ).replace("OSG-TLS-02.01", "OSG-TLS-07.01")
         self.assertError(run_tree(tree), "retired ID OSG-TLS-07 is reused")
 
-    def test_rule4_replaced_by_note_is_not_retired(self):
+    def test_rule4_replaced_by_is_not_retired(self):
         tree = base_tree()
-        tree["specs/platform/tls.spec.md"] += (
-            "\n## Retired IDs\n\n- `OSG-TLS-07`: replaced by OSG-TLS-02.\n\nProse about OSG-TLS-01.\n"
+        tree["specs/id-rename-map.md"] += retired_table(
+            "| `OSG-TLS-07` | `platform/tls.spec.md` | `OSG-TLS-02` | folded into OSG-TLS-02 |"
         )
         self.assertEqual([], messages(run_tree(tree)))
 
     def test_rule4_retired_id_may_be_cited(self):
         tree = base_tree()
-        tree["specs/platform/tls.spec.md"] += "\n## Retired IDs\n\n- `OSG-TLS-07` gone\n"
+        tree["specs/id-rename-map.md"] += retired_table("| `OSG-TLS-07` | `platform/tls.spec.md` | - | gone |")
         tree["docs/note.md"] = "See OSG-TLS-07 history.\n"
         self.assertEqual([], messages(run_tree(tree)))
+
+    def test_rule4_retired_rows_are_not_renames(self):
+        tree = base_tree()
+        tree["specs/id-rename-map.md"] += retired_table("| `OSG-TLS-07` | `platform/tls.spec.md` | - | gone |")
+        self.assertNotIn("OSG-TLS-07", CHECKER.parse_rename_map(tree["specs/id-rename-map.md"]))
+        tree["pkg/a.go"] = "// OSG-TLS-07 was retired\n"
+        self.assertEqual([], messages(run_tree(tree)))
+
+    # Rule 8
+    # Verifies: STD-IDS-06.03
+    def test_rule8_spec_file_retired_section_fails(self):
+        tree = base_tree()
+        tree["specs/platform/tls.spec.md"] += "\n## Retired IDs\n\n- `OSG-TLS-07` gone\n"
+        self.assertError(run_tree(tree), "tls.spec.md:26: spec files do not list retired IDs")
+
+    def test_rule8_registry_retired_section_fails(self):
+        tree = base_tree()
+        tree["specs/ids.md"] += "\n## Retired IDs\n\nNone yet.\n"
+        self.assertError(run_tree(tree), "the registry does not list retired IDs")
+
+    # Verifies: STD-IDS-06.04
+    def test_rule8_replaced_by_must_be_live(self):
+        tree = base_tree()
+        tree["specs/id-rename-map.md"] += retired_table(
+            "| `OSG-TLS-07` | `platform/tls.spec.md` | `OSG-TLS-08` | typo |",
+            "| `OSG-TLS-09` | `platform/tls.spec.md` | `OSG-TLS-07` | chain |",
+        )
+        analysis = run_tree(tree)
+        self.assertError(analysis, "retired ID OSG-TLS-07 is replaced by OSG-TLS-08, which is not a live ID")
+        self.assertError(analysis, "retired ID OSG-TLS-09 is replaced by OSG-TLS-07, which is not a live ID")
+
+    def test_rule8_malformed_and_duplicate_rows(self):
+        tree = base_tree()
+        tree["specs/id-rename-map.md"] += retired_table(
+            "| OSG-TLS-07 | platform/tls.spec.md | - | no backticks |",
+            "| `OSG-TLS-08` | `platform/tls.spec.md` | - | gone |",
+            "| `OSG-TLS-08` | `platform/tls.spec.md` | - | again |",
+            "| `OSG-TLS-09` | `platform/tls.spec.md` | see above | no ID |",
+        )
+        analysis = run_tree(tree)
+        self.assertError(analysis, "malformed retired row")
+        self.assertError(analysis, "retired ID OSG-TLS-08 listed twice")
+        self.assertError(analysis, "replaced-by cell for OSG-TLS-09 names no ID")
+
+    def test_rule8_one_retired_section(self):
+        tree = base_tree()
+        tree["specs/id-rename-map.md"] += retired_table() + retired_table()
+        self.assertError(run_tree(tree), "more than one Retired IDs section")
 
     # Rule 5
     def test_rule5_unknown_citation(self):
