@@ -26,6 +26,8 @@ const LINKING_SPEC = `# Console
 
 See [certificate rotation](tls.spec.md#requirement-tls-01----certificates-rotate)
 and \`tls.spec.md\`.
+
+Builds on TLS-01 and \`TRC-FED-01.01\`, over HTTP-2.
 `;
 
 const SPEC = `# Gateway TLS
@@ -224,12 +226,13 @@ describe("App", () => {
     await search(user, "history");
     await user.hover(await within(table()).findByText("Gateway TLS"));
     const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("platform/tls.spec.md")).toBeTruthy();
     expect(within(tooltip).getByText("[nospec] Background")).toBeTruthy();
     expect(within(tooltip).getByText("history").tagName).toBe("MARK");
     expect(within(table()).queryByText("Certificates rotate")).toBeNull();
   });
 
-  it("stars items, filters to them, and opens them from the starred panel", async () => {
+  it("stars items, filters to them, and unstars them", async () => {
     const user = userEvent.setup();
     const stored = renderApp();
     await ready();
@@ -255,23 +258,15 @@ describe("App", () => {
     ).toBeTruthy();
     expect(within(table()).queryByText("Traced")).toBeNull();
 
-    const starred = screen.getByRole("tree", { name: "Starred specs" });
-    await user.click(within(starred).getByText("Certificates rotate"));
-    expect(
-      document
-        .getElementById(headingElementId(2))
-        ?.classList.contains(FLASH_CLASS),
-    ).toBe(true);
-
     await user.click(
-      within(starred).getByRole("button", {
+      within(table()).getByRole("button", {
         name: "Unstar Certificates rotate",
       }),
     );
     expect(stored.ids).toEqual([]);
-    expect(
-      screen.getByText("Star requirements and scenarios to keep them here."),
-    ).toBeTruthy();
+    await waitFor(() => {
+      expect(within(table()).queryByText("Certificates rotate")).toBeNull();
+    });
   });
 
   it("opens linked specs inside the viewer", async () => {
@@ -314,7 +309,12 @@ describe("App", () => {
     await ready();
     expect(await within(table()).findByText("platform")).toBeTruthy();
     expect(within(table()).getByText("Gateway TLS")).toBeTruthy();
-    expect(screen.getByText("console.spec.md", { exact: false })).toBeTruthy();
+    // A file's path is not in the row; it shows on hover.
+    expect(within(table()).queryByText("platform/tls.spec.md")).toBeNull();
+    await user.hover(within(table()).getByText("Gateway TLS"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("platform/tls.spec.md")).toBeTruthy();
+    await user.unhover(within(table()).getByText("Gateway TLS"));
 
     await expand(user, "Gateway TLS");
     await user.click(within(table()).getByText("Certificates rotate"));
@@ -348,22 +348,42 @@ describe("App", () => {
     expect(within(table()).getByText("Certificates rotate")).toBeTruthy();
   });
 
-  it("has resizable panels and a toggle for the starred panel", async () => {
-    const user = userEvent.setup();
+  it("has a resizable list panel", async () => {
     renderApp();
     await ready();
-    await screen.findByRole("textbox", { name: "Search specs" });
-    expect(
-      screen.getByRole("separator", { name: "Resize the starred panel" }),
-    ).toBeTruthy();
     expect(
       screen.getByRole("separator", { name: "Resize the list panel" }),
     ).toBeTruthy();
+  });
 
-    const toggle = screen.getByRole("button", { name: "Starred" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  it("finds an ID's references from a label in the document", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `#${encodeURIComponent("platform/console.spec.md#console")}`,
+    );
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    const document = await screen.findByRole("region", {
+      name: "Spec document",
+    });
+    // Known IDs become labels, in text and in inline code; others do not.
+    expect(
+      within(document).getByRole("button", { name: "TRC-FED-01.01" }),
+    ).toBeTruthy();
+    expect(
+      within(document).queryByRole("button", { name: "HTTP-2" }),
+    ).toBeNull();
+
+    await user.hover(within(document).getByRole("button", { name: "TLS-01" }));
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Find references",
+    );
+    await user.click(within(document).getByRole("button", { name: "TLS-01" }));
+    expect(
+      await screen.findByRole("tree", { name: "1 test file" }),
+    ).toBeTruthy();
   });
 
   it("shows which test verifies a scenario and opens it", async () => {
@@ -389,10 +409,11 @@ describe("App", () => {
       "",
       `#${encodeURIComponent("platform/tls.spec.md#background")}`,
     );
-    renderApp(["platform/tls.spec.md#background"]);
+    const user = userEvent.setup();
+    renderApp([
+      "platform/tls.spec.md#requirement: tls-01 -- certificates rotate",
+    ]);
     await ready();
-    const starred = await screen.findByRole("tree", { name: "Starred specs" });
-    expect(within(starred).getByText("[nospec] Background")).toBeTruthy();
     await waitFor(() => {
       expect(
         document
@@ -400,6 +421,14 @@ describe("App", () => {
           ?.classList.contains(FLASH_CLASS),
       ).toBe(true);
     });
+    await user.click(
+      screen.getByRole("button", { name: "Show only starred items" }),
+    );
+    expect(
+      await within(table()).findByRole("button", {
+        name: "Unstar Certificates rotate",
+      }),
+    ).toBeTruthy();
   });
 
   it("switches to another branch and keeps it in the URL", async () => {

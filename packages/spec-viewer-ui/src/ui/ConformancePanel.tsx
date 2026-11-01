@@ -63,7 +63,7 @@ import { usePorts } from "./ports-context";
 import type { SourceLocation } from "./ReferencesPanel";
 import { useSpecRef } from "./ref-context";
 import { TRACEABILITY_KEY } from "./use-spec-catalog";
-import { nodeTitle, SnippetText } from "./SpecTreeView";
+import { nodeTitle, SnippetText } from "./NodeText";
 import type { Pins } from "./use-pins";
 
 interface ConformancePanelProps {
@@ -334,7 +334,10 @@ function folderRows(
   ];
 }
 
-/** The search excerpts a row's title shows on hover. */
+/**
+ * What a row's title shows on hover: a file's path, and the search
+ * excerpts that matched the row.
+ */
 function hitPreview(
   intl: IntlShape,
   row: Row,
@@ -343,10 +346,12 @@ function hitPreview(
   catalog: SpecCatalog,
 ): React.ReactNode {
   if (row.kind === "file") {
-    const textHits = row.path ? filtered?.textHits.get(row.path) : undefined;
-    if (!textHits || textHits.length === 0) return null;
+    const textHits =
+      (row.path ? filtered?.textHits.get(row.path) : undefined) ?? [];
+    if (!row.path && textHits.length === 0) return null;
     return (
       <span className="sv-preview">
+        {row.path ? <span className="sv-preview__path">{row.path}</span> : null}
         {textHits.slice(0, MAX_PREVIEWS).map((hit) => {
           const node = catalog.nodesById.get(hit.nodeId);
           return (
@@ -522,7 +527,6 @@ export function ConformancePanel({
           ) : (
             title
           )}
-          {row.path ? <span className="sv-node__path">{row.path}</span> : null}
         </span>
       </span>
     );

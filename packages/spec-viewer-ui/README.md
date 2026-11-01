@@ -75,26 +75,25 @@ filters it.
    file row. Hover a matching title to see the matching text; for a file
    row, the text outside its requirements, under its nearest markdown title
    with a `[nospec] ` prefix.
-5. The star to the left of a requirement or scenario keeps it in the
-   **Starred** panel on the left. A starred requirement brings its
-   scenarios. The star next to the search box shows only starred items, and
-   combines with the search. Stars are saved in the browser.
-6. Clicking a title, in the table or the Starred panel, opens the file,
+5. The star to the left of a requirement or scenario marks it. The star
+   next to the search box shows only starred items, and combines with the
+   search. A starred requirement brings its scenarios. Stars are saved in
+   the browser.
+6. Clicking a title opens the file,
    scrolls to that heading, and highlights it briefly. The URL keeps the
-   selection, so reloads and the back button work. A file's path shows under
-   its title when you hover the row.
+   selection, so reloads and the back button work. Hovering a file's title
+   shows its path.
 
 Drag the borders between the panels to resize them, or focus a border and
-use the arrow keys, then Enter. The widths are saved in the browser. The menu
-button in the header hides or shows the Starred panel.
+use the arrow keys, then Enter. The widths are saved in the browser.
 
 Two buttons at the right of the header change the layout, which is saved in
 the browser:
 
 - **Hide document** gives the table (or the references list) the full
   width. Opening an item shows the document again.
-- **Maximize document** folds the Starred panel and the table away so the document
-  takes the full width. **Restore panels** brings them back.
+- **Maximize document** folds the table away so the document takes the
+  full width. **Restore panels** brings them back.
 
 The document scrolls on its own, with its own scrollbar.
 
@@ -153,8 +152,9 @@ so you can see which tests cover which requirement.
   `#### Scenario: ABC-DEF-01.01 -- Title`. The scheme is defined in
   `specs/standards/platform/spec-identifiers.spec.md`.
 
-Click a requirement or scenario ID label in the table ("Find references") to
-list every file in the repository that mentions the ID, test files first.
+Click a requirement or scenario ID label ("Find references") to list every
+file in the repository that mentions the ID, test files first. IDs are labels
+in the table and wherever they appear in the open document.
 **Back** returns to the table as you left it, with the same search and
 expanded rows.
 

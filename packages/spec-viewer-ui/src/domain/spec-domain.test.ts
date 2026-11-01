@@ -14,7 +14,6 @@ import {
   parseSpecFile,
   type SpecCatalog,
 } from "./spec-document";
-import { buildSpecTree } from "./spec-tree";
 
 const GATEWAY_SPEC = `# Gateway Provision Time
 
@@ -335,44 +334,6 @@ describe("searchSpecs query syntax", () => {
   it("combines clause kinds", () => {
     expect(titles('histogram "mean shall" [observations given]')).toEqual([
       "Histogram present",
-    ]);
-  });
-});
-
-describe("buildSpecTree", () => {
-  it("groups entries into files, specs, and scenarios", () => {
-    const specs = catalog();
-    const { files, missing } = buildSpecTree(specs, [
-      {
-        nodeId:
-          "standards/security.spec.md#scenario: store access respects direction",
-      },
-      { nodeId: "platform/gateway.spec.md#scenario: histogram present" },
-      { nodeId: "platform/gateway.spec.md#non-goals" },
-      { nodeId: "gone.md#x" },
-    ]);
-    expect(missing).toEqual(["gone.md#x"]);
-    expect(
-      files.map((file) => [
-        file.file.path,
-        file.children.map((child) => [
-          child.node.title,
-          child.isEntry,
-          child.children.map((grand) => grand.node.title),
-        ]),
-      ]),
-    ).toEqual([
-      [
-        "standards/security.spec.md",
-        [["Secret Handling", false, ["Store access respects direction"]]],
-      ],
-      [
-        "platform/gateway.spec.md",
-        [
-          ["Provision Duration Contract", false, ["Histogram present"]],
-          ["Non-Goals", true, []],
-        ],
-      ],
     ]);
   });
 });

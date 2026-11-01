@@ -18,11 +18,6 @@ export const messages = defineMessages({
     description:
       "Collapsed label group text; {remaining} is filled in by PatternFly.",
   },
-  clearStars: {
-    id: "specViewer.stars.clear",
-    defaultMessage: "Clear",
-    description: "Button that removes every star.",
-  },
   columnConformance: {
     id: "specViewer.conformance.column.conformance",
     defaultMessage: "Conformance",
@@ -127,8 +122,7 @@ export const messages = defineMessages({
   },
   documentEmptyBody: {
     id: "specViewer.document.empty.body",
-    defaultMessage:
-      "Select a search result or a pinned item to open its spec file.",
+    defaultMessage: "Select a spec or scenario in the table to open its file.",
     description: "Body of the empty document panel.",
   },
   documentEmptyTitle: {
@@ -151,13 +145,13 @@ export const messages = defineMessages({
     id: "specViewer.layout.documentMaximize",
     defaultMessage: "Maximize document",
     description:
-      "Button that hides the pinned and list panels so the document takes the full width.",
+      "Button that hides the list panel so the document takes the full width.",
   },
   documentRestore: {
     id: "specViewer.layout.documentRestore",
     defaultMessage: "Restore panels",
     description:
-      "Button that brings back the pinned and list panels after maximizing the document.",
+      "Button that brings back the list panel after maximizing the document.",
   },
   documentShow: {
     id: "specViewer.layout.documentShow",
@@ -337,11 +331,6 @@ export const messages = defineMessages({
     description:
       "Accessible label of the splitter between the list panel and the document.",
   },
-  resizeStarred: {
-    id: "specViewer.resize.starred",
-    defaultMessage: "Resize the starred panel",
-    description: "Accessible label of the starred panel resize handle.",
-  },
   resultCount: {
     id: "specViewer.search.resultCount",
     defaultMessage: "{matches} in {files}",
@@ -350,7 +339,7 @@ export const messages = defineMessages({
   scenarioLabel: {
     id: "specViewer.node.scenario",
     defaultMessage: "Scenario",
-    description: "Badge marking a scenario in the results and pinned trees.",
+    description: "Badge marking a scenario in the conformance table.",
   },
   searchLabel: {
     id: "specViewer.search.label",
@@ -377,25 +366,10 @@ export const messages = defineMessages({
     defaultMessage: "Star {title}",
     description: "Accessible label of the button that stars an item.",
   },
-  starredEmpty: {
-    id: "specViewer.stars.empty",
-    defaultMessage: "Star requirements and scenarios to keep them here.",
-    description: "Hint shown when nothing is starred.",
-  },
-  starredLabel: {
-    id: "specViewer.stars.label",
-    defaultMessage: "Starred specs",
-    description: "Accessible label of the starred specs tree.",
-  },
   starredOnly: {
     id: "specViewer.stars.only",
     defaultMessage: "Show only starred items",
     description: "Button that filters the conformance table to starred items.",
-  },
-  starredTitle: {
-    id: "specViewer.stars.title",
-    defaultMessage: "Starred",
-    description: "Heading of the starred side panel, and label of its toggle.",
   },
   testMarkersError: {
     id: "specViewer.conformance.testMarkers.error",

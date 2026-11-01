@@ -7,7 +7,6 @@ export interface Pins {
   isPinned: (nodeId: string) => boolean;
   pin: (nodeIds: string[]) => void;
   unpin: (nodeIds: string[]) => void;
-  clear: () => void;
 }
 
 export function usePins(): Pins {
@@ -38,9 +37,6 @@ export function usePins(): Pins {
     },
     unpin: (nodeIds) => {
       update((current) => current.filter((id) => !nodeIds.includes(id)));
-    },
-    clear: () => {
-      update(() => []);
     },
   };
 }

@@ -1,6 +1,6 @@
 /*
- * Nested resizable drawers: pinned panel | list panel | document. Each
- * panel scrolls on its own, so the drawers fill the page height.
+ * A resizable drawer: list panel | document. Each panel scrolls on its
+ * own, so the drawer fills the page height.
  */
 .sv-drawer,
 .sv-drawer .pf-v6-c-drawer__main,
@@ -25,10 +25,6 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-}
-
-.sv-panel--pinned .pf-v6-c-drawer__panel-main {
-  overflow: auto;
 }
 
 /*
@@ -122,6 +118,12 @@
   cursor: help;
 }
 
+/* Requirement and scenario IDs in the document, as labels inline with text. */
+.sv-markdown .sv-doc-id {
+  vertical-align: baseline;
+  font-family: var(--pf-t--global--font--family--body);
+}
+
 /* Occurrences of the search terms in the open document. */
 .sv-markdown mark.sv-match {
   background-color: var(--pf-t--global--background--color--highlight--default);
@@ -141,10 +143,17 @@
   vertical-align: top;
 }
 
+/* Code on a light gray background, in both themes. */
 .sv-markdown pre {
   overflow-x: auto;
   padding: var(--pf-t--global--spacer--sm);
-  background: var(--pf-t--global--background--color--secondary--default);
+  background: var(--pf-t--global--background--color--tertiary--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+}
+
+.sv-markdown :not(pre) > code {
+  padding: 0.0625rem var(--pf-t--global--spacer--xs);
+  background: var(--pf-t--global--background--color--tertiary--default);
   border-radius: var(--pf-t--global--border--radius--small);
 }
 
@@ -207,15 +216,6 @@
   vertical-align: text-bottom;
 }
 
-.sv-node__title--file {
-  font-weight: var(--pf-t--global--font--weight--body--bold);
-}
-
-.sv-node--context > .sv-node__title {
-  color: var(--pf-t--global--text--color--subtle);
-}
-
-.sv-node__path,
 .sv-snippet {
   color: var(--pf-t--global--text--color--subtle);
   font-size: var(--pf-t--global--font--size--xs);
@@ -228,12 +228,6 @@
   -webkit-line-clamp: 3;
 }
 
-.sv-node__path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .sv-snippet mark {
   background: var(--pf-t--global--color--status--warning--default);
   color: inherit;
@@ -244,17 +238,8 @@
   font-size: var(--pf-t--global--font--size--sm);
 }
 
-.sv-pinned__header {
-  padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
-}
-
-.sv-pinned__empty {
-  padding-inline: var(--pf-t--global--spacer--md);
-  color: var(--pf-t--global--text--color--subtle);
-}
-
 /*
- * Dense trees: small row padding, narrow indent, small action buttons.
+ * Dense trees: small row padding and a narrow indent.
  * Doubled class so these win over PatternFly's own declarations.
  */
 .pf-v6-c-tree-view.sv-tree {
@@ -272,44 +257,9 @@
   --pf-v6-c-tree-view__node-icon--PaddingInlineEnd: var(
     --pf-t--global--spacer--xs
   );
-  --pf-v6-c-tree-view__action--MarginInlineEnd: 0;
   --pf-v6-c-tree-view--m-guides__node--before--InsetBlockStart: 0.75rem;
   --pf-v6-c-tree-view--m-guides__node--before--Width: 0.5rem;
   font-size: var(--pf-t--global--font--size--sm);
-}
-
-.sv-tree .pf-v6-c-tree-view__action .pf-v6-c-button {
-  --pf-v6-c-button--PaddingBlockStart: var(--pf-t--global--spacer--xs);
-  --pf-v6-c-button--PaddingBlockEnd: var(--pf-t--global--spacer--xs);
-  --pf-v6-c-button--PaddingInlineStart: var(--pf-t--global--spacer--xs);
-  --pf-v6-c-button--PaddingInlineEnd: var(--pf-t--global--spacer--xs);
-
-  /*
-   * Quiet gray icons that turn black only on hover, with no button
-   * background. PatternFly colors the icon separately from the button text,
-   * so both sets of variables are needed.
-   */
-  --pf-v6-c-button--m-plain--Color: var(--pf-t--global--icon--color--subtle);
-  --pf-v6-c-button--m-plain--hover--Color: var(
-    --pf-t--global--icon--color--regular
-  );
-  --pf-v6-c-button--m-plain--m-clicked--Color: var(
-    --pf-t--global--icon--color--subtle
-  );
-  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--subtle);
-  --pf-v6-c-button--hover__icon--Color: var(
-    --pf-t--global--icon--color--regular
-  );
-  --pf-v6-c-button--m-clicked__icon--Color: var(
-    --pf-t--global--icon--color--subtle
-  );
-  --pf-v6-c-button--m-plain--BackgroundColor: transparent;
-  --pf-v6-c-button--m-plain--hover--BackgroundColor: transparent;
-  --pf-v6-c-button--m-plain--m-clicked--BackgroundColor: transparent;
-}
-
-.sv-tree .pf-v6-c-tree-view__action .pf-v6-c-button:is(:hover, :focus-visible) {
-  --pf-v6-c-button__icon--Color: var(--pf-t--global--icon--color--regular);
 }
 
 /* Let tree rows shrink to the panel width and wrap long titles and paths. */
@@ -404,10 +354,6 @@
   line-height: 1.3;
 }
 
-.sv-conformance__name .sv-node__path {
-  line-height: 1.25;
-}
-
 .sv-conformance .pf-v6-c-table__toggle .pf-v6-c-button {
   --pf-v6-c-button--PaddingInlineStart: 0.125rem;
   --pf-v6-c-button--PaddingInlineEnd: 0.125rem;
@@ -428,10 +374,11 @@
   text-align: start;
 }
 
-.sv-conformance__name .sv-node__path {
-  display: block;
-  white-space: normal;
-  overflow-wrap: anywhere;
+/* No dashed underline at rest; a solid one on hover marks the link. */
+.pf-v6-c-button.sv-conformance__open {
+  --pf-v6-c-button--m-link--m-inline--TextDecorationLine: none;
+  --pf-v6-c-button--m-link--m-inline--hover--TextDecorationStyle: solid;
+  --pf-v6-c-button--m-link--m-inline--m-clicked--TextDecorationLine: none;
 }
 
 .sv-conformance__open {
@@ -641,18 +588,6 @@
   min-width: 0;
 }
 
-/* A file's path shows on hover or focus; its line keeps its space. */
-.sv-conformance tr .sv-conformance__title .sv-node__path {
-  visibility: hidden;
-}
-
-.sv-conformance
-  tr:is(:hover, :focus-within)
-  .sv-conformance__title
-  .sv-node__path {
-  visibility: visible;
-}
-
 /* The ID label is a button that finds the ID's references. */
 .sv-conformance__name .pf-v6-c-label.pf-m-clickable {
   cursor: pointer;
@@ -669,6 +604,12 @@
 .sv-preview__item {
   display: flex;
   flex-direction: column;
+}
+
+.sv-preview__path {
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: var(--pf-t--global--font--size--sm);
+  overflow-wrap: anywhere;
 }
 
 .sv-preview__title {

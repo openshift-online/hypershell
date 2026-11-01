@@ -25,7 +25,7 @@ import { messages } from "../messages";
 import { NodeLabels } from "./NodeLabels";
 import { usePorts } from "./ports-context";
 import { useSpecRef } from "./ref-context";
-import { nodeTitle } from "./SpecTreeView";
+import { nodeTitle } from "./NodeText";
 
 export interface SourceLocation {
   path: string;

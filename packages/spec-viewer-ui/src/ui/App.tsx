@@ -7,7 +7,6 @@ import {
   MastheadContent,
   MastheadLogo,
   MastheadMain,
-  MastheadToggle,
   Button,
   Drawer,
   FlexItem,
@@ -20,7 +19,6 @@ import {
   Spinner,
 } from "@patternfly/react-core";
 import {
-  BarsIcon,
   CompressIcon,
   ExpandIcon,
   EyeIcon,
@@ -50,7 +48,6 @@ import type { SpecCatalog } from "../domain/spec-document";
 import { messages } from "../messages";
 import { ConformancePanel } from "./ConformancePanel";
 import type { RefName } from "../application/ports";
-import { PinnedPanel } from "./PinnedPanel";
 import { usePorts } from "./ports-context";
 import { RefPicker } from "./RefPicker";
 import { RefProvider } from "./ref-context";
@@ -172,8 +169,6 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
   const [selection, select] = useSelection();
   const catalog = catalogQuery.data;
   const [query, setQuery] = useState("");
-  const [pinnedOpen, setPinnedOpen] = useState(true);
-  const [pinnedWidth, setPinnedWidth] = usePanelWidth("pinned");
   // The conformance table is wide, so its width is stored on its own.
   const [listWidth, setListWidth] = usePanelWidth("conformance");
   const [starredOnly, setStarredOnly] = useState(false);
@@ -226,8 +221,10 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
   );
   const search = useSpecSearch(catalog, query);
   // Stable, so the conformance table does not rebuild its rows each render.
+  // The list shows the references, so a maximized document makes room.
   const findReferences = useCallback((nodeId: string) => {
     setReferencesOf(nodeId);
+    setLayoutState((current) => (current === "document" ? "split" : current));
   }, []);
   const referencesNode =
     referencesOf === null ? undefined : catalog?.nodesById.get(referencesOf);
@@ -266,17 +263,6 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
   const masthead = (
     <Masthead>
       <MastheadMain>
-        <MastheadToggle>
-          <Button
-            aria-expanded={pinnedOpen}
-            aria-label={intl.formatMessage(messages.starredTitle)}
-            icon={<BarsIcon />}
-            onClick={() => {
-              setPinnedOpen(!pinnedOpen);
-            }}
-            variant="plain"
-          />
-        </MastheadToggle>
         <MastheadBrand>
           <MastheadLogo component="span">
             {intl.formatMessage(messages.productName)}
@@ -436,6 +422,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
                   catalog={catalogQuery.data}
                   file={file}
                   highlightTerms={search.terms}
+                  onFindReferences={findReferences}
                   node={node}
                   revision={selection?.revision ?? 0}
                 />
@@ -446,43 +433,9 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
       );
   }
 
-  const pinnedPanel = (
-    <DrawerPanelContent
-      className="sv-panel sv-panel--pinned"
-      defaultSize={pinnedWidth === null ? "24rem" : `${String(pinnedWidth)}px`}
-      increment={16}
-      isResizable
-      minSize="200px"
-      onResize={(_event, width) => {
-        setPinnedWidth(width);
-      }}
-      resizeAriaLabel={intl.formatMessage(messages.resizeStarred)}
-    >
-      {catalog ? (
-        <PinnedPanel
-          catalog={catalog}
-          onSelect={selectNode}
-          pins={pins}
-          selectedNodeId={selection?.nodeId}
-        />
-      ) : null}
-    </DrawerPanelContent>
-  );
-
   return (
     <Page className="sv-page" isContentFilled masthead={masthead}>
-      <Drawer
-        className="sv-drawer"
-        isExpanded={pinnedOpen && layout !== "document"}
-        isInline
-        position="start"
-      >
-        <DrawerContent panelContent={pinnedPanel}>
-          <DrawerContentBody className="sv-drawer__body">
-            {content}
-          </DrawerContentBody>
-        </DrawerContent>
-      </Drawer>
+      {content}
     </Page>
   );
 }
