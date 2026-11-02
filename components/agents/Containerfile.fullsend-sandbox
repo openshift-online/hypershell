@@ -170,7 +170,10 @@ ARG CLAUDE_CODE_VERSION=2.1.306
 ARG PNPM_VERSION=11.15.1
 RUN set -eux; \
     node --version; go version; \
-    npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
+    # npm >= 11.19 blocks package install scripts by default; claude-code's
+    # postinstall (install.cjs) fetches the native CLI binary, so it must be
+    # allowed or the `claude --version` check below fails on a missing binary.
+    npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     npm install -g "pnpm@${PNPM_VERSION}"; \
     npm cache clean --force; \
     NPM_CLAUDE="$(npm prefix -g)/bin/claude"; \
