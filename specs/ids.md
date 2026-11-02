@@ -131,7 +131,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 12 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
