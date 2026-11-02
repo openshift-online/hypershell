@@ -12,7 +12,10 @@ ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 
 # ---------------------------------------------------------------------------
-# Stage 1 - build the React UI bundle (packages/fleet-dashboard-ui -> dist/)
+# Stage 1 - build the React UI bundles: the dashboard (packages/fleet-dashboard-ui
+# -> dist/) and the spec viewer it hosts at /specs/ (packages/spec-viewer-ui).
+# The spec viewer bundle holds code only; it downloads the specs from GitHub at
+# runtime, because the specs name fleet instances (firewall, §3.5).
 # ---------------------------------------------------------------------------
 FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:7d3b87dbb6bbf8fc85c865f8a00c5355961dae0e0e4ead15d530af3c8d6e3ebe AS ui-build-amd64
 FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:5034714f7a4bdd7423231f880b0863b8e69c5aa9b8f5ab69ed1cd1e76760f0e0 AS ui-build-arm64
@@ -37,6 +40,7 @@ WORKDIR /app
 # cache during hermetic builds; a benign committed copy keeps local builds working.
 COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/fleet-dashboard-ui/package.json packages/fleet-dashboard-ui/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/spec-viewer-ui/package.json packages/spec-viewer-ui/package.json
 # Hermetic-build registry alignment (see components/web-console/Dockerfile). In a
 # Hermeto build, align pnpm-workspace.yaml's default registry with the injected
 # file:// cache and trust the rewritten lockfile; no-op for local builds.
@@ -45,10 +49,15 @@ RUN if grep -qE '^registry=file:' .npmrc 2>/dev/null; then \
       sed -i -E "s#^(  default: ).*#\\1${reg}#" pnpm-workspace.yaml; \
       sed -i -E "s#^(trustLockfile: ).*#\\1true#" pnpm-workspace.yaml; \
     fi
-RUN pnpm install --frozen-lockfile --filter @openshift-online/hypershell-fleet-dashboard-ui...
+RUN pnpm install --frozen-lockfile \
+  --filter @openshift-online/hypershell-fleet-dashboard-ui... \
+  --filter @openshift-online/hypershell-spec-viewer-ui...
 
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/fleet-dashboard-ui packages/fleet-dashboard-ui
 RUN pnpm --filter @openshift-online/hypershell-fleet-dashboard-ui run build
+
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/spec-viewer-ui packages/spec-viewer-ui
+RUN pnpm --filter @openshift-online/hypershell-spec-viewer-ui run build
 
 # ---------------------------------------------------------------------------
 # Stage 2 - build the static Go BFF with the UI bundle embedded
@@ -69,6 +78,7 @@ COPY components/fleet-dashboard/web/ web/
 # Drop the built UI bundle into the embed root before compiling, so the binary
 # is self-contained (single artifact, served with an SPA fallback).
 COPY --from=ui-build /app/packages/fleet-dashboard-ui/dist/ web/dist/
+COPY --from=ui-build /app/packages/spec-viewer-ui/dist/ web/dist/specs/
 
 ARG GIT_VERSION
 ARG BUILD_TIME
