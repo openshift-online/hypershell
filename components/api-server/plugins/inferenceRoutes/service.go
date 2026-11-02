@@ -2,21 +2,28 @@ package inferenceRoutes
 
 import (
 	"context"
-	"strings"
+	stderrors "errors"
+
+	"github.com/lib/pq"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
+// uniqueViolationCode is the PostgreSQL SQLSTATE for unique_violation.
+const uniqueViolationCode = "23505"
+
 // conflictForDuplicateName maps a PostgreSQL unique-violation on the name index to
 // a 409 that names the conflicting field (SDLC-CONF-13, FINDING 2). name is the
 // only unique index on an InferenceRoute, so a unique violation is always a
-// duplicate find-by-name key. It returns nil for any other error so the caller
-// falls through to its generic error.
+// duplicate find-by-name key. The violation is detected by SQLSTATE 23505 on the
+// driver's *pq.Error, not by substring-matching the message text, which is fragile
+// against locale and wording changes (FINDING 5). It returns nil for any other
+// error so the caller falls through to its generic error.
 func conflictForDuplicateName(err error, name string) *errors.ServiceError {
-	msg := err.Error()
-	if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+	var pqErr *pq.Error
+	if stderrors.As(err, &pqErr) && pqErr.Code == uniqueViolationCode {
 		return errors.Conflict("an InferenceRoute named %q already exists", name)
 	}
 	return nil

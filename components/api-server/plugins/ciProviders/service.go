@@ -2,12 +2,21 @@ package ciProviders
 
 import (
 	"context"
+	stderrors "errors"
 	"strings"
+
+	"github.com/lib/pq"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// uniqueViolationCode is the PostgreSQL SQLSTATE for unique_violation. Detecting
+// the conflict by SQLSTATE (via *pq.Error, the lib/pq production driver) is exact,
+// unlike substring-matching the error text, which is fragile against locale and
+// message-wording changes (SDLC-CONF-13, FINDING 5).
+const uniqueViolationCode = "23505"
 
 const ciProviderEventSource = "CIProviders"
 
@@ -48,20 +57,23 @@ func (s *sqlCIProviderService) Get(ctx context.Context, id string) (*CIProvider,
 // conflictForUnique maps a PostgreSQL unique-violation DAO error to a 409 that
 // names the ACTUAL conflicting field. CIProvider has two unique indexes (name and
 // issuer); the prior code reported "issuer" for every unique violation, so a
-// duplicate name was reported against the wrong field (FINDING 2). The driver
-// error embeds the violated index name (idx_ci_providers_name /
-// idx_ci_providers_issuer), so the conflict is attributed precisely. It returns
-// nil when err is not a unique violation, so the caller falls through to its
-// generic error.
+// duplicate name was reported against the wrong field (FINDING 2). The violation
+// is detected by SQLSTATE 23505 on the driver's *pq.Error, not by substring-
+// matching the message text (FINDING 5), and attributed to a field by the violated
+// index name, which lib/pq exposes in pq.Error.Constraint (with a message fallback
+// for safety). It returns nil when err is not a unique violation, so the caller
+// falls through to its generic error.
 func conflictForUnique(err error, ciProvider *CIProvider) *errors.ServiceError {
-	msg := err.Error()
-	if !strings.Contains(msg, "duplicate") && !strings.Contains(msg, "unique") {
+	var pqErr *pq.Error
+	if !stderrors.As(err, &pqErr) || pqErr.Code != uniqueViolationCode {
 		return nil
 	}
+	// lib/pq populates Constraint with the violated unique index name; fall back to
+	// the message text in case a wrapper strips the structured field.
 	switch {
-	case strings.Contains(msg, "idx_ci_providers_name"):
+	case pqErr.Constraint == "idx_ci_providers_name" || strings.Contains(pqErr.Error(), "idx_ci_providers_name"):
 		return errors.Conflict("a CIProvider named %q already exists", ciProvider.Name)
-	case strings.Contains(msg, "idx_ci_providers_issuer"):
+	case pqErr.Constraint == "idx_ci_providers_issuer" || strings.Contains(pqErr.Error(), "idx_ci_providers_issuer"):
 		return errors.Conflict("a CIProvider with issuer %q already exists", ciProvider.Issuer)
 	default:
 		// Unique violation whose index could not be attributed: report a conflict
