@@ -166,15 +166,39 @@ fi
 current_labels="$(gh_get_labels "${REPO}" "${NUMBER}")"
 _cur_has() { grep -qxF "$1" <<< "${current_labels}"; }
 
-# A review verdict only applies while the record is still awaiting that review.
+# A review verdict normally applies while the record is still awaiting that
+# review (the reviewable-* label is present). When the reviewable-* label is
+# gone we must still distinguish three cases, so an interrupted transition
+# converges on reapply without ever overriding a settled verdict (SDLC-HOOK-09.02):
+#   1. this verdict label is already present  -> the transition already completed
+#      (reviewable removed, verdict added); reapplying is a verified no-op.
+#   2. the competing verdict label is present -> this review phase already settled
+#      the other way; do not override it.
+#   3. neither verdict is present             -> the add/remove calls are separate
+#      GitHub requests, so a transition can stop between them. With add-first
+#      ordering the only self-produced partial state keeps the reviewable-* label,
+#      but a record stranded by an older remove-first run (reviewable removed,
+#      verdict never added) still reaches here; recover it by applying the verdict
+#      rather than exiting with no change. Freshness is still gated below.
+_rev_kind="${PHASE%-review}"                   # spec | code (review phases only)
+_reviewable="agent/reviewable-${_rev_kind}"
+_my_verdict="agent/review-${_rev_kind}-${outcome}"
+case "${outcome}" in
+  approved) _other_verdict="agent/review-${_rev_kind}-rejected" ;;
+  rejected) _other_verdict="agent/review-${_rev_kind}-approved" ;;
+  *)        _other_verdict="" ;;
+esac
 if lifecycle_phase_is_review "${PHASE}"; then
-  case "${PHASE}" in
-    spec-review) _reviewable="agent/reviewable-spec" ;;
-    code-review) _reviewable="agent/reviewable-code" ;;
-  esac
   if ! _cur_has "${_reviewable}"; then
-    echo "post-lifecycle: ${_reviewable} is no longer present; the review result no longer applies, no mutation" >&2
-    exit 0
+    if _cur_has "${_my_verdict}"; then
+      echo "post-lifecycle: ${_my_verdict} already present and ${_reviewable} gone; transition already complete, no mutation" >&2
+      exit 0
+    fi
+    if [[ -n "${_other_verdict}" ]] && _cur_has "${_other_verdict}"; then
+      echo "post-lifecycle: ${_other_verdict} is present; this review phase already settled the other way, not overriding, no mutation" >&2
+      exit 0
+    fi
+    echo "post-lifecycle: ${_reviewable} gone and no verdict present; recovering an interrupted transition by applying ${_my_verdict} (freshness still checked)" >&2
   fi
 
   # Stale check: the pull request head must not have moved since the pre-script
@@ -278,13 +302,22 @@ if [[ -n "${comment}" ]]; then
   fi
 fi
 
-# Remove superseded phase labels first, then add. Order does not affect the
-# final set, but removing first keeps competing outcomes from briefly coexisting.
+# Add the new phase label(s) BEFORE removing the superseded ones (SDLC-HOOK-09.02).
+# The add and the removes are separate GitHub API calls, not one transaction, so
+# the process can stop between them. Adding first guarantees that window always
+# holds both the new and the superseded phase label, never neither: for a review
+# phase the reviewable-* label is still present, so a reapplication passes the
+# review guard above, removes it, and converges on the verdict. Removing first
+# would instead strip the reviewable-* label before the verdict landed, and a
+# reapplication would then see the record no longer awaiting review and exit with
+# no change, stranding the work item. The brief overlap of the new and the
+# superseded label is safe because lifecycle_verify_final runs only after both
+# steps complete.
+# shellcheck disable=SC2086
+gh_add_labels "${REPO}" "${NUMBER}" ${add}
 for label in ${remove}; do
   gh_remove_label "${REPO}" "${NUMBER}" "${label}"
 done
-# shellcheck disable=SC2086
-gh_add_labels "${REPO}" "${NUMBER}" ${add}
 
 if [[ "${close}" == "1" ]]; then
   gh_close_issue "${REPO}" "${NUMBER}"

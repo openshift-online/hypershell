@@ -155,6 +155,46 @@ else
   _no "interrupted transition converges to the expected final state" "$(cat "${WORK}/B.out")"
 fi
 
+# ---- Scenario B2: reapply recovers a stranded verdict (HOOK-09.02) --------
+# Simulate a transition interrupted so the reviewable-* label was already removed
+# but the verdict label was never added (the old remove-first window, or any
+# partial state with no phase label). Reapplying the same validated result must
+# land the verdict rather than exit with no change.
+S="${WORK}/B2.labels"
+_seed "${S}" agent/allowed "${REPO_SCOPE}" agent/execution-record
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"rejected","rationale":"needs work","pr_number":5,"head_sha":"abc","comment":"rejected"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  > "${WORK}/B2.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/review-code-rejected \
+   && ! _has_label "${S}" agent/reviewable-code \
+   && _has_label "${S}" agent/allowed && _has_label "${S}" "${REPO_SCOPE}"; then
+  _ok "reapply recovers a stranded verdict when the reviewable label is already gone"
+else
+  _no "reapply recovers a stranded verdict when the reviewable label is already gone" "rc=${rc} $(cat "${WORK}/B2.out")"
+fi
+
+# ---- Scenario B3: a settled competing verdict is never overridden ---------
+# The reviewable-* label is gone and the OTHER verdict is already present (this
+# phase settled the other way). A late/duplicate result must not override it.
+S="${WORK}/B3.labels"
+_seed "${S}" agent/review-code-rejected agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S}")"
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  > "${WORK}/B3.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" == 0 ]] && [[ "${before}" == "${after}" ]] \
+   && _has_label "${S}" agent/review-code-rejected \
+   && ! _has_label "${S}" agent/review-code-approved; then
+  _ok "a settled competing verdict is not overridden on reapply"
+else
+  _no "a settled competing verdict is not overridden on reapply" "rc=${rc} $(cat "${WORK}/B3.out")"
+fi
+
 # ---- Scenario C: idempotent reapply after success (HOOK-09.01) ------------
 # After scenario A, reviewable-spec is gone; reapplying the same result changes nothing.
 S="${WORK}/C.labels"
