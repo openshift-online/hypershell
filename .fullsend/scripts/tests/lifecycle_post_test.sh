@@ -511,5 +511,50 @@ else
   _no "a failed optional comment warns but still applies the transition" "rc=${rc} $(cat "${WORK}/T.out")"
 fi
 
+# ---- Scenario U: reapply in the add-first partial window does not double-count -
+# An interrupted rejection left reviewable-spec in place AND the verdict label
+# already added. The timeline therefore already records this rejection. On reapply
+# the block count must NOT add the current rejection a second time: with one real
+# prior rejection plus this one, the true count is 2, below the spec threshold of
+# 3, so agent/blocked must NOT be added (SDLC-HOOK-09, SDLC-HOOK-12.01).
+S="${WORK}/U.labels"
+_seed "${S}" agent/reviewable-spec agent/review-spec-rejected agent/allowed "${REPO_SCOPE}"
+# Two rejected events in the timeline: one genuine prior, one from the interrupted
+# attempt that already added the label now present on the record.
+TL='[{"event":"labeled","label":{"name":"agent/review-spec-rejected"}},{"event":"labeled","label":{"name":"agent/review-spec-rejected"}}]'
+_run spec-review \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc","comment":"bad"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc MOCK_TIMELINE="${TL}" \
+  > "${WORK}/U.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/review-spec-rejected \
+   && ! _has_label "${S}" agent/blocked \
+   && ! _has_label "${S}" agent/reviewable-spec; then
+  _ok "reapply in the partial window does not double-count the rejection into a block"
+else
+  _no "reapply in the partial window does not double-count the rejection into a block" "rc=${rc} $(cat "${WORK}/U.out")"
+fi
+
+# ---- Scenario V: a review verdict with an empty comment is refused ------------
+# The post-script re-verifies independently of the schema: a review phase requires
+# a review record, so an empty comment must fail the transition with no label
+# change rather than applying the verdict with no record (SDLC-HOOK-10).
+S="${WORK}/V.labels"
+_seed "${S}" agent/reviewable-spec agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S}")"
+_run spec-review \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc","comment":""}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  > "${WORK}/V.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] \
+   && ! _has_label "${S}" agent/review-spec-rejected \
+   && grep -q "requires a review comment" "${WORK}/V.out"; then
+  _ok "a review verdict with an empty comment is refused with no label change"
+else
+  _no "a review verdict with an empty comment is refused with no label change" "rc=${rc} $(cat "${WORK}/V.out")"
+fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

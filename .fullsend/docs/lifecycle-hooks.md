@@ -122,6 +122,15 @@ A blocked record stays blocked until a human removes `agent/blocked` and the
 superseding rejection label; the pre-script skips any phase while `agent/blocked`
 is present.
 
+Known limitation (pending checks do not re-fire the phase): when a code-review
+approval is deferred because a required check is still pending, the post-script
+exits with no label change and posts no verdict comment. A later check turning
+green is not a label change, so it does not re-fire the harness trigger on its
+own. The verdict lands on the next event that re-triggers the phase (for example
+a new review run, or any label activity on the record). If an approved review is
+left pending this way, re-run the review phase once the checks are green, or
+reapply the validated result through the recovery procedure below.
+
 ## Single writer (SDLC-HOOK-11)
 
 Only the five phase post-scripts write phase labels. `ingest` writes the

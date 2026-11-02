@@ -188,6 +188,7 @@ case "${outcome}" in
   rejected) _other_verdict="agent/review-${_rev_kind}-approved" ;;
   *)        _other_verdict="" ;;
 esac
+_recovering=0
 if lifecycle_phase_is_review "${PHASE}"; then
   if ! _cur_has "${_reviewable}"; then
     if _cur_has "${_my_verdict}"; then
@@ -198,6 +199,13 @@ if lifecycle_phase_is_review "${PHASE}"; then
       echo "post-lifecycle: ${_other_verdict} is present; this review phase already settled the other way, not overriding, no mutation" >&2
       exit 0
     fi
+    # The record has no reviewable-* label and no verdict: an older remove-first
+    # run stranded it with no phase label. We try to recover by applying the
+    # verdict, but the freshness gate below still applies. If that gate aborts the
+    # recovery (the head moved, or no trusted recorded head is available), the
+    # record stays with no phase label, so emit a loud, distinct signal for that
+    # case instead of a quiet "stale" exit (SDLC-HOOK-09.02, review follow-up).
+    _recovering=1
     echo "post-lifecycle: ${_reviewable} gone and no verdict present; recovering an interrupted transition by applying ${_my_verdict} (freshness still checked)" >&2
   fi
 
@@ -213,10 +221,16 @@ if lifecycle_phase_is_review "${PHASE}"; then
   current_head="$(gh_pr_head_sha "${REPO}" "${trusted_pr}" 2>/dev/null || true)"
   if [[ -z "${recorded_head}" || -z "${current_head}" ]]; then
     echo "post-lifecycle: no trusted recorded pull request head; cannot verify freshness, not applying verdict" >&2
+    if [[ "${_recovering}" == 1 ]]; then
+      echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and freshness could not be verified; an interrupted transition could not be recovered automatically and needs a human to restore a phase label" >&2
+    fi
     exit 0
   fi
   if [[ "${current_head}" != "${recorded_head}" ]]; then
     echo "post-lifecycle: pull request head changed (${recorded_head} -> ${current_head}); review result is stale, no verdict transition" >&2
+    if [[ "${_recovering}" == 1 ]]; then
+      echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and the reviewed head moved; the interrupted transition could not be recovered automatically and needs a human to restore a phase label or re-review" >&2
+    fi
     exit 0
   fi
   # If the agent reported which head it reviewed, it must be consistent with the
@@ -232,6 +246,9 @@ if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
   checks_state="$(gh_pr_checks_state "${REPO}" "${trusted_pr}")"
   if [[ "${checks_state}" != "green" ]]; then
     echo "post-lifecycle: required checks are ${checks_state}, not green; approval is not eligible, no mutation" >&2
+    if [[ "${_recovering}" == 1 ]]; then
+      echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and required checks are ${checks_state}; the interrupted approval could not be recovered automatically and needs a human to restore a phase label or re-review once checks are green" >&2
+    fi
     exit 0
   fi
 fi
@@ -260,7 +277,16 @@ if lifecycle_phase_is_review "${PHASE}" && [[ "${outcome}" == "rejected" ]]; the
   fi
   prior="$(printf '%s' "${timeline}" | lifecycle_count_rejections "${rej_label}")"
   prior="${prior:-0}"
-  total=$(( prior + 1 ))
+  # Idempotent count: if this rejection verdict label is already present, a prior
+  # (possibly interrupted add-first) attempt already applied it, so the timeline
+  # already counts this rejection; adding +1 again on reapply would double-count
+  # and could cross the block threshold spuriously (SDLC-HOOK-09). Only add the
+  # current rejection when it is not yet recorded.
+  if _cur_has "${rej_label}"; then
+    total="${prior}"
+  else
+    total=$(( prior + 1 ))
+  fi
   if (( total >= threshold )); then
     add="${add} agent/blocked"
     echo "post-lifecycle: ${PHASE} rejection ${total} reaches the limit of ${threshold}; adding agent/blocked" >&2
@@ -278,6 +304,17 @@ if (( DRY_RUN_ON )); then
   echo "post-lifecycle: DRY_RUN set, not applying any change" >&2
   [[ -n "${comment}" ]] && echo "post-lifecycle: (dry run) would post a ${PHASE} comment" >&2
   exit 0
+fi
+
+# Defense in depth (SDLC-HOOK-10): a review verdict must never land without its
+# review record. The schema already requires a comment for a review verdict, but
+# this post-script re-verifies independently of the validator, so refuse to apply
+# a review transition when the comment is empty rather than silently skipping the
+# required-record post below (where the hard-fail is nested inside "comment is
+# non-empty") and applying the verdict labels with no record.
+if lifecycle_phase_requires_comment "${PHASE}" && [[ -z "${comment}" ]]; then
+  echo "post-lifecycle: ${PHASE} requires a review comment but the result has none; not applying the transition" >&2
+  exit 1
 fi
 
 # Post the agent's comment BEFORE any label change (SDLC-HOOK-10). For a review

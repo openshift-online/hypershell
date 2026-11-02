@@ -3,7 +3,9 @@
 # (SDLC-HOOK-04, SDLC-HOOK-06, SDLC-HOOK-13.01) by running the generic
 # validate-output-schema.sh against the per-phase result schemas. Validation is
 # read-only and never mutates a label. Auto-discovered by
-# scripts/run-shell-unit-tests.sh. Skips cleanly if python3 jsonschema is absent.
+# scripts/run-shell-unit-tests.sh. Skips cleanly when the runner's python3
+# jsonschema cannot validate (absent, invisible under python3 -I, or unsupported),
+# probed through the real script so the gate matches the script's own capability.
 
 set -uo pipefail
 
@@ -12,11 +14,6 @@ SCRIPTS="${_here}/.."
 SCHEMAS="${SCRIPTS}/../schemas"
 VALIDATE="${SCRIPTS}/validate-output-schema.sh"
 
-if ! python3 -c "import jsonschema" 2>/dev/null; then
-  echo "SKIP: python3 jsonschema not installed"
-  exit 0
-fi
-
 PASS=0
 FAIL=0
 _ok() { PASS=$((PASS + 1)); printf 'ok   - %s\n' "$1"; }
@@ -24,6 +21,25 @@ _no() { FAIL=$((FAIL + 1)); printf 'FAIL - %s\n' "$1"; [[ -n "${2:-}" ]] && prin
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
+
+# Capability gate: run the real validate-output-schema.sh once on a known-valid
+# result and only run the assertions when it can actually validate on this
+# runner. This mirrors the script's own isolated-mode (python3 -I) import and its
+# JSON-Schema draft support exactly, so a runner whose jsonschema is absent,
+# invisible under -I (for example installed only in user site-packages), or too
+# old to handle draft 2020-12 skips cleanly instead of failing. The script is
+# still exercised for real in the Fullsend sandbox, where the dependency is
+# present. A plain "python3 -c import jsonschema" probe would disagree with the
+# script (which uses python3 -I) and could run the assertions against a validator
+# that then cannot import the package.
+_probe="${WORK}/probe"
+mkdir -p "${_probe}/output"
+printf '%s' '{"schema_version":"1","phase":"triage","outcome":"workable","rationale":"probe"}' \
+  > "${_probe}/output/agent-result.json"
+if ! ( cd "${_probe}" && FULLSEND_OUTPUT_SCHEMA="${SCHEMAS}/triage-result.schema.json" bash "${VALIDATE}" >/dev/null 2>&1 ); then
+  echo "SKIP: validate-output-schema.sh cannot validate on this runner (python3 jsonschema absent or unsupported)"
+  exit 0
+fi
 
 # _expect <pass|fail> <schema-file> <description> <json>
 _expect() {

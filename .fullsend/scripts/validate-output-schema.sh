@@ -44,18 +44,39 @@ if ! python3 -I -m json.tool "${RESULT_FILE}" > /dev/null 2>&1; then
 fi
 
 if ! python3 -I -c "import jsonschema" 2>/dev/null; then
-  echo "FAIL: python3 jsonschema package is not installed (required by ADR 0022)"
-  exit 1
+  # Tooling fault (exit 3), not an invalid instance: the dependency required by
+  # ADR 0022 is missing or not importable under isolated mode on this runner.
+  echo "FAIL: python3 jsonschema package is not installed or not importable under python3 -I (required by ADR 0022)"
+  exit 3
 fi
 
-if ! python3 -I -c "
+# Exit codes from the validator below:
+#   0 - the instance is valid against the schema
+#   1 - the instance is invalid (a real schema validation error)
+#   3 - a tooling fault (bad import, malformed/unsupported schema, draft not
+#       supported by this jsonschema version). This is distinct from an invalid
+#       instance so a version or environment problem is not misread as the agent
+#       producing a bad result. The caller still treats any non-zero as "do not
+#       advance" (ADR 0022); only the diagnostics differ.
+_vstatus=0
+python3 -I -c "
 import json, sys
-from jsonschema import validate, ValidationError
 
-with open(sys.argv[1]) as f:
-    instance = json.load(f)
-with open(sys.argv[2]) as f:
-    schema = json.load(f)
+try:
+    from jsonschema import validate, ValidationError
+except Exception as e:  # noqa: BLE001 - any import/tooling failure is non-validation
+    print(f'FAIL: jsonschema tooling error (import): {type(e).__name__}: {e}')
+    sys.exit(3)
+
+try:
+    with open(sys.argv[1]) as f:
+        instance = json.load(f)
+    with open(sys.argv[2]) as f:
+        schema = json.load(f)
+except Exception as e:  # noqa: BLE001 - unreadable/unparsable inputs are tooling faults here
+    print(f'FAIL: could not read result or schema: {type(e).__name__}: {e}')
+    sys.exit(3)
+
 try:
     validate(instance=instance, schema=schema)
     print('PASS: output validated against schema')
@@ -67,6 +88,11 @@ except ValidationError as e:
         allowed = ', '.join(sorted(e.schema['properties'].keys()))
         print(f'  allowed properties: {allowed}')
     sys.exit(1)
-" "${RESULT_FILE}" "${FULLSEND_OUTPUT_SCHEMA}"; then
-  exit 1
+except Exception as e:  # noqa: BLE001 - SchemaError, draft/resolution faults, etc.
+    print(f'FAIL: schema tooling error: {type(e).__name__}: {e}')
+    sys.exit(3)
+" "${RESULT_FILE}" "${FULLSEND_OUTPUT_SCHEMA}" || _vstatus=$?
+
+if [[ "${_vstatus}" -ne 0 ]]; then
+  exit "${_vstatus}"
 fi

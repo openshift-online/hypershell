@@ -133,13 +133,20 @@ gh_pr_head_sha() {
 gh_pr_is_linked() {
   local repo="$1" pr="$2" issue="$3" state body
   [[ -z "${pr}" ]] && return 1
+  # Read state and body in separate requests on purpose: the body is matched
+  # line-by-line below, so it must keep its real newlines. Combining both into one
+  # @tsv request would escape newlines to a literal backslash-n, which would place
+  # an alphanumeric 'n' immediately before a line-leading "Closes" and defeat the
+  # word-boundary match. The extra request is cheap next to that correctness risk.
   state="$(gh_retry api "repos/${repo}/pulls/${pr}" --jq '.state' 2>/dev/null || true)"
   [[ "${state}" == "open" ]] || return 1
   body="$(gh_retry api "repos/${repo}/pulls/${pr}" --jq '.body // ""' 2>/dev/null || true)"
-  # Closing keyword, an optional punctuation separator (so the colon form
-  # "Closes: #<issue>" also links), then whitespace and #<issue>, case-insensitive.
+  # Start-of-line or a non-alphanumeric before the keyword (a portable word
+  # boundary so "encloses #<issue>" does not match "closes"), the closing keyword,
+  # an optional punctuation separator (so the colon form "Closes: #<issue>" also
+  # links), then whitespace and #<issue>, case-insensitive.
   printf '%s' "${body}" \
-    | grep -qiE "(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#${issue}([^0-9]|$)"
+    | grep -qiE "(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#${issue}([^0-9]|$)"
 }
 
 # Print the number of the open pull request linked to an issue by a closing
