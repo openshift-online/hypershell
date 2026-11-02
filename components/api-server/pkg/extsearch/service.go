@@ -39,31 +39,38 @@ func NewValidatingService(inner services.GenericService) services.GenericService
 // reflection, mirroring how the upstream generic service determines the resource
 // type, so no caller needs to pass the model explicitly.
 func (s *validatingService) List(ctx context.Context, username string, args *services.ListArguments, resourceList interface{}) (*api.PagingMeta, *errors.ServiceError) {
-	if args != nil {
-		model, serr := newModelPointer(resourceList)
-		if serr != nil {
-			return nil, serr
-		}
-		if serr := ValidateSearchColumns(args.Search, model); serr != nil {
-			return nil, serr
+	if args != nil && args.Search != "" {
+		// Search-column validation is a best-effort defense that upgrades a bad
+		// search column from a transaction-poisoning 500 to a clean 400. It must
+		// never DOWNGRADE availability: if the resource list shape cannot be
+		// classified for reflection, fail OPEN and delegate the List unchanged
+		// rather than turning an otherwise-valid request into a 500 (FINDING 5).
+		if model, ok := modelPointer(resourceList); ok {
+			if serr := ValidateSearchColumns(args.Search, model); serr != nil {
+				return nil, serr
+			}
 		}
 	}
 	return s.inner.List(ctx, username, args, resourceList)
 }
 
-// newModelPointer returns a freshly allocated pointer to the element type of a
-// `*[]T` resource list, suitable for GORM schema parsing. It fails closed if
-// resourceList is not a pointer to a slice.
-func newModelPointer(resourceList interface{}) (interface{}, *errors.ServiceError) {
+// modelPointer returns a freshly allocated pointer to the element type of a
+// `*[]T` resource list, suitable for GORM schema parsing, and ok=true. When
+// resourceList is not a pointer to a slice its shape cannot be classified for
+// reflection; it returns ok=false so the caller can fail OPEN (delegate the List
+// without column validation) rather than turn a valid request into a 500. The
+// shape mismatch is not an error here - validation is best-effort defense, not a
+// correctness gate (FINDING 5).
+func modelPointer(resourceList interface{}) (interface{}, bool) {
 	t := reflect.TypeOf(resourceList)
 	if t == nil || t.Kind() != reflect.Ptr {
-		return nil, errors.GeneralError("resource list must be a pointer to a slice")
+		return nil, false
 	}
 	slice := t.Elem()
 	if slice.Kind() != reflect.Slice {
-		return nil, errors.GeneralError("resource list must be a pointer to a slice")
+		return nil, false
 	}
-	return reflect.New(slice.Elem()).Interface(), nil
+	return reflect.New(slice.Elem()).Interface(), true
 }
 
 // Service returns the shared generic list service wrapped with search-column
