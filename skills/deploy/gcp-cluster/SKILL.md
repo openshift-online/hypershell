@@ -226,7 +226,6 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
    \"value\": \"$REGISTRY/hypershell-api-server-main:latest\"},
   {\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env\", \"value\": [
     {\"name\": \"API_ENV\", \"value\": \"development_oidc\"},
-    {\"name\": \"RBAC_ENFORCE\", \"value\": \"true\"},
     {\"name\": \"RBAC_SERVICE_ACCOUNTS\", \"value\": \"service-account-hypershell-control-plane\"}
   ]},
   {\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/command\", \"value\": [
@@ -412,7 +411,7 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"name\": \"gcp-test-gw\",
   \"placement\": {\"selector\": [\"network/public\", \"provider/aws\"]},
   \"namespace\": \"openshell-gcptest\",
-  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.0\",
+  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3\",
   \"route\": \"{\\\"enabled\\\": true}\"
 }")
 echo "$GATEWAY" | python3 -m json.tool
@@ -573,8 +572,9 @@ the API server pod doesn't have TLS certs; the OpenShift Route handles TLS.
 
 ### RBAC configuration
 
-`RBAC_ENFORCE=true` enables the three-role gateway RBAC model
-(`gateway:creator/owner/viewer`). `RBAC_SERVICE_ACCOUNTS` must include the
+JWT authentication is on in this deployment, so the gateway RBAC model
+(`gateway:creator/owner/viewer`) is enforced automatically -- there is no
+separate enforcement variable to set. `RBAC_SERVICE_ACCOUNTS` must include the
 controller's service account name (`service-account-hypershell-control-plane`)
 so its gRPC `UpdateGateway` calls bypass the RBAC interceptor; the
 controller's `client_credentials` token doesn't carry gateway roles. This is

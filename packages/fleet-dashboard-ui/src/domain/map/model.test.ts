@@ -759,11 +759,7 @@ describe("buildMapModel capabilities", () => {
         alpha: env({
           name: "alpha",
           role: "hub",
-          capabilities: [
-            "provider/aws",
-            "runtime/kata",
-            "gateway-version/v0.1.2-rhaiv.7",
-          ],
+          capabilities: ["provider/aws", "runtime/kata", "network/vpn"],
         }),
       },
       releases: [],
@@ -775,7 +771,7 @@ describe("buildMapModel capabilities", () => {
     expect(node?.capabilities).toEqual([
       "provider/aws",
       "runtime/kata",
-      "gateway-version/v0.1.2-rhaiv.7",
+      "network/vpn",
     ]);
   });
 

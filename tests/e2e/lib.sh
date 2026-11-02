@@ -551,68 +551,6 @@ print("kind=%s total=%s items=%s" % (data.get("kind") or "", total_s, len(items)
 '
 }
 
-# Effective RBAC_DEFAULT_ROLES from an api-server container env JSON array
-# (kubectl/oc jsonpath of .spec.template.spec.containers[?(@.name=="api-server")].env).
-# Unset matches the Go default (gateway:creator). An explicit empty value is
-# the OpenShift/production isolation posture and must not be treated as unset.
-e2e_effective_rbac_default_roles_from_env_json() {
-  python3 -c '
-import json, sys
-raw = sys.stdin.read().strip()
-if not raw:
-    print("gateway:creator")
-    raise SystemExit(0)
-try:
-    env = json.loads(raw)
-except Exception:
-    print("gateway:creator")
-    raise SystemExit(0)
-if not isinstance(env, list):
-    print("gateway:creator")
-    raise SystemExit(0)
-for item in env:
-    if isinstance(item, dict) and item.get("name") == "RBAC_DEFAULT_ROLES":
-        print(item.get("value") or "")
-        raise SystemExit(0)
-print("gateway:creator")
-'
-}
-
-e2e_read_api_server_container_env() {
-  local cli="${CLI:-kubectl}"
-  local ns="${E2E_HS_NAMESPACE:-hypershell-system}"
-  "$cli" get deployment hypershell-api-server -n "$ns" \
-    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api-server")].env}' \
-    2>/dev/null || true
-}
-
-e2e_effective_rbac_default_roles() {
-  local raw
-  raw="$(e2e_read_api_server_container_env)"
-  if [[ -z "${raw}" ]]; then
-    if [[ "${E2E_INFRA_DRIVER:-}" == "openshift" ]]; then
-      printf ''
-      return 0
-    fi
-    printf '%s' 'gateway:creator'
-    return 0
-  fi
-  printf '%s' "${raw}" | e2e_effective_rbac_default_roles_from_env_json
-}
-
-e2e_rbac_default_includes_creator() {
-  if [[ -z "${_E2E_RBAC_DEFAULT_INCLUDES_CREATOR:-}" ]]; then
-    local roles
-    roles="$(e2e_effective_rbac_default_roles)"
-    if [[ ",${roles}," == *",gateway:creator,"* ]]; then
-      _E2E_RBAC_DEFAULT_INCLUDES_CREATOR=yes
-    else
-      _E2E_RBAC_DEFAULT_INCLUDES_CREATOR=no
-    fi
-  fi
-  [[ "${_E2E_RBAC_DEFAULT_INCLUDES_CREATOR}" == "yes" ]]
-}
-
 # Look up a gateway by exact name. Sets _GW_ID, _GW_NAMESPACE, _GW_PHASE (empty if missing).
 # Requires API_HOST and api_curl.
 e2e_lookup_gateway_by_name() {

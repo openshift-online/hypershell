@@ -50,6 +50,9 @@ export type ListOptions = {
   search?: string;
   orderBy?: string;
   fields?: string;
+{{- range .Spec.ExtraListParameters}}
+  {{.TSName}}?: {{.TSType}};
+{{- end}}
 };
 
 export function buildQueryString(opts?: ListOptions): string {
@@ -60,6 +63,15 @@ export function buildQueryString(opts?: ListOptions): string {
   if (opts.search) params.set('search', opts.search);
   if (opts.orderBy) params.set('orderBy', opts.orderBy);
   if (opts.fields) params.set('fields', opts.fields);
+{{- range .Spec.ExtraListParameters}}
+{{- if eq .TSType "boolean"}}
+  if (opts.{{.TSName}}) params.set('{{.Name}}', 'true');
+{{- else if eq .TSType "number"}}
+  if (opts.{{.TSName}} !== undefined) params.set('{{.Name}}', String(opts.{{.TSName}}));
+{{- else}}
+  if (opts.{{.TSName}}) params.set('{{.Name}}', opts.{{.TSName}});
+{{- end}}
+{{- end}}
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }

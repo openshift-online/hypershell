@@ -13,6 +13,17 @@ source "${SCRIPT_DIR}/lib.sh"
 e2e_validate_mode
 e2e_select_infra_driver
 
+# Container mode (Kind only): run the suite in the Playwright image on the Kind
+# network, which needs neither host port 443 nor host browser libraries.
+if [[ "${E2E_CONSOLE_CONTAINER:-false}" == "true" ]]; then
+  if [[ "${E2E_INFRA_DRIVER}" != "kind" ]]; then
+    red "ERROR: E2E_CONSOLE_CONTAINER=true is supported only with the kind driver"
+    exit 1
+  fi
+  export E2E_MODE E2E_INFRA_DRIVER
+  exec bash "${SCRIPT_DIR}/e2e-console-container.sh"
+fi
+
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
 if [[ ! -f "${DRIVER_FILE}" ]]; then
   e2e_die_unknown_driver "Unknown driver '${E2E_INFRA_DRIVER}'"

@@ -15,6 +15,7 @@ import {
   mapInstances,
   mapPromotion,
   mapSdlc,
+  mapSdlcAgents,
   mapTopology,
 } from "./wire";
 
@@ -145,16 +146,21 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getTopology: (signal) => getPlane("/topology", mapTopology, signal),
     getInstances: (signal) => getPlane("/instances", mapInstances, signal),
     getSdlc: (signal) => getPlane("/sdlc", mapSdlc, signal),
+    getSdlcAgents: (signal) => getPlane("/sdlc-agents", mapSdlcAgents, signal),
     getE2eRuns: (signal) => getPlane("/e2e/runs", mapE2eRuns, signal),
     getE2eRun: (id, signal) =>
       getPlane(`/e2e/runs/${encodeRunId(id)}`, mapE2eRunDetail, signal),
-    getE2eRunLogs: (id, before, signal) => {
+    getE2eRunLogs: (id, before, stepId, signal) => {
       // The run id is a collision-free multi-segment address; it rides a single
       // "run" query value (encoded whole), exactly as the live stream does, because
       // a ServeMux trailing wildcard cannot be followed by a literal /logs segment.
       const params = new URLSearchParams({ run: id });
       if (before !== null && before !== "") {
         params.set("before", before);
+      }
+      // An optional selected-step scope (E2E-LOG-23); omitted for run-wide history.
+      if (stepId !== null && stepId !== "") {
+        params.set("step", stepId);
       }
       return getPlane(
         `/e2e/logs?${params.toString()}`,

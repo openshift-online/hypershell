@@ -85,11 +85,6 @@ type registrar interface {
 	Register(ctx context.Context) (string, error)
 }
 
-// instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
-// this instance's identity label onto its legacy gateway namespaces, so a stalled
-// API server cannot delay the GC reconciler's launch indefinitely.
-const instanceLabelBackfillTimeout = 2 * time.Minute
-
 func helmBinaryPath() string {
 	if v := os.Getenv("HELM_BINARY"); v != "" {
 		return v
@@ -134,6 +129,12 @@ func main() {
 	}
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
+	// The console image has no built-in default. Fail here with a clear message
+	// instead of logging a console warning for every gateway later.
+	if err := gateway.ValidateConsoleImage(); err != nil {
+		log.Fatalf("console image: %v", err)
+	}
+
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
 	log.Printf("INFO hypershell-controller starting")
 	log.Printf("INFO build %s", buildInfo())
@@ -160,6 +161,16 @@ func main() {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
+	unregisterIdentityInfo, identityErr := cpotel.RegisterClusterIdentityInfo(
+		cfg.ManagedClusterName,
+		cfg.ManagedClusterCapabilities,
+		gateway.StaticImageDefaults{}.DefaultGatewayImage(),
+	)
+	if identityErr != nil {
+		log.Printf("WARN cluster identity info metrics unavailable: %v", identityErr)
+	} else {
+		defer func() { _ = unregisterIdentityInfo() }()
+	}
 
 	// Every RPC, including the long-lived watch streams, carries the control
 	// plane's OIDC bearer token; the API server does not exempt watch streams
@@ -360,7 +371,7 @@ func main() {
 		}
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, and namespace GC to it", clusterID, cfg.ManagedClusterName)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -502,6 +513,23 @@ func main() {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})
 
+	if cfg.CITrustEnabled {
+		if kcClient == nil {
+			log.Printf("WARN CI trust reconciler enabled but no Keycloak client available; CI trust reconciliation will not function until Keycloak is configured")
+		}
+		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
+		supervise("CIProvider watch", func(ctx context.Context) error {
+			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout)
+		})
+		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn, clusterID)
+		supervise("CITrust watch", func(ctx context.Context) error {
+			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
+		})
+		log.Printf("INFO CI trust reconciler launched (CIProvider + CITrust watches)")
+	} else {
+		log.Printf("INFO CI trust reconciler disabled (HYPERSHELL_CI_TRUST_ENABLED=false)")
+	}
+
 	log.Printf("INFO all %d watch streams launched", watchCount)
 
 	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the
@@ -570,7 +598,7 @@ func main() {
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
-				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace, kcClient,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")
@@ -590,17 +618,6 @@ func main() {
 	// while the control plane was down, or a gateway that failed to bootstrap).
 	// It requires an in-cluster Kubernetes client.
 	if clientset != nil && cfg.NamespaceGCEnabled {
-		// Before the first sweep, backfill this instance's identity label onto the
-		// legacy gateway namespaces it still owns per its API server. A Gateway in
-		// a steady-state phase is skipped by the reconciler's phase gate on start,
-		// so its pre-label namespace is otherwise never migrated and a later
-		// missed-delete would leak it past the instance-scoped sweep. This runs
-		// synchronously so the first sweep sees the freshly-labeled namespaces; it
-		// is best-effort and never blocks startup on failure.
-		backfillCtx, cancelBackfill := context.WithTimeout(ctx, instanceLabelBackfillTimeout)
-		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace, clusterID)
-		cancelBackfill()
-
 		gcReconciler := reconciler.NewNamespaceGCReconciler(
 			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace, clusterID,
 		)

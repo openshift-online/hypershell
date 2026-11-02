@@ -15,15 +15,13 @@
 const LEAD_NAMESPACES: readonly string[] = [
   "provider",
   "runtime",
-  "gateway-version",
   "network",
   "region",
 ];
 
 /**
  * Split a capability into its namespace and value on the FIRST slash only, so a
- * value that itself contains slashes (or a version like `v0.1.2-rhaiv.7`) stays
- * intact. A capability with no slash is treated as a bare value with an empty
+ * value that itself contains slashes stays intact. A capability with no slash is treated as a bare value with an empty
  * namespace.
  */
 export function capabilityParts(cap: string): {

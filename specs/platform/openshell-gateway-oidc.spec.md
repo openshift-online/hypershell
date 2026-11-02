@@ -106,7 +106,7 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
 
 #### Scenario: OSG-OIDC-03.01 -- OIDC section injected into default gateway.toml
 
-- GIVEN a Gateway with OIDC enabled and no custom `config` field
+- GIVEN a Gateway with OIDC enabled
 - WHEN the GatewayReconciler generates the ConfigMap
 - THEN `gateway.toml` SHALL contain:
   ```toml
@@ -122,12 +122,6 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
   user_role     = "openshell-user"
   ```
 - AND `allow_unauthenticated_users` SHALL be `false`
-
-#### Scenario: OSG-OIDC-03.02 -- Custom config overrides bypass OIDC injection
-
-- GIVEN a Gateway with OIDC enabled AND a custom `config` field (raw TOML)
-- THEN the custom `config` SHALL be used verbatim
-- AND the GatewayReconciler SHALL NOT inject the OIDC section
 
 #### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields written to TOML
 

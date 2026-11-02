@@ -35,6 +35,8 @@ import {
   isValidElement,
   useMemo,
   useState,
+  useEffect,
+  useRef,
 } from "react";
 
 export type DashboardSummaryTone = "positive" | "negative";
@@ -318,14 +320,36 @@ export function DashboardSparkline({
   caption?: string;
   data?: number[];
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(220);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (nextWidth && nextWidth > 0) {
+        setWidth(nextWidth);
+      }
+    });
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return (
-    <div style={{ width: "100%" }}>
+    <div ref={containerRef} style={{ width: "100%" }}>
       <ChartGroup
         ariaTitle="Trend"
         height={56}
         padding={{ bottom: 1, left: 2, right: 2, top: 1 }}
         themeColor={ChartThemeColor.blue}
-        width={300}
+        width={width}
       >
         <ChartArea data={data.map((y, x) => ({ x, y }))} />
       </ChartGroup>
@@ -438,11 +462,11 @@ export function DashboardUtilization({
       <ChartDonutUtilization
         ariaTitle={`${value} ${unit} of ${total} ${unit}`}
         data={{ x: unit, y: Math.round((value / total) * 100) }}
-        height={100}
+        height={130}
         labels={() => `${Math.round((value / total) * 100)}%`}
-        padding={8}
+        padding={{ bottom: 10, left: 16, right: 10, top: 10 }}
         thresholds={[{ value: 60 }, { value: 90 }]}
-        width={100}
+        width={130}
       />
       <div>
         <strong style={{ display: "block", fontSize: 16 }}>

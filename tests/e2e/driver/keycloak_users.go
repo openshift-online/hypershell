@@ -16,6 +16,9 @@ type keycloakUserCredential struct {
 
 type keycloakUserCreate struct {
 	Username      string                   `json:"username"`
+	FirstName     string                   `json:"firstName"`
+	LastName      string                   `json:"lastName"`
+	Email         string                   `json:"email"`
 	Enabled       bool                     `json:"enabled"`
 	EmailVerified bool                     `json:"emailVerified"`
 	Credentials   []keycloakUserCredential `json:"credentials"`
@@ -62,7 +65,15 @@ func createKeycloakTestUser(ctx context.Context, client *http.Client, adminBase,
 		return nil
 	}
 	statusCode, body, err := kcDoJSON(ctx, client, http.MethodPost, adminBase+"/users", adminToken, keycloakUserCreate{
-		Username:      username,
+		Username: username,
+		// Keycloak 26's default user profile treats firstName and lastName as
+		// required: a user created without them is rejected by the direct-grant
+		// (password) token endpoint with 400 "Account is not fully set up"
+		// (keycloak/keycloak#36108). The seeded test users carry the same
+		// fields via scripts/cluster/reconcile-test-users.sh.
+		FirstName:     "E2E",
+		LastName:      "User",
+		Email:         username + "@hypershell.local",
 		Enabled:       true,
 		EmailVerified: true,
 		Credentials: []keycloakUserCredential{{

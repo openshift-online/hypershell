@@ -47,7 +47,7 @@ type GatewayApi = Pick<
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
 type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
-  "create" | "delete" | "get" | "list" | "revoke"
+  "create" | "delete" | "get" | "list" | "revoke" | "updateRole"
 >;
 type GatewayAccessApi = Pick<
   SDKClient["gatewayAccesses"],
@@ -178,7 +178,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
   const gatewayVersion = optionalString(gateway.gateway_version);
-  const provisioningVersion = optionalString(gateway.provisioning_version);
   const provisioningConditions = parseProvisioningConditions(
     gateway.provisioning_conditions,
   );
@@ -199,9 +198,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
-    ...(typeof gateway.image_pinned === "boolean"
-      ? { imagePinned: gateway.image_pinned }
-      : {}),
     name: gateway.name,
     namespace: gateway.namespace,
     ...(oidcAudience ? { oidcAudience } : {}),
@@ -209,7 +205,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
-    ...(provisioningVersion ? { provisioningVersion } : {}),
     status: gateway.status,
   };
 }
@@ -334,13 +329,10 @@ function optionalNumber(value: unknown): number | undefined {
 const registeredPlacementFilter = "oidc_subject <> ''";
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
-  const region = optionalString(cluster.region);
   const status = optionalString(cluster.status);
   return {
     id: cluster.id,
     name: cluster.name,
-    provider: cluster.provider,
-    ...(region ? { region } : {}),
     ...(status ? { status } : {}),
   };
 }
@@ -364,6 +356,9 @@ function gatewayFailureKind(statusCode: number): GatewayFailureKind {
 function gatewayFailureCode(code: string): GatewayFailureCode | undefined {
   if (code === "service_account_name_exists") {
     return "service-account-name-exists";
+  }
+  if (code === "role_not_allowed") {
+    return "role-not-allowed";
   }
   return undefined;
 }
@@ -642,6 +637,10 @@ export function createGatewayControlPlaneAdapter(
             page: request.page,
             ...(search === undefined ? {} : { search }),
             size: request.size,
+            // Request the ownership filter server-side so it is applied before
+            // pagination with accurate totals (WEB-UIEX-07); never filter the
+            // already-paginated page on the client.
+            ...(request.onlyMine ? { mine: true } : {}),
           },
           { signal: context.signal },
         );
@@ -662,6 +661,9 @@ export function createGatewayControlPlaneAdapter(
           page: result.page,
           size: request.size,
           total: result.total,
+          // The toggle-visibility flag is advertised only over the caller's
+          // authorized list (WEB-API-01); default to false when absent.
+          hasOtherOwnedGateways: result.has_other_owned_gateways ?? false,
         };
       });
     },
@@ -716,7 +718,6 @@ export function createGatewayControlPlaneAdapter(
             {
               name: input.name,
               placement,
-              route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },
           ),
@@ -754,6 +755,31 @@ export function createGatewayControlPlaneAdapter(
           ).openShellGatewayServiceAccounts.revoke(
             gatewayId,
             serviceAccountId,
+            { signal: context.signal },
+          ),
+        ),
+      );
+    },
+    async updateOpenShellGatewayServiceAccountRole(
+      gatewayId,
+      serviceAccountId,
+      input,
+      context,
+    ) {
+      return mapFailure(async () =>
+        toServiceAccountRecord(
+          await apiClient(
+            apiFactory,
+            context,
+          ).openShellGatewayServiceAccounts.updateRole(
+            gatewayId,
+            serviceAccountId,
+            {
+              role: input.role,
+              ...(input.description !== undefined
+                ? { description: input.description }
+                : {}),
+            },
             { signal: context.signal },
           ),
         ),

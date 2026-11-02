@@ -29,8 +29,8 @@ The suite creates each gateway under that identity, then calls the existing
 `/gateways/{id}/service_accounts` API as the gateway's owner. The controller
 creates a separate subject holding exactly that gateway's `openshell-admin` and
 `openshell-user` roles. This is automation operating under its own authority; it
-does not impersonate a human. The primary gateway (P1.3 to P1.5) and the P2.1
-sandbox gateway each get their own account.
+does not impersonate a human. The primary gateway (provisioned in suite setup,
+asserted by P1.3 to P1.5) and the P2.1 sandbox gateway each get their own account.
 
 Credential handling:
 
@@ -43,10 +43,12 @@ Credential handling:
   before every CLI operation, by atomically replacing the CLI's `oidc_token.json`.
 - A gateway token must have exactly the gateway's audience, the service account's
   subject and issuer, and exactly `openshell-admin` and `openshell-user`.
-- Retiring an account (P2.3 for the primary gateway, P2.1 for the sandbox
-  gateway) revokes it, checks that the token endpoint then rejects it with
-  `invalid_client` or `unauthorized_client`, and deletes it. Already issued
-  tokens may stay valid until they expire; the check concerns new issuance.
+- Retiring an account (`TearDownSuite` for the primary gateway, P2.1 for the
+  sandbox gateway) revokes it, checks that the token endpoint then rejects it with
+  `invalid_client` or `unauthorized_client`, and deletes it. The primary gateway's
+  account is retired in teardown rather than in P2.3, so it never races with P2.5's
+  use of the primary gateway. Already issued tokens may stay valid until they
+  expire; the check concerns new issuance.
 - Teardown retires any account still live and removes the credential directory and
   the CLI token files on every path, including `E2E_SKIP_CLEANUP=1`. That variable
   keeps gateways for inspection, never credentials.
@@ -64,6 +66,42 @@ Run `go -C tests/e2e test ./... -skip 'TestE2E$|TestMatrix$'` for the unit tests
 of mode selection, the credential lifecycle, renewal, and claim checks. The
 retired Bash suite's helpers (`gateway_service_account.sh` and `.py`) and their
 tests remain for `make ci-test`; the Go suite does not use them.
+
+# Running phases and steps in isolation
+
+The shared primary gateway is provisioned once in suite setup through an idempotent
+`ensurePrimaryGateway` helper, not inside the P1 steps, so any phase or any single
+step can be reproduced on its own with `go test -run`. Every step is a named
+subtest nested under its phase (`TestE2E/TestPhases/Phase-P<n>/P<n>.<m>-<slug>`), so
+the same `-run` shape targets a whole phase or one step:
+
+```sh
+# A whole phase:
+go -C tests/e2e test . -run 'TestE2E/TestPhases/Phase-P2' -v
+# A single step (nested under its phase):
+go -C tests/e2e test . -run 'TestE2E/TestPhases/.*/P2\.5' -v
+go -C tests/e2e test . -run 'TestE2E/TestPhases/.*/P1\.2' -v
+```
+
+`make e2e` accepts an `E2E_RUN` filter that builds the right pattern for you. A
+`Phase-P*` value runs the whole phase; any other value is treated as a step id:
+
+```sh
+make e2e E2E_RUN=Phase-P2      # the whole P2 phase
+make e2e E2E_RUN='P2\.5'       # just the P2.5 step (escape the dot)
+```
+
+When the filter selects P1, or runs the full suite, the primary gateway is
+provisioned eagerly at `Phase-P1` start. When it selects a later phase or an
+individual P2/P3 step that reads the primary gateway (P1.1-P1.5, P2.5, P2.6, P2.9,
+P2.11, P3.1), that step calls `ensurePrimaryGateway` and provisions it on demand.
+A step that does not use the primary gateway (for example P0.1, P2.1, P2.4) skips
+provisioning it entirely. The long-mode orphan reaper is seeded in `SetupSuite`;
+an isolated `P2.3` run self-seeds it.
+
+For fast local iteration, set `E2E_PRIMARY_GATEWAY_ID` to an existing running
+gateway's id. Setup adopts that gateway instead of creating one and does not delete
+it in teardown, so repeated single-step runs skip the provisioning wait.
 
 ## Failure diagnostics
 

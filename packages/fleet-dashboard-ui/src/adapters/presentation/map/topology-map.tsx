@@ -22,6 +22,7 @@ import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-i
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 import { deployedFor, seedForBundle } from "../../../domain/map/bundles";
 import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
@@ -60,6 +61,11 @@ export interface TopologyMapProps {
   // consumes the selected bundle as a controlled value and reports changes up.
   readonly selectedBundleSeed: string | null;
   readonly onSelectBundle: (seed: string) => void;
+  /** SDLC agent rows grouped by environment, for the per-cluster Agents tab. */
+  readonly agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  /** The SDLC-agents plane's `stale` flag, driving the "Monitoring blind" activity
+   *  state in the Agents tab (SDLC-AGT-16). */
+  readonly agentsPlaneStale?: boolean;
 }
 
 /** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
@@ -75,6 +81,8 @@ export function TopologyMap({
   topology,
   selectedBundleSeed,
   onSelectBundle,
+  agentsByEnv,
+  agentsPlaneStale,
 }: TopologyMapProps): React.ReactElement {
   const intl = useIntl();
   const model = useMemo(
@@ -289,6 +297,8 @@ export function TopologyMap({
                       selection={selection}
                       onClose={closeSelection}
                       onSelectBundle={selectBundle}
+                      agentsByEnv={agentsByEnv}
+                      agentsPlaneStale={agentsPlaneStale}
                       onSelectNode={(id) => {
                         // From a "Deployed on" chip: jump to that node (not a map
                         // click, so no pan guard). The reducer clears any gate; the

@@ -113,6 +113,12 @@ components:
             - provider_binding_id
             - model
           properties:
+            name:
+              type: string
+              description: >-
+                Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+                defaults to a stable identity derived from
+                workspace_id/provider_binding_id/model when not supplied.
             workspace_id:
               type: string
             provider_binding_id:

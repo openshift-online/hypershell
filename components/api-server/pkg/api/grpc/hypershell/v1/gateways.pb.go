@@ -331,21 +331,21 @@ type Gateway struct {
 	GatewayVersion         *string                  `protobuf:"bytes,24,opt,name=gateway_version,json=gatewayVersion,proto3,oneof" json:"gateway_version,omitempty"`
 	Generation             int64                    `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
 	ObservedGeneration     *int64                   `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	// provisioning_version is the gateway version the gateway's cluster advertises
-	// provisioning onto new gateways (that cluster's single-valued gateway-version
-	// capability). It is read-only and derived at read time from cluster_id, never
-	// stored on the Gateway row. See gateway-version-visibility.spec.md.
-	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
-	// image_pinned reports whether this gateway pins an explicit image and so need
-	// not track its cluster's provisioning version. Read-only, derived from image.
-	ImagePinned *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
 	// repository_id is the control-plane import ownership mark: the Repository that
 	// owns this Gateway through the declarative .hypershell import. Null for gateways
 	// created directly through the REST API or hsctl apply. Read-only; set server-side
 	// from the x-hypershell-import-repository-id binding, never from a client body.
-	RepositoryId  *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	RepositoryId *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
+	// workspace_mode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces: shared, managed, or operator. Defaults to managed at create;
+	// always present and immutable once stored. See openshell-gateway.spec.md,
+	// "Gateway Workspace Mode".
+	WorkspaceMode *string `protobuf:"bytes,31,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
+	// dedicated_route records that the gateway requested the dedicated route and
+	// per-gateway wildcard certificate path at creation. Read-only after creation.
+	DedicatedRoute *bool `protobuf:"varint,32,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -532,25 +532,25 @@ func (x *Gateway) GetObservedGeneration() int64 {
 	return 0
 }
 
-func (x *Gateway) GetProvisioningVersion() string {
-	if x != nil && x.ProvisioningVersion != nil {
-		return *x.ProvisioningVersion
-	}
-	return ""
-}
-
-func (x *Gateway) GetImagePinned() bool {
-	if x != nil && x.ImagePinned != nil {
-		return *x.ImagePinned
-	}
-	return false
-}
-
 func (x *Gateway) GetRepositoryId() string {
 	if x != nil && x.RepositoryId != nil {
 		return *x.RepositoryId
 	}
 	return ""
+}
+
+func (x *Gateway) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
+}
+
+func (x *Gateway) GetDedicatedRoute() bool {
+	if x != nil && x.DedicatedRoute != nil {
+		return *x.DedicatedRoute
+	}
+	return false
 }
 
 type CreateGatewayRequest struct {
@@ -569,8 +569,12 @@ type CreateGatewayRequest struct {
 	Route            *string                 `protobuf:"bytes,15,opt,name=route,proto3,oneof" json:"route,omitempty"`
 	CredentialDriver *string                 `protobuf:"bytes,17,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	Placement        *GatewayPlacementIntent `protobuf:"bytes,18,opt,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// workspace_mode: shared, managed, or operator. Omitted defaults to managed.
+	WorkspaceMode *string `protobuf:"bytes,19,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
+	// dedicated_route requests the dedicated route and per-gateway wildcard certificate path.
+	DedicatedRoute *bool `protobuf:"varint,20,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateGatewayRequest) Reset() {
@@ -699,6 +703,20 @@ func (x *CreateGatewayRequest) GetPlacement() *GatewayPlacementIntent {
 		return x.Placement
 	}
 	return nil
+}
+
+func (x *CreateGatewayRequest) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
+}
+
+func (x *CreateGatewayRequest) GetDedicatedRoute() bool {
+	if x != nil && x.DedicatedRoute != nil {
+		return *x.DedicatedRoute
+	}
+	return false
 }
 
 type CreateGatewayResponse struct {
@@ -857,8 +875,11 @@ type UpdateGatewayRequest struct {
 	ConsoleAddress         *string                  `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	ProvisioningConditions []*ProvisioningCondition `protobuf:"bytes,21,rep,name=provisioning_conditions,json=provisioningConditions,proto3" json:"provisioning_conditions,omitempty"`
 	ObservedGeneration     *int64                   `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// workspace_mode may only re-send the stored value; changing it is rejected
+	// and omitting it keeps the stored value.
+	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -1015,6 +1036,13 @@ func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
 		return *x.ObservedGeneration
 	}
 	return 0
+}
+
+func (x *UpdateGatewayRequest) GetWorkspaceMode() string {
+	if x != nil && x.WorkspaceMode != nil {
+		return *x.WorkspaceMode
+	}
+	return ""
 }
 
 type UpdateGatewayResponse struct {
@@ -1896,7 +1924,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
 	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
-	"\x12LocalKindPlacement\"\xc8\n" +
+	"\x12LocalKindPlacement\"\xbf\n" +
 	"\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
@@ -1925,10 +1953,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x1a \x01(\x03R\n" +
 	"generation\x124\n" +
-	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x126\n" +
-	"\x14provisioning_version\x18\x1c \x01(\tH\x0fR\x13provisioningVersion\x88\x01\x01\x12&\n" +
-	"\fimage_pinned\x18\x1d \x01(\bH\x10R\vimagePinned\x88\x01\x01\x12(\n" +
-	"\rrepository_id\x18\x1e \x01(\tH\x11R\frepositoryId\x88\x01\x01B\x0f\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12(\n" +
+	"\rrepository_id\x18\x1e \x01(\tH\x0fR\frepositoryId\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_mode\x18\x1f \x01(\tH\x10R\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1943,10 +1971,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_active_sandbox_countB\x12\n" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
-	"\x14_observed_generationB\x17\n" +
-	"\x15_provisioning_versionB\x0f\n" +
-	"\r_image_pinnedB\x10\n" +
-	"\x0e_repository_id\"\x9d\x05\n" +
+	"\x14_observed_generationB\x10\n" +
+	"\x0e_repository_idB\x11\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_dedicated_route\"\x9e\x06\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1963,7 +1991,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x04oidc\x18\x0e \x01(\tH\aR\x04oidc\x88\x01\x01\x12\x19\n" +
 	"\x05route\x18\x0f \x01(\tH\bR\x05route\x88\x01\x01\x120\n" +
 	"\x11credential_driver\x18\x11 \x01(\tH\tR\x10credentialDriver\x88\x01\x01\x12C\n" +
-	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacementB\x0f\n" +
+	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacement\x12*\n" +
+	"\x0eworkspace_mode\x18\x13 \x01(\tH\n" +
+	"R\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdedicated_route\x18\x14 \x01(\bH\vR\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1973,13 +2004,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x12_credential_driverB\x11\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_dedicated_route\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xb5\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -2001,7 +2034,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11credential_driver\x18\x13 \x01(\tH\fR\x10credentialDriver\x88\x01\x01\x12,\n" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
-	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01B\a\n" +
+	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12*\n" +
+	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
@@ -2016,7 +2050,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_generation\"I\n" +
+	"\x14_observed_generationB\x11\n" +
+	"\x0f_workspace_mode\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

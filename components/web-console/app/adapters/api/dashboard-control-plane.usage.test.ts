@@ -32,8 +32,8 @@ const gatewayResponse = {
     { date: "2026-10-14", value: 100 },
     { date: "2026-10-15", value: null },
   ],
-  request_error_rate_percent: 1,
-  request_volume: 198,
+  request_error_rate_percent: 1.65,
+  request_volume: 198.65,
   total_gateways: 2,
   unused_gateways: 1,
 };
@@ -108,7 +108,7 @@ describe("createDashboardControlPlaneAdapter usage metrics", () => {
             { label: "2026-10-15", value: null },
           ],
         },
-        value: "198",
+        value: "199",
       },
       {
         id: "gateway-error-rate",
@@ -118,7 +118,7 @@ describe("createDashboardControlPlaneAdapter usage metrics", () => {
             { label: "2026-10-15", value: null },
           ],
         },
-        value: "1",
+        value: "2",
       },
       {
         activeSharePercent: "50",
@@ -137,7 +137,7 @@ describe("createDashboardControlPlaneAdapter usage metrics", () => {
           ],
         },
         unit: "sandboxes",
-        value: "50",
+        value: "5",
       },
       {
         id: "sandbox-lifetime",

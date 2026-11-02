@@ -54,7 +54,7 @@ function InfoTip({ info }: { info: MessageDescriptor }): React.ReactElement {
  * hovered sample and the sparkline draws a crosshair + marker at that point, so all
  * three tiles read the same moment in time.
  */
-function MetricTile({
+export function MetricTile({
   label,
   info,
   value,

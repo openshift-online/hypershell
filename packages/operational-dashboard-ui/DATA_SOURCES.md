@@ -1,14 +1,12 @@
 # Operational dashboard data sources
 
 This document tracks which dashboard widgets in the operational-dashboard
-package are backed by live data. Widgets without a connected source still
-appear on the dashboard; they render the localized "Metric unavailable" empty
-state.
+package are backed by live data. When a connected source is unavailable, its
+widgets render the localized "Metric unavailable" empty state.
 
-Reliability and usage dashboard sources are documented in
-[API reliability](#api-reliability) and [Usage dashboard](#usage-dashboard)
-below. They load through separate control-plane methods and must not be added
-to the operational `metricSources` list.
+Reliability, usage, and adoption dashboard sources are documented below. They
+load through separate control-plane methods and must not be added to the
+operational `metricSources` list.
 
 ## Data flow
 
@@ -29,9 +27,11 @@ that selection to the BFF; sources with fixed windows are described below.
 
 ## Refresh
 
-All connected metrics share `operationalDashboardRefreshMilliseconds` (15
-minutes) via `useGetMetricsData`. Manual refresh re-fetches every active source
-immediately (WEB-OPS-09).
+The operational overview and its administrator subpages use
+`useGetMetricsData` with `operationalDashboardRefreshMilliseconds` (15 minutes).
+Reliability, usage, and adoption use their corresponding query hooks; their
+refresh constants also resolve to 15 minutes. Manual refresh re-fetches every
+active source immediately (WEB-OPS-09).
 
 When OIDC is configured, all metric BFF routes require an authenticated
 session. Admin-only metric routes also require `platform:admin` (WEB-OPS-04).
@@ -54,6 +54,8 @@ leaves these routes open.
 | `cluster-cpu`                  | `GET /api/metrics/cluster-cpu`                                                                                                                                  | `cpu` (optional selected-range `daily_used` → `trend`; see [Hub cluster utilization trends](#hub-cluster-utilization-trends))    |
 | `cluster-pods`                 | `GET /api/metrics/cluster-pods`                                                                                                                                 | `pods` (optional fixed 7-day `daily_used` → `trend`; see [Hub cluster utilization trends](#hub-cluster-utilization-trends))      |
 | `cluster-nodes`                | `GET /api/metrics/cluster-nodes`                                                                                                                                | `nodes`                                                                                                                          |
+| `resource-readiness`           | `GET /api/metrics/resource-readiness`                                                                                                                           | `pod-and-sandbox-readiness`                                                                                                      |
+| `certificate-health`           | `GET /api/metrics/certificate-health`                                                                                                                           | `certificate-health`                                                                                                             |
 
 If `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes` fails,
 the entire `gateway-metrics` source fails and all four gateway metrics above are
@@ -70,25 +72,27 @@ Widget types in the dashboard pages and shared widget components map to
 `OperationalMetric` ids from the adapter. Summary cards read multiple metrics
 from the same payload.
 
-| Widget type                 | Metric ID               | Notes                                                                                                                           |
-| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway-status`            | `provisioned-gateways`  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`.         |
-| `sandbox-status`            | `provisioned-sandboxes` | Active total plus optional lifecycle attention breakdown. Spec: `platform/gateway-sandbox-attention-status.md`.                 |
-| `active-sandboxes`          | `provisioned-sandboxes` | Daily Active sandbox sparkline for the selected range.                                                                          |
-| `gateway-releases`          | `gateway-releases`      | Per-version counts from the paginated gateway list API; missing or blank versions bucket as `unknown`.                          |
-| `registered-users`          | `registered-users`      | See [Registered users](#registered-users) below.                                                                                |
-| `provision-time`            | `provision-time`        | See [Provision time](#provision-time) below.                                                                                    |
-| `provision-reliability`     | `provision-reliability` | See [Provision reliability](#provision-reliability) below.                                                                      |
-| `memory`                    | `memory`                | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                             |
-| `cpu`                       | `cpu`                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                                    |
-| `pods`                      | `pods`                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                               |
-| `nodes`                     | `nodes`                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                                  |
-| `inventory-summary`         | `managed-clusters`      | Totals and status icons; 30-day creations on the operational page, selected-range creations on the inventory page (WEB-OPS-22). |
-| `managed-cluster-providers` | `managed-clusters`      | Provider donut from `inventoryProviders`.                                                                                       |
-| `managed-cluster-regions`   | `managed-clusters`      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                            |
-| `resource-summary`          | several                 | Gateways, sandboxes, and derived healthy/attention counts.                                                                      |
-| `system-summary`            | several                 | Managed clusters, nodes, pods, gateways, memory, and CPU.                                                                       |
-| `provisioning-snapshot`     | several                 | Gateway provisioning count, provision time, and provision reliability.                                                          |
+| Widget type                 | Metric ID                   | Notes                                                                                                                   |
+| --------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `gateway-status`            | `provisioned-gateways`      | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`. |
+| `sandbox-status`            | `provisioned-sandboxes`     | Active total plus optional lifecycle attention breakdown. Spec: `platform/gateway-sandbox-attention-status.md`.         |
+| `active-sandboxes`          | `provisioned-sandboxes`     | Daily Active sandbox sparkline for the selected range.                                                                  |
+| `gateway-releases`          | `gateway-releases`          | Per-version counts from the paginated gateway list API; missing or blank versions bucket as `unknown`.                  |
+| `registered-users`          | `registered-users`          | See [Registered users](#registered-users) below.                                                                        |
+| `provision-time`            | `provision-time`            | See [Provision time](#provision-time) below.                                                                            |
+| `provision-reliability`     | `provision-reliability`     | See [Provision reliability](#provision-reliability) below.                                                              |
+| `memory`                    | `memory`                    | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                     |
+| `cpu`                       | `cpu`                       | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                            |
+| `pods`                      | `pods`                      | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                       |
+| `nodes`                     | `nodes`                     | kube-state-metrics `kube_node_info` total and Ready condition.                                                          |
+| `inventory-summary`         | `managed-clusters`          | Totals and status icons with selected-range recent creations on the Inventory page.                                     |
+| `managed-cluster-providers` | `managed-clusters`          | Provider donut from `inventoryProviders`.                                                                               |
+| `managed-cluster-regions`   | `managed-clusters`          | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                    |
+| `resource-summary`          | several                     | Gateways, sandboxes, and derived healthy/attention counts.                                                              |
+| `system-summary`            | several                     | Managed clusters, nodes, pods, gateways, memory, and CPU.                                                               |
+| `provisioning-snapshot`     | several                     | Gateway provisioning count, provision time, and provision reliability.                                                  |
+| `pod-and-sandbox-readiness` | `pod-and-sandbox-readiness` | Administrator-only pod and sandbox readiness plus unready resources.                                                    |
+| `certificate-health`        | `certificate-health`        | Administrator-only fleet certificate validity, expiry, and collection status.                                           |
 
 ### Sandbox status / Active sandboxes
 
@@ -152,6 +156,13 @@ Prometheus histogram `gateway_provision_duration_seconds` (control-plane OTLP
 per OBS-CPL-07). The BFF computes mean, P50, and P95 from increases over the
 selected 7- or 30-day window. Values are presented in **seconds**
 (`unit: "sec"`).
+
+The BFF also returns optional `daily_p50` and `daily_p95` arrays. The adapter
+maps arrays with at least two points to `provisionDuration.p50Trend` and
+`provisionDuration.p95Trend`. The response always includes the 300-second
+target. For the 7-day range it can also return P99 and `daily_p99`; those two
+fields are explicitly `null` for the 30-day range. The Provisioning page warns
+when P99 exceeds the target.
 
 Requires control-plane metrics export through the in-cluster OpenTelemetry
 Collector (`deploy/base/prometheus/otel-collector.yaml`).
@@ -220,10 +231,11 @@ Reliability dashboard (`/dashboard/reliability`) loads through
 `createDashboardControlPlaneAdapter.getReliabilityMetrics`. This source is
 **not** part of the operational `metricSources` list (OBS-REL-05).
 
-| Source ID                      | BFF route                                       | Metrics emitted                                                                                                                      |
-| ------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `api-reliability`              | `GET /api/metrics/api-reliability`              | `api-request-rate`, `api-error-rate`, `api-latency`                                                                                  |
-| `control-plane-reconciliation` | `GET /api/metrics/control-plane-reconciliation` | `reconciliation-failures`, `reconciliation-retries`, `reconciliation-successes`, `reconciliation-lag`, `stale-resource-status-count` |
+| Source ID                      | BFF route                                       | Metrics emitted                                                                                                                                        |
+| ------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `api-reliability`              | `GET /api/metrics/api-reliability`              | `api-request-rate`, `api-error-rate`, `api-latency`, `api-p95-latency`                                                                                 |
+| `oidc-client-sync`             | `GET /api/metrics/oidc-client-sync`             | `oidc-client-sync`                                                                                                                                     |
+| `control-plane-reconciliation` | `GET /api/metrics/control-plane-reconciliation` | `reconciliation-failures`, `reconciliation-retries`, `reconciliation-successes`, `reconciliation-lag`, `stale-resource-status-count`, `state-accuracy` |
 
 The reliability dashboard SHALL read metric data through the BFF routes above.
 The UI SHALL NOT read or write metric data directly to a database. Historical
@@ -249,6 +261,7 @@ available.
 | `reconciliation-successes`    | Counter         | Previous 24-hour success count | `count` |
 | `reconciliation-lag`          | Histogram       | P50                            | `sec`   |
 | `stale-resource-status-count` | Gauge           | Current count                  | `count` |
+| `state-accuracy`              | Derived gauges  | Desired/observed agreement     | `%`     |
 
 Reconciliation count values are displayed as whole numbers; reconciliation lag
 is displayed to three fractional digits.
@@ -271,6 +284,7 @@ Kind does not currently set API-server OTLP export.)
 | `request_rate`        | `api-request-rate` | `requests/sec` | 3 fractional     | `hourly_request_rate`        |
 | `error_rate_percent`  | `api-error-rate`   | `%`            | 3 fractional     | `hourly_error_rate_percent`  |
 | `latency_p50_seconds` | `api-latency`      | `sec`          | 3 fractional     | `hourly_latency_p50_seconds` |
+| `latency_p95_seconds` | `api-p95-latency`  | `sec`          | 3 fractional     | `hourly_latency_p95_seconds` |
 
 PromQL shapes (5-minute rate window; see
 `components/web-console/bff/src/metrics-api-reliability.ts`):
@@ -278,6 +292,7 @@ PromQL shapes (5-minute rate window; see
 - Request rate: `sum(rate(api_inbound_request_duration_count{job="hypershell-api-server"}[5m]))`
 - Error rate (5xx only): `100 * (sum(rate(...{code=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(...[5m])), 1e-12)` (idle fleets with zero request rate evaluate to `0%`)
 - Latency P50: `histogram_quantile(0.50, sum(rate(..._bucket[5m])) by (le))`, with cumulative histogram fallback when the rate-based quantile is non-finite (instant and hourly)
+- Latency P95: `histogram_quantile(0.95, sum(rate(..._bucket[5m])) by (le))`; non-finite samples are omitted without a cumulative fallback
 
 Hourly trends use Prometheus `query_range` over the last 24 hours with step
 `3600s`. Missing historical arrays omit `hourlyTrend` for that metric only;
@@ -327,12 +342,12 @@ Gateway request metrics reuse the gateway-native Prometheus counters
 `PROMETHEUS_URL` MUST point to an application metrics endpoint that already
 exposes these series for the managed clusters in the fleet.
 
-| Metric ID                | Prometheus type  | Calculation                                                                                                                                                               |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                       |
-| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="OK"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
-| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                              |
-| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                               |
+| Metric ID                | Prometheus type  | Calculation                                                                                                                                                              |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                      |
+| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="0"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
+| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                             |
+| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                              |
 
 Current Gateway namespaces come from the authorized Gateway list for both
 administrators and non-administrators. Historical traffic from a deleted

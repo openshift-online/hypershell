@@ -65,23 +65,6 @@ export const messages = defineMessages({
     description:
       "Recovery guidance when remote gateway placements cannot be loaded.",
   },
-  clusterProvider: {
-    id: "app.gateway.cluster.provider",
-    defaultMessage: "Provider: {provider}",
-    description:
-      "Provider context that distinguishes a managed cluster option.",
-  },
-  clusterProviderAndRegion: {
-    id: "app.gateway.cluster.providerAndRegion",
-    defaultMessage: "Provider: {provider}; region: {region}",
-    description:
-      "Provider and region context that distinguishes a managed cluster option.",
-  },
-  clusterRegion: {
-    id: "app.gateway.cluster.region",
-    defaultMessage: "Region: {region}",
-    description: "Region context that distinguishes a managed cluster option.",
-  },
   connectionEditorOptions: {
     id: "app.gateway.connection.editorOptions",
     defaultMessage:
@@ -502,6 +485,19 @@ export const messages = defineMessages({
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
   },
+  noOwnedGatewaysBody: {
+    id: "app.page.gateways.noOwned.body",
+    defaultMessage:
+      "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
+    description:
+      "Guidance when the ownership filter is on but the user owns no gateways.",
+  },
+  noOwnedGatewaysTitle: {
+    id: "app.page.gateways.noOwned.title",
+    defaultMessage: "No gateways you own",
+    description:
+      "Heading when the ownership filter is on but the user owns no gateways.",
+  },
   notAvailable: {
     id: "app.value.notAvailable",
     defaultMessage: "Not available",
@@ -759,6 +755,12 @@ export const messages = defineMessages({
     defaultMessage: "Select a cluster",
     description: "Accessible label and placeholder for the cluster selector.",
   },
+  showOnlyMyGateways: {
+    id: "app.page.gateways.showOnlyMine",
+    defaultMessage: "Show only my gateways",
+    description:
+      "On/off switch label that filters the gateway list to only the signed-in user's gateways.",
+  },
   status: {
     id: "app.table.column.status",
     defaultMessage: "Status",
@@ -905,6 +907,54 @@ export const messages = defineMessages({
     id: "app.gateway.serviceAccounts.field.description",
     defaultMessage: "Description (optional)",
     description: "Label for an optional service-account description.",
+  },
+  editServiceAccountRole: {
+    id: "app.gateway.serviceAccounts.editRole.action",
+    defaultMessage: "Edit role",
+    description: "Row action that opens the in-place role edit dialog.",
+  },
+  editServiceAccountRoleSave: {
+    id: "app.gateway.serviceAccounts.editRole.save",
+    defaultMessage: "Save changes",
+    description:
+      "Confirmation button for the service-account role edit dialog.",
+  },
+  editServiceAccountRoleTitle: {
+    id: "app.gateway.serviceAccounts.editRole.title",
+    defaultMessage: "Edit {serviceAccountName}",
+    description: "Title of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleIntroduction: {
+    id: "app.gateway.serviceAccounts.editRole.introduction",
+    defaultMessage:
+      "Change the OpenShell role or description of {serviceAccountName}. Its client credentials are unchanged.",
+    description: "Introduction of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleEffect: {
+    id: "app.gateway.serviceAccounts.editRole.effect.title",
+    defaultMessage: "When the change takes effect",
+    description:
+      "Heading for the token-lag explanation in the role edit dialog.",
+  },
+  editServiceAccountRoleEffectBody: {
+    id: "app.gateway.serviceAccounts.editRole.effect.body",
+    defaultMessage:
+      "The next token exchange reflects the new role. Access tokens issued before the change keep the prior role until they expire (at most a few minutes).",
+    description:
+      "Token-lag explanation in the service-account role edit dialog.",
+  },
+  serviceAccountRoleNotAllowed: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.title",
+    defaultMessage: "The requested role is not permitted",
+    description:
+      "Title shown when a role update exceeds the creator's gateway role.",
+  },
+  serviceAccountRoleNotAllowedBody: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.body",
+    defaultMessage:
+      "A service account is capped by its creator's current gateway role, so this account cannot receive that role.",
+    description:
+      "Guidance shown when a role update exceeds the creator's gateway role.",
   },
   clientId: {
     id: "app.gateway.serviceAccounts.clientId",
@@ -1553,19 +1603,6 @@ export const messages = defineMessages({
     defaultMessage: "Running version {version}",
     description:
       "Accessible name for the running-version chip beside the gateway status indicator.",
-  },
-  newerVersionAvailable: {
-    id: "app.gateway.version.newerAvailable",
-    defaultMessage: "Newer version available",
-    description:
-      "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways.",
-  },
-  newerVersionAvailableTooltip: {
-    id: "app.gateway.version.newerAvailable.tooltip",
-    defaultMessage:
-      "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
-    description:
-      "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
   },
   advancedOptions: {
     id: "app.page.gatewayProvision.advancedOptions",

@@ -89,6 +89,9 @@ func TestLoadE2EDisabledByDefault(t *testing.T) {
 	if c.E2ERecentRunLimit != 20 {
 		t.Errorf("default E2ERecentRunLimit = %d, want 20", c.E2ERecentRunLimit)
 	}
+	if c.E2ELogTimeMargin != 5*time.Minute {
+		t.Errorf("default E2ELogTimeMargin = %v, want 5m", c.E2ELogTimeMargin)
+	}
 }
 
 // TestLoadE2EFromEnv confirms every e2e value comes from configuration, never
@@ -102,6 +105,7 @@ func TestLoadE2EFromEnv(t *testing.T) {
 	t.Setenv("FD_E2E_LOKI_TENANTS", "hub-00, hub-01 ,")
 	t.Setenv("FD_E2E_HISTORY_WINDOW", "48h")
 	t.Setenv("FD_E2E_RECENT_RUN_LIMIT", "5")
+	t.Setenv("FD_E2E_LOG_TIME_MARGIN", "90s")
 
 	c, err := Load()
 	if err != nil {
@@ -118,6 +122,9 @@ func TestLoadE2EFromEnv(t *testing.T) {
 	}
 	if c.E2ERecentRunLimit != 5 {
 		t.Errorf("E2ERecentRunLimit = %d, want 5", c.E2ERecentRunLimit)
+	}
+	if c.E2ELogTimeMargin != 90*time.Second {
+		t.Errorf("E2ELogTimeMargin = %v, want 90s", c.E2ELogTimeMargin)
 	}
 }
 

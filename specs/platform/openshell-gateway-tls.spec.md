@@ -64,6 +64,40 @@ When SANs change, TLS secrets are regenerated. Connected sandbox supervisors wil
 
 ---
 
+### Requirement: OSG-TLS-06 -- Per-Gateway External Certificate
+
+A Gateway that opts in to a dedicated route via `route.certificate` (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) § Per-Gateway Dedicated Route and Certificate) gets a single external cert-manager `Certificate` (`openshell-gateway-external`) in the tenant namespace, with `secretName: openshell-gateway-external-tls` and both the exact name `gw-<ns>.<base-domain>` and the wildcard `*.gw-<ns>.<base-domain>` as dnsNames.
+
+One certificate, one Secret, one ACME order. A certificate may carry an exact name and a wildcard in the same SAN list; because both names are in the same DNS zone, one DNS-01 solver covers both. The wildcard covers exactly one label below `gw-<ns>.<base-domain>` - exposed-service hosts (`<sandbox>--<service>`) are a single DNS label, so every sandbox service URL is covered. The exact SAN covers the Gateway's own hostname, which the wildcard does not.
+
+The issuer is cluster-configured (`GATEWAY_EXTERNAL_ISSUER` / `GATEWAY_EXTERNAL_ISSUER_KIND`); the API carries no issuerRef. Wildcard SANs REQUIRE a DNS-01 issuer (e.g. `letsencrypt-dns01`); a cluster configured with an HTTP-01-only issuer cannot serve opted-in Gateways.
+
+#### Scenario: OSG-TLS-06.01 -- Single certificate with exact and wildcard SANs
+
+- GIVEN a Gateway created with `route: { certificate: {} }`
+- AND `GATEWAY_EXTERNAL_ISSUER` names a DNS-01-capable ClusterIssuer
+- WHEN the control plane reconciles the Gateway's external certificate
+- THEN it SHALL create exactly one `Certificate` `openshell-gateway-external` in the tenant namespace
+- AND its dnsNames SHALL be `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>`
+- AND the resulting Secret `openshell-gateway-external-tls` SHALL serve both the Gateway's own hostname and every `<sandbox>--<service>.gw-<ns>.<base-domain>` host
+
+#### Scenario: OSG-TLS-06.02 -- Rotation reaches the serving path without pod involvement
+
+- GIVEN an opted-in Gateway whose external certificate is served by the per-tenant Gateway's listeners
+- WHEN cert-manager renews the `Certificate` (`rotationPolicy: Always`)
+- THEN the renewed Secret SHALL be picked up by the Gateway API implementation's listener hot-reload
+- AND the gateway pod SHALL NOT restart, and no reloader mechanism SHALL be required
+- AND the pod's internal certificate renewal (SAN Management and Cert Rotation) SHALL remain unchanged and orthogonal
+
+#### Scenario: OSG-TLS-06.03 -- server_sans injection for an opted-in gateway
+
+- GIVEN a Gateway created with `route: { certificate: {} }`
+- WHEN the GatewayReconciler renders the gateway configuration
+- THEN `server_sans` SHALL contain both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>`
+- AND the gateway SHALL strip the `*.` from the wildcard entry and derive the base domain `gw-<ns>.<base-domain>` for exposed-service URLs, making them unambiguous (unique per Gateway), certificate-valid (wildcard SAN), and routable (wildcard listener, HTTPRoute, and DNS)
+
+---
+
 ### Requirement: OSG-TLS-03 -- Trusted CA Bundle Injection
 
 Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP uses a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway's default trust store will not include the required CA.

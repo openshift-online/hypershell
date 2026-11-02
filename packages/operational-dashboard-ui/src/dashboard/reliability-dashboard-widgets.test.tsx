@@ -142,7 +142,7 @@ describe("ReliabilitySummaryCard", () => {
   it("shows a dash when a summary metric is omitted", () => {
     renderWithIntl(<ReliabilitySummaryCard metrics={[requestRateMetric]} />);
 
-    expect(screen.getAllByText("-")).toHaveLength(7);
+    expect(screen.getAllByText("-")).toHaveLength(10);
   });
 });
 

@@ -54,7 +54,7 @@ func TestValidateGatewayConfigRouteHost(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := GatewayConfig{Route: RouteConfig{Host: tt.host}}
+			cfg := GatewayConfig{WorkspaceMode: "shared", Route: RouteConfig{Host: tt.host}}
 			err := ValidateGatewayConfig(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ValidateGatewayConfig(host=%q) error = %v, wantErr %v", tt.host, err, tt.wantErr)
@@ -219,10 +219,67 @@ func TestCredentialDriverRejectsVaultOverride(t *testing.T) {
 }
 
 func TestValidateGatewayConfig_SandboxRuntimeImage(t *testing.T) {
-	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "quay.io/test/sandbox:v1"}); err != nil {
+	if err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: "shared", SandboxRuntimeImage: "quay.io/test/sandbox:v1"}); err != nil {
 		t.Fatalf("valid sandbox runtime image rejected: %v", err)
 	}
-	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "not a valid ref!"}); err == nil {
+	if err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: "shared", SandboxRuntimeImage: "not a valid ref!"}); err == nil {
 		t.Fatal("invalid sandbox runtime image accepted")
 	}
+}
+
+// TestValidateGatewayConfigWorkspaceMode covers the reconcile-time vocabulary
+// check for the OpenShell workspace mode (openshell-gateway.spec.md, "Gateway
+// Workspace Mode"): the three chart-supported values pass, and anything else
+// fails, including an empty mode, which must never fall back to the chart
+// default.
+// Verifies: OSG-CORE-18.03, OSG-CORE-18.09
+func TestValidateGatewayConfigWorkspaceMode(t *testing.T) {
+	for _, mode := range []string{"shared", "managed", "operator"} {
+		if err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode}); err != nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) error = %v, want nil", mode, err)
+		}
+	}
+	for _, mode := range []string{"combined", "Managed", ""} {
+		err := ValidateGatewayConfig(GatewayConfig{WorkspaceMode: mode})
+		if err == nil {
+			t.Errorf("ValidateGatewayConfig(workspaceMode=%q) = nil, want error", mode)
+		}
+	}
+}
+
+// TestValidateGatewayConfigRouteCertificate guards the dedicated-certificate
+// opt-in shape: a route.certificate gateway always uses the derived
+// gw-<namespace> hostname, so pairing it with an explicit route.host is
+// rejected rather than silently ignored.
+func TestValidateGatewayConfigRouteCertificate(t *testing.T) {
+	t.Run("certificate with an explicit host is rejected", func(t *testing.T) {
+		cfg := GatewayConfig{WorkspaceMode: "shared", Route: RouteConfig{
+			Host:        "gw-tenant-a.apps.example.com",
+			Certificate: &RouteCertificateConfig{},
+		}}
+		err := ValidateGatewayConfig(cfg)
+		if err == nil {
+			t.Fatal("expected route.host + route.certificate to be rejected, got nil")
+		}
+		if !strings.Contains(err.Error(), "route.host is not supported with route.certificate") {
+			t.Errorf("error does not explain the dedicated-certificate hostname rule: %v", err)
+		}
+	})
+
+	t.Run("certificate alone is valid", func(t *testing.T) {
+		cfg := GatewayConfig{WorkspaceMode: "shared", Route: RouteConfig{
+			Enabled:     true,
+			Certificate: &RouteCertificateConfig{},
+		}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.certificate alone must be accepted: %v", err)
+		}
+	})
+
+	t.Run("explicit host without certificate keeps shared-Gateway semantics", func(t *testing.T) {
+		cfg := GatewayConfig{WorkspaceMode: "shared", Route: RouteConfig{Host: "gw-tenant-a.apps.example.com"}}
+		if err := ValidateGatewayConfig(cfg); err != nil {
+			t.Fatalf("route.host without route.certificate must stay valid: %v", err)
+		}
+	})
 }

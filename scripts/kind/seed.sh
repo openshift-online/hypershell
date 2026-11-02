@@ -104,7 +104,8 @@ info "Obtaining API token from Keycloak..."
 # Keycloak is accessible via HTTPRoute at keycloak.hypershell.localhost.
 #
 # Seed with the admin resource-owner (password) token, NOT the control-plane
-# client-credentials token. The kind overlay enables RBAC_ENFORCE=true, and the
+# client-credentials token. The kind overlay runs with JWT authentication on
+# (authorization always enforced), and the
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
@@ -236,15 +237,16 @@ if [[ -z "${seed_failed}" ]]; then
   fi
 
   if [[ -z "${GATEWAY_ID}" ]]; then
-    info "Creating Gateway with OIDC..."
-    OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-    # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
-    # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # cluster_id is server-resolved too: create takes a required placement
-    # intent, and local-kind selects the ManagedCluster awaited above.
-    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"mode\":\"local-kind\"},\"oidc\":\"${OIDC_JSON}\""
-    GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
-    GW_BODY="${GW_BODY}}"
+    info "Creating Gateway..."
+    # A user create carries only the user-writable fields: name + placement
+    # (PLAT-DATA-23 default-deny field policy). Every other gateway field is
+    # platform-managed and rejected for a user caller by the strict create
+    # endpoint. The control plane supplies them during reconcile: route defaults
+    # to enabled, the per-gateway Keycloak OIDC client is set by
+    # reconcileKeycloakClient, and namespace is server-derived (BeforeCreate sets
+    # openshell-<hex> from the ksuid). cluster_id is server-resolved from the
+    # placement intent, and local-kind selects the ManagedCluster awaited above.
+    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"mode\":\"local-kind\"}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
     GW_HTTP=$(echo "${GW_RAW}" | tail -1)
     GW_RESP=$(echo "${GW_RAW}" | sed '$d')
@@ -253,7 +255,7 @@ if [[ -z "${seed_failed}" ]]; then
     if [[ -z "${GATEWAY_ID}" ]]; then
       warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
     else
-      success "Gateway created with OIDC: ${GATEWAY_ID}"
+      success "Gateway created: ${GATEWAY_ID}"
     fi
   fi
 fi

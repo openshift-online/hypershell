@@ -28,8 +28,39 @@ export interface OperationalMetricProvisionDuration {
   mean: string;
   p50: string;
   p95: string;
+  p99?: string;
+  target?: string;
+  p99Trend?: OperationalMetricTrend;
   p50Trend?: OperationalMetricTrend;
   p95Trend?: OperationalMetricTrend;
+}
+
+export interface OperationalMetricResourceReadiness {
+  podReadinessPercent?: string;
+  sandboxReadinessPercent?: string;
+  unreadyResources?: string;
+}
+
+export interface OperationalMetricCertificateHealth {
+  expiredCertificates: string;
+  soonestDaysToExpiry?: string;
+  statusUnavailable: string;
+  totalCertificates: string;
+  validCertificates: string;
+}
+
+export interface OperationalMetricOidcClientSync {
+  accuracyPercent?: string;
+  expectedClients?: string;
+  keycloakStatus: "connected" | "disconnected" | "unknown";
+  syncedClients?: string;
+}
+
+export interface OperationalMetricStateAccuracy {
+  accuracyPercent?: string;
+  observedMatchingDesired?: string;
+  staleResources: string;
+  totalResources?: string;
 }
 
 export type ProvisionSuccessCountWindow =
@@ -57,6 +88,10 @@ export interface OperationalMetric {
   expiringSandboxes?: number;
   idleSandboxes?: number;
   podPhases?: OperationalMetricPodPhases;
+  resourceReadiness?: OperationalMetricResourceReadiness;
+  certificateHealth?: OperationalMetricCertificateHealth;
+  oidcClientSync?: OperationalMetricOidcClientSync;
+  stateAccuracy?: OperationalMetricStateAccuracy;
   provisionDuration?: OperationalMetricProvisionDuration;
   provisionOutcomes?: OperationalMetricProvisionOutcomes;
   reasonBreakdown?: Record<string, number>;
@@ -88,17 +123,22 @@ export type DashboardMetricSourceId =
   | "cluster-pods"
   | "gateway-metrics"
   | "gateway-release-distribution"
+  | "resource-readiness"
+  | "certificate-health"
   | "platform-inventory"
   | "registered-users";
 
 /** Metric source id used only on reliability-dashboard payloads (REL-DASH / ARM). */
 export type ReliabilityMetricSourceId =
-  "api-reliability" | "control-plane-reconciliation";
+  "api-reliability" | "control-plane-reconciliation" | "oidc-client-sync";
 
 export type ReliabilityMetricId =
   | "api-request-rate"
   | "api-error-rate"
   | "api-latency"
+  | "api-p95-latency"
+  | "oidc-client-sync"
+  | "state-accuracy"
   | "reconciliation-failures"
   | "reconciliation-retries"
   | "reconciliation-successes"

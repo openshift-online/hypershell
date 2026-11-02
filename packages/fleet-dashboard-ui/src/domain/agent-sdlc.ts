@@ -54,14 +54,33 @@ export interface AgentSdlcHubCluster {
 
 /** One pull request shipped in a bundle. Bundle contents are PR-driven
  *  (SDLC-VIS-03): these mirror the shared bundle PRs the Fleet Map freight bar
- *  shows, so a pull request is never hidden because its issue link is unrecoverable. */
+ *  shows, so a pull request is never hidden because its issue link is unrecoverable.
+ *  `repository` and `environments` are populated only for GitOps deployment pull
+ *  requests (the bundle's gitopsPrs group, SDLC-VIS-25): repository keys a GitOps PR
+ *  apart from an application PR that shares its number (FLT-BPR-02), and environments
+ *  carries the deployment-environment attribution (FLT-BPR-06). Both are empty for
+ *  application pull requests. */
 export interface AgentSdlcPullRequest {
   readonly number: number;
   readonly title: string;
   readonly url: string;
   readonly author: string | null;
   readonly mergedAt: string | null;
+  /** The owner/repo a GitOps deployment PR belongs to (FLT-BPR-02); absent/null for
+   *  application PRs and on older payloads. */
+  readonly repository?: string | null;
+  /** Deployment environments whose range includes a GitOps PR (FLT-BPR-06); absent or
+   *  empty for application PRs. */
+  readonly environments?: readonly string[];
 }
+
+/** Whether a bundle's GitOps deployment-change range could be bounded and compared
+ *  (SDLC-VIS-25, mirroring FLT-BPR-10). `"available"` means the comparison succeeded
+ *  (an empty gitopsPrs is then a genuine "no deployment changes"); `"unavailable"`
+ *  means the lookup failed. null means GitOps grouping was not reported (an older
+ *  payload with no GitOps fields), so the UI renders no deployment section and never
+ *  claims the lookup succeeded. */
+export type AgentSdlcGitOpsStatus = "available" | "unavailable";
 
 /** One tracked execution record that shipped (or awaits a bundle, in Unreleased).
  *  In a bundle it carries the bundle's pull requests that resolve to it (prs), so a
@@ -79,10 +98,15 @@ export interface AgentSdlcShippedIssue {
 }
 
 /** One matrix row: a release bundle (newest first) or the single Unreleased row.
- *  A bundle row's contents are PR-driven and split into two groups: issues (the
- *  bundle's PRs grouped under the tracked execution record they resolve to) and
- *  otherPRs (one-off PRs with no tracked issue). The Unreleased row carries only
- *  tracked issues and no otherPRs. */
+ *  A bundle row's contents are PR-driven and grouped under two repository headings.
+ *  The APPLICATION repository is split into issues (the bundle's PRs grouped under the
+ *  tracked execution record they resolve to) and otherPRs (one-off PRs with no tracked
+ *  issue). The DEPLOYMENT repository is gitopsPrs: the bundle's GitOps deployment PRs
+ *  carried from the shared bundle enrichment that also feeds Fleet Map (SDLC-VIS-25).
+ *  gitopsStatus tells a successful-but-empty GitOps comparison ("available") from an
+ *  unavailable lookup ("unavailable"); null means the payload reported no GitOps fields
+ *  (an older server), so the UI renders no deployment section. The Unreleased row
+ *  carries only tracked issues and no otherPRs or GitOps group. */
 export interface AgentSdlcBundleRow {
   readonly version: string | null;
   readonly digest: string | null;
@@ -92,6 +116,12 @@ export interface AgentSdlcBundleRow {
   readonly hubClusters: readonly string[];
   readonly issues: readonly AgentSdlcShippedIssue[];
   readonly otherPRs: readonly AgentSdlcPullRequest[];
+  /** The GitOps deployment-change pull-request group (empty when the range succeeded
+   *  with no PRs, or when gitopsStatus is absent). Absent on older payloads. */
+  readonly gitopsPrs?: readonly AgentSdlcPullRequest[];
+  /** The GitOps group's range state, or null/absent when no GitOps fields were reported
+   *  (an older payload), which the UI renders as "no deployment section". */
+  readonly gitopsStatus?: AgentSdlcGitOpsStatus | null;
 }
 
 /** The release-by-hub-cluster matrix (the Shipped column). */
@@ -219,14 +249,15 @@ export function bundleRowExpandKey(row: AgentSdlcBundleRow): string {
 }
 
 /**
- * Total pull requests in a bundle row: every grouped pull request under a tracked
- * issue plus every one-off pull request. This is the "M PRs" count in the row summary
- * (SDLC-VIS-11), equal to the bundle's whole PR set since each PR is either grouped
- * under a tracked issue or listed as a one-off.
+ * Total pull requests in a bundle row, spanning both repository groups (SDLC-VIS-25.06):
+ * every application pull request grouped under a tracked issue, plus every one-off
+ * application pull request, plus every GitOps deployment pull request. This is the "M
+ * PRs" count in the row summary (SDLC-VIS-11); the tracked-issue count stays an
+ * application-repository count and is reported separately.
  */
 export function bundlePRCount(row: AgentSdlcBundleRow): number {
   const grouped = row.issues.reduce((sum, issue) => sum + issue.prs.length, 0);
-  return grouped + row.otherPRs.length;
+  return grouped + row.otherPRs.length + (row.gitopsPrs?.length ?? 0);
 }
 
 /**
@@ -243,6 +274,11 @@ export interface CardFlight {
   readonly toPhase: string;
   /** True when the card left the board into the Shipped release matrix. */
   readonly toShipped: boolean;
+  /** True when this flight was synthesized on first load to replay a recent transition
+   *  (no prior snapshot to diff), rather than observed live between two polls. Replay
+   *  flights measure their source from the from-phase column anchor, since the card has no
+   *  previous on-screen slot to launch from. */
+  readonly replay?: boolean;
 }
 
 /** Issue numbers that appear as shipped (tracked) in the matrix for a snapshot. */
@@ -319,5 +355,48 @@ export function computeCardFlights(
     });
   }
 
+  return flights;
+}
+
+/**
+ * Replay flights for cards that arrived in their current phase RECENTLY, synthesized on
+ * first load when there is no prior snapshot to diff. A card whose time-in-phase is within
+ * `windowSeconds` is treated as having just transitioned, and a flight is emitted from its
+ * previous phase (the funnel predecessor column; null for intake, which flies in) to its
+ * current column. This lets the board "catch up" on recent motion the moment it loads,
+ * rather than only animating a transition a viewer happens to be watching live. Cards
+ * resting longer than the window do not replay. Ordered most-recent-first and capped so a
+ * busy board does not launch a swarm. Pure: derived from the snapshot alone.
+ */
+export function computeReplayCardFlights(
+  data: AgentSdlcData,
+  windowSeconds: number,
+  maxFlights = 12,
+): CardFlight[] {
+  const board = boardPhases(data.phases);
+  const indexByKey = new Map(board.map((p, i) => [p.key, i]));
+  const recent = data.cards
+    .filter(
+      (c) =>
+        c.timeInPhaseSeconds >= 0 &&
+        c.timeInPhaseSeconds <= windowSeconds &&
+        indexByKey.has(c.phase),
+    )
+    .slice()
+    .sort((a, b) => a.timeInPhaseSeconds - b.timeInPhaseSeconds)
+    .slice(0, maxFlights);
+
+  const flights: CardFlight[] = [];
+  for (const c of recent) {
+    const idx = indexByKey.get(c.phase) ?? 0;
+    const fromPhase = idx > 0 ? (board[idx - 1]?.key ?? null) : null;
+    flights.push({
+      number: c.number,
+      fromPhase,
+      toPhase: c.phase,
+      toShipped: false,
+      replay: true,
+    });
+  }
   return flights;
 }

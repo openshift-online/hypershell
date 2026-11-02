@@ -25,20 +25,34 @@ import (
 
 type gatewayGRPCHandler struct {
 	pb.UnimplementedGatewayServiceServer
-	service       GatewayService
-	generic       services.GenericService
-	brokerFunc    func() *pkgserver.EventBroker
-	clusters      RegisteredClusterLookup
-	placement     PlacementResolver
-	sandboxEvents sandboxEvents.SandboxEventStore
+	service         GatewayService
+	generic         services.GenericService
+	brokerFunc      func() *pkgserver.EventBroker
+	clusters        RegisteredClusterLookup
+	clusterSubjects pkgrbac.RegisteredClusterResolver
+	dedicatedRoute  dedicatedRouteAuthorizer
+	placement       PlacementResolver
+	sandboxEvents   sandboxEvents.SandboxEventStore
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, placement ...PlacementResolver) pb.GatewayServiceServer {
-	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute}
 	if len(placement) > 0 {
 		h.placement = placement[0]
 	}
 	return h
+}
+
+// markGatewayWriterKind resolves the gateway field-policy writer kind for a gRPC caller
+// (import / control-plane / user) and returns a context marked with it, so service.Create
+// and service.Replace enforce the default-deny field policy from it (PLAT-DATA-23 /
+// SEC-RBAC-18). It is resolved here, in the gateway write handlers, so it holds on every
+// gateway write regardless of which authz interceptor chain a deployment installs. The
+// control-plane identity is read from the caller's verified subject; import is identified
+// by trusted metadata. A resolver failure is surfaced as retryable Unavailable rather than
+// downgrading a possible control-plane write to a terminal rejection.
+func (h *gatewayGRPCHandler) markGatewayWriterKind(ctx context.Context) (context.Context, error) {
+	return pkgrbac.WithResolvedGatewayWriterKind(ctx, h.clusterSubjects)
 }
 
 // SetSandboxEventStore installs the swappable event cache after constructing the
@@ -73,12 +87,73 @@ func (h *gatewayGRPCHandler) GetGateway(ctx context.Context, req *pb.GetGatewayR
 	return &pb.GetGatewayResponse{Gateway: gatewayToProto(gateway)}, nil
 }
 
+// gatewayCreateRequestForbiddenField returns the name of a platform-managed or observed
+// field set on a gRPC create request, or "" when the request sets only the user-writable
+// allowlist (name + placement/cluster_id). It lets the create handler reject a
+// non-privileged caller (user or import) that declares a control-plane-owned field, per
+// PLAT-DATA-23 / SEC-RBAC-18.
+func gatewayCreateRequestForbiddenField(req *pb.CreateGatewayRequest) string {
+	switch {
+	case req.ExternalDns != nil:
+		return "external_dns"
+	case req.TlsMode != nil:
+		return "tls_mode"
+	case req.ServiceType != nil:
+		return "service_type"
+	case req.Status != nil:
+		return "status"
+	case req.Phase != nil:
+		return "phase"
+	case req.Image != nil:
+		return "image"
+	case req.SupervisorImage != nil:
+		return "supervisor_image"
+	case len(req.ServerDnsNames) > 0:
+		return "server_dns_names"
+	case req.Oidc != nil:
+		return "oidc"
+	case req.Route != nil:
+		return "route"
+	case req.CredentialDriver != nil:
+		return "credential_driver"
+	case req.WorkspaceMode != nil:
+		return "workspace_mode"
+	}
+	return ""
+}
+
 func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGatewayRequest) (*pb.CreateGatewayResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
+	ctx, markErr := h.markGatewayWriterKind(ctx)
+	if markErr != nil {
+		return nil, markErr
+	}
+	// Default-deny field policy (PLAT-DATA-23 / SEC-RBAC-18): a user or import caller may
+	// create a gateway with only name + placement/cluster_id. Any platform-managed or
+	// observed field supplied by such a caller is rejected here, at the request boundary,
+	// before server-side defaulting (for example the awaiting-placement phase/status)
+	// makes caller intent indistinguishable. A control-plane internal write bypasses this.
+	// service.Create is the authoritative backstop.
+	kind := pkgrbac.GatewayWriterKindFromContext(ctx)
+	if !kind.Privileged() {
+		if field := gatewayCreateRequestForbiddenField(req); field != "" {
+			return nil, status.Errorf(codes.PermissionDenied, "field %q is control-plane-managed and cannot be set by a %s caller", field, kind)
+		}
+	}
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
+	}
+	// dedicated_route is a create-only, user-writable request flag, but only for a
+	// caller holding the platform-wide gateway:dedicated-route-creator entitlement
+	// (or platform:admin). The check is body-dependent, so it is enforced here at
+	// the create boundary rather than in the gRPC authorization interceptor, which
+	// sees the request but not the entitlement's role bindings. A privileged
+	// control-plane create (explicit route or not) bypasses it; an import create is
+	// rejected by the service funnel with its own message.
+	if svcErr := h.dedicatedRoute.authorizeCreate(ctx, req.DedicatedRoute); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	// cluster_id is optional: a gateway is either pinned to a cluster (cluster_id)
 	// or late-bound by a placement selector. Exactly one must be supplied. See
@@ -164,6 +239,8 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,
 		Route:          req.Route,
+		DedicatedRoute: req.DedicatedRoute,
+		WorkspaceMode:  req.WorkspaceMode,                // platform-managed; the service funnel defaults it to managed
 		RepositoryId:   pkgrbac.ImportOwnershipMark(ctx), // import ownership set server-side; a client-supplied repository_id is ignored
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
@@ -176,6 +253,10 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGatewayRequest) (*pb.UpdateGatewayResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
+	}
+	ctx, markErr := h.markGatewayWriterKind(ctx)
+	if markErr != nil {
+		return nil, markErr
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
@@ -272,6 +353,17 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.Route != nil {
 		gateway.Route = req.Route
 	}
+	if req.WorkspaceMode != nil {
+		// Platform-managed field: the service funnel enforces the vocabulary and
+		// immutability, and the field policy rejects a user/import change.
+		gateway.WorkspaceMode = req.WorkspaceMode
+	}
+	if req.CredentialDriver != nil {
+		// Platform-managed field: the service funnel rejects any change to the
+		// effective driver (OSG-CRED-13), so carry the request through rather
+		// than silently dropping it.
+		gateway.CredentialDriver = req.CredentialDriver
+	}
 	if len(req.ProvisioningConditions) > 0 {
 		type conditionJSON struct {
 			Type            string `json:"type"`
@@ -298,6 +390,13 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
+		// The route.certificate immutability conflict is an inherent property of
+		// the stored gateway (the opt-in is provision-time only), not a duplicate
+		// creation, so present it as FailedPrecondition rather than the framework's
+		// blanket 409-to-AlreadyExists mapping (API UX review finding 4).
+		if svcErr.Reason == routeCertificateImmutableReason || svcErr.Reason == credentialDriverImmutableReason {
+			return nil, status.Error(codes.FailedPrecondition, svcErr.Reason)
+		}
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.UpdateGatewayResponse{Gateway: gatewayToProto(result)}, nil

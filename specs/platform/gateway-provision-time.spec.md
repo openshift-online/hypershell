@@ -9,17 +9,18 @@ Expose **gateway provision duration statistics** on the operational dashboard so
 
 This is **HyperShell application telemetry** recorded by the control plane when a gateway completes its first successful transition to `Running`. It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile latency in isolation.
 
-Version 2 aggregates three fleet-wide statistics from the control-plane histogram:
+Version 3 aggregates four fleet-wide statistics from the control-plane histogram:
 
 | Statistic | Meaning |
 | --- | --- |
 | **Mean** | Arithmetic mean of all recorded provision durations |
 | **P50 (median)** | 50th percentile of recorded provision durations |
 | **P95** | 95th percentile of recorded provision durations |
+| **P99** | 99th percentile during the selected supported window |
 
-All three values SHALL be presented in **seconds** on the dashboard, matching the underlying histogram unit (OBS-CPL-07).
+All four values SHALL be presented in **seconds** on the dashboard, matching the underlying histogram unit (OBS-CPL-07). P99 SHALL use the supported 7-day window, a 300-second target, and optional daily P99 points. A 30-day request SHALL leave existing fields unchanged and mark the new P99 fields unavailable because Prometheus retains only 7 days.
 
-The operational dashboard `system-summary` card already renders provision-duration rows (WEB-OPS-13). Version 2 extends that card with separate rows for mean, median (P50), and P95. The default layout also includes a standalone `provision-time` widget (WEB-OPS-10).
+The operational dashboard `system-summary` card keeps its mean, median (P50), and P95 rows (WEB-OPS-13). Version 3 extends the Provisioning dashboard's `provision-time` widget with P99, the 5-minute target, warning state, and daily P99 trend. The default layout also includes the existing standalone `provision-time` widget (WEB-OPS-10).
 
 ### Relationship to other specifications
 
@@ -33,7 +34,7 @@ The operational dashboard `system-summary` card already renders provision-durati
 
 The histogram reflects every provision the control plane has observed across the platform. It is **not** filtered to gateways visible in the caller's paginated gateway list. This matches other hub-cluster infrastructure metrics (memory, CPU, pods, nodes) and gives operators a stable fleet-wide provision-time signal independent of per-user list visibility.
 
-Historical trend series, per-gateway duration breakdown, and gateway-list timestamp proxies are out of scope (see Non-Goals).
+Historical trend series other than daily P99, per-gateway duration breakdown, and gateway-list timestamp proxies are out of scope (see Non-Goals).
 
 ## Requirements
 
@@ -52,7 +53,7 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 - GIVEN the control plane has recorded at least one `gateway.provision.duration` observation
 - AND the metrics pipeline exposes `gateway_provision_duration_seconds_count` greater than zero
 - WHEN the BFF evaluates provision-time PromQL
-- THEN mean, P50, and P95 SHALL be computable from the histogram series
+- THEN mean, P50, P95, and 7-day P99 SHALL be computable from the histogram series
 
 #### Scenario: OBS-GPT-09.02 -- Zero observations fails collection
 
@@ -65,15 +66,16 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 
 ### Requirement: OBS-GPT-01 -- Provision Duration Measurement Contract
 
-The platform SHALL compute three non-negative durations in **seconds** from the fleet-wide histogram at a single Prometheus instant-evaluation time:
+The platform SHALL compute four non-negative durations in **seconds** from the fleet-wide histogram:
 
 | Field | PromQL (canonical) |
 | --- | --- |
 | `mean_seconds` | `gateway_provision_duration_seconds_sum / gateway_provision_duration_seconds_count` |
 | `p50_seconds` | `histogram_quantile(0.50, sum(gateway_provision_duration_seconds_bucket) by (le))` |
 | `p95_seconds` | `histogram_quantile(0.95, sum(gateway_provision_duration_seconds_bucket) by (le))` |
+| `p99_seconds` | `histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket[7d])))` |
 
-All three expressions SHALL use the same evaluation timestamp. The adapter SHALL format each value in **seconds** without unit conversion.
+The existing mean, P50, and P95 expressions SHALL use the same evaluation timestamp. The adapter SHALL format each value in **seconds** without unit conversion. P99 SHALL use the trailing 7-day increase and SHALL expose `target_seconds: 300`.
 
 The adapter SHALL expose the result on the `provision-time` `OperationalMetric` as:
 
@@ -84,8 +86,11 @@ The adapter SHALL expose the result on the `provision-time` `OperationalMetric` 
 | `provisionDuration.mean` | Same string as `value` |
 | `provisionDuration.p50` | Decimal string of `p50_seconds`, rounded to two fractional digits |
 | `provisionDuration.p95` | Decimal string of `p95_seconds`, rounded to two fractional digits |
+| `provisionDuration.p99` | Decimal string of `p99_seconds`, rounded to two fractional digits |
+| `provisionDuration.target` | Decimal string of `target_seconds` |
+| `provisionDuration.dailyP99` | Optional oldest-to-newest daily `{ date, p99Seconds }` points |
 
-Version 2 SHALL NOT emit `total`, `status`, or `trend` on the `provision-time` metric.
+Version 3 SHALL emit a warning status when P99 exceeds the 300-second target. It SHALL NOT emit a healthy status when P99 is unavailable.
 
 When `gateway_provision_duration_seconds_count` is zero, any PromQL result is non-finite (`NaN` or `+Inf`), or any formatted second value is non-finite, collection SHALL fail (OBS-GPT-07).
 
@@ -96,6 +101,8 @@ When `gateway_provision_duration_seconds_count` is zero, any PromQL result is no
 - THEN `value` and `provisionDuration.mean` SHALL be `"315.00"`
 - AND `provisionDuration.p50` SHALL be `"288.00"`
 - AND `provisionDuration.p95` SHALL be `"726.00"`
+- AND `provisionDuration.p99` SHALL contain the 7-day 99th-percentile value
+- AND `provisionDuration.target` SHALL be `"300"`
 - AND `unit` SHALL be `"sec"`
 
 ---
@@ -124,7 +131,7 @@ The dashboard SHALL NOT recompute provision duration from gateway list timestamp
 
 Hub-cluster provision duration SHALL be derived from Prometheus instant queries executed by the web-console BFF against `PROMETHEUS_URL` (same configuration as `platform/cluster-memory.spec.md` OBS-MEM-03).
 
-The BFF SHALL evaluate the three PromQL expressions in OBS-GPT-01 as instant queries. Queries SHALL aggregate with `sum(...)` across all histogram series so unlabeled control-plane replicas contribute to one fleet-wide histogram.
+The BFF SHALL evaluate the existing three PromQL expressions as instant queries and the P99 expression over the selected 7-day window. Queries SHALL aggregate with `sum(...)` across all histogram series so control-plane replicas contribute to one fleet-wide histogram.
 
 The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly for provision duration in version 2.
 
@@ -142,7 +149,7 @@ The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly f
 The web-console BFF SHALL expose `GET /api/metrics/gateway-provision-duration` as a same-origin route that:
 
 1. Requires an authenticated session when OIDC is enabled (same session gate as `GET /api/metrics/cluster-memory`)
-2. Executes Prometheus instant queries for mean, P50, and P95 (OBS-GPT-01)
+2. Executes Prometheus queries for mean, P50, P95, and supported 7-day P99 (OBS-GPT-01)
 3. Returns JSON:
 
 ```json
@@ -150,15 +157,20 @@ The web-console BFF SHALL expose `GET /api/metrics/gateway-provision-duration` a
   "mean_seconds": 315,
   "p50_seconds": 288,
   "p95_seconds": 726,
+  "p99_seconds": 810,
+  "target_seconds": 300,
+  "daily_p99": [{ "date": "2026-10-28", "p99_seconds": 810 }],
   "observation_count": 42
 }
 ```
 
 `observation_count` SHALL be the integer value of `gateway_provision_duration_seconds_count` at the same evaluation time.
 
+`daily_p99` MAY be omitted when daily points are unavailable. For a 30-day request, `p99_seconds` and `daily_p99` SHALL be omitted while the existing fields retain their current behavior.
+
 The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a HyperShell API bearer token.
 
-On Prometheus failure, timeout, non-success Prometheus response status, zero observation count, or non-finite computed quantiles, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed duration figures as a fallback.
+On Prometheus failure, timeout, non-success Prometheus response status, zero observation count, or non-finite required mean/P50/P95 values, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. A missing or non-finite P99 SHALL omit only P99 and daily P99 fields. The BFF SHALL NOT return zeroed duration figures as a fallback.
 
 #### Scenario: OBS-GPT-04.01 -- Authenticated dashboard operator receives duration seconds
 
@@ -186,6 +198,9 @@ interface OperationalMetricProvisionDuration {
   mean: string;
   p50: string;
   p95: string;
+  p99?: string;
+  target?: string;
+  dailyP99?: Array<{ date: string; p99Seconds: number }>;
 }
 ```
 
@@ -198,6 +213,8 @@ The `system-summary` card SHALL render **three** provision-duration rows sourced
 | Provision time (P95) | `provisionDuration.p95` with `unit` |
 
 When `provisionDuration` is absent but `value` and `unit` are present, the UI MAY render only the mean row for backward compatibility during rollout.
+
+The Provisioning dashboard SHALL additionally render P99, the localized 5-minute target, a warning when P99 exceeds the target, and a daily P99 sparkline when points are available. Missing observations SHALL render unavailable rather than `0`.
 
 #### Scenario: OBS-GPT-05.01 -- System summary shows three second-labeled rows
 
@@ -248,7 +265,7 @@ When provision-duration collection fails (BFF `502`, zero observations, non-fini
 
 The web console SHALL include unit tests for:
 
-- BFF route PromQL mapping and JSON response formatting (including `observation_count`)
+- BFF route PromQL mapping and JSON response formatting (including P99, target, daily P99, and `observation_count`)
 - BFF `502` on zero count, Prometheus errors, and non-finite quantiles
 - Adapter mapping from BFF JSON to `provision-time` with `provisionDuration.mean`, `.p50`, and `.p95`
 - Partial gateway-metrics source behavior: gateway-count or sandbox route failure omits the entire gateway-metrics source; provision-duration or provision-outcomes route failure omits only the corresponding metric (OBS-GPT-06)
@@ -264,13 +281,13 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 ## Non-Goals
 
 - Per-gateway provision duration in the UI or API
-- Historical trend / sparkline for provision time
+- Historical provision-time trends other than the 7-day daily P99 series
 - RBAC-scoped provision duration derived from the gateway list
 - Gateway-list timestamp proxy (`updated_at - created_at`) as a data source
 - Including `Degraded` gateways as provision samples
 - Persisting a dedicated `provisioned_at` timestamp on the Gateway resource
 - Cluster infrastructure metrics (see cluster memory/CPU/pods/nodes specs)
-- P99, min, max, or arbitrary custom quantiles beyond mean, P50, and P95 in version 2
+- Min, max, or arbitrary custom quantiles beyond mean, P50, P95, and P99
 
 ## Supersedes
 

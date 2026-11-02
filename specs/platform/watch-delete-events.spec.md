@@ -6,6 +6,8 @@ gRPC watch streams deliver resource events (create, update, delete) from the API
 
 This spec defines the behavior for including the full resource snapshot in delete watch events so that reconcilers always have the information they need to clean up, regardless of process restarts.
 
+This spec refines the durable-deletion guarantee of the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-07); it refines that contract and does not weaken it.
+
 ## Requirements
 
 ### Requirement: CTRL-WDEL-01 -- Delete Events SHALL Include the Resource Snapshot

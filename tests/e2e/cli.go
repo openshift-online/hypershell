@@ -189,10 +189,7 @@ func (s *E2ESuite) cliEnv(t *testing.T) []string {
 // "" when E2E_KUBECONTEXT is unset (the wrapper then uses the current context, as
 // in CI). Cached for the suite lifetime.
 func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
-	ctxName := s.kubeContext
-	if ctxName == "" {
-		ctxName = os.Getenv("E2E_KUBECONTEXT")
-	}
+	ctxName := os.Getenv("E2E_KUBECONTEXT")
 	if ctxName == "" {
 		return ""
 	}
@@ -256,6 +253,41 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 	}
 	s.registerGatewayCLI(t, meta, token)
 	return meta.Name
+}
+
+// cliConfigDirInCLI returns the openshell config directory as the CLI process
+// sees it. Both container wrappers bind-mount the host ~/.config/openshell, but
+// at different in-container paths (the kind wrapper at /tmp/osh-home/..., the
+// OpenShift image at /home/cli/...); a natively-run CLI sees the host path
+// itself. A file the suite stages into the host config dir is handed to a CLI
+// flag by translating its path through this - the host path is invisible inside
+// the container, so passing it directly fails with "No such file or directory".
+func (s *E2ESuite) cliConfigDirInCLI() string {
+	switch {
+	case usesGatewayMatchedCLIImage(s.driver.Name(), os.Getenv("OPENSHELL_BIN")):
+		return "/home/cli/.config/openshell"
+	case strings.HasSuffix(s.resolveOpenshellBin(), "openshell-container.sh"):
+		return "/tmp/osh-home/.config/openshell"
+	default:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return filepath.Join(".config", "openshell")
+		}
+		return filepath.Join(home, ".config", "openshell")
+	}
+}
+
+// stageCLIFile writes content into the host openshell config directory (the one
+// directory both CLI container wrappers bind-mount) under name and returns the
+// path the CLI process sees for it, so a fixture on the host can be handed to a
+// CLI flag like `provider profile import --file`.
+func (s *E2ESuite) stageCLIFile(t *testing.T, name string, content []byte) string {
+	home, err := os.UserHomeDir()
+	s.Require().NoError(err, "resolve home dir")
+	hostDir := filepath.Join(home, ".config", "openshell")
+	s.Require().NoError(os.MkdirAll(hostDir, 0o700), "create openshell config dir")
+	s.Require().NoError(os.WriteFile(filepath.Join(hostDir, name), content, 0o600), "stage CLI file %s", name)
+	return filepath.Join(s.cliConfigDirInCLI(), name)
 }
 
 // cli runs `openshell -g <local> <args...>` with the CLI environment and returns

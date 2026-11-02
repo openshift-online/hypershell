@@ -39,6 +39,7 @@ func deployGatewayViaHelm(
 				Enabled: nsConfig.Gateway.Route.Enabled,
 			},
 			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
+			WorkspaceMode:    nsConfig.Gateway.WorkspaceMode,
 		},
 		Namespace:      nsConfig.Name,
 		HasCertManager: opts.HasCertManager,

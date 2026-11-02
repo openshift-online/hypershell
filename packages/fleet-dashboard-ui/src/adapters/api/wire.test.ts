@@ -15,6 +15,7 @@ import {
   mapInstances,
   mapPromotion,
   mapSdlc,
+  mapSdlcAgents,
   mapTopology,
 } from "./wire";
 
@@ -102,11 +103,7 @@ describe("mapPromotion", () => {
       environments: {
         withCaps: {
           active: { version: "v1" },
-          capabilities: [
-            "provider/aws",
-            "runtime/kata",
-            "gateway-version/v0.1.2-rhaiv.7",
-          ],
+          capabilities: ["provider/aws", "runtime/kata", "network/vpn"],
         },
         noCaps: { active: { version: "v1" } },
       },
@@ -114,7 +111,7 @@ describe("mapPromotion", () => {
     expect(data.environments.withCaps?.capabilities).toEqual([
       "provider/aws",
       "runtime/kata",
-      "gateway-version/v0.1.2-rhaiv.7",
+      "network/vpn",
     ]);
     expect(data.environments.noCaps?.capabilities).toEqual([]);
   });
@@ -130,6 +127,26 @@ describe("mapPromotion", () => {
       },
     });
     expect(data.environments.x?.capabilities).toEqual(["runtime/kata"]);
+  });
+
+  it("carries the default gateway image, null when absent or empty", () => {
+    // FLT-CAP-07.01 / 07.02
+    const data = mapPromotion({
+      order: ["img", "none", "blank"],
+      environments: {
+        img: {
+          active: { version: "v1" },
+          gatewayImage: "quay.io/example/gateway:v0.1.5",
+        },
+        none: { active: { version: "v1" } },
+        blank: { active: { version: "v1" }, gatewayImage: "" },
+      },
+    });
+    expect(data.environments.img?.gatewayImage).toBe(
+      "quay.io/example/gateway:v0.1.5",
+    );
+    expect(data.environments.none?.gatewayImage).toBeNull();
+    expect(data.environments.blank?.gatewayImage).toBeNull();
   });
 
   it("prefers the bundle digest over the gitops SHA for release identity", () => {
@@ -180,6 +197,62 @@ describe("mapPromotion", () => {
     const epsilon = data.environments.epsilon;
     if (!epsilon) throw new Error("expected epsilon environment");
     expect(epsilon.activeDigest).toBe("cccccccc");
+  });
+
+  it("maps the application and GitOps PR groups with repository identity", () => {
+    const data = mapPromotion({
+      order: ["delta"],
+      environments: {
+        delta: {
+          active: { version: "v1", digest: "sha256:dig" },
+          activeGates: [],
+        },
+      },
+      releases: {
+        "sha256:dig": {
+          version: "v1",
+          digest: "sha256:dig",
+          prs: [
+            {
+              number: 10,
+              title: "App change",
+              url: "https://github.com/acme/app/pull/10",
+              repository: "acme/app",
+            },
+          ],
+          gitopsPrs: [
+            {
+              number: 10,
+              title: "Deploy change",
+              url: "https://github.com/acme/gitops-delivery/pull/10",
+              repository: "acme/gitops-delivery",
+              environments: ["prod", "stage"],
+            },
+          ],
+          gitopsStatus: "available",
+        },
+      },
+    });
+    const bundle = data.releaseByDigest["sha256:dig"];
+    if (!bundle) throw new Error("expected bundle");
+    expect(bundle.prs[0]?.repository).toBe("acme/app");
+    expect(bundle.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    expect(bundle.gitopsPrs?.[0]?.environments).toEqual(["prod", "stage"]);
+    expect(bundle.gitopsStatus).toBe("available");
+  });
+
+  it("maps an unavailable GitOps status and ignores unknown status strings", () => {
+    const data = mapPromotion({
+      releases: {
+        a: { version: "v1", digest: "a", gitopsStatus: "unavailable" },
+        b: { version: "v2", digest: "b", gitopsStatus: "bogus" },
+        c: { version: "v3", digest: "c" },
+      },
+    });
+    expect(data.releaseByDigest.a?.gitopsStatus).toBe("unavailable");
+    // An unrecognized status and an absent status both collapse to null (hidden).
+    expect(data.releaseByDigest.b?.gitopsStatus).toBeNull();
+    expect(data.releaseByDigest.c?.gitopsStatus).toBeNull();
   });
 
   it("maps absent release versions to null", () => {
@@ -454,6 +527,72 @@ describe("mapSdlc", () => {
     expect(data.matrix.rows[1]?.otherPRs[0]?.mergedAt).toBeNull();
   });
 
+  // Verifies: SDLC-VIS-25.01, SDLC-VIS-25.03, SDLC-VIS-25.05
+  it("decodes the GitOps deployment group with repository/environment identity", () => {
+    const data = mapSdlc({
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v-available",
+            digest: "da",
+            // A GitOps PR #42 collides with the application PR #42 but stays distinct:
+            // it decodes into gitopsPrs with its own repository identity.
+            otherPRs: [
+              { number: 42, title: "app 42", url: "https://x/pull/42" },
+            ],
+            gitopsPrs: [
+              {
+                number: 42,
+                title: "bump lock",
+                url: "https://gitops/pull/42",
+                author: "promoter",
+                mergedAt: "2026-08-30T00:00:00Z",
+                repository: "acme/gitops-delivery",
+                environments: ["prod", "", 7],
+              },
+            ],
+            gitopsStatus: "available",
+          },
+          {
+            version: "v-unavailable",
+            digest: "du",
+            gitopsStatus: "unavailable",
+          },
+          {
+            // A legacy row with no GitOps fields decodes to no GitOps grouping.
+            version: "v-legacy",
+            digest: "dl",
+          },
+        ],
+      },
+    });
+
+    const [available, unavailable, legacy] = data.matrix.rows;
+    expect(available?.gitopsStatus).toBe("available");
+    expect(available?.gitopsPrs?.[0]?.number).toBe(42);
+    expect(available?.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    // The application #42 stays in otherPRs and is a different record from GitOps #42.
+    expect(available?.otherPRs[0]?.repository).toBeNull();
+    // Non-string environment entries are dropped.
+    expect(available?.gitopsPrs?.[0]?.environments).toEqual(["prod"]);
+    expect(unavailable?.gitopsStatus).toBe("unavailable");
+    expect(unavailable?.gitopsPrs).toEqual([]);
+    // Legacy row: no GitOps fields -> null status, empty group, never "available".
+    expect(legacy?.gitopsStatus).toBeNull();
+    expect(legacy?.gitopsPrs).toEqual([]);
+  });
+
+  it("narrows an unknown GitOps status to null (hide the deployment section)", () => {
+    const data = mapSdlc({
+      matrix: {
+        hubClusters: [],
+        rows: [{ version: "v1", digest: "d1", gitopsStatus: "bogus" }],
+      },
+    });
+    expect(data.matrix.rows[0]?.gitopsStatus).toBeNull();
+  });
+
   it("degrades a partial/empty payload to an empty board, lane, and matrix", () => {
     const data = mapSdlc({});
     expect(data.phases).toEqual([]);
@@ -606,6 +745,19 @@ describe("mapE2eRunLogPage", () => {
     expect(page.entries[1]?.truncated).toBe(true);
     expect(page.nextCursor).toBe("42");
     expect(page.hasMore).toBe(true);
+    expect(page.boundaryTruncated).toBe(false);
+  });
+
+  it("maps the locally-limited same-nanosecond boundary signal (E2E-LOG-26)", () => {
+    const page = mapE2eRunLogPage({
+      entries: [{ sequence: 1, timestamp: "t1", message: "a" }],
+      nextCursor: "",
+      hasMore: false,
+      boundaryTruncated: true,
+    });
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+    expect(page.boundaryTruncated).toBe(true);
   });
 
   it("defaults a stale/empty page to no entries, no cursor, no more", () => {
@@ -613,6 +765,7 @@ describe("mapE2eRunLogPage", () => {
     expect(page.entries).toEqual([]);
     expect(page.nextCursor).toBeNull();
     expect(page.hasMore).toBe(false);
+    expect(page.boundaryTruncated).toBe(false);
   });
 });
 
@@ -633,5 +786,87 @@ describe("mapE2eStreamLog", () => {
   it("returns null for a missing frame so the stream is not dropped", () => {
     expect(mapE2eStreamLog(null)).toBeNull();
     expect(mapE2eStreamLog(undefined)).toBeNull();
+  });
+});
+
+describe("mapSdlcAgents", () => {
+  // Verifies: SDLC-AGT-02.01
+  it("projects the full plane shape (camelCase wire -> domain)", () => {
+    const data = mapSdlcAgents({
+      envs: ["integration", "production"],
+      agents: [
+        {
+          name: "spec-review",
+          env: "integration",
+          replicasOn: 2,
+          replicasTotal: 3,
+          queueDepth: 5,
+          itemsProcessed: 120,
+          itemsFailed: 1,
+          provisionSeconds: 45.5,
+          lastReportedAt: 1700000000,
+          series: {
+            times: [100, 200],
+            queueDepth: [4, 5],
+            itemsProcessed: [118, 120],
+            itemsFailed: [0, 1],
+            provisionSeconds: [40, 45.5],
+          },
+        },
+      ],
+    });
+
+    expect(data.envs).toEqual(["integration", "production"]);
+    expect(data.agents).toHaveLength(1);
+    expect(data.agents[0]).toEqual({
+      name: "spec-review",
+      env: "integration",
+      replicasOn: 2,
+      replicasTotal: 3,
+      queueDepth: 5,
+      itemsProcessed: 120,
+      itemsFailed: 1,
+      provisionSeconds: 45.5,
+      lastReportedAt: 1700000000,
+      series: {
+        times: [100, 200],
+        queueDepth: [4, 5],
+        itemsProcessed: [118, 120],
+        itemsFailed: [0, 1],
+        provisionSeconds: [40, 45.5],
+      },
+    });
+  });
+
+  // Verifies: SDLC-AGT-02.02
+  it('defaults missing fields to "" / 0 / [] rather than throwing', () => {
+    const data = mapSdlcAgents({ agents: [{}] });
+
+    expect(data.envs).toEqual([]);
+    expect(data.agents).toEqual([
+      {
+        name: "",
+        env: "",
+        replicasOn: 0,
+        replicasTotal: 0,
+        queueDepth: 0,
+        itemsProcessed: 0,
+        itemsFailed: 0,
+        provisionSeconds: 0,
+        lastReportedAt: 0,
+        series: {
+          times: [],
+          queueDepth: [],
+          itemsProcessed: [],
+          itemsFailed: [],
+          provisionSeconds: [],
+        },
+      },
+    ]);
+  });
+
+  it("tolerates a null/non-record payload", () => {
+    expect(mapSdlcAgents(null)).toEqual({ envs: [], agents: [] });
+    expect(mapSdlcAgents(undefined)).toEqual({ envs: [], agents: [] });
   });
 });

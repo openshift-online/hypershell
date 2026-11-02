@@ -14,6 +14,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -29,12 +30,12 @@ import (
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator struct {
-	gateway func() GatewayService
-	list    services.GenericService
+	gateway   func() GatewayService
+	list      services.GenericService
+	ownership GatewayOwnershipLookup
 }
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
@@ -47,9 +48,11 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
+				gatewayBindingCleaner(&env.Services),
 			)
 		},
-		list: newGatewayListService(&env.Database.SessionFactory),
+		list:      newGatewayListService(&env.Database.SessionFactory),
+		ownership: newGatewayOwnershipDao(&env.Database.SessionFactory),
 	}
 }
 
@@ -74,6 +77,24 @@ func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup
 	}
 }
 
+// gatewayBindingCleaner deletes a gateway's role bindings through the role
+// bindings plugin, looked up per call so it follows the service registry. It
+// is a no-op when that plugin is absent.
+func gatewayBindingCleaner(s *environments.Services) GatewayBindingCleaner {
+	return func(ctx context.Context, gatewayID string) *errors.ServiceError {
+		rbService := roleBindings.Service(s)
+		if rbService == nil {
+			return nil
+		}
+		removed, svcErr := rbService.DeleteGatewayBindings(ctx, gatewayID)
+		if svcErr != nil {
+			return svcErr
+		}
+		slog.InfoContext(ctx, "Deleted role bindings of deleted gateway", "gateway_id", gatewayID, "count", removed)
+		return nil
+	}
+}
+
 func Service(s *environments.Services) GatewayService {
 	if s == nil {
 		return nil
@@ -85,6 +106,18 @@ func Service(s *environments.Services) GatewayService {
 	return nil
 }
 
+// gatewayBindingLookup resolves a caller's role bindings through the role bindings
+// plugin, looked up per call so it follows the environment's service registry. It is
+// nil when that plugin is absent; the dedicated_route create gate treats a nil
+// lookup as fail-closed.
+func gatewayBindingLookup(s *environments.Services) rbac.RoleBindingLookup {
+	svc := roleBindings.Service(s)
+	if svc == nil {
+		return nil
+	}
+	return svc
+}
+
 func listService(s *environments.Services) services.GenericService {
 	if s == nil {
 		return nil
@@ -92,6 +125,17 @@ func listService(s *environments.Services) services.GenericService {
 	if obj := s.GetService("Gateways"); obj != nil {
 		locator := obj.(ServiceLocator)
 		return locator.list
+	}
+	return nil
+}
+
+func ownershipLookup(s *environments.Services) GatewayOwnershipLookup {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("Gateways"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator.ownership
 	}
 	return nil
 }
@@ -117,35 +161,28 @@ func registeredClusterLookup(s *environments.Services) RegisteredClusterLookup {
 	}
 }
 
-// registeredClusterVersions resolves each cluster's advertised provisioning
-// version (its gateway-version capability) through the managedClusters plugin,
-// looked up per call so it follows the environment's service registry. It returns
-// nil when the plugin is absent; the gateway handler treats a nil lookup as "no
-// versions" so version enrichment degrades to absent rather than failing a read.
-func registeredClusterVersions(s *environments.Services) ClusterProvisioningVersionLookup {
-	if s == nil || s.GetService("ManagedClusters") == nil {
-		return nil
+// gatewaySubjectResolver adapts the managedClusters service to the
+// pkgrbac.RegisteredClusterResolver the gateway gRPC handler uses to classify a caller as
+// a control-plane identity for the field-ownership write policy (PLAT-DATA-23). It is
+// looked up per call so it follows the environment's service registry; a nil service means
+// no caller resolves to a control plane (every caller is a user/import, the safe default).
+type gatewaySubjectResolver struct {
+	services *environments.Services
+}
+
+func (r gatewaySubjectResolver) RegisteredClusterIDForSubject(ctx context.Context, subject string) (string, bool, error) {
+	svc := managedClusters.Service(r.services)
+	if svc == nil {
+		return "", false, nil
 	}
-	return func(ctx context.Context, clusterIDs []string) (map[string]string, *errors.ServiceError) {
-		svc := managedClusters.Service(s)
-		if svc == nil {
-			return nil, errors.GeneralError("managed cluster service is not available")
-		}
-		clusters, svcErr := svc.FindByIDs(ctx, clusterIDs)
-		if svcErr != nil {
-			return nil, svcErr
-		}
-		versions := make(map[string]string, len(clusters))
-		for _, cluster := range clusters {
-			if cluster == nil {
-				continue
-			}
-			if version := managedClusters.GatewayVersionCapability(cluster.Capabilities); version != "" {
-				versions[cluster.ID] = version
-			}
-		}
-		return versions, nil
+	cluster, svcErr := svc.FindRegisteredBySubject(ctx, subject)
+	if svcErr != nil {
+		return "", false, svcErr
 	}
+	if cluster == nil {
+		return "", false, nil
+	}
+	return cluster.ID, true, nil
 }
 
 type placementSnapshot struct {
@@ -313,10 +350,10 @@ func init() {
 			ownerLookup = rbService
 			bindingLookup = rbService
 		}
-		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
+		enforceRBAC := rbac.Enforced()
 		placement := newRegisteredPlacementService(envServices)
 		gatewayService := Service(envServices)
-		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), registeredClusterVersions(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, ownershipLookup(envServices), bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
 
 		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
 			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)
@@ -386,7 +423,7 @@ func init() {
 	pkgserver.RegisterGRPCService("gateways", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		gatewayService := Service(envServices)
-		genericService := generic.Service(envServices)
+		genericService := extsearch.Service(envServices)
 		brokerFunc := func() *pkgserver.EventBroker {
 			if obj := envServices.GetService("EventBroker"); obj != nil {
 				return obj.(*pkgserver.EventBroker)
@@ -394,7 +431,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})
@@ -425,4 +462,7 @@ func init() {
 	db.RegisterMigration(migrationDropGatewayNetworksTable())
 	db.RegisterMigration(migrationAddRepositoryOwnership())
 	db.RegisterMigration(migrationAddPlacement())
+	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
+	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
+	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
 }

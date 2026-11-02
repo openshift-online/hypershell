@@ -3,7 +3,7 @@
 **Date:** 2026-08-27
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md`
-**Related:** `openshell-gateway-keycloak.spec.md` (per-gateway client, OIDC Role Bridge); `openshell-gateway-routing.spec.md` (Gateway API and OpenShift Route ingress, hostnames, NetworkPolicy)
+**Related:** `openshell-gateway-keycloak.spec.md` (per-gateway client, OIDC Role Bridge); `openshell-gateway-routing.spec.md` (Gateway API and OpenShift Route ingress, hostnames)
 **Upstream:** [OpenShell Dashboard](https://github.com/Gkrumbach07/openshell-dashboard); [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 
 ---
@@ -57,7 +57,7 @@ The console has no separate configuration field. The console SHALL use the same 
 - AND the selected ingress mode is `gateway-api`
 - AND Keycloak is configured
 - WHEN the reconciler reconciles the gateway
-- THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, the HTTPRoute, and the NetworkPolicies
+- THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`
 
 #### Scenario: OSG-CON-01.02 -- OpenShift Route mode creates a console
@@ -66,7 +66,7 @@ The console has no separate configuration field. The console SHALL use the same 
 - AND the selected ingress mode is `route`
 - AND Keycloak is configured
 - WHEN the reconciler reconciles the gateway
-- THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, the OpenShift Route, and the NetworkPolicies
+- THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the OpenShift Route
 - AND it must not create a console HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`
 
@@ -169,8 +169,8 @@ Every console resource must carry the standard gateway labels, with `app.kuberne
 
 #### Dashboard container
 
-- Image: the control-plane default (see ImageDefaults); a per-gateway value can override it.
-- Listen port: `8000`. The dashboard binds all interfaces, so the kubelet can run the probe. The Service does not expose port `8000`. The NetworkPolicies do not allow ingress to port `8000`, so only the in-pod oauth2-proxy reaches the dashboard.
+- Image: `HYPERSHELL_CONSOLE_IMAGE` on the control plane (required, no built-in default; see ImageDefaults); a per-gateway value can override it.
+- Listen port: `8000`. The dashboard binds all interfaces, so the kubelet can run the probe. The Service does not expose port `8000`, so traffic through the Service reaches the dashboard only via the in-pod oauth2-proxy. No NetworkPolicy blocks direct pod-IP access to port `8000`.
 - Environment (the dashboard BFF reads these; see the upstream contract):
   - `PORT = 8000`
   - `OPENSHELL_GATEWAY_URL = grpcs://openshell-gateway.<ns>.svc.cluster.local:8080` (the `grpcs://` scheme selects the dashboard's TLS gRPC client; without it the client speaks h2c cleartext into the gateway's TLS listener and the connection is reset while reading the server preface)
@@ -292,22 +292,6 @@ The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on 
 
 ---
 
-### Requirement: OSG-CON-06 -- Console NetworkPolicies
-
-The reconciler must create two NetworkPolicies. Existing gateway policies already select the gateway pod for ingress, so the namespace denies traffic by default from any other source. The ingress controller namespace is `GATEWAY_API_GATEWAY_NAMESPACE`, with the default value `openshift-ingress`. This namespace applies to the shared Gateway proxy and to the OpenShift router.
-
-1. **`openshell-console-allow-router`** -- selects the console pod (`app.kubernetes.io/instance: openshell-console`); allows ingress on TCP `4180` from the selected ingress controller namespace.
-2. **`openshell-gateway-allow-console`** -- selects the gateway pod (`app.kubernetes.io/instance: openshell-gateway`); allows ingress on TCP `8080` from the console pod in the same namespace.
-
-#### Scenario: OSG-CON-06.01 -- Console reaches the gateway
-
-- GIVEN a routed gateway with the console deployed
-- WHEN the dashboard connects to `openshell-gateway:8080`
-- THEN `openshell-gateway-allow-console` must allow the connection
-- AND without this policy the namespace default-deny posture would block it
-
----
-
 ### Requirement: OSG-CON-07 -- Console Lifecycle and Cleanup
 
 The reconciler must reconcile and remove the console together with the route and the gateway. The reconciler must use update-or-create for all console resources.
@@ -316,7 +300,7 @@ The reconciler must reconcile and remove the console together with the route and
 
 - GIVEN a gateway that had a route and a console
 - WHEN the route field is removed
-- THEN the reconciler must delete all console resources: the Deployment, the Service, the HTTPRoute or OpenShift Route, the NetworkPolicies, and the `openshell-console-oauth2` Secret
+- THEN the reconciler must delete all console resources: the Deployment, the Service, the HTTPRoute or OpenShift Route, and the `openshell-console-oauth2` Secret
 - AND it must delete the console client `{name}-{id}-console`
 - AND it must clear the `consoleAddress` field on the gateway
 
@@ -355,11 +339,11 @@ The reconciler must treat the console Keycloak work (client, mappers, secret) as
 
 The reconciler must PATCH the console URL into a read-only `consoleAddress` field on the gateway. The management web-console and the CLI use this field to link to the console.
 
-- Format: `https://console-<ns>.<base-domain>`.
+- Format: `https://console-<ns>.<base-domain>` for gateways on the shared ingress; `https://console-<ns>.gw-<ns>.<base-domain>` for gateways opted in to the dedicated per-gateway certificate (`route.certificate`, see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) OSG-ROUT-12).
 - The reconciler sets it only once the console Deployment (dashboard + oauth2-proxy) is observed Ready, so the web-console's console button never appears before the console pod can serve.
-- The reconciler sets it only when the exposure resource for the selected ingress mode is Ready. An HTTPRoute is Ready when one parent reports `Accepted=True` and `ResolvedRefs=True`. An OpenShift Route is Ready when one router reports `Admitted=True`.
-- The reconciler clears it when the console pod is not Ready, when the console is removed, or when the base domain is unknown (for example, `GATEWAY_API_BASE_DOMAIN` is unset). A console that later goes unready has its address retracted, hiding the button.
-- Readiness is observed both during provisioning (a prompt check once the gateway's route is ready) and continuously by the health reconciler, so the field self-heals as the console pod's readiness changes.
+- The reconciler sets it only when the exposure resource for the selected ingress mode is Ready **and serves the console host derived from the gateway's route config**. An HTTPRoute is Ready when one parent reports `Accepted=True` and `ResolvedRefs=True`, its hostname is the derived console host, and its parentRef targets the Gateway that host is served by (the per-tenant Gateway's `sandbox` listener for a dedicated-route gateway, the shared Gateway's HTTP listener otherwise). An OpenShift Route is Ready when one router reports `Admitted=True` and its `spec.host` is the derived console host. An exposure that is Accepted but serves a different host is not Ready: its URL resolves to a Gateway with no listener for it and presents a name-mismatched certificate, so advertising it would hand every browser a TLS error.
+- The reconciler clears it when the console pod is not Ready, when the console is removed, when the base domain is unknown (for example, `GATEWAY_API_BASE_DOMAIN` is unset), or when the console exposure does not serve the derived console host. A console that later goes unready has its address retracted, hiding the button.
+- Readiness is observed both during provisioning (a prompt check once the gateway's route is ready) and continuously by the health reconciler, so the field self-heals as the console pod's readiness changes. The health reconciler's console self-heal derives the console host from the same parsed route config as the address publisher, so a dedicated-route gateway's console is re-parented onto the per-tenant Gateway (never onto the shared ingress) when it self-heals.
 
 #### Scenario: OSG-CON-09.01 -- Console button gated on console readiness
 
@@ -367,6 +351,14 @@ The reconciler must PATCH the console URL into a read-only `consoleAddress` fiel
 - THEN `consoleAddress` stays empty and the web-console does not offer the console button
 - WHEN the console Deployment and its selected exposure resource become Ready
 - THEN the reconciler sets `consoleAddress` to `https://console-<ns>.<base-domain>` and the button appears
+
+#### Scenario: OSG-CON-09.02 -- Dedicated-route console exposure serving the shared host is not servable
+
+- GIVEN a gateway opted in to the dedicated per-gateway certificate (`route.certificate`)
+- AND its console Deployment is Ready
+- AND its console exposure is Accepted but serves the shared host `console-<ns>.<base-domain>` on the shared Gateway (for example, a console provisioned before the controller learned the opt-in)
+- THEN the reconciler must not report the console servable and must not publish (or must retract) `consoleAddress`
+- AND the console self-heal must reconcile the console exposure onto the dedicated host `console-<ns>.gw-<ns>.<base-domain>` and the per-tenant Gateway's `sandbox` listener
 
 ---
 
@@ -386,14 +378,14 @@ The gateway has no user field for the console. The console follows the route.
 |---|---|---|
 | `GATEWAY_INGRESS_MODE` | auto-detect | Selects `gateway-api`, `route`, or no managed ingress for both the gateway and its console |
 | `GATEWAY_API_HTTP_LISTENER_NAME` | `https` | The `sectionName` of the shared Gateway HTTP listener for console HTTPRoutes; it has no effect in `route` mode |
-| `HYPERSHELL_CONSOLE_IMAGE` | *(ImageDefaults default)* | The OpenShell dashboard image |
+| `HYPERSHELL_CONSOLE_IMAGE` | *(none, required)* | The OpenShell dashboard image, pinned by digest. The control plane refuses to start when it is unset. Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
 | `HYPERSHELL_OAUTH2_PROXY_IMAGE` | *(ImageDefaults default)* | The oauth2-proxy image |
 
 The reconciler reuses `GATEWAY_API_BASE_DOMAIN` (see `openshell-gateway-routing.spec.md`) for the console hostname.
 
 ### ImageDefaults
 
-The `ImageDefaults` interface (`internal/gateway/config.go`) must add `DefaultConsoleImage()` and `DefaultOAuth2ProxyImage()`. They use the same override order as the other images.
+The `ImageDefaults` interface (`internal/gateway/config.go`) must add `DefaultConsoleImage()` and `DefaultOAuth2ProxyImage()`. `DefaultConsoleImage()` reads only `HYPERSHELL_CONSOLE_IMAGE` and has no built-in fallback, like `GATEWAY_IMAGE`. Console reconciliation fails before any Keycloak or cluster write when it is empty. `DefaultOAuth2ProxyImage()` reads `HYPERSHELL_OAUTH2_PROXY_IMAGE` and falls back to a built-in default.
 
 ---
 
@@ -411,7 +403,7 @@ The REST API and the gRPC API must not let a user set or update `consoleAddress`
 
 ## RBAC
 
-The control-plane ServiceAccount already has create, update, patch, and delete access to `services`, `secrets`, `deployments`, and `networkpolicies`. Gateway API mode needs this rule in gateway namespaces:
+The control-plane ServiceAccount already has create, update, patch, and delete access to `services`, `secrets`, and `deployments`. Gateway API mode needs this rule in gateway namespaces:
 
 ```yaml
 - apiGroups: ["gateway.networking.k8s.io"]
@@ -437,7 +429,7 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 ## Prerequisites
 
 1. **Ingress controller.** In `gateway-api` mode, the admin must add an HTTP listener to the shared Gateway (HTTPS/Terminate, port 443, wildcard `*.<base-domain>` certificate). The listener must accept HTTPRoutes from gateway namespaces. Its `sectionName` must match `GATEWAY_API_HTTP_LISTENER_NAME`. In `route` mode, an OpenShift ingress controller must admit Routes for `*.<base-domain>` and serve its router certificate.
-2. **Dashboard image.** The upstream project ([Gkrumbach07/openshell-dashboard](https://github.com/Gkrumbach07/openshell-dashboard)) publishes the dashboard to `quay.io/gkrumbach07/openshell-dashboard`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. A dashboard release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest dashboard release on the line of the pinned gateway version. The control plane's `ImageDefaults` pin it by digest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE`. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, and the `X-Forwarded-Access-Token` relay) is an upstream dependency.
+2. **Dashboard image.** The upstream project ([Gkrumbach07/openshell-dashboard](https://github.com/Gkrumbach07/openshell-dashboard)) publishes the dashboard to `quay.io/gkrumbach07/openshell-dashboard`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. A dashboard release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest dashboard release on the line of the pinned gateway version. `OPENSHELL_VERSION` pins it by digest (`OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`), and `make sync-openshell-version` stamps that pin into `HYPERSHELL_CONSOLE_IMAGE` in the base controller manifest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE` in its overlay. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, and the `X-Forwarded-Access-Token` relay) is an upstream dependency.
 3. **Keycloak realm.** The realm prerequisites in `openshell-gateway-keycloak.spec.md` apply. The console adds no realm-level object.
 
 ---
@@ -459,4 +451,4 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 - [OpenShift Route](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/ingress_and_load_balancing/configuring-routes)
 - [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/)
 - `openshell-gateway-keycloak.spec.md` -- the per-gateway client and the OIDC Role Bridge
-- `openshell-gateway-routing.spec.md` -- the shared Gateway, hostnames, and NetworkPolicy pattern
+- `openshell-gateway-routing.spec.md` -- the shared Gateway and hostnames

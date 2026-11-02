@@ -1,130 +1,86 @@
 package gateways_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
-// TestGRPCGatewayRejectsUnknownPhase proves the API server enforces the
-// canonical phase vocabulary (see specs/platform/gateway-phase-vocabulary.spec.md):
-// a create or update with a phase outside the canonical set is rejected with
-// InvalidArgument and never persisted, while a canonical phase is accepted.
+// TestGRPCControlPlaneRejectsUnknownPhaseOnUpdate proves that phase is a
+// control-plane-managed field (PLAT-DATA-23): the control plane writes it, and when it
+// does, the API server enforces the canonical phase vocabulary
+// (specs/platform/gateway-phase-vocabulary.spec.md) -- an unknown phase is rejected with
+// InvalidArgument and never persisted, a canonical phase is accepted. A user or import
+// write of phase is rejected earlier by the field policy (policy_test.go), so this test
+// exercises the remaining writer, the control plane.
 // Verifies: GTW-PHS-02.01, GTW-PHS-02.02, GTW-PHS-02.03
-func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
+func TestGRPCControlPlaneRejectsUnknownPhaseOnUpdate(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
+	clusterID, subject := registerTestClusterWithSubject(t)
 
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
+	// A user creates the gateway with only the user-writable allowlist (name + cluster);
+	// the control plane owns phase.
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+	service := gateways.Service(&environments.Environment().Services)
+	gw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "cp-phase", ClusterId: clusterID})
+	Expect(svcErr).NotTo(HaveOccurred())
 
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+	cp := pb.NewGatewayServiceClient(dialGRPC(t, h, cpToken))
+	ctx := context.Background()
 
 	badPhase := "Booting"
-	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:      "reject-create",
-		ClusterId: registerTestCluster(t),
-		Phase:     &badPhase,
-	})
-	Expect(err).To(HaveOccurred(), "create with an unknown phase must be rejected")
+	_, err := cp.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: gw.ID, Phase: &badPhase})
+	Expect(err).To(HaveOccurred(), "control-plane update with an unknown phase must be rejected")
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 
-	// A canonical phase on create is accepted.
-	goodPhase := "Provisioning"
-	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:      "accept-create",
-		ClusterId: registerTestCluster(t),
-		Phase:     &goodPhase,
-	})
+	// The rejected value was not persisted.
+	got, err := cp.GetGateway(ctx, &pb.GetGatewayRequest{Id: gw.ID})
 	Expect(err).NotTo(HaveOccurred())
-
-	// An unknown phase on update is rejected...
-	_, err = grpcClient.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:    created.Gateway.Metadata.Id,
-		Phase: &badPhase,
-	})
-	Expect(err).To(HaveOccurred(), "update with an unknown phase must be rejected")
-	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-
-	// ...and the rejected value was not persisted.
-	got, err := grpcClient.GetGateway(ctx, &pb.GetGatewayRequest{Id: created.Gateway.Metadata.Id})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(got.Gateway.GetPhase()).To(Equal("Provisioning"))
+	Expect(got.Gateway.GetPhase()).To(BeEmpty())
 
 	// A canonical phase on update is accepted.
 	runningPhase := "Running"
-	_, err = grpcClient.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:    created.Gateway.Metadata.Id,
-		Phase: &runningPhase,
-	})
+	_, err = cp.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: gw.ID, Phase: &runningPhase})
 	Expect(err).NotTo(HaveOccurred())
 
-	// An absent phase is accepted so the field stays optional.
-	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:      "accept-absent-phase",
-		ClusterId: registerTestCluster(t),
-	})
-	Expect(err).NotTo(HaveOccurred(), "create without a phase must be accepted")
+	got, err = cp.GetGateway(ctx, &pb.GetGatewayRequest{Id: gw.ID})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got.Gateway.GetPhase()).To(Equal("Running"))
 }
 
-// TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord proves the vocabulary
-// tightening does not lock out pre-existing rows: a gateway whose stored phase
-// predates validation (seeded through the service, which is not a write path)
-// can still be patched on unrelated fields, because validation only fires when a
-// write actually sets phase.
-func TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord(t *testing.T) {
+// TestGatewayPatchRenameAcceptsLegacyPhaseRecord proves the vocabulary tightening does
+// not lock out pre-existing rows: a gateway whose stored phase predates validation
+// (seeded through the service, a non-user write path) can still be renamed, because phase
+// validation fires only when a write sets phase and name is the only user-writable update
+// field (PLAT-DATA-23).
+func TestGatewayPatchRenameAcceptsLegacyPhaseRecord(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	// Seed a record with a non-canonical stored phase via the service layer,
-	// which intentionally has no phase validation (only the REST/gRPC handlers do).
 	legacy, err := newGateway("legacy-phase")
 	Expect(err).NotTo(HaveOccurred())
 	Expect(legacy.Phase).NotTo(BeNil())
 	Expect(*legacy.Phase).To(Equal("test-phase"), "factory seeds a non-canonical phase")
 
-	// A PATCH that does not touch phase must succeed despite the stored value.
 	_, resp, err := client.DefaultAPI.UpdateGateway(ctx, legacy.ID).GatewayPatchRequest(openapi.GatewayPatchRequest{
-		TlsMode: openapi.PtrString("updated-tls-mode"),
+		Name: openapi.PtrString("legacy-renamed"),
 	}).Execute()
-	Expect(err).NotTo(HaveOccurred(), "patching a non-phase field on a legacy record must be accepted")
+	Expect(err).NotTo(HaveOccurred(), "renaming a legacy record must be accepted")
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-}
-
-// TestRESTGatewayRejectsUnknownPhase proves the REST create path enforces the
-// same canonical phase vocabulary with HTTP 400.
-func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-
-	registerTestCluster(t)
-	request := managedGatewayCreateRequest("reject-rest-create")
-	request.Phase = openapi.PtrString("Booting")
-	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(request).Execute()
-	Expect(err).To(HaveOccurred(), "REST create with an unknown phase must be rejected")
-	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 }

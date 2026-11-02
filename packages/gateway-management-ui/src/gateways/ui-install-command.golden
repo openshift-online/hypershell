@@ -1,0 +1,4 @@
+curl -LsSf \
+  https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh \
+  | OPENSHELL_VERSION=__OPENSHELL_INSTALLER_VERSION__ sh
+export PATH="$HOME/.local/bin:$PATH"

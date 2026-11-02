@@ -25,8 +25,6 @@ type ManagedCluster struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Metadata         *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Provider         string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
 	KubeconfigSecret string                 `protobuf:"bytes,6,opt,name=kubeconfig_secret,json=kubeconfigSecret,proto3" json:"kubeconfig_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,7,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	ApiServerUrl     *string                `protobuf:"bytes,8,opt,name=api_server_url,json=apiServerUrl,proto3,oneof" json:"api_server_url,omitempty"`
@@ -79,20 +77,6 @@ func (x *ManagedCluster) GetName() string {
 	return ""
 }
 
-func (x *ManagedCluster) GetProvider() string {
-	if x != nil {
-		return x.Provider
-	}
-	return ""
-}
-
-func (x *ManagedCluster) GetRegion() string {
-	if x != nil && x.Region != nil {
-		return *x.Region
-	}
-	return ""
-}
-
 func (x *ManagedCluster) GetKubeconfigSecret() string {
 	if x != nil {
 		return x.KubeconfigSecret
@@ -124,8 +108,6 @@ func (x *ManagedCluster) GetCapabilities() []string {
 type CreateManagedClusterRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Provider         string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,4,opt,name=region,proto3,oneof" json:"region,omitempty"`
 	KubeconfigSecret string                 `protobuf:"bytes,5,opt,name=kubeconfig_secret,json=kubeconfigSecret,proto3" json:"kubeconfig_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,6,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	ApiServerUrl     *string                `protobuf:"bytes,7,opt,name=api_server_url,json=apiServerUrl,proto3,oneof" json:"api_server_url,omitempty"`
@@ -166,20 +148,6 @@ func (*CreateManagedClusterRequest) Descriptor() ([]byte, []int) {
 func (x *CreateManagedClusterRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateManagedClusterRequest) GetProvider() string {
-	if x != nil {
-		return x.Provider
-	}
-	return ""
-}
-
-func (x *CreateManagedClusterRequest) GetRegion() string {
-	if x != nil && x.Region != nil {
-		return *x.Region
 	}
 	return ""
 }
@@ -341,8 +309,6 @@ type UpdateManagedClusterRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Provider         *string                `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
 	KubeconfigSecret *string                `protobuf:"bytes,6,opt,name=kubeconfig_secret,json=kubeconfigSecret,proto3,oneof" json:"kubeconfig_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,7,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	ApiServerUrl     *string                `protobuf:"bytes,8,opt,name=api_server_url,json=apiServerUrl,proto3,oneof" json:"api_server_url,omitempty"`
@@ -390,20 +356,6 @@ func (x *UpdateManagedClusterRequest) GetId() string {
 func (x *UpdateManagedClusterRequest) GetName() string {
 	if x != nil && x.Name != nil {
 		return *x.Name
-	}
-	return ""
-}
-
-func (x *UpdateManagedClusterRequest) GetProvider() string {
-	if x != nil && x.Provider != nil {
-		return *x.Provider
-	}
-	return ""
-}
-
-func (x *UpdateManagedClusterRequest) GetRegion() string {
-	if x != nil && x.Region != nil {
-		return *x.Region
 	}
 	return ""
 }
@@ -757,27 +709,21 @@ var File_hypershell_v1_managed_clusters_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xdb\x02\n" +
+	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x97\x02\n" +
 	"\x0eManagedCluster\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
-	"\bprovider\x18\x04 \x01(\tR\bprovider\x12\x1b\n" +
-	"\x06region\x18\x05 \x01(\tH\x00R\x06region\x88\x01\x01\x12+\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12+\n" +
 	"\x11kubeconfig_secret\x18\x06 \x01(\tR\x10kubeconfigSecret\x12\x1b\n" +
-	"\x06status\x18\a \x01(\tH\x01R\x06status\x88\x01\x01\x12)\n" +
-	"\x0eapi_server_url\x18\b \x01(\tH\x02R\fapiServerUrl\x88\x01\x01\x12\"\n" +
+	"\x06status\x18\a \x01(\tH\x00R\x06status\x88\x01\x01\x12)\n" +
+	"\x0eapi_server_url\x18\b \x01(\tH\x01R\fapiServerUrl\x88\x01\x01\x12\"\n" +
 	"\fcapabilities\x18\t \x03(\tR\fcapabilitiesB\t\n" +
-	"\a_regionB\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_api_server_url\"\x88\x02\n" +
+	"\x0f_api_server_url\"\xc4\x01\n" +
 	"\x1bCreateManagedClusterRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1b\n" +
-	"\x06region\x18\x04 \x01(\tH\x00R\x06region\x88\x01\x01\x12+\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x11kubeconfig_secret\x18\x05 \x01(\tR\x10kubeconfigSecret\x12\x1b\n" +
-	"\x06status\x18\x06 \x01(\tH\x01R\x06status\x88\x01\x01\x12)\n" +
-	"\x0eapi_server_url\x18\a \x01(\tH\x02R\fapiServerUrl\x88\x01\x01B\t\n" +
-	"\a_regionB\t\n" +
+	"\x06status\x18\x06 \x01(\tH\x00R\x06status\x88\x01\x01\x12)\n" +
+	"\x0eapi_server_url\x18\a \x01(\tH\x01R\fapiServerUrl\x88\x01\x01B\t\n" +
 	"\a_statusB\x11\n" +
 	"\x0f_api_server_url\"f\n" +
 	"\x1cCreateManagedClusterResponse\x12F\n" +
@@ -785,18 +731,14 @@ const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\x18GetManagedClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
 	"\x19GetManagedClusterResponse\x12F\n" +
-	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"\xd3\x02\n" +
+	"\x0fmanaged_cluster\x18\x01 \x01(\v2\x1d.hypershell.v1.ManagedClusterR\x0emanagedCluster\"\xfd\x01\n" +
 	"\x1bUpdateManagedClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
-	"\bprovider\x18\x04 \x01(\tH\x01R\bprovider\x88\x01\x01\x12\x1b\n" +
-	"\x06region\x18\x05 \x01(\tH\x02R\x06region\x88\x01\x01\x120\n" +
-	"\x11kubeconfig_secret\x18\x06 \x01(\tH\x03R\x10kubeconfigSecret\x88\x01\x01\x12\x1b\n" +
-	"\x06status\x18\a \x01(\tH\x04R\x06status\x88\x01\x01\x12)\n" +
-	"\x0eapi_server_url\x18\b \x01(\tH\x05R\fapiServerUrl\x88\x01\x01B\a\n" +
-	"\x05_nameB\v\n" +
-	"\t_providerB\t\n" +
-	"\a_regionB\x14\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x120\n" +
+	"\x11kubeconfig_secret\x18\x06 \x01(\tH\x01R\x10kubeconfigSecret\x88\x01\x01\x12\x1b\n" +
+	"\x06status\x18\a \x01(\tH\x02R\x06status\x88\x01\x01\x12)\n" +
+	"\x0eapi_server_url\x18\b \x01(\tH\x03R\fapiServerUrl\x88\x01\x01B\a\n" +
+	"\x05_nameB\x14\n" +
 	"\x12_kubeconfig_secretB\t\n" +
 	"\a_statusB\x11\n" +
 	"\x0f_api_server_url\"f\n" +

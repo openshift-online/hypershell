@@ -3,8 +3,8 @@
 **Status:** Draft
 **Version:** 0.2.0
 **Created:** 2026-09-23
-**Updated:** 2026-09-28
-**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286)
+**Updated:** 2026-10-28
+**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455)
 
 ## Purpose
 
@@ -24,10 +24,42 @@ The control plane SHALL expose the following fleet-wide Prometheus metrics:
 | `hypershell_reconciliation_failures_total` | Counter | Failed reconciliation attempts | count |
 | `hypershell_reconciliation_retries_total` | Counter | Reconciliation retries | count |
 | `hypershell_reconciliation_lag_seconds` | Histogram | Time from reconciliation eligibility to completion | seconds |
-| `hypershell_stale_resource_status_count` | Gauge | Resources whose observed status is stale | count |
+| `hypershell_stale_resource_status_count` | Gauge | Tracked non-deleted Gateways whose `observed_generation` is behind `generation` | count |
+| `hypershell_reconciliation_resources_total` | Gauge | All non-deleted Gateways in the same control-plane watch population as the stale gauge | count |
 
 The control plane SHALL expose the metrics through its Prometheus scrape
 endpoint. The dashboard SHALL NOT read reconciliation data from a database.
+
+For state accuracy, the resource population SHALL be all non-deleted Gateway
+resources currently tracked by the control plane's Gateway watch. The total
+gauge SHALL count every Gateway in that population exactly once. The stale gauge
+SHALL count only the subset whose `observed_generation < generation`. Both
+gauges SHALL be rebuilt from the same authoritative Gateway seed after startup
+and reconnect, updated from the same subsequent watch events, and scoped to the
+same `hypershell.cluster_id`. A delete event SHALL remove the Gateway from both
+sets. The control plane SHALL NOT publish a completed population observation
+until the corresponding seed has completed.
+
+If a future resource kind joins state-accuracy measurement, it SHALL be added to
+the numerator and denominator atomically with the same eligibility, seed,
+update, deletion, and cluster-scope rules. A kind SHALL NOT contribute to only
+one gauge.
+
+#### Scenario: OBS-CRM-01.01 -- Seed and delete keep both populations aligned
+
+- GIVEN a completed Gateway watch seed contains three non-deleted Gateways
+- AND one Gateway has `observed_generation < generation`
+- WHEN the control plane publishes state-accuracy gauges
+- THEN the total SHALL be three and the stale count SHALL be one
+- WHEN one converged Gateway is deleted
+- THEN the total SHALL be two and the stale count SHALL remain one
+
+#### Scenario: OBS-CRM-01.02 -- Reconnect rebuilds one authoritative population
+
+- GIVEN the Gateway watch reconnects after its in-memory population may be stale
+- WHEN the replacement seed completes
+- THEN the control plane SHALL rebuild both gauges from that seed
+- AND no Gateway omitted from the replacement seed SHALL remain in either gauge
 
 ### Requirement: OBS-CRM-02 -- Prometheus Labels
 
@@ -37,7 +69,10 @@ IDs, customer IDs, names, or other unbounded-cardinality labels.
 
 The failure and retry counters MAY include a bounded reconciliation-kind label.
 The lag histogram MAY include a bounded reconciliation-kind label. The stale
-resource gauge MAY include a bounded resource-kind label.
+and reconciliation-resource gauges SHALL include only
+`hypershell.cluster_id`. Their label dimensions and cluster scope SHALL be
+identical. Replicated control-plane observations SHALL be deduplicated with
+`max by (hypershell_cluster_id)` before fleet summation.
 
 ### Requirement: OBS-CRM-03 -- Historical Query Contract
 
@@ -51,6 +86,15 @@ The BFF SHALL calculate:
 - median lag from `histogram_quantile(0.50, ...)` over the histogram buckets when
   a valid sample exists; and
 - stale resource status count from the gauge value.
+
+The fleet stale and total queries SHALL use the same aggregation shape:
+
+```promql
+sum(max by (hypershell_cluster_id) (hypershell_stale_resource_status_count))
+sum(max by (hypershell_cluster_id) (hypershell_reconciliation_resources_total))
+```
+
+The BFF SHALL also calculate state accuracy as `100 * (1 - stale / total)` and observed-matching-desired as `total - stale`. A sample is valid only when both gauges are finite integers from the identical population and `0 <= stale <= total` with `total > 0`. When either gauge is missing, the seed is incomplete, or the validity invariant fails, all derived state-accuracy fields SHALL be unavailable rather than clamped or reported as `0` or `100`.
 
 The BFF SHALL use the same aggregation dimensions for instant and range
 queries. The BFF SHALL omit a historical series when Prometheus returns an
@@ -67,10 +111,14 @@ the other current values. Failure of one historical query SHALL omit only that
 historical array while preserving successful current values and sibling
 historical arrays.
 
+The response SHALL include independently optional `reconciliation_resources_total`, `state_accuracy_percent`, and `observed_matching_desired` fields. A missing, zero, incomplete, or population-mismatched denominator SHALL omit those fields while preserving the existing raw stale-resource count.
+
 ### Requirement: OBS-CRM-05 -- Verification
 
 Tests SHALL verify metric registration, histogram bucket export, bounded label
-sets, PromQL aggregation, 24-hour range parameters, response mapping, and
+sets, PromQL aggregation, 24-hour range parameters, state-accuracy calculation,
+seed and reconnect rebuilding, deletion removal, population-scope equality,
+zero, missing, and stale-greater-than-total behavior, response mapping, and
 failure behavior.
 
 ### Requirement: OBS-CRM-06 -- Reconciliation Outcome Taxonomy

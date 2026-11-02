@@ -18,13 +18,10 @@
 import type { MapColumn, MapModel, MapNode } from "./model";
 
 /** Fixed card + spacing constants (SVG user units). Tuned to the prototype. */
-// Widened from 150 so the longest capability chip (a gateway-version like
-// `v0.1.2-rhaiv.7`) fits on one line beside the runtime chip (FLT-CAP-03/04).
 export const NODE_W = 172;
-// Tall enough for the provider/role chip row, the runtime/gateway-version
-// capability row below it, and TWO bottom "chins" (the gateway-history sand
-// sparkline and, below it, the per-cluster sandbox strip - see map-node). Raised
-// from 124 when the capability chip row was added (FLT-CAP-03).
+// Tall enough for the provider/role chip row, the runtime capability row below
+// it, and TWO bottom "chins" (the gateway-history sand sparkline and, below it,
+// the per-cluster sandbox strip - see map-node) (FLT-CAP-03).
 export const NODE_H = 146;
 export const COL_GAP = 190;
 export const V_GAP = 46;

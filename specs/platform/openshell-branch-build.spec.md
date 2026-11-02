@@ -16,9 +16,21 @@ standard `dev-gateway` created by `make kind-up`.
 This feature is a local-development and testing capability. It reuses the
 existing Kind environment ([`local-development.spec.md`](./local-development.spec.md))
 and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
-It also adds two optional Gateway schema fields (`dev_build`,
-`dev_build_metadata`). A Gateway is created from a direct `image`/`supervisor_image`
-reference. Those schema changes apply to every environment.
+It also adds two Gateway schema fields (`dev_build`, `dev_build_metadata`). Those
+schema changes apply to every environment.
+
+`image`, `supervisor_image`, `route`, `oidc`, `dev_build`, and `dev_build_metadata`
+are **platform-managed, control-plane-only** Gateway fields (see
+[`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23): no user create/`PATCH` and no `.hypershell` import may
+declare them. The branch-build seed therefore authors the branch-built
+`image`/`supervisor_image` and the `dev_build` markers through the **control-plane
+write path** (a control-plane-identity write, or the control-plane's own provisioning
+configuration), NOT through a user-authenticated Gateway create/update. In practice
+`make kind-openshell-up` supplies the branch-built image set to the control plane (for
+example as a per-gateway image override in control-plane configuration) and the control
+plane writes those platform-managed fields; the user-facing create carries only `name`
++ placement, like any other gateway.
 
 ## Requirements
 
@@ -163,8 +175,10 @@ The image references written into the seeded Gateway resource SHALL be:
 
 The seeded dev gateway SHALL be provisioned with the branch-built images rather
 than the pinned defaults. The branch-built gateway and supervisor images SHALL
-be set via the Gateway's `image` and `supervisor_image` fields directly. Sandbox
-workloads are selected per sandbox, separately from the Gateway resource.
+be carried on the Gateway's `image` and `supervisor_image` fields, written through
+the control-plane path (these are platform-managed, control-plane-only fields,
+PLAT-DATA-23), not a user Gateway create/update. Sandbox workloads are selected
+per sandbox, separately from the Gateway resource.
 
 The seed SHALL reuse the Kind environment's existing placement and exposure
 fields so the branch-built gateway is reachable the same way `dev-gateway` is:
@@ -206,7 +220,8 @@ build, distinguishing it from gateways created by the standard `kind-up` flow.
 
 The seeded Gateway resource SHALL be named `openshell-dev-gateway` (a stable,
 DNS-valid name that allows update-or-create semantics on subsequent runs). The
-seeding flow SHALL set two Gateway fields to mark branch builds, and the
+seeding flow SHALL set two platform-managed Gateway fields (control-plane-only,
+PLAT-DATA-23) through the control-plane write path to mark branch builds, and the
 control plane SHALL pass them into the OpenShell Helm install/upgrade so they
 survive Helm-owned reconcile (not a post-apply SSA/`kubectl label` that the
 next upgrade would overwrite):

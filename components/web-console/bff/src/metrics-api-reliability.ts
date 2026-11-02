@@ -36,6 +36,9 @@ export const apiErrorRatePercentPromql = `100 * (sum(rate(${apiReliabilityMetric
 /** Rate-based P50; may be NaN when the rate window has no observations. */
 export const apiLatencyP50SecondsPromql = `histogram_quantile(0.50, sum(rate(${apiReliabilityMetricPrefix}_bucket{${seriesSelector}}[${apiReliabilityRateWindow}])) by (le))`;
 
+/** Rate-based P95. Unlike P50, this metric has no cumulative fallback. */
+export const apiLatencyP95SecondsPromql = `histogram_quantile(0.95, sum(rate(${apiReliabilityMetricPrefix}_bucket{${seriesSelector}}[${apiReliabilityRateWindow}])) by (le))`;
+
 /**
  * Cumulative P50 fallback when the rate-based quantile is non-finite
  * (common right after rollout or with sparse traffic).
@@ -51,8 +54,10 @@ export interface ApiReliabilityMetrics {
   error_rate_percent: number;
   hourly_error_rate_percent?: ApiReliabilityHourlyPoint[];
   hourly_latency_p50_seconds?: ApiReliabilityHourlyPoint[];
+  hourly_latency_p95_seconds?: ApiReliabilityHourlyPoint[];
   hourly_request_rate?: ApiReliabilityHourlyPoint[];
   latency_p50_seconds: number;
+  latency_p95_seconds?: number;
   request_rate: number;
 }
 
@@ -156,6 +161,7 @@ async function queryOptionalHourlySeries(
   prometheusUrl: MetricsSource,
   query: string,
   timeoutMs: number,
+  skipInvalid = false,
 ): Promise<ApiReliabilityHourlyPoint[] | undefined> {
   try {
     const { end, start } = rollingHourlyRange();
@@ -166,6 +172,7 @@ async function queryOptionalHourlySeries(
       end,
       String(hourlyRangeStepSeconds),
       timeoutMs,
+      skipInvalid,
     );
     const hourly = mapHourlyFloatSeries(samples);
     return hourly.length > 0 ? hourly : undefined;
@@ -203,18 +210,28 @@ export async function queryApiReliability(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
 ): Promise<ApiReliabilityMetrics> {
-  const [requestRate, errorRatePercent, latencyP50Seconds] = await Promise.all([
-    queryPrometheusInstantFloat(prometheusUrl, apiRequestRatePromql, timeoutMs),
-    queryPrometheusInstantFloat(
-      prometheusUrl,
-      apiErrorRatePercentPromql,
-      timeoutMs,
-    ),
-    queryLatencyP50Seconds(prometheusUrl, timeoutMs),
-  ]);
+  const [requestRate, errorRatePercent, latencyP50Seconds, latencyP95Seconds] =
+    await Promise.all([
+      queryPrometheusInstantFloat(
+        prometheusUrl,
+        apiRequestRatePromql,
+        timeoutMs,
+      ),
+      queryPrometheusInstantFloat(
+        prometheusUrl,
+        apiErrorRatePercentPromql,
+        timeoutMs,
+      ),
+      queryLatencyP50Seconds(prometheusUrl, timeoutMs),
+      queryPrometheusInstantFloat(
+        prometheusUrl,
+        apiLatencyP95SecondsPromql,
+        timeoutMs,
+      ).catch(() => undefined),
+    ]);
 
-  const [hourlyRequestRate, hourlyErrorRate, hourlyLatency] = await Promise.all(
-    [
+  const [hourlyRequestRate, hourlyErrorRate, hourlyLatency, hourlyLatencyP95] =
+    await Promise.all([
       queryOptionalHourlySeries(prometheusUrl, apiRequestRatePromql, timeoutMs),
       queryOptionalHourlySeries(
         prometheusUrl,
@@ -222,12 +239,20 @@ export async function queryApiReliability(
         timeoutMs,
       ),
       queryOptionalHourlyLatencySeries(prometheusUrl, timeoutMs),
-    ],
-  );
+      queryOptionalHourlySeries(
+        prometheusUrl,
+        apiLatencyP95SecondsPromql,
+        timeoutMs,
+        true,
+      ),
+    ]);
 
   return {
     error_rate_percent: errorRatePercent,
     latency_p50_seconds: latencyP50Seconds,
+    ...(latencyP95Seconds === undefined
+      ? {}
+      : { latency_p95_seconds: latencyP95Seconds }),
     request_rate: requestRate,
     ...(hourlyRequestRate === undefined
       ? {}
@@ -238,5 +263,8 @@ export async function queryApiReliability(
     ...(hourlyLatency === undefined
       ? {}
       : { hourly_latency_p50_seconds: hourlyLatency }),
+    ...(hourlyLatencyP95 === undefined
+      ? {}
+      : { hourly_latency_p95_seconds: hourlyLatencyP95 }),
   };
 }

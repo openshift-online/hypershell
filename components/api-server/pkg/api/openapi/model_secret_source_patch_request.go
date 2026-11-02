@@ -17,11 +17,12 @@ import (
 // checks if the SecretSourcePatchRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &SecretSourcePatchRequest{}
 
-// SecretSourcePatchRequest struct for SecretSourcePatchRequest
+// SecretSourcePatchRequest Mutable SecretSource fields. The path is not patchable: it is the server-derived location of the submitted material, and a path supplied here is ignored.
 type SecretSourcePatchRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Purpose     *string `json:"purpose,omitempty"`
-	Backend     *string `json:"backend,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Purpose *string `json:"purpose,omitempty"`
+	Backend *string `json:"backend,omitempty"`
+	// Ignored. The path is derived server-side on create and cannot be re-pointed.
 	Path        *string `json:"path,omitempty"`
 	KeyMappings *string `json:"key_mappings,omitempty"`
 }

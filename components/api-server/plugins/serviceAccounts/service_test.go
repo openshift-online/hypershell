@@ -328,6 +328,337 @@ func TestRevokePersistsForRetryAndDeletePerformsFinalCleanup(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-18.01
+func TestUpdateRoleChangesRoleInPlaceWithAuditTrail(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "deploy-bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true}
+	description := "deploy the main branch"
+	bindings := fakeBindings{byUser: map[string][]rbac.BindingSummary{"creator": binding("gateway:owner")}}
+	locks := &countingLockFactory{}
+	svc := newTestServiceWith(dao, kc, bindings, now, fakeGateway{gateway: testGateway()}, locks)
+
+	updated, complete, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: RoleAdmin, Description: &description})
+	if problem != nil {
+		t.Fatalf("UpdateRole() problem = %#v", problem)
+	}
+	if !complete {
+		t.Fatal("UpdateRole() not complete, want synchronous convergence")
+	}
+	if updated.Role != RoleAdmin || updated.Description == nil || *updated.Description != description {
+		t.Fatalf("updated account = %#v", updated)
+	}
+	stored := dao.items[account.ID]
+	if stored.Role != RoleAdmin || stored.Status != StatusReady {
+		t.Fatalf("stored account = %#v", stored)
+	}
+	if kc.reconcileCalls != 1 || kc.lastSpec.Role != RoleAdmin || kc.lastSpec.ServiceAccountID != account.ID {
+		t.Fatalf("reconcile calls = %d, spec = %#v", kc.reconcileCalls, kc.lastSpec)
+	}
+	started, succeeded := false, false
+	for _, event := range dao.audits {
+		if event.Action != "update_role" {
+			continue
+		}
+		if event.Role != RoleAdmin || event.PreviousRole == nil || *event.PreviousRole != RoleUser {
+			t.Fatalf("update audit = %#v", event)
+		}
+		if event.Outcome == "started" {
+			started = true
+		}
+		if event.Outcome == "succeeded" {
+			succeeded = true
+		}
+	}
+	if !started || !succeeded {
+		t.Fatalf("update audits = %#v", dao.audits)
+	}
+	if locks.acquired == 0 || locks.acquired != locks.released {
+		t.Fatalf("lock acquisitions = %d, releases = %d", locks.acquired, locks.released)
+	}
+}
+
+// Verifies: OSG-SACC-18.03
+func TestUpdateRoleCapsAtTheCreatorsCurrentBinding(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		name        string
+		actor       string
+		actorRole   string
+		creator     string
+		creatorRole string
+		current     string
+		requested   string
+		wantStatus  int
+	}{
+		{name: "owner actor cannot raise a viewer-created account", actor: "owner", actorRole: "gateway:owner", creator: "viewer", creatorRole: "gateway:viewer", current: RoleUser, requested: RoleAdmin, wantStatus: 403},
+		{name: "creator without a binding cannot change the role", actor: "owner", actorRole: "gateway:owner", creator: "creator", creatorRole: "", current: RoleUser, requested: RoleAdmin, wantStatus: 403},
+		{name: "owner actor may downgrade another creator's account", actor: "owner", actorRole: "gateway:owner", creator: "creator", creatorRole: "gateway:owner", current: RoleAdmin, requested: RoleUser, wantStatus: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			account := &OpenShellGatewayServiceAccount{
+				GatewayID: "gateway-id", Name: "bot", CreatedByUserID: test.creator, Status: StatusReady,
+				Role: test.current, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+				KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+			}
+			dao.seed(account)
+			kc := &fakeKeycloak{configured: true}
+			byUser := map[string][]rbac.BindingSummary{}
+			if test.actorRole != "" {
+				byUser[test.actor] = binding(test.actorRole)
+			}
+			if test.creatorRole != "" {
+				byUser[test.creator] = binding(test.creatorRole)
+			}
+			svc := newTestService(dao, kc, fakeBindings{byUser: byUser}, now)
+
+			updated, _, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, test.actor, RoleUpdateInput{Role: test.requested})
+			if test.wantStatus != 0 {
+				if problem == nil || problem.Status != test.wantStatus || problem.Code != "role_not_allowed" {
+					t.Fatalf("problem = %#v, want %d role_not_allowed", problem, test.wantStatus)
+				}
+				if kc.reconcileCalls != 0 {
+					t.Fatal("forbidden role update reached Keycloak")
+				}
+				if stored := dao.items[account.ID]; stored.Role != test.current {
+					t.Fatalf("stored role = %q, want unchanged %q", stored.Role, test.current)
+				}
+				return
+			}
+			if problem != nil {
+				t.Fatalf("UpdateRole() problem = %#v", problem)
+			}
+			if updated.Role != test.requested || kc.lastSpec.Role != test.requested {
+				t.Fatalf("updated role = %q, spec role = %q", updated.Role, kc.lastSpec.Role)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-SACC-18.06
+func TestUpdateRoleRejectsInvalidInputAndNonMutableStatus(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		name        string
+		status      string
+		role        string
+		description *string
+		wantStatus  int
+		wantCode    string
+	}{
+		{name: "unknown role", status: StatusReady, role: "openshell-root", wantStatus: 400, wantCode: "invalid_request"},
+		{name: "empty role", status: StatusReady, role: "", wantStatus: 400, wantCode: "invalid_request"},
+		{name: "long description", status: StatusReady, role: RoleAdmin, description: stringPointer(strings.Repeat("x", 1025)), wantStatus: 400, wantCode: "invalid_request"},
+		{name: "revoked", status: StatusRevoked, role: RoleUser, wantStatus: 409, wantCode: "service_account_not_mutable"},
+		{name: "provisioning", status: StatusProvisioning, role: RoleUser, wantStatus: 409, wantCode: "service_account_not_mutable"},
+		{name: "deleting", status: StatusDeleting, role: RoleUser, wantStatus: 409, wantCode: "service_account_not_mutable"},
+		{name: "error", status: StatusError, role: RoleUser, wantStatus: 409, wantCode: "service_account_not_mutable"},
+		{name: "expired", status: StatusExpired, role: RoleUser, wantStatus: 409, wantCode: "service_account_not_mutable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			account := &OpenShellGatewayServiceAccount{
+				GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: test.status,
+				Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+				KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+			}
+			dao.seed(account)
+			kc := &fakeKeycloak{configured: true}
+			svc := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+			_, _, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: test.role, Description: test.description})
+			if problem == nil || problem.Status != test.wantStatus || problem.Code != test.wantCode {
+				t.Fatalf("problem = %#v, want %d %s", problem, test.wantStatus, test.wantCode)
+			}
+			if kc.reconcileCalls != 0 {
+				t.Fatal("rejected role update reached Keycloak")
+			}
+			if stored := dao.items[account.ID]; stored.Role != RoleUser {
+				t.Fatalf("stored role = %q, want unchanged", stored.Role)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-SACC-18.07
+func TestUpdateRoleSkipsKeycloakForNoOpAndDescriptionOnlyChanges(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		name        string
+		currentRole string
+		requested   string
+		description *string
+		wantRole    string
+	}{
+		{name: "identical role", currentRole: RoleUser, requested: RoleUser, wantRole: RoleUser},
+		{name: "description-only edit", currentRole: RoleAdmin, requested: RoleAdmin, description: stringPointer("new description"), wantRole: RoleAdmin},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			account := &OpenShellGatewayServiceAccount{
+				GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+				Role: test.currentRole, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+				KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+			}
+			dao.seed(account)
+			kc := &fakeKeycloak{configured: true}
+			svc := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+			updated, complete, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: test.requested, Description: test.description})
+			if problem != nil || !complete {
+				t.Fatalf("problem = %#v, complete = %v", problem, complete)
+			}
+			if updated.Role != test.wantRole {
+				t.Fatalf("role = %q, want %q", updated.Role, test.wantRole)
+			}
+			if kc.reconcileCalls != 0 {
+				t.Fatalf("reconcile calls = %d, want 0", kc.reconcileCalls)
+			}
+			if test.description != nil {
+				if stored := dao.items[account.ID]; stored.Description == nil || *stored.Description != *test.description {
+					t.Fatalf("stored description = %#v", stored.Description)
+				}
+			}
+		})
+	}
+}
+
+// Verifies: OSG-SACC-18.04
+func TestUpdateRoleDegradesAndConvergesWhenKeycloakFails(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, reconcileErr: errors.New("keycloak unavailable")}
+	svc := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	updated, complete, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: RoleAdmin})
+	if problem != nil {
+		t.Fatalf("UpdateRole() problem = %#v", problem)
+	}
+	if complete {
+		t.Fatal("UpdateRole() complete, want pending")
+	}
+	if updated.Status != StatusDegraded || updated.LastError == nil || *updated.LastError != "keycloak_role_update_pending" {
+		t.Fatalf("updated account = %#v", updated)
+	}
+	// The desired role is already persisted; the drift sweep converges it.
+	if stored := dao.items[account.ID]; stored.Role != RoleAdmin {
+		t.Fatalf("persisted role = %q, want %q", stored.Role, RoleAdmin)
+	}
+	failed := false
+	for _, event := range dao.audits {
+		if event.Action == "update_role" && event.Outcome == "failed" {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatalf("update audits = %#v", dao.audits)
+	}
+
+	// Recovery: the next sweep converges the persisted role and restores ready.
+	kc.reconcileErr = nil
+	if err := svc.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	stored := dao.items[account.ID]
+	if stored.Status != StatusReady || stored.Role != RoleAdmin || kc.lastSpec.Role != RoleAdmin {
+		t.Fatalf("converged account = %#v, spec role = %q", stored, kc.lastSpec.Role)
+	}
+}
+
+// Verifies: OSG-SACC-18
+func TestUpdateRoleMarksErrorWhenTheManagedClientVanished(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, reconcileErr: ErrProvisionerNotFound}
+	svc := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	updated, complete, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: RoleAdmin})
+	if problem != nil {
+		t.Fatalf("UpdateRole() problem = %#v", problem)
+	}
+	if complete {
+		t.Fatal("UpdateRole() complete, want pending")
+	}
+	if updated.Status != StatusError || updated.LastError == nil || *updated.LastError != "keycloak_client_missing" {
+		t.Fatalf("updated account = %#v", updated)
+	}
+}
+
+// Verifies: OSG-SACC-18
+func TestUpdateRoleHandlerMapsCompletionAndRejectsUnknownFields(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, reconcileErr: errors.New("keycloak unavailable")}
+	handler := NewHandler(newTestService(dao, kc, testBindings("creator", "gateway:owner"), now))
+
+	update := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways/gateway-id/service_accounts/"+account.ID+"/role", bytes.NewBufferString(body))
+		request = mux.SetURLVars(request, map[string]string{"gateway_id": "gateway-id", "service_account_id": account.ID})
+		request = request.WithContext(context.WithValue(request.Context(), rbac.ContextUserIDKey, "creator"))
+		recorder := httptest.NewRecorder()
+		handler.UpdateRole(recorder, request)
+		return recorder
+	}
+
+	recorder := update(`{"role":"openshell-admin"}`)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("pending status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var pending map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &pending); err != nil {
+		t.Fatalf("decode pending response: %v", err)
+	}
+	if pending["status"] != StatusDegraded {
+		t.Fatalf("pending status field = %#v", pending["status"])
+	}
+	if _, exists := pending["credential"]; exists {
+		t.Fatal("role update returned a credential bundle")
+	}
+
+	kc.reconcileErr = nil
+	recorder = update(`{"role":"openshell-user","description":"back to user","unknown":1}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unknown-field status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = update(`{"role":"openshell-user","description":"back to user"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("converged status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var converged map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &converged); err != nil {
+		t.Fatalf("decode converged response: %v", err)
+	}
+	if converged["role"] != RoleUser || converged["description"] != "back to user" {
+		t.Fatalf("converged response = %#v", converged)
+	}
+}
+
 func TestCleanupGatewayDeletesIdentitiesBeforeRecords(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Now().UTC()

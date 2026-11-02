@@ -645,3 +645,27 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 - [openid-client v6.x](https://github.com/panva/openid-client)  -- OIDC Relying Party library
 - [@fastify/secure-session](https://github.com/fastify/fastify-secure-session)  -- Sodium-based encrypted cookie sessions
 - [OAuth 2.0 for Browser-Based Apps (BCP 212)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps)  -- BFF pattern recommendation
+
+
+### Requirement: SEC-OIDC-12 -- Management CLI Issuer Discovery
+
+`hsctl login --url <API URL>` SHALL discover the public issuer from the upstream
+framework's unauthenticated `GET /api/hypershell/v1/auth/config` endpoint and use
+the existing browser/PKCE flow, or device flow with `--no-browser`. The endpoint
+SHALL publish only the existing `--jwt-issuer`, not a cluster-local signing-key
+URL, and SHALL bypass HyperShell RBAC and user provisioning. It SHALL return 404
+when JWT or its issuer is unconfigured. The CLI SHALL accept a direct API root
+or full API base URL, normalize saved URLs for subsequent generated commands,
+and preserve explicit issuer/token login for older deployments.
+
+#### Scenario: SEC-OIDC-12.01 -- Public discovery with RBAC enabled
+- GIVEN a JWT-enabled API with a public issuer and enforced RBAC
+- WHEN an unauthenticated client reads `/api/hypershell/v1/auth/config`
+- THEN it SHALL receive only the configured public issuer
+- AND protected resource endpoints SHALL still require authentication
+
+#### Scenario: SEC-OIDC-12.02 -- Login with the direct API URL
+- GIVEN the API framework and CLI generator both include issuer discovery
+- WHEN a user runs `hsctl login --url https://api.hyp2.infra.hypershell.app/api/hypershell/v1`
+- THEN the CLI SHALL discover the issuer and initiate browser login
+- AND SHALL save the API root without duplicating the API prefix in later requests

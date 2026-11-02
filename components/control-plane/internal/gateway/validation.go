@@ -67,10 +67,30 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	// The API server already enforces the workspace-mode vocabulary on write
+	// and stores a mode for every gateway; this is the reconcile-time defense in
+	// depth so a missing or bad value can never reach the Helm chart and silently
+	// fall back to the chart default (openshell-gateway.spec.md, "Gateway
+	// Workspace Mode").
+	switch config.WorkspaceMode {
+	case "shared", "managed", "operator":
+	default:
+		return fmt.Errorf("invalid workspaceMode %q: must be one of shared, managed, operator", config.WorkspaceMode)
+	}
+
 	for i, dns := range config.ServerDnsNames {
 		if err := ValidateDNSName(dns); err != nil {
 			return fmt.Errorf("invalid serverDnsNames[%d]: %w", i, err)
 		}
+	}
+
+	// A dedicated-certificate gateway (route.certificate) always uses the
+	// derived gw-<namespace> hostname: its certificate, listeners, and DNS
+	// records are all provisioned from that derivation, so an explicit
+	// route.host has no meaning on that path and is rejected rather than
+	// silently ignored. Explicit hosts keep today's shared-Gateway semantics.
+	if config.Route.Certificate != nil && config.Route.Host != "" {
+		return fmt.Errorf("route.host is not supported with route.certificate: a dedicated-certificate gateway uses the derived gw-<namespace> hostname")
 	}
 
 	// An explicit route host lands verbatim in the Route spec.host and the

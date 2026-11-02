@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -17,7 +18,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() AgentWorkspaceService
@@ -98,7 +98,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("agentWorkspaces", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewAgentWorkspaceHandler(Service(envServices), generic.Service(envServices))
+		h := NewAgentWorkspaceHandler(Service(envServices), extsearch.Service(envServices))
 
 		router := extRouter.PathPrefix("/agent_workspaces").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
@@ -118,7 +118,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterAgentWorkspaceServiceServer(grpcServer, NewAgentWorkspaceGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+		pb.RegisterAgentWorkspaceServiceServer(grpcServer, NewAgentWorkspaceGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(AgentWorkspace{}, "agent_workspaces")

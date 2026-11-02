@@ -259,6 +259,95 @@ Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors
 - THEN the record SHALL be written to standard error only
 - AND no OTLP log exporter SHALL be created
 
+### Requirement: API-OBS-10 -- Advisory Lock Metrics
+
+The rh-trex-ai framework records every PostgreSQL advisory lock in two Prometheus metrics: `advisory_lock_count` (a counter) and `advisory_lock_duration` (a histogram in seconds). Both carry the labels `type` and `status`. The framework does not register them. The `serve` command SHALL register both with the default Prometheus registry before the servers start, so the metrics server exposes them on `/metrics`. Registration SHALL NOT panic. If the framework has already registered the metrics, the `serve` command SHALL treat that as success.
+
+These metrics feed the advisory-lock row of the fleet PostgreSQL dashboard in hypershell-gitops.
+
+**Verification:** A unit test registers the metrics twice, records one lock, and confirms both metric families are in the default registry.
+
+#### Scenario: API-OBS-10.01 -- Advisory lock metrics are exposed
+
+- GIVEN the API server runs `serve`
+- WHEN the framework takes an advisory lock
+- THEN `/metrics` SHALL include `advisory_lock_count` and `advisory_lock_duration` series for that lock type and status
+- AND registering the metrics a second time SHALL NOT fail or panic
+
+### Requirement: API-OBS-11 -- Resilient Request and Response Log Formatting; Root Error Surfacing
+
+The request and response logging path SHALL emit its log record even when a field
+of the request or response holds a value the log formatter cannot serialize (for
+example a `func` value such as `func(int64)`). When a value cannot be serialized,
+the logger SHALL substitute a bounded placeholder for that single value and still
+emit the record; it SHALL NOT drop the record, and it SHALL NOT replace the whole
+record with a formatter error such as `Unable to format request/response for log`
+/ `json: unsupported type: func(int64)`. A broken log formatter SHALL NOT hide the
+request and response detail an operator needs to diagnose a failing request. This
+complements API-OBS-09, which strips headers and bodies from the two HTTP records:
+stripping sensitive content SHALL NOT come at the cost of dropping the whole record
+when one remaining field value is non-serializable.
+
+A statement that fails inside a request's database transaction SHALL surface its
+own error. When a failed statement aborts the transaction and a later statement in
+the same transaction is rejected with `current transaction is aborted`
+(`SQLSTATE 25P02`), the API server SHALL log the original failing statement's error
+as the root cause, not only the downstream `25P02`. The root database error SHALL
+appear in the standard-error output and, when the OTel SDK is initialized and
+`OTEL_LOGS_EXPORTER` is not `none`, in the exported log records of API-OBS-09, so
+an operator can identify the failing statement from the logs alone. This is the
+observability face of the "Never silently swallow partial failures" rule in
+`standards/platform/cross-cutting.spec.md`: an error path that is dropped instead
+of propagated or logged (for example a discarded row-count error that aborts the
+transaction) SHALL still reach the operator through the logs. Root-error
+surfacing SHALL follow the same privacy rules as API-OBS-06 and API-OBS-09: the
+parameterized statement and its error MAY be logged, but bound parameter values,
+credentials, and connection strings SHALL NOT.
+
+**Verification:** A unit test drives the request and response logging path with a
+request or response that carries a `func(int64)` field value and confirms the
+record is still emitted with a placeholder for that value and no
+`json: unsupported type` formatter error. A test that runs a request whose first
+database statement fails confirms the root statement error is logged, not only the
+downstream `25P02`.
+
+**Delivery note (normative timing).** API-OBS-11 states desired state, but its two
+defects live entirely in the upstream rh-trex-ai framework and SHALL NOT be fixed
+in this repository:
+
+- The ext list path discards the row-count (`Count()`) error, so the aborted
+  transaction surfaces only as the downstream `25P02` and the root statement error
+  is hidden.
+- The shared request and response logger drops the whole record when one field
+  value is a `func(int64)`, emitting `Unable to format request/response for log`
+  / `json: unsupported type: func(int64)`.
+
+Both are framework-owned code paths that this repository consumes through the
+pinned rh-trex-ai dependency, not code this repository can edit. API-OBS-11 is
+therefore delivered by an upstream rh-trex-ai change plus a pin bump in this
+repository, tracked by GitHub issue #895. It is NOT implemented by the #871 pull
+request (#873); #873 ships only the in-repo data-model fix of SDLC-CONF-13 (a
+queryable `name` on the affected `ext` Kinds plus the shared search-path hardening
+and conformance tests that live in this repository). A code reviewer SHALL NOT
+expect in-repo code for API-OBS-11 on #873, and #871 SHALL NOT be blocked on the
+upstream work: the in-repo data-model fix closes the find-by-name 500 for the
+affected Kinds, while API-OBS-11 removes the diagnostic blind spot that hid the
+root cause and is delivered separately when the rh-trex-ai pin advances.
+
+#### Scenario: API-OBS-11.01 -- Non-serializable field does not drop the record
+
+- GIVEN a request or response whose log record carries a `func(int64)` field value
+- WHEN the request and response logger formats the record
+- THEN the record SHALL still be emitted with a bounded placeholder for the non-serializable value
+- AND no `json: unsupported type: func(int64)` formatter error SHALL replace the record
+
+#### Scenario: API-OBS-11.02 -- Root statement error is surfaced, not only the downstream 25P02
+
+- GIVEN a request whose first database statement fails and aborts the request transaction
+- WHEN a later statement in the same transaction is rejected with `SQLSTATE 25P02`
+- THEN the log output SHALL contain the original failing statement's error as the root cause
+- AND the operator SHALL be able to identify the failing statement from the logs without additional instrumentation
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -277,6 +366,8 @@ Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors
 | Database spans via a GORM plugin on the base connection, not per data-access object | A GORM plugin installs callbacks once on the base connection, so every plugin's queries are traced without per-plugin changes and callbacks are never duplicated per request; this mirrors the server-level HTTP and gRPC instrumentation |
 | Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |
 | Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
+| Placeholder-and-continue when a log field is non-serializable, not drop the record | A single non-serializable field value (for example a `func(int64)`) must never blank the whole request/response record; the logger that masks the data needed to debug a failure is worse than the failure. A bounded placeholder keeps the rest of the record, so the root error (such as the failing SQL behind a `25P02`) stays visible |
+| API-OBS-11 delivered upstream (rh-trex-ai) plus a pin bump, not in-repo on #873 | Both defects (the swallowed `Count()` error and the `func(int64)` logger drop) are rh-trex-ai framework code this repository only consumes through its pinned dependency, so they cannot be fixed here; tracked by GitHub issue #895. Decoupling the diagnostic fix from the in-repo data-model fix (SDLC-CONF-13) keeps #871 unblocked: #873 closes the find-by-name 500 for the affected Kinds, and API-OBS-11 removes the blind spot separately when the pin advances |
 
 ## Primary Basis
 

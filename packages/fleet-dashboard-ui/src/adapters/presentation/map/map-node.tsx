@@ -30,8 +30,8 @@ import { SandSparkline } from "./sand-sparkline";
 import { SandboxSparkline } from "./sandbox-sparkline";
 import styles from "./topology-map.module.css";
 
-// One chip size system shared by EVERY card pill (provider, role, runtime,
-// gateway-version) so they read as one family: only width (measured) and colour
+// One chip size system shared by EVERY card pill (provider, role, runtime) so
+// they read as one family: only width (measured) and colour
 // vary (FLT-CAP-04). Geometry is presentation-only; the pure layout never measures.
 const GUTTER = 10; // left inset: chips + chin sparklines start at x + GUTTER
 const CHIP_H = 16;
@@ -41,7 +41,7 @@ const CHIP_PAD_X = 7; // horizontal padding each side
 const CHIP_GAP = 6; // gap between chips in a row
 const CHIP_RX = 4; // corner radius
 const BADGE_ROW_Y = 54; // y-offset of the provider/role row from the card top
-const CAP_ROW_Y = 74; // y-offset of the runtime/gateway-version row
+const CAP_ROW_Y = 74; // y-offset of the runtime row
 
 /** Measured pill width for a chip label: its glyph width plus padding each side. */
 function chipWidth(label: string): number {
@@ -185,15 +185,13 @@ export function MapNodeCard({
     sbxHist.length > 0
       ? [sbxHist.length, sbxHist[sbxHist.length - 1]].join(":")
       : "none";
-  // Row 1 (provider + role) and row 2 (runtime + gateway-version) are built as chip
-  // specs; an absent capability simply drops its chip and the row collapses around
-  // what remains (FLT-CAP-03). Colour/casing derive from the values alone - provider
-  // and runtime are upper-cased, but a gateway-version keeps its natural case
-  // because upper-casing a version reads wrong (FLT-CAP-05).
+  // Row 1 (provider + role) and row 2 (runtime) are built as chip specs; an absent
+  // capability simply drops its chip and the row collapses around what remains
+  // (FLT-CAP-03). Colour derives from the values alone and provider and runtime
+  // are upper-cased (FLT-CAP-05).
   const providerColors = node.provider ? providerChip(node.provider) : null;
   const caps = node.capabilities ?? [];
   const runtime = capabilityValue(caps, "runtime");
-  const gatewayVersion = capabilityValue(caps, "gateway-version");
 
   const badgeChips: ChipSpec[] = [];
   if (providerColors && node.provider) {
@@ -221,15 +219,6 @@ export function MapNodeCard({
     capChips.push({
       key: "runtime",
       label: runtime.toUpperCase(),
-      bg: c.bg,
-      fg: c.fg,
-    });
-  }
-  if (gatewayVersion) {
-    const c = capabilityChip(gatewayVersion);
-    capChips.push({
-      key: "version",
-      label: gatewayVersion,
       bg: c.bg,
       fg: c.fg,
     });
@@ -358,9 +347,8 @@ export function MapNodeCard({
         <ChipRow chips={badgeChips} x={x + GUTTER} y={y + BADGE_ROW_Y} />
       ) : null}
 
-      {/* Chip row 2 (runtime + gateway-version): the capability row, one notch
-          dimmer so it reads as secondary. An absent capability drops its chip and
-          the row collapses; neither present omits the row entirely (FLT-CAP-03). */}
+      {/* Chip row 2 (runtime): the capability row, one notch dimmer so it reads
+          as secondary. Without a runtime capability the row is omitted (FLT-CAP-03). */}
       {capChips.length > 0 ? (
         <ChipRow chips={capChips} x={x + GUTTER} y={y + CAP_ROW_Y} />
       ) : null}

@@ -78,7 +78,10 @@ caller that does not set it is unaffected.
 
 #### Scenario: GTW-PHS-02.01 -- Unknown phase rejected on gRPC update
 
-- GIVEN a client calls `UpdateGateway` with `phase` set to `"Booting"`
+- GIVEN the control plane calls `UpdateGateway` with `phase` set to `"Booting"`
+  (`phase` is control-plane-managed; a user or import write of it is rejected by
+  the field-ownership policy before vocabulary validation, see `data-model.spec.md`
+  PLAT-DATA-23)
 - WHEN the API server validates the request
 - THEN it SHALL reject the request with `InvalidArgument`
 - AND it SHALL NOT persist the value

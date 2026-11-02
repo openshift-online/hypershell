@@ -1,0 +1,14 @@
+# KIND / LOCAL DEV ONLY - DO NOT USE IN PRODUCTION
+# Shared coverage output volume (DEV-LOC-18). Kind has a single node, so the
+# three Deployments can mount one ReadWriteOnce local-path volume together.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hypershell-coverage
+  namespace: hypershell-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

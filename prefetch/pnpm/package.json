@@ -1,0 +1,9 @@
+{
+  "name": "hypershell-pnpm-bootstrap",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned pnpm CLI for hermetic container builds; installed with npm ci from the Hermeto-prefetched npm cache. Not part of the pnpm workspace.",
+  "dependencies": {
+    "pnpm": "11.15.1"
+  }
+}

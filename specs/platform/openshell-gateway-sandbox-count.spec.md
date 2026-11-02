@@ -61,6 +61,14 @@ between two active phases (for example `Pending` to `Running`) SHALL NOT change
 the count. In steady state the control plane SHALL NOT depend on a periodic
 full-namespace pod LIST to keep the count current.
 
+A Gateway provisioned in `managed` workspace mode runs its sandbox pods in
+per-workspace namespaces (`openshell-{gateway_id}-{workspace}`, see
+[`openshell-gateway.spec.md`](./openshell-gateway.spec.md) "OSG-CORE-18 -- Gateway
+Workspace Mode") rather than the Gateway's own namespace. A sandbox pod in such a
+namespace SHALL be attributed to the Gateway whose API-assigned namespace
+supplies the `gateway_id` (`openshell-{id-suffix}`), for both event-driven
+deltas and the periodic self-heal, so the count is mode-independent.
+
 #### Scenario: OSG-SBX-01.01 -- Sandbox pod becomes active
 
 - GIVEN a Gateway whose `active_sandbox_count` is 2
@@ -84,6 +92,14 @@ full-namespace pod LIST to keep the count current.
 - GIVEN a pod in a gateway namespace that does not carry a sandbox label
 - WHEN that pod is created, changes phase, or is deleted
 - THEN the control plane SHALL NOT change any Gateway's `active_sandbox_count`
+
+#### Scenario: OSG-SBX-01.05 -- Managed-mode sandbox pod is attributed to its gateway
+
+- GIVEN a Gateway in `managed` workspace mode whose namespace is
+  `openshell-{id-suffix}`
+- WHEN a sandbox pod in `openshell-{id-suffix}-{workspace}` becomes active
+- THEN the control plane SHALL increment that Gateway's
+  `active_sandbox_count`
 
 ### Requirement: OSG-SBX-02 -- Atomic, Non-Negative Updates
 

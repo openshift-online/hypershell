@@ -15,8 +15,6 @@ func newManagedCluster(name string) (*managedClusters.ManagedCluster, error) {
 
 	managedCluster := &managedClusters.ManagedCluster{
 		Name:             name,
-		Provider:         "test-provider",
-		Region:           stringPtr("test-region"),
 		KubeconfigSecret: "test-kubeconfig_secret",
 		Status:           stringPtr("test-status"),
 		ApiServerUrl:     stringPtr("test-api_server_url"),

@@ -109,6 +109,7 @@ export async function queryPrometheusRangeScalarSamples(
   end: number,
   step: string,
   timeoutMs: number,
+  skipInvalid = false,
 ): Promise<Map<number, number>> {
   const controller = new AbortController();
   const timeoutReason = new Error("Prometheus query timed out");
@@ -140,6 +141,9 @@ export async function queryPrometheusRangeScalarSamples(
     for (const [timestamp, rawValue] of values) {
       const value = Number(rawValue);
       if (!Number.isFinite(value) || value < 0) {
+        if (skipInvalid) {
+          continue;
+        }
         throw new Error("Prometheus range query returned invalid sample");
       }
 

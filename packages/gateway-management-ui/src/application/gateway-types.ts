@@ -18,12 +18,6 @@ export interface GatewayRecord {
   externalDns?: string;
   gatewayVersion?: string;
   id: string;
-  /**
-   * True when the gateway pins an explicit container image and therefore need
-   * not track its cluster's advertised provisioning version. A pinned gateway
-   * never shows the newer-version-available indicator (see WEB-VER-03).
-   */
-  imagePinned?: boolean;
   name: string;
   namespace: string;
   oidcAudience?: string;
@@ -31,29 +25,12 @@ export interface GatewayRecord {
   oidcIssuer?: string;
   phase?: string;
   provisioningConditions?: readonly ProvisioningCondition[];
-  /**
-   * The gateway version the gateway's cluster advertises for provisioning onto
-   * new gateways (its single-valued `gateway-version/<tag>` capability). Absent
-   * when the cluster advertises none.
-   */
-  provisioningVersion?: string;
   status?: string;
 }
-
-/**
- * Derived verdict for whether a gateway's running version is behind the
- * provisioning version its cluster advertises (WEB-VER-03/WEB-VER-04). `"behind"` fires
- * the neutral newer-version-available indicator; `"none"` suppresses it. The
- * verdict is computed once in the application layer and consumed, not
- * recomputed, by React components.
- */
-export type GatewayVersionDrift = "behind" | "none";
 
 export interface GatewayPlacement {
   id: string;
   name: string;
-  provider: string;
-  region?: string;
   status?: string;
 }
 
@@ -79,6 +56,11 @@ export interface GatewayListRequest {
   size: number;
   sortDirection: GatewaySortDirection;
   sortField: GatewaySortField;
+  // onlyMine restricts the list to gateways the signed-in user owns. The server
+  // applies it before pagination against the authoritative owner bindings
+  // (WEB-UIEX-07); the console never filters an already-paginated page. Optional
+  // so existing callers default to the full authorized list (off).
+  onlyMine?: boolean;
 }
 
 export const gatewayListPageSizes = [10, 20, 50, 100] as const;
@@ -88,8 +70,11 @@ export const defaultGatewayListRequest: Readonly<GatewayListRequest> =
     page: 1,
     search: "",
     size: gatewayListPageSizes[1],
-    sortDirection: "asc",
-    sortField: "name",
+    // Default to newest-first ordering: creation time descending. The API
+    // applies a stable identifier tiebreak before pagination (WEB-ARCH-02).
+    sortDirection: "desc",
+    sortField: "created",
+    onlyMine: false,
   });
 
 export interface GatewayPage<T> {
@@ -97,6 +82,12 @@ export interface GatewayPage<T> {
   page: number;
   size: number;
   total: number;
+  // hasOtherOwnedGateways reports whether the caller's full authorized list
+  // contains at least one gateway owned by someone else, so the UI can decide
+  // whether to show the "Show only my gateways" switch (WEB-UIEX-07,
+  // WEB-API-01). It reflects the authorized set only (SEC-RBAC-10). Optional so
+  // existing page consumers default to hiding the switch.
+  hasOtherOwnedGateways?: boolean;
 }
 
 export interface GatewayInvocationContext {
@@ -213,6 +204,11 @@ export interface OpenShellGatewayServiceAccountCreateInput {
   role: OpenShellGatewayServiceAccountRole;
 }
 
+export interface OpenShellGatewayServiceAccountRoleUpdateInput {
+  description?: string;
+  role: OpenShellGatewayServiceAccountRole;
+}
+
 export type OpenShellGatewayServiceAccountSortField =
   "created_at" | "expires_at" | "name" | "role" | "status";
 
@@ -303,7 +299,8 @@ export const defaultGatewayAccessListRequest: Readonly<GatewayAccessListRequest>
 export type GatewayFailureKind =
   "cancelled" | "conflict" | "denied" | "not-found" | "unavailable" | "unknown";
 
-export type GatewayFailureCode = "service-account-name-exists";
+export type GatewayFailureCode =
+  "role-not-allowed" | "service-account-name-exists";
 
 export class GatewayOperationError extends Error {
   readonly code?: GatewayFailureCode;
@@ -415,6 +412,12 @@ export interface GatewayControlPlane {
     serviceAccountId: string,
     context: GatewayInvocationContext,
   ): Promise<OpenShellGatewayServiceAccountRecord>;
+  updateOpenShellGatewayServiceAccountRole(
+    gatewayId: string,
+    serviceAccountId: string,
+    input: OpenShellGatewayServiceAccountRoleUpdateInput,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
 }
 
 /** Driving entry port used by the Gateway UI presentation adapters. */
@@ -499,6 +502,12 @@ export interface GatewayOperations {
   revokeOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
+  updateOpenShellGatewayServiceAccountRole(
+    gatewayId: string,
+    serviceAccountId: string,
+    input: OpenShellGatewayServiceAccountRoleUpdateInput,
     signal?: AbortSignal,
   ): Promise<OpenShellGatewayServiceAccountRecord>;
 }

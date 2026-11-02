@@ -9,7 +9,6 @@ import {
   SyncAltIcon,
   TachometerAltIcon,
 } from "@patternfly/react-icons";
-import { MockupShell } from "../shell/mockup-template";
 import {
   DashboardSummaryList,
   DashboardSparkline,
@@ -25,7 +24,7 @@ import {
 const reliabilityLayout: ExtendedTemplateConfig = {
   xl: [
     {
-      h: 4,
+      h: 6,
       i: "reliability-summary#1",
       title: "Reliability summary",
       w: 3,
@@ -39,7 +38,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API request rate",
       w: 1,
       x: 0,
-      y: 4,
+      y: 6,
       widgetType: "api-request-rate",
     },
     {
@@ -48,7 +47,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API error rate",
       w: 1,
       x: 1,
-      y: 4,
+      y: 6,
       widgetType: "api-error-rate",
     },
     {
@@ -57,8 +56,35 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "API latency",
       w: 1,
       x: 2,
-      y: 4,
+      y: 6,
       widgetType: "api-latency",
+    },
+    {
+      h: 5,
+      i: "api-p95-latency#1",
+      title: "API p95 latency",
+      w: 1,
+      x: 0,
+      y: 11,
+      widgetType: "api-p95-latency",
+    },
+    {
+      h: 5,
+      i: "oidc-client-sync#1",
+      title: "OIDC client sync",
+      w: 1,
+      x: 1,
+      y: 11,
+      widgetType: "oidc-client-sync",
+    },
+    {
+      h: 5,
+      i: "state-accuracy#1",
+      title: "State accuracy",
+      w: 1,
+      x: 2,
+      y: 11,
+      widgetType: "state-accuracy",
     },
     {
       h: 5,
@@ -66,7 +92,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation failures",
       w: 1,
       x: 0,
-      y: 9,
+      y: 16,
       widgetType: "reconciliation-failures",
     },
     {
@@ -75,7 +101,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation retries",
       w: 1,
       x: 1,
-      y: 9,
+      y: 16,
       widgetType: "reconciliation-retries",
     },
     {
@@ -84,7 +110,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Reconciliation lag",
       w: 1,
       x: 2,
-      y: 9,
+      y: 16,
       widgetType: "reconciliation-lag",
     },
     {
@@ -93,7 +119,7 @@ const reliabilityLayout: ExtendedTemplateConfig = {
       title: "Stale resource status",
       w: 1,
       x: 0,
-      y: 14,
+      y: 21,
       widgetType: "stale-resource-status-count",
     },
   ],
@@ -105,10 +131,10 @@ reliabilityLayout.lg = reliabilityLayout.xl;
 reliabilityLayout.md = reliabilityLayout.xl;
 reliabilityLayout.sm = reliabilityLayout.xl.map((item, index) => ({
   ...item,
-  h: 5,
+  h: index === 0 ? 8 : item.h,
   w: 1,
   x: 0,
-  y: index * 5,
+  y: index === 0 ? 0 : 8 + 5 * (index - 1),
 }));
 
 const textStyle = { fontSize: 11 };
@@ -155,6 +181,11 @@ function ReliabilitySummary({
               trend: { direction: "up", tone: "positive" },
               value: "0.084 sec",
             },
+            {
+              label: "API p95 latency",
+              trend: { direction: "up", tone: "positive" },
+              value: "0.142 sec",
+            },
           ]}
         />
         <DashboardSummaryList
@@ -172,6 +203,16 @@ function ReliabilitySummary({
               label: "Stale resource status",
               trend: { direction: "up", tone: "positive" },
               value: "22 count",
+            },
+            {
+              label: "OIDC client sync",
+              trend: { direction: "up", tone: "positive" },
+              value: "97.6%",
+            },
+            {
+              label: "State accuracy",
+              trend: { direction: "up", tone: "positive" },
+              value: "94.2%",
             },
           ]}
         />
@@ -309,14 +350,19 @@ function ReconciliationRetries({
 export function ReliabilityDashboardPageSurface() {
   return (
     <>
-      <PageSection data-page-region="header" hasBodyWrapper={false}>
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
         <Content>
           <Title headingLevel="h1" size="2xl">
             Reliability
           </Title>
           <p>
-            API request rate, 5xx error rate, and median latency with 24-hour
-            trends. Metrics refresh every 15 minutes.
+            API request rate, 5xx error rate, median latency, API p95 latency,
+            OIDC client sync, and state accuracy with 24-hour hourly trends.
+            Metrics refresh every 15 minutes.
           </p>
         </Content>
       </PageSection>
@@ -386,6 +432,44 @@ export function ReliabilityDashboardPageSurface() {
               value="0.084 sec"
               description="The current API latency is the median response time for API requests over the last 5 minutes."
             />
+            <MetricWidget
+              adminOnly
+              icon={<OutlinedClockIcon />}
+              title="API p95 latency"
+              value="0.142 sec"
+              description="The current API p95 latency is the 95th-percentile response time for API requests over the last 5 minutes. Target: 0.500 sec."
+            />
+            <DashboardWidget
+              adminOnly
+              icon={<CheckCircleIcon />}
+              title="OIDC client sync"
+            >
+              <DashboardSummaryList
+                gap={8}
+                items={[
+                  { label: "Accuracy", value: "97.6%" },
+                  { label: "Synced clients", value: "41 / 42" },
+                  { label: "Expected clients", value: "42" },
+                  { label: "Keycloak status", value: "Connected" },
+                ]}
+                footnote="Shows Unknown when expected clients or Keycloak status can't be determined."
+              />
+            </DashboardWidget>
+            <DashboardWidget
+              adminOnly
+              icon={<TachometerAltIcon />}
+              title="State accuracy"
+            >
+              <DashboardSummaryList
+                gap={8}
+                items={[
+                  { label: "Accuracy", value: "94.2%" },
+                  { label: "Observed matching desired", value: "290 / 312" },
+                  { label: "Stale resources", value: "22" },
+                ]}
+                footnote="The raw stale-resource count remains visible on the Stale resource status widget."
+              />
+            </DashboardWidget>
             <ReconciliationFailures
               adminOnly
               icon={<ExclamationCircleIcon />}
@@ -417,10 +501,4 @@ export function ReliabilityDashboardPageSurface() {
   );
 }
 
-export function ReliabilityDashboardMockup() {
-  return (
-    <MockupShell>
-      <ReliabilityDashboardPageSurface />
-    </MockupShell>
-  );
-}
+export { ReliabilityDashboardMockup } from "./reliability-dashboard-mockup";

@@ -10,6 +10,8 @@ The HyperShell control plane is a Go service that watches the API server via gRP
 
 Every control plane is a registered spoke of exactly one hub. There is one control plane per managed cluster, it runs inside that cluster, and it reconciles only the gateways assigned to its own `cluster_id`. The control plane co-located with the hub API server is not special: it registers, filters, and dials the hub exactly like a control plane on a remote cluster.
 
+The reconcilers specified here refine the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-01 through STD-RCON-11, with the STD-RCON-12 exception mechanism and the STD-RCON-13 review rule), which is the single normative behavior contract for every reconciler. This spec refines that contract and does not weaken it; the one recorded exception is the `RepositoryReconciler` import loop (CTRL-CORE-06), noted in the contract under STD-RCON-12.
+
 ## Architecture
 
 ```
@@ -51,7 +53,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) | Core provisioning: GatewayReconciler, manifest templating, deployment resources, RBAC, OpenShift adjustments |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning from the mounted admin credential Secret (admin TLS `verify-full`, gateway `require`), credential security, cleanup |
 | [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
-| [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
+| [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy) |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
 
@@ -84,7 +86,7 @@ The registration endpoint is idempotent; the returned `cluster_id` is stable acr
 restarts. The control plane SHALL use this `cluster_id` as the cluster filter for
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
-reconciler, the instance-label backfill, the orphaned-namespace garbage collector
+reconciler, the orphaned-namespace garbage collector
 (`openshell-gateway-namespace-gc.spec.md`), and the RoleBinding-to-Keycloak role sync.
 None of these SHALL ever run without the filter. The control plane SHALL open the
 `WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;
@@ -803,6 +805,48 @@ The import writer SHALL:
 - WHEN the import reconciles that Gateway again with no other field changed
 - THEN the writer SHALL NOT treat the server-assigned `cluster_id` as drift and SHALL make no create or update write
 
+### Requirement: CTRL-CORE-15 -- Import Omits Platform-Managed Gateway Fields
+
+The declarative `.hypershell` import is a NON-privileged writer of Gateway desired
+state: an import write authenticates as the control plane but carries user-authored git
+content. For Gateway field policy it is therefore treated exactly like a direct user and
+is restricted to `name` + placement, per
+[`data-model.spec.md`](./data-model.spec.md) ("Requirement: Gateway Field Ownership and
+Write Policy", PLAT-DATA-23) and
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) ("Requirement:
+Gateway Field Write Policy", SEC-RBAC-18).
+
+When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
+
+- Send ONLY `name` and placement (the `cluster_id` or `placement` mapping of
+  CTRL-CORE-14) in the gRPC create. It SHALL NOT send any platform-managed field
+  (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
+  `service_type`, `external_dns`, `credential_driver`, `dev_build`,
+  `dev_build_metadata`), so an imported Gateway carries the same writable surface as a
+  direct user create.
+- Validate the rendered manifest BEFORE writing: when a `.hypershell` Gateway manifest
+  declares any platform-managed field, the writer SHALL fail the import of that Gateway
+  with a clear error that names the field ("field `<x>` is platform-managed and cannot
+  be declared in a `.hypershell` Gateway manifest"), rather than silently dropping it.
+  This surfaces the git author's mistake early; the server-side rejection (SEC-RBAC-18)
+  is the authoritative backstop even if the writer is bypassed. The error SHALL be
+  collected like any other per-resource import error and SHALL NOT abort the rest of
+  the import.
+
+#### Scenario: CTRL-CORE-15.01 -- Manifest declaring a platform-managed field fails the import
+
+- GIVEN a `.hypershell` Gateway manifest that declares `image` (or `oidc`, `route`, `tls_mode`, etc.)
+- WHEN the import writer reconciles that Gateway
+- THEN it SHALL fail that Gateway's import with an error naming the platform-managed field
+- AND SHALL NOT send a create or update that carries the field
+- AND the error SHALL be collected so the rest of the import still runs
+
+#### Scenario: CTRL-CORE-15.02 -- A valid import sends only name and placement
+
+- GIVEN a `.hypershell` Gateway manifest that declares only `name` and a `placement` selector
+- WHEN the import writer creates the Gateway
+- THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
+
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
 A watch stream SHALL NOT be trusted to stay healthy merely because it has not
@@ -1002,7 +1046,7 @@ A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-mode
   - A per-gateway PostgreSQL database and role on the gateway database server (admin credentials read from the mounted Secret) and the tenant credentials Secret - see [database spec](./openshell-gateway-database.spec.md)
   - cert-manager Issuer and Certificate resources for TLS - see [TLS spec](./openshell-gateway-tls.spec.md)
   - JWT key generation Job (`openshell-gateway-certgen`)
-  - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
+  - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap
   - GRPCRoute and BackendTLSPolicy (when `route` field is set) - see [routing spec](./openshell-gateway-routing.spec.md)
   - OIDC configuration in gateway.toml (when `oidc.issuer` is set) - see [OIDC spec](./openshell-gateway-oidc.spec.md)
 - AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)

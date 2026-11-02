@@ -172,6 +172,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 
 	var gotCounts gateway.AttentionCounts
 	published := false
+	readinessUnavailable := false
 	r := &SandboxAttentionReconciler{
 		interval:  time.Minute,
 		clusterID: "cluster-a",
@@ -193,6 +194,9 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 			published = true
 			gotCounts = counts
 		},
+		publishReadinessUnavailable: func(context.Context) {
+			readinessUnavailable = true
+		},
 	}
 
 	r.reconcileOnce(context.Background())
@@ -200,9 +204,61 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	if !published {
 		t.Fatal("expected publish despite Sandbox CR list failure")
 	}
+	if !readinessUnavailable {
+		t.Fatal("expected readiness source to be marked unavailable after Sandbox CR list failure")
+	}
 	want := gateway.AttentionCounts{Orphaned: 1, Expiring: 0, Idle: 0}
 	if gotCounts != want {
 		t.Fatalf("counts = %+v, want %+v (expiring/idle must stay zero without CRs)", gotCounts, want)
+	}
+}
+
+func TestSandboxAttentionCertificateFailureClearsSourceAvailability(t *testing.T) {
+	instance := "hypershell-system"
+	managedNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "openshell-one",
+		Labels: map[string]string{
+			gateway.ManagedLabel:   gateway.ManagedLabelValue,
+			gateway.ManagedByLabel: gateway.ManagedByValue,
+			gateway.InstanceLabel:  instance,
+		},
+	}}
+	fail := false
+	availablePublications := 0
+	unavailablePublications := 0
+	r := &SandboxAttentionReconciler{
+		clusterID: "cluster-a",
+		instance:  instance,
+		now:       time.Now,
+		listNamespaces: func(context.Context) ([]*corev1.Namespace, error) {
+			return []*corev1.Namespace{managedNS}, nil
+		},
+		listPods:      func(context.Context) ([]*corev1.Pod, error) { return nil, nil },
+		listSandboxes: func(context.Context) ([]*unstructured.Unstructured, error) { return nil, nil },
+		listCertificates: func(context.Context, map[string]struct{}) ([][]byte, error) {
+			if fail {
+				return nil, context.DeadlineExceeded
+			}
+			return [][]byte{[]byte("not a certificate")}, nil
+		},
+		publishCertificates: func(context.Context, certificateHealth) {
+			availablePublications++
+		},
+		publishCertificatesUnavailable: func(context.Context) {
+			unavailablePublications++
+		},
+		liveNamespaces: func(context.Context) (map[string]struct{}, error) {
+			return map[string]struct{}{}, nil
+		},
+		publish: func(context.Context, gateway.AttentionCounts) {},
+	}
+
+	r.reconcileOnce(context.Background())
+	fail = true
+	r.reconcileOnce(context.Background())
+
+	if availablePublications != 1 || unavailablePublications != 1 {
+		t.Fatalf("certificate publications = available %d, unavailable %d; want 1 then 1", availablePublications, unavailablePublications)
 	}
 }
 
@@ -210,6 +266,8 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	var gotCounts gateway.AttentionCounts
 	published := false
+	readinessUnavailable := false
+	certificatesUnavailable := false
 	r := &SandboxAttentionReconciler{
 		interval:  time.Minute,
 		clusterID: "cluster-a",
@@ -225,6 +283,12 @@ func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 			published = true
 			gotCounts = counts
 		},
+		publishReadinessUnavailable: func(context.Context) {
+			readinessUnavailable = true
+		},
+		publishCertificatesUnavailable: func(context.Context) {
+			certificatesUnavailable = true
+		},
 	}
 
 	r.reconcileOnce(context.Background())
@@ -234,6 +298,9 @@ func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	}
 	if gotCounts != (gateway.AttentionCounts{}) {
 		t.Fatalf("counts = %+v, want zeros", gotCounts)
+	}
+	if !readinessUnavailable || !certificatesUnavailable {
+		t.Fatalf("source availability = readiness %t, certificates %t; want both unavailable", readinessUnavailable, certificatesUnavailable)
 	}
 }
 
@@ -339,5 +406,28 @@ func TestSandboxAttentionReconcilerRecordsUsageMetrics(t *testing.T) {
 	}
 	if len(gotLifetimes) != 1 || gotLifetimes[0] != 3*time.Hour {
 		t.Fatalf("lifetimes = %v, want one 3h lifetime", gotLifetimes)
+	}
+}
+
+func TestRecordUsageClearsDepartedNamespaceSeries(t *testing.T) {
+	var publications []map[string]int
+	r := &SandboxAttentionReconciler{
+		now: time.Now,
+		publishUsage: func(_ context.Context, counts map[string]int) {
+			copy := make(map[string]int, len(counts))
+			for namespace, count := range counts {
+				copy[namespace] = count
+			}
+			publications = append(publications, copy)
+		},
+	}
+	r.recordUsage(context.Background(), map[string]struct{}{"openshell-live": {}}, nil, nil, false)
+	r.recordUsage(context.Background(), map[string]struct{}{}, nil, nil, false)
+
+	if len(publications) != 2 {
+		t.Fatalf("publications = %d, want 2", len(publications))
+	}
+	if got := publications[1]["openshell-live"]; got != 0 {
+		t.Fatalf("departed namespace total = %d, want 0", got)
 	}
 }

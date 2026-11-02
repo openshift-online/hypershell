@@ -8,6 +8,7 @@ https://github.com/jsell-rh/rh-trex-ai/blob/main/scripts/check-dependency-age.py
 import argparse
 import concurrent.futures
 import datetime as dt
+import gzip
 import json
 import os
 import re
@@ -29,7 +30,11 @@ EXACT_NPM_VERSION_RE = re.compile(
 )
 ALLOWLIST_PATH = "dependency-age-allowlist.json"
 TOOLS_PATH = "dependency-age-tools.json"
-EXCLUDED_PARTS = {".claude", ".git", "generated", "node_modules", "tmp", "vendor"}
+# "prefetch" holds isolated, npm-managed bootstrap manifests (prefetch/pnpm) used
+# to install build tools hermetically via `npm ci`; they are intentionally not
+# pnpm workspace members and carry their own package-lock.json, so they are
+# excluded from the pnpm-workspace and package-lock checks below.
+EXCLUDED_PARTS = {".claude", ".git", "generated", "node_modules", "prefetch", "third_party", "tmp", "vendor"}
 
 
 def parse_time(value):
@@ -60,11 +65,15 @@ def fetch_json(url):
 
 
 def _fetch_body(url):
+    # Ask for a compressed response. A full npm packument can be over 10 MB
+    # uncompressed but about 1.5 MB gzipped, which keeps a slow CI runner
+    # inside the --max-time limit.
     if shutil.which("curl"):
         result = subprocess.run(
             [
                 "curl",
                 "-fsSL",
+                "--compressed",
                 "--proto",
                 "=https",
                 "--tlsv1.2",
@@ -85,9 +94,14 @@ def _fetch_body(url):
             stderr=subprocess.PIPE,
         )
         return result.stdout
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "Accept-Encoding": "gzip"}
+    )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read().decode("utf-8")
+        body = response.read()
+        if response.headers.get("Content-Encoding", "").lower() == "gzip":
+            body = gzip.decompress(body)
+        return body.decode("utf-8")
 
 
 def repository_files(root, pattern):

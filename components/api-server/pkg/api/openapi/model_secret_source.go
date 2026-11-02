@@ -33,7 +33,7 @@ type SecretSource struct {
 	Purpose string `json:"purpose"`
 	// Secret backend type (vault, aws-secrets-manager, kubernetes)
 	Backend string `json:"backend"`
-	// Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to.
+	// Logical, mount-relative path to the secret in the backend. Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name}; a client-supplied path is ignored, and the field cannot be changed on update. When a value is submitted the path is the location the value was written to.
 	Path *string `json:"path,omitempty"`
 	// JSON-encoded mapping of backend secret keys to environment variable names
 	KeyMappings *string `json:"key_mappings,omitempty"`

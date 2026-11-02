@@ -2,3 +2,11 @@ version: "2"
 linters:
   disable:
     - errcheck
+  exclusions:
+    rules:
+      # The pinned TRex generator emits this equivalent HTTPS check. Keep
+      # generated source intact; suppress only its De Morgan style suggestion.
+      - path: ^pkg/oidc/oidc\.go$
+        linters:
+          - staticcheck
+        text: 'QF1001: could apply De Morgan'

@@ -218,13 +218,177 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/ext/ci_providers:#/schemas/CIProvider",
+      "kind": "collection",
+      "schemaRef": "#/schemas/CIProvider",
+      "label": "CIProvider",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "audience",
+          "label": "AUDIENCE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "forge",
+          "label": "FORGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "issuer",
+          "label": "ISSUER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "jwks_url",
+          "label": "JWKS URL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "createCIProvider",
+        "listCIProviders"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listCIProviders",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/ci_trusts:#/schemas/CITrust",
+      "kind": "collection",
+      "schemaRef": "#/schemas/CITrust",
+      "label": "CITrust",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "ci_provider_id",
+          "label": "CI PROVIDER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "createCITrust",
+        "listCITrusts"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listCITrusts",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/ext/inference_routes:#/schemas/InferenceRoute",
       "kind": "collection",
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -757,8 +921,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -1101,6 +1271,121 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role:#/schemas/OpenShellGatewayServiceAccountListItem",
+      "kind": "collection",
+      "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
+      "label": "OpenShellGatewayServiceAccountListItem",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "client_id",
+          "label": "CLIENT ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "created_by_user_id",
+          "label": "CREATED BY USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "credential_type",
+          "label": "CREDENTIAL TYPE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "description",
+          "label": "DESCRIPTION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "expires_at",
+          "label": "EXPIRES AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "last_error",
+          "label": "LAST ERROR",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "revoked_at",
+          "label": "REVOKED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id",
+        "service_account_id"
+      ],
+      "operationIds": [
+        "updateGatewayServiceAccountRole"
+      ],
+      "capabilities": [
+        "create"
+      ],
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "collection",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -1282,6 +1567,12 @@
           "type": "string"
         },
         {
+          "property": "dedicated_route",
+          "label": "DEDICATED ROUTE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -1319,12 +1610,6 @@
           "type": "string"
         },
         {
-          "property": "image_pinned",
-          "label": "IMAGE PINNED",
-          "priority": 0,
-          "type": "boolean"
-        },
-        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -1352,12 +1637,6 @@
         {
           "property": "phase",
           "label": "PHASE",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "provisioning_version",
-          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },
@@ -1409,6 +1688,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -1509,18 +1794,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -1532,12 +1805,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -2025,13 +2292,181 @@
       "source": {}
     },
     {
+      "id": "item:/api/hypershell/ext/ci_providers/{id}:#/schemas/CIProvider",
+      "kind": "item",
+      "schemaRef": "#/schemas/CIProvider",
+      "label": "CIProvider",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "audience",
+          "label": "AUDIENCE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "forge",
+          "label": "FORGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "issuer",
+          "label": "ISSUER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "jwks_url",
+          "label": "JWKS URL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "deleteCIProvider",
+        "getCIProvider",
+        "updateCIProvider"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getCIProvider",
+      "source": {}
+    },
+    {
+      "id": "item:/api/hypershell/ext/ci_trusts/{id}:#/schemas/CITrust",
+      "kind": "item",
+      "schemaRef": "#/schemas/CITrust",
+      "label": "CITrust",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "ci_provider_id",
+          "label": "CI PROVIDER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        }
+      ],
+      "operationIds": [
+        "deleteCITrust",
+        "getCITrust",
+        "updateCITrust"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getCITrust",
+      "source": {}
+    },
+    {
       "id": "item:/api/hypershell/ext/inference_routes/{id}:#/schemas/InferenceRoute",
       "kind": "item",
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -2574,8 +3009,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -2886,6 +3327,12 @@
           "type": "string"
         },
         {
+          "property": "dedicated_route",
+          "label": "DEDICATED ROUTE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -2923,12 +3370,6 @@
           "type": "string"
         },
         {
-          "property": "image_pinned",
-          "label": "IMAGE PINNED",
-          "priority": 0,
-          "type": "boolean"
-        },
-        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -2956,12 +3397,6 @@
         {
           "property": "phase",
           "label": "PHASE",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "provisioning_version",
-          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },
@@ -3013,6 +3448,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -3093,18 +3534,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -3116,12 +3545,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -3675,6 +4098,213 @@
       "presentation": {}
     },
     {
+      "id": "createCIProvider",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_providers"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "audience",
+            "type": "string",
+            "required": true,
+            "description": "The platform-pinned audience every federated CI token must carry"
+          },
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "forge",
+            "type": "string",
+            "required": true,
+            "description": "The forge family: github, gitlab, or forgejo",
+            "enum": [
+              "github",
+              "gitlab",
+              "forgejo"
+            ]
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "issuer",
+            "type": "string",
+            "required": true,
+            "description": "The OIDC issuer URL whose tokens this provider validates"
+          },
+          {
+            "name": "jwks_url",
+            "type": "string",
+            "required": true,
+            "description": "The JWKS endpoint used for signature validation"
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to the forge when not supplied. Used by hsctl apply to resolve an existing record via search=name = '\u003cname\u003e'."
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Register a new CI OIDC provider",
+      "presentation": {}
+    },
+    {
+      "id": "createCITrust",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_trusts"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "ci_provider_id",
+            "type": "string",
+            "required": true,
+            "description": "Reference to the CIProvider whose issuer is trusted"
+          },
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "gateway_id",
+            "type": "string",
+            "required": true,
+            "description": "Reference to the Gateway this CI may operate"
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from ci_provider_id/gateway_id/role when not supplied."
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "description": "The gateway role granted to the federated CI session"
+          },
+          {
+            "name": "subject",
+            "type": "object",
+            "required": true,
+            "description": "Forge-discriminated claim matcher; only tokens whose claims match are accepted"
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Create a CI trust linking a CI provider to a gateway",
+      "presentation": {}
+    },
+    {
       "id": "createGateway",
       "method": "POST",
       "pathParts": [
@@ -3693,21 +4323,10 @@
             "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement."
           },
           {
-            "name": "credential_driver",
-            "type": "string",
+            "name": "dedicated_route",
+            "type": "boolean",
             "required": false,
-            "description": "JSON-encoded credential storage driver configuration"
-          },
-          {
-            "name": "external_dns",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "image",
-            "type": "string",
-            "required": false,
-            "description": "Container image for the gateway deployment"
+            "description": "Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided."
           },
           {
             "name": "name",
@@ -3715,54 +4334,10 @@
             "required": true
           },
           {
-            "name": "oidc",
-            "type": "string",
-            "required": false,
-            "description": "JSON-encoded OIDC authentication configuration"
-          },
-          {
-            "name": "phase",
-            "type": "string",
-            "required": false
-          },
-          {
             "name": "placement",
             "type": "object",
             "required": false,
             "description": "Exactly one of selector or mode must be supplied."
-          },
-          {
-            "name": "route",
-            "type": "string",
-            "required": false,
-            "description": "JSON-encoded route configuration"
-          },
-          {
-            "name": "server_dns_names",
-            "type": "array",
-            "required": false,
-            "description": "DNS names for TLS certificate SANs"
-          },
-          {
-            "name": "service_type",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "status",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "supervisor_image",
-            "type": "string",
-            "required": false,
-            "description": "Container image for the supervisor sidecar"
-          },
-          {
-            "name": "tls_mode",
-            "type": "string",
-            "required": false
           }
         ]
       },
@@ -3931,6 +4506,12 @@
             "description": "Model alias for LLM inference within the agent workspace"
           },
           {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied."
+          },
+          {
             "name": "provider_binding_id",
             "type": "string",
             "required": true
@@ -4025,17 +4606,6 @@
             "name": "name",
             "type": "string",
             "required": true
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": true,
-            "description": "Cloud provider capability used for gateway placement."
-          },
-          {
-            "name": "region",
-            "type": "string",
-            "required": false
           },
           {
             "name": "status",
@@ -4630,7 +5200,7 @@
             "name": "path",
             "type": "string",
             "required": false,
-            "description": "Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to."
+            "description": "Logical, mount-relative path to the secret in the backend. Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name}; a client-supplied path is ignored, and the field cannot be changed on update. When a value is submitted the path is the location the value was written to."
           },
           {
             "name": "purpose",
@@ -4715,6 +5285,12 @@
             "name": "kind",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/subject when not supplied."
           },
           {
             "name": "role",
@@ -4883,6 +5459,118 @@
         "confirmation": {
           "title": "Delete",
           "message": "Delete an agent workspace?",
+          "destructive": true
+        }
+      }
+    },
+    {
+      "id": "deleteCIProvider",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_providers/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a CI provider",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a CI provider?",
+          "destructive": true
+        }
+      }
+    },
+    {
+      "id": "deleteCITrust",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_trusts/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a CI trust",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a CI trust?",
           "destructive": true
         }
       }
@@ -5623,6 +6311,110 @@
         "get"
       ],
       "summary": "Get an agent workspace by ID",
+      "presentation": {}
+    },
+    {
+      "id": "getCIProvider",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_providers/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a CI provider by ID",
+      "presentation": {}
+    },
+    {
+      "id": "getCITrust",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_trusts/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a CI trust by ID",
       "presentation": {}
     },
     {
@@ -6662,6 +7454,182 @@
       "presentation": {}
     },
     {
+      "id": "listCIProviders",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_providers"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of CI providers",
+      "presentation": {}
+    },
+    {
+      "id": "listCITrusts",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_trusts"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of CI trusts",
+      "presentation": {}
+    },
+    {
       "id": "listGatewayAccess",
       "method": "GET",
       "pathParts": [
@@ -7016,7 +7984,7 @@
           "style": "form",
           "explode": true,
           "type": "string",
-          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nno explicit ordering will be applied."
+          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nthe gateway list defaults to newest-first ordering: creation time\ndescending with a stable secondary order by gateway identifier,\napplied before pagination so the first page holds the newest\naccessible gateways overall and equal creation timestamps are\ndeterministic across pages."
         },
         {
           "name": "fields",
@@ -7026,6 +7994,15 @@
           "explode": true,
           "type": "string",
           "description": "Supplies a comma-separated list of fields to be returned.\nFields of sub-structures and of arrays use \u003cstructure\u003e.\u003cfield\u003e notation.\n\u003cstucture\u003e.* means all field of a structure\nExample: For each Subscription to get id, href, plan(id and kind) and labels (all fields)\n\n```\ncurl '/api/v1/subscriptions?fields=id,href,plan.id,plan.kind,labels.*\u0026fetchLabels=true'\n```"
+        },
+        {
+          "name": "mine",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "boolean",
+          "description": "When `true`, restricts the list to gateways the authenticated caller\nowns (the caller holds `gateway:owner`), matched by the caller's stable\nidentity against the authoritative owner bindings rather than a display\nname. The filter is applied before pagination, so the returned items,\ntotal, and page count reflect the filtered set, and it composes with\nthe search query and ordering. It operates only over the caller's\nauthorized gateways and never discloses gateways the caller is not\nauthorized to see (see `has_other_owned_gateways` and SEC-RBAC-10)."
         }
       ],
       "response": {
@@ -8042,8 +9019,8 @@
           {
             "name": "capabilities",
             "type": "array",
-            "required": false,
-            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
+            "required": true,
+            "description": "Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400."
           },
           {
             "name": "name",
@@ -8469,6 +9446,157 @@
       "presentation": {}
     },
     {
+      "id": "updateCIProvider",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_providers/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "audience",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "forge",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "github",
+              "gitlab",
+              "forgejo"
+            ]
+          },
+          {
+            "name": "issuer",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "jwks_url",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a CI provider",
+      "presentation": {}
+    },
+    {
+      "id": "updateCITrust",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/ci_trusts/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "subject",
+            "type": "object",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a CI trust",
+      "presentation": {}
+    },
+    {
       "id": "updateGateway",
       "method": "PATCH",
       "pathParts": [
@@ -8495,72 +9623,7 @@
         "contentType": "application/json",
         "fields": [
           {
-            "name": "cluster_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "credential_driver",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "external_dns",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "image",
-            "type": "string",
-            "required": false
-          },
-          {
             "name": "name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "oidc",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "phase",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "route",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "route_address",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "server_dns_names",
-            "type": "array",
-            "required": false
-          },
-          {
-            "name": "service_type",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "status",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "supervisor_image",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "tls_mode",
             "type": "string",
             "required": false
           }
@@ -8594,6 +9657,97 @@
         "update"
       ],
       "summary": "Update an gateway",
+      "presentation": {}
+    },
+    {
+      "id": "updateGatewayServiceAccountRole",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/service_accounts/"
+        },
+        {
+          "parameter": "service_account_id"
+        },
+        {
+          "literal": "/role"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "service_account_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "OpenShellGatewayServiceAccount ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "description",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "openshell-user",
+              "openshell-admin"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200",
+        "202"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Change an OpenShell gateway service account's role",
       "presentation": {}
     },
     {
@@ -8634,16 +9788,6 @@
           },
           {
             "name": "name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "region",
             "type": "string",
             "required": false
           },
@@ -9025,7 +10169,8 @@
           {
             "name": "path",
             "type": "string",
-            "required": false
+            "required": false,
+            "description": "Ignored. The path is derived server-side on create and cannot be re-pointed."
           },
           {
             "name": "purpose",
@@ -9157,6 +10302,40 @@
       "targetViewId": "item:/api/hypershell/ext/agent_workspaces/{id}:#/schemas/AgentWorkspace",
       "sourceOperationId": "listAgentWorkspaces",
       "targetOperationId": "getAgentWorkspace",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "collection:/api/hypershell/ext/ci_providers:#/schemas/CIProvider-\u003eitem:/api/hypershell/ext/ci_providers/{id}:#/schemas/CIProvider:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/ci_providers:#/schemas/CIProvider",
+      "targetViewId": "item:/api/hypershell/ext/ci_providers/{id}:#/schemas/CIProvider",
+      "sourceOperationId": "listCIProviders",
+      "targetOperationId": "getCIProvider",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "collection:/api/hypershell/ext/ci_trusts:#/schemas/CITrust-\u003eitem:/api/hypershell/ext/ci_trusts/{id}:#/schemas/CITrust:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/ci_trusts:#/schemas/CITrust",
+      "targetViewId": "item:/api/hypershell/ext/ci_trusts/{id}:#/schemas/CITrust",
+      "sourceOperationId": "listCITrusts",
+      "targetOperationId": "getCITrust",
       "provenance": "collection-item",
       "bindings": [
         {

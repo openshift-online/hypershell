@@ -217,6 +217,130 @@ func TestSDLCMatrix(t *testing.T) {
 	}
 }
 
+// TestSDLCMatrixGitOpsGroup confirms the matrix carries each released bundle's GitOps
+// deployment group straight from the shared bundle enrichment (SDLC-VIS-25): a set
+// GitOpsStatus and GitOpsPRs are forwarded with repository and environment identity
+// preserved, a GitOps pull request whose number collides with an application pull
+// request stays a distinct item kept out of the application grouping, and a bundle
+// whose enrichment never attempted the group (GitOpsStatus == "") carries no GitOps
+// group so the UI renders no deployment section.
+// Verifies: SDLC-VIS-25.01, SDLC-VIS-25.03, SDLC-VIS-25.04
+func TestSDLCMatrixGitOpsGroup(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	// rel1: GitOps available with a deployment PR #42 that collides with application PR
+	// #42 (grouped under tracked issue #501) and carries environment attribution.
+	rel1 := &Release{
+		Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z",
+		PRs: []PR{{Number: 42, Title: "app change", MergedAt: "2026-08-31T00:00:00Z"}},
+		GitOpsPRs: []PR{{
+			Number: 42, Title: "bump lock", URL: "https://example.test/gitops/pull/42",
+			Author: "promoter", MergedAt: "2026-08-30T00:00:00Z",
+			Repository: "acme/gitops-delivery", Environments: []string{"prod"},
+		}},
+		GitOpsStatus: gitOpsAvailable,
+	}
+	// rel2: enrichment never attempted the GitOps group (legacy / feature off).
+	rel2 := &Release{
+		Version: "v2", Digest: "d2", Date: "2026-09-15T00:00:00Z",
+		PRs: []PR{{Number: 77, Title: "another app change", MergedAt: "2026-09-14T00:00:00Z"}},
+	}
+	promo := PromotionPayload{
+		Order: []string{"env-a"},
+		Environments: map[string]Environment{
+			"env-a": {Active: rel2, Cluster: "cluster-a", Env: "prod"},
+		},
+		Releases: map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		{Number: 501, Title: "tracked by app #42", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-25T00:00:00Z"},
+	}
+	issues := fakeIssues{m: map[int][]int{501: {42}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	byVersion := map[string]SDLCBundleRow{}
+	for _, row := range p.Matrix.Rows {
+		byVersion[row.Version] = row
+	}
+
+	// rel1 forwards the GitOps group with identity and attribution intact.
+	v1 := byVersion["v1"]
+	if v1.GitOpsStatus != gitOpsAvailable {
+		t.Fatalf("v1 GitOpsStatus = %q, want %q", v1.GitOpsStatus, gitOpsAvailable)
+	}
+	if len(v1.GitOpsPRs) != 1 {
+		t.Fatalf("v1 should carry one GitOps PR, got %+v", v1.GitOpsPRs)
+	}
+	gp := v1.GitOpsPRs[0]
+	if gp.Number != 42 || gp.Repository != "acme/gitops-delivery" {
+		t.Errorf("GitOps PR identity wrong: %+v", gp)
+	}
+	if gp.URL != "https://example.test/gitops/pull/42" || gp.Author != "promoter" || gp.MergedAt != "2026-08-30T00:00:00Z" {
+		t.Errorf("GitOps PR fields wrong: %+v", gp)
+	}
+	if len(gp.Environments) != 1 || gp.Environments[0] != "prod" {
+		t.Errorf("GitOps PR environment attribution wrong: %+v", gp.Environments)
+	}
+
+	// The GitOps #42 stays distinct from the application #42: the application #42 groups
+	// under tracked issue #501, and the GitOps #42 never enters the application groups.
+	if len(v1.Issues) != 1 || v1.Issues[0].Number != 501 {
+		t.Fatalf("v1 should group application #42 under tracked issue #501, got %+v", v1.Issues)
+	}
+	if len(v1.Issues[0].PRs) != 1 || v1.Issues[0].PRs[0].Number != 42 {
+		t.Errorf("tracked #501 should group application PR #42, got %+v", v1.Issues[0].PRs)
+	}
+	if v1.Issues[0].PRs[0].Repository != "" {
+		t.Errorf("application PR must not carry a repository, got %q", v1.Issues[0].PRs[0].Repository)
+	}
+	for _, pr := range v1.OtherPRs {
+		if pr.Number == 42 && pr.Repository != "" {
+			t.Errorf("GitOps PR must not leak into the application other-PR group, got %+v", pr)
+		}
+	}
+
+	// rel2 attempted no GitOps group, so it carries none and the UI renders no section.
+	v2 := byVersion["v2"]
+	if v2.GitOpsStatus != "" || v2.GitOpsPRs != nil {
+		t.Errorf("v2 must carry no GitOps group, got status=%q prs=%+v", v2.GitOpsStatus, v2.GitOpsPRs)
+	}
+}
+
+// TestSDLCMatrixGitOpsEmptyVsUnavailable confirms the matrix forwards a distinct
+// GitOps status for a successful-but-empty comparison and for an unavailable lookup
+// (SDLC-VIS-25.05), so the UI can render "no deployment changes" apart from an
+// unavailable state.
+// Verifies: SDLC-VIS-25.05
+func TestSDLCMatrixGitOpsEmptyVsUnavailable(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	relEmpty := &Release{
+		Version: "v-empty", Digest: "de", Date: "2026-09-01T00:00:00Z",
+		PRs: []PR{{Number: 10, Title: "app"}}, GitOpsStatus: gitOpsAvailable,
+	}
+	relFailed := &Release{
+		Version: "v-failed", Digest: "df", Date: "2026-09-15T00:00:00Z",
+		PRs: []PR{{Number: 11, Title: "app"}}, GitOpsStatus: gitOpsUnavailable,
+	}
+	promo := PromotionPayload{
+		Order:        []string{"env-a"},
+		Environments: map[string]Environment{"env-a": {Active: relFailed, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"de": relEmpty, "df": relFailed},
+	}
+	s := newSDLCAt(fakeProvider{records: nil}, fakePromo{payload: promo, hasData: true}, fakeIssues{m: map[int][]int{}}, now)
+	p := fetch(t, s)
+
+	byVersion := map[string]SDLCBundleRow{}
+	for _, row := range p.Matrix.Rows {
+		byVersion[row.Version] = row
+	}
+	if got := byVersion["v-empty"]; got.GitOpsStatus != gitOpsAvailable || len(got.GitOpsPRs) != 0 {
+		t.Errorf("empty bundle should be available with no PRs, got status=%q prs=%+v", got.GitOpsStatus, got.GitOpsPRs)
+	}
+	if got := byVersion["v-failed"]; got.GitOpsStatus != gitOpsUnavailable || len(got.GitOpsPRs) != 0 {
+		t.Errorf("failed bundle should be unavailable with no PRs, got status=%q prs=%+v", got.GitOpsStatus, got.GitOpsPRs)
+	}
+}
+
 // countingIssues wraps a PR resolver and counts AssociatedPRs calls, so a test can
 // prove the released-vs-unreleased decision adds no GitHub lookups (SDLC-VIS-22.04).
 type countingIssues struct {

@@ -73,11 +73,13 @@ func init() {
 		router.HandleFunc("/{service_account_id}", handler.Get).Methods(http.MethodGet)
 		router.HandleFunc("/{service_account_id}", handler.Delete).Methods(http.MethodDelete)
 		router.HandleFunc("/{service_account_id}/revoke", handler.Revoke).Methods(http.MethodPost)
+		router.HandleFunc("/{service_account_id}/role", handler.UpdateRole).Methods(http.MethodPost)
 		router.Use(authMiddleware.AuthenticateAccountJWT)
 		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddAuditPreviousRole())
 }
 
 func reconcileInterval() time.Duration {

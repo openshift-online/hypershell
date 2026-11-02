@@ -220,6 +220,14 @@ kube wait --for=condition=available deployment/prometheus-operator -n default --
 success "Infrastructure ready"
 echo ""
 
+# --- Coverage instrumentation (DEV-LOC-18) ---
+# Instrumented images exist only as local builds, so KIND_COVERAGE=true implies
+# LOCAL_IMAGES=true.
+if coverage_enabled && [[ "${LOCAL_IMAGES:-}" != "true" ]]; then
+  info "KIND_COVERAGE=true - building images locally (implies LOCAL_IMAGES=true)"
+  LOCAL_IMAGES=true
+fi
+
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
@@ -566,6 +574,11 @@ header "Deploying Components"
 # control plane creates with the hypershell-gateway-database-admin credentials
 # over sslmode=verify-full.
 _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
+# KIND_COVERAGE=true mounts the shared coverage volume and points GOCOVERDIR and
+# NODE_V8_COVERAGE at it (deploy/kind/code-coverage, DEV-LOC-18).
+if coverage_enabled; then
+  _db_overlay_extra+=$'\n  - ../kind/code-coverage'
+fi
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   info "Applying Kind manifests with localhost image refs..."
@@ -611,22 +624,6 @@ fi
 # scripts/cluster/drivers/openshift.sh), so `kind-up` and `openshift-up`
 # preserve swap state the same way.
 restore_swaps_after_reconcile
-
-# CI initially deploys the main-branch controller while the branch image builds
-# in parallel. A branch that removes a required legacy setting would otherwise
-# be unable to bring Kind up far enough to perform the image swap. Keep this
-# compatibility input scoped to that temporary bootstrap pod; the swap helper
-# removes it before validating the branch image.
-if [[ -n "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -n "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]] && ! is_swapped control-plane; then
-  if [[ -z "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -z "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]]; then
-    error "KIND baseline managed-cluster provider and visibility must be set together"
-    exit 1
-  fi
-  info "Adding temporary managed-cluster placement for the baseline controller..."
-  kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
-    HYPERSHELL_MANAGED_CLUSTER_PROVIDER="${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER}" \
-    HYPERSHELL_MANAGED_CLUSTER_VISIBILITY="${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY}"
-fi
 
 # After the overlay apply so hostAliases is not wiped. CI image swap is
 # kubectl set image and keeps this pin. The TLS probe above already proved

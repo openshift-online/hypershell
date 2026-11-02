@@ -20,7 +20,13 @@ import {
   type WidgetMapping,
 } from "@patternfly/widgetized-dashboard";
 import "@patternfly/widgetized-dashboard/dist/esm/styles.css";
-import { Fragment, useEffect, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type {
@@ -41,6 +47,7 @@ import {
 import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
 import { AdoptionConversionChart } from "../dashboard/adoption-conversion-chart";
 import { messages } from "../messages";
+import { useDashboardUi } from "../dashboard-ui-provider";
 import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import { DashboardPurpose } from "./dashboard-purpose";
 import {
@@ -338,6 +345,7 @@ export function AdoptionDashboardPage({
   title,
 }: Readonly<AdoptionDashboardPageProps>) {
   const intl = useIntl();
+  const { isAdmin } = useDashboardUi();
   const [timeRange, setTimeRange] = useState<DashboardTimeRange>(7);
   const [currentTime, setCurrentTime] = useState(0);
   const [layout, setLayout] = useState<ExtendedTemplateConfig>(() =>
@@ -354,35 +362,50 @@ export function AdoptionDashboardPage({
   const metric = dashboardMetrics?.metrics.find(
     (candidate) => candidate.id === "adoption",
   );
+  const adoptionWidgetConfig = (
+    titleMessage: (typeof messages)[keyof typeof messages],
+    icon: ReactNode,
+  ) => {
+    const title = intl.formatMessage(titleMessage);
+    const systemLabel = intl.formatMessage(messages.summarySystem);
+
+    return {
+      config: {
+        icon,
+        title,
+        wrapperProps: isAdmin
+          ? {
+              "aria-label": `${title} ${systemLabel}`,
+              className:
+                "hypershell-adoption-widget hypershell-dashboard-widget--system",
+              style: {
+                "--hypershell-system-label": JSON.stringify(systemLabel),
+              } as CSSProperties,
+            }
+          : { className: "hypershell-adoption-widget" },
+      },
+    };
+  };
   const activeWidgetTypes = getActiveWidgetTypes(layout);
   const mapping: WidgetMapping = {
     "adoption-summary": {
+      ...adoptionWidgetConfig(messages.adoptionWidgetSummary, <UsersIcon />),
       defaults: { h: 5, w: 2, minH: 4, maxH: 8 },
-      config: {
-        icon: <UsersIcon />,
-        title: intl.formatMessage(messages.adoptionWidgetSummary),
-        wrapperProps: { className: "hypershell-adoption-widget" },
-      },
       renderWidget: () => (
         <AdoptionSummaryCard metric={metric} timeRange={timeRange} />
       ),
     },
     "adoption-conversion": {
+      ...adoptionWidgetConfig(
+        messages.adoptionWidgetConversion,
+        <ArrowRightIcon />,
+      ),
       defaults: { h: 5, w: 1, minH: 4, maxH: 8 },
-      config: {
-        icon: <ArrowRightIcon />,
-        title: intl.formatMessage(messages.adoptionWidgetConversion),
-        wrapperProps: { className: "hypershell-adoption-widget" },
-      },
       renderWidget: () => <AdoptionConversionCard metric={metric} />,
     },
     "adoption-trends": {
+      ...adoptionWidgetConfig(messages.adoptionTrendsWidget, <ChartLineIcon />),
       defaults: { h: 6, w: 3, minH: 4, maxH: 10 },
-      config: {
-        icon: <ChartLineIcon />,
-        title: intl.formatMessage(messages.adoptionTrendsWidget),
-        wrapperProps: { className: "hypershell-adoption-widget" },
-      },
       renderWidget: () => (
         <AdoptionTrendsCard metric={metric} timeRange={timeRange} />
       ),

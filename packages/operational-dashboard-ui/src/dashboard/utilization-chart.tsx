@@ -126,7 +126,7 @@ export function UtilizationChart({
             unit,
           })}
           constrainToVisibleArea
-          colorScale={color ? [color] : undefined}
+          colorScale={color ? [color, "#d2d2d2"] : undefined}
           data={data}
           height={UTILIZATION_CHART_SIZE}
           labels={({ datum }: { datum: UsageData }) =>

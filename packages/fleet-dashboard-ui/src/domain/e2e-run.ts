@@ -122,11 +122,19 @@ export interface E2eRunDetail extends E2eRunSummary {
  * timestamp in the page (nanoseconds, decimal string) used to request the
  * immediately older page; `hasMore` reports the page was full so an older page may
  * exist.
+ *
+ * `boundaryTruncated` reports that a full page's oldest entries all shared the
+ * cursor's nanosecond, so the cursor could not advance and the remaining entries at
+ * that nanosecond are locally unreachable. It is distinct from end-of-history: the
+ * pane SHALL render a locally-limited state rather than "all history was read"
+ * (E2E-LOG-26). It is optional so a response from a BFF that predates the signal
+ * (where it is absent) is read as not truncated.
  */
 export interface E2eLogPage {
   readonly entries: readonly E2eLogLine[];
   readonly nextCursor: string | null;
   readonly hasMore: boolean;
+  readonly boundaryTruncated?: boolean;
 }
 
 /**

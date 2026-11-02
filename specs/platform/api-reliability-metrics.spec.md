@@ -2,11 +2,11 @@
 
 **Status:** Draft
 **Applies to:** API-server Prometheus scrape (`api_inbound_request_duration` via ServiceMonitor), `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`
-**Tracks:** [HYPERSHELL-285](https://redhat.atlassian.net/browse/HYPERSHELL-285) (API request rate, error rate, and latency only)
+**Tracks:** [HYPERSHELL-285](https://redhat.atlassian.net/browse/HYPERSHELL-285), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455)
 
 ## Purpose
 
-Expose **API server HTTP reliability metrics** - request rate, 5xx error rate, and median latency - to the reliability dashboard so dashboard operators can assess API health with current values and 24-hour hourly trend sparklines.
+Expose **API server HTTP reliability metrics** - request rate, 5xx error rate, median latency, and p95 latency - to the reliability dashboard so dashboard operators can assess API health with current values and 24-hour hourly trend sparklines.
 
 These metrics are derived from the API server framework Prometheus histogram `api_inbound_request_duration_*`, scraped into the BFF Prometheus instance with `job="hypershell-api-server"`. When OpenTelemetry `http.server.request.duration` is also exported as `http_server_request_duration_seconds_*` (API-OBS-05), implementations MAY query that series instead; Kind and default ServiceMonitor scrapes today expose `api_inbound_request_duration`.
 
@@ -61,21 +61,23 @@ Deploy and local-development configuration SHALL ensure the API server metrics e
 
 ### Requirement: OBS-REL-01 -- Instant Measurement Contract
 
-The platform SHALL compute three fleet-wide statistics from the histogram at a single Prometheus instant-evaluation time:
+The platform SHALL compute four fleet-wide statistics from the histogram at a single Prometheus instant-evaluation time:
 
 | Field | Unit | Meaning | Canonical PromQL shape |
 | --- | --- | --- | --- |
 | `request_rate` | requests per second | Aggregate HTTP request rate | `sum(rate(api_inbound_request_duration_count{job="hypershell-api-server"}[5m]))` |
 | `error_rate_percent` | percent | Share of requests with HTTP **5xx** status | `100 * (sum(rate(...{code=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(...[5m])), 1e-12)` |
 | `latency_p50_seconds` | seconds | Median request latency | `histogram_quantile(0.50, sum(rate(..._bucket[5m])) by (le))`, with cumulative histogram fallback when the rate-based quantile is non-finite |
+| `latency_p95_seconds` | seconds | 95th-percentile request latency | `histogram_quantile(0.95, sum(rate(..._bucket[5m])) by (le))` |
 
 Notes:
 
 - The rate window for instant queries SHALL be **5 minutes**.
 - **Error rate SHALL count 5xx responses only.** 4xx responses (including 401/403) SHALL NOT contribute to the numerator.
 - When recent request rate is zero (idle Kind / low-traffic fleets), `clamp_min` on the denominator makes `error_rate_percent` evaluate to `0`. That is an intentional idle reading, not a synthetic substitute for a failed PromQL evaluation. Collection SHALL still fail per OBS-REL-06 when the instant query returns empty or non-finite results (for example, the histogram series is absent).
-- Latency SHALL be median (P50) in **seconds**. The rate-based quantile MAY fall back to the cumulative histogram when the rate window has no observations (instant and hourly series).
-- All three expressions SHALL use the same evaluation timestamp.
+- Latency values SHALL be in **seconds**. The P50 rate-based quantile MAY fall back to the cumulative histogram when the rate window has no observations (instant and hourly series).
+- P95 SHALL be unavailable when the 5-minute histogram window has no observations; it SHALL NOT be synthesized as `0`.
+- All four expressions SHALL use the same evaluation timestamp.
 
 The BFF SHALL export the PromQL strings, rate window, service selector, and status-label constants from `components/web-console/bff/src/metrics-api-reliability.ts` so unit tests assert the documented query contract.
 
@@ -86,6 +88,7 @@ The BFF SHALL export the PromQL strings, rate window, service selector, and stat
 - THEN `request_rate` SHALL be `12.5`
 - AND `error_rate_percent` SHALL be `1.25`
 - AND `latency_p50_seconds` SHALL be `0.084`
+- AND `latency_p95_seconds` SHALL contain the finite 95th-percentile result
 
 #### Scenario: OBS-REL-01.02 -- 4xx does not inflate error rate
 
@@ -99,7 +102,7 @@ The BFF SHALL export the PromQL strings, rate window, service selector, and stat
 
 ### Requirement: OBS-REL-02 -- 24-Hour Hourly Trend Series
 
-The BFF SHALL also evaluate Prometheus `query_range` for each of the three statistics over a rolling **24-hour** window so the reliability dashboard can render hourly sparklines.
+The BFF SHALL also evaluate Prometheus `query_range` for each of the four statistics over a rolling **24-hour** window so the reliability dashboard can render hourly sparklines.
 
 | Parameter | Value |
 | --- | --- |
@@ -107,7 +110,7 @@ The BFF SHALL also evaluate Prometheus `query_range` for each of the three stati
 | Step | `3600s` (one sample per hour) |
 | End timestamp | Current time (UTC), Unix seconds |
 | Start timestamp | End minus `86400` seconds |
-| Instant PromQL at each step | Same shapes as OBS-REL-01 (5-minute rate / quantile window inside each sample). For hourly latency, when the rate-based quantile range fails or yields no finite samples, the BFF SHALL fall back to the cumulative histogram range query (same fallback as instant P50). |
+| Instant PromQL at each step | Same shapes as OBS-REL-01 (5-minute rate / quantile window inside each sample). For hourly P50 latency, when the rate-based quantile range fails or yields no finite samples, the BFF SHALL fall back to the cumulative histogram range query (same fallback as instant P50). Hourly P95 latency SHALL use only the rate-based 5-minute window and SHALL omit invalid points instead of using cumulative fallback. |
 
 Each series SHALL map to an array of `{ hour, value }` entries:
 
@@ -121,6 +124,7 @@ Each series SHALL map to an array of `{ hour, value }` entries:
 | `hourly_request_rate` | `request_rate` | requests per second |
 | `hourly_error_rate_percent` | `error_rate_percent` | percent |
 | `hourly_latency_p50_seconds` | `latency_p50_seconds` | seconds |
+| `hourly_latency_p95_seconds` | `latency_p95_seconds` | seconds |
 
 Arrays SHALL be ordered oldest to newest. The BFF SHALL omit hours with invalid or non-finite samples rather than synthesizing zeros for rate/latency series.
 
@@ -130,11 +134,11 @@ When instant queries fail, the BFF SHALL respond with HTTP `502` per OBS-REL-06.
 
 #### Scenario: OBS-REL-02.01 -- Successful response includes instant values and hourly series
 
-- GIVEN Prometheus returns successful instant evaluations and successful hourly range evaluations for all three statistics
+- GIVEN Prometheus returns successful instant evaluations and successful hourly range evaluations for all four statistics
 - WHEN an authorized caller sends `GET /api/metrics/api-reliability`
 - THEN the BFF SHALL respond with HTTP `200`
-- AND the body SHALL include `request_rate`, `error_rate_percent`, and `latency_p50_seconds`
-- AND `hourly_request_rate`, `hourly_error_rate_percent`, and `hourly_latency_p50_seconds` SHALL each contain hourly `{ hour, value }` entries
+- AND the body SHALL include `request_rate`, `error_rate_percent`, `latency_p50_seconds`, and `latency_p95_seconds`
+- AND `hourly_request_rate`, `hourly_error_rate_percent`, `hourly_latency_p50_seconds`, and `hourly_latency_p95_seconds` SHALL each contain hourly `{ hour, value }` entries
 
 #### Scenario: OBS-REL-02.02 -- Partial range failure keeps instant values
 
@@ -150,6 +154,14 @@ When instant queries fail, the BFF SHALL respond with HTTP `502` per OBS-REL-06.
 - GIVEN a range sample at Unix time corresponding to UTC `2026-09-15T14:37:00`
 - WHEN the BFF maps the sample into an hourly array
 - THEN the entry SHALL use `hour: "2026-09-15T14:00"`
+
+#### Scenario: OBS-REL-02.04 -- Invalid hourly p95 has no cumulative fallback
+
+- GIVEN the hourly p95 rate-based range returns no finite sample for an hour
+- AND the cumulative histogram contains older observations
+- WHEN the BFF maps `hourly_latency_p95_seconds`
+- THEN the BFF SHALL omit that hour from the p95 series
+- AND it SHALL NOT derive the p95 point from the cumulative histogram
 
 ---
 
@@ -167,6 +179,7 @@ The web-console BFF SHALL expose `GET /api/metrics/api-reliability` as a same-or
   "request_rate": 12.5,
   "error_rate_percent": 1.25,
   "latency_p50_seconds": 0.084,
+  "latency_p95_seconds": 0.142,
   "hourly_request_rate": [
     { "hour": "2026-09-15T12:00", "value": 10.2 }
   ],
@@ -175,6 +188,9 @@ The web-console BFF SHALL expose `GET /api/metrics/api-reliability` as a same-or
   ],
   "hourly_latency_p50_seconds": [
     { "hour": "2026-09-15T12:00", "value": 0.09 }
+  ],
+  "hourly_latency_p95_seconds": [
+    { "hour": "2026-09-15T12:00", "value": 0.15 }
   ]
 }
 ```
@@ -210,13 +226,14 @@ When OIDC is disabled (no-auth dev mode), the route SHALL remain open to unauthe
 
 ### Requirement: OBS-REL-04 -- Adapter Metric Mapping
 
-The host dashboard adapter SHALL map `GET /api/metrics/api-reliability` into three `OperationalMetric` values (or the reliability-dashboard equivalent metric type in the same package) for the `api-reliability` metric source:
+The host dashboard adapter SHALL map `GET /api/metrics/api-reliability` into four `OperationalMetric` values (or the reliability-dashboard equivalent metric type in the same package) for the `api-reliability` metric source:
 
 | Metric ID | `value` | `unit` | Instant source | Trend source |
 | --- | --- | --- | --- | --- |
 | `api-request-rate` | Decimal string of `request_rate` | `"requests/sec"` | `request_rate` | `hourly_request_rate` → `hourlyTrend.points` |
 | `api-error-rate` | Decimal string of `error_rate_percent` | `"%"` | `error_rate_percent` | `hourly_error_rate_percent` → `hourlyTrend.points` |
 | `api-latency` | Decimal string of `latency_p50_seconds` | `"sec"` | `latency_p50_seconds` | `hourly_latency_p50_seconds` → `hourlyTrend.points` |
+| `api-p95-latency` | Decimal string of `latency_p95_seconds` | `"sec"` | `latency_p95_seconds` | `hourly_latency_p95_seconds` → `hourlyTrend.points` |
 
 Trend mapping:
 
@@ -232,10 +249,11 @@ Rounding:
 | `api-request-rate` | Three fractional digits |
 | `api-error-rate` | Three fractional digits |
 | `api-latency` | Three fractional digits |
+| `api-p95-latency` | Three fractional digits |
 
 When a BFF historical field is absent, the adapter SHALL omit `hourlyTrend` for that metric only and SHALL still emit the metric with the instant `value`.
 
-The three metrics SHALL load as one independent metric source (`api-reliability`). Instant-query failure SHALL omit all three. A missing hourly series SHALL NOT omit sibling metrics when instant values succeeded.
+The four metrics SHALL load as one independent metric source (`api-reliability`). A missing or non-finite p95 value SHALL omit `api-p95-latency` without inventing zero; valid sibling instant metrics SHALL remain available. A missing hourly series SHALL NOT omit sibling metrics when instant values succeeded.
 
 #### Scenario: OBS-REL-04.01 -- Adapter maps full payload
 
@@ -253,13 +271,20 @@ The three metrics SHALL load as one independent metric source (`api-reliability`
 - AND `api-latency.hourlyTrend` SHALL be absent
 - AND `api-request-rate.hourlyTrend` SHALL be present
 
+#### Scenario: OBS-REL-04.03 -- Missing p95 remains unavailable
+
+- GIVEN the BFF returns valid request-rate, error-rate, and P50 values without `latency_p95_seconds`
+- WHEN the adapter builds reliability metrics
+- THEN `api-p95-latency` SHALL be omitted
+- AND the other three API metrics SHALL remain available
+
 ---
 
 ### Requirement: OBS-REL-05 -- Refresh and Independent Loading
 
 API reliability metrics SHALL load through the reliability dashboard metrics query and SHALL inherit its refresh policy (15 minutes and manual refresh per REL-DASH-09 / WEB-OPS-09).
 
-The `api-reliability` source SHALL load independently from operational-dashboard metric sources. Failure of `GET /api/metrics/api-reliability` SHALL omit only `api-request-rate`, `api-error-rate`, and `api-latency`. It SHALL NOT omit operational metrics on `/dashboard`.
+The `api-reliability` source SHALL load independently from operational-dashboard metric sources. Failure of `GET /api/metrics/api-reliability` SHALL omit only `api-request-rate`, `api-error-rate`, `api-latency`, and `api-p95-latency`. It SHALL NOT omit operational metrics on `/dashboard`.
 
 Conversely, operational metric source failures SHALL NOT omit reliability metrics on `/dashboard/reliability`.
 
@@ -268,14 +293,14 @@ Conversely, operational metric source failures SHALL NOT omit reliability metric
 - GIVEN `GET /api/metrics/api-reliability` returns HTTP `502`
 - AND other reliability sources (if any) succeed
 - WHEN the reliability dashboard loads
-- THEN `api-request-rate`, `api-error-rate`, and `api-latency` SHALL be omitted
+- THEN `api-request-rate`, `api-error-rate`, `api-latency`, and `api-p95-latency` SHALL be omitted
 - AND the page SHALL follow partial-failure or total-failure rules in `web-console/reliability-dashboard.spec.md`
 
 ---
 
 ### Requirement: OBS-REL-06 -- Failure Semantics
 
-Instant PromQL failure, timeout, empty result set, or non-finite values for required instant fields SHALL cause the BFF to respond with HTTP `502`.
+Instant PromQL failure, timeout, empty result set, or non-finite values for the required request-rate, error-rate, and P50 fields SHALL cause the BFF to respond with HTTP `502`. P95 is independently optional: a missing or non-finite P95 SHALL omit only `latency_p95_seconds` and its hourly series.
 
 The adapter SHALL treat a non-success BFF response as failure of the entire `api-reliability` source.
 
@@ -300,7 +325,7 @@ The web-console BFF SHALL include unit tests for `GET /api/metrics/api-reliabili
 - Instant failure returning HTTP `502`
 - Authorization gates (401 / 403 / 200) consistent with other metrics routes
 
-The web console SHALL include unit tests for adapter mapping into `api-request-rate`, `api-error-rate`, and `api-latency`, including full, partial-trend, and trend-absent payloads.
+The web console SHALL include unit tests for adapter mapping into `api-request-rate`, `api-error-rate`, `api-latency`, and `api-p95-latency`, including full, partial-trend, trend-absent, and unavailable-p95 payloads.
 
 `packages/operational-dashboard-ui/DATA_SOURCES.md` SHALL document the `api-reliability` source, BFF route, PromQL shapes, units, and the verified Prometheus status-code label name.
 

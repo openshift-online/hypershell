@@ -33,7 +33,10 @@ type InferenceRoute struct {
 	Model             string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	// repository_id is the control-plane import ownership mark; read-only, set
 	// server-side, never by a client.
-	RepositoryId  *string `protobuf:"bytes,5,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
+	RepositoryId *string `protobuf:"bytes,5,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
+	// name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+	// identity derived from workspace_id/provider_binding_id/model when not supplied.
+	Name          string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,6 +102,13 @@ func (x *InferenceRoute) GetModel() string {
 func (x *InferenceRoute) GetRepositoryId() string {
 	if x != nil && x.RepositoryId != nil {
 		return *x.RepositoryId
+	}
+	return ""
+}
+
+func (x *InferenceRoute) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -587,13 +597,14 @@ var File_hypershell_v1_inference_routes_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_inference_routes_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/inference_routes.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xf1\x01\n" +
+	"$hypershell/v1/inference_routes.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x85\x02\n" +
 	"\x0eInferenceRoute\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12.\n" +
 	"\x13provider_binding_id\x18\x03 \x01(\tR\x11providerBindingId\x12\x14\n" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x12(\n" +
-	"\rrepository_id\x18\x05 \x01(\tH\x00R\frepositoryId\x88\x01\x01B\x10\n" +
+	"\rrepository_id\x18\x05 \x01(\tH\x00R\frepositoryId\x88\x01\x01\x12\x12\n" +
+	"\x04name\x18\x06 \x01(\tR\x04nameB\x10\n" +
 	"\x0e_repository_id\"*\n" +
 	"\x18GetInferenceRouteRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +

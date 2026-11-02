@@ -41,6 +41,12 @@ export class {{.Resource.Name}}API {
     return sdkFetch<{{.Resource.ItemType}}>(this.config, 'POST', {{.Resource.TSItemPath}} + '/revoke', undefined, opts);
   }
 {{- end}}
+{{- if .Resource.HasRoleUpdate}}
+
+  async updateRole({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, data: {{.Resource.RoleUpdateRequestType}}, opts?: RequestOptions): Promise<{{.Resource.ItemType}}> {
+    return sdkFetch<{{.Resource.ItemType}}>(this.config, 'POST', {{.Resource.TSItemPath}} + '/role', data, opts);
+  }
+{{- end}}
 
   async delete({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, opts?: RequestOptions): Promise<{{.Resource.ItemType}} | undefined> {
     return sdkFetch<{{.Resource.ItemType}} | undefined>(this.config, 'DELETE', {{.Resource.TSItemPath}}, undefined, opts);

@@ -2,7 +2,6 @@ import {
   Content,
   Flex,
   FlexItem,
-  Label,
   PageSection,
   Title,
 } from "@patternfly/react-core";
@@ -22,7 +21,7 @@ import {
   futureDashboards,
 } from "../common/dashboard-controls";
 import {
-  DashboardDonut,
+  DashboardUtilization,
   DashboardSparkline,
   DashboardWidget,
   MockupWidgetizedLayout,
@@ -244,7 +243,6 @@ export function UsageDashboardPageSurface({
             title="Provisioned but unused"
             value="25"
           >
-            <Label color="orange">Review idle resources</Label>
             <Content
               component="small"
               style={{ display: "block", marginTop: 16 }}
@@ -258,14 +256,7 @@ export function UsageDashboardPageSurface({
             icon={<CubesIcon />}
             title="Sandbox utilization"
           >
-            <DashboardDonut
-              label="Utilization"
-              value="63%"
-              segments={[
-                { label: "In use", value: 63, color: "#0066cc" },
-                { label: "Available", value: 37, color: "#d2d2d2" },
-              ]}
-            />
+            <DashboardUtilization total={340} unit="sandboxes" value={214} />
             <Row label="Active sandboxes" value="214" />
             <Row label="Provisioned sandboxes" value="340" />
           </DashboardWidget>

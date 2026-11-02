@@ -19,6 +19,8 @@ describe("dashboard layout persistence", () => {
       "provisioning-snapshot",
       "gateway-releases",
       "attention-required",
+      "pod-and-sandbox-readiness",
+      "certificate-health",
     ]);
   });
 
@@ -69,7 +71,7 @@ describe("dashboard layout persistence", () => {
   it("keeps all overview widget types in a variant on save", () => {
     const sanitized = sanitizeDashboardTemplate(defaultDashboardLayoutTemplate);
 
-    expect(new Set(sanitized.xl.map((item) => item.widgetType)).size).toBe(7);
+    expect(new Set(sanitized.xl.map((item) => item.widgetType)).size).toBe(9);
   });
 
   it("removes retired widget types from saved templates", () => {

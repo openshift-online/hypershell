@@ -1,0 +1,18 @@
+---
+id: local-dispatch-jira
+display_name: Local dispatcher Jira
+description: Jira tenant API and Atlassian OAuth API access for lifecycle workers
+category: data
+endpoints:
+  - host: "*.atlassian.net"
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+  - host: api.atlassian.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  - "**/node"

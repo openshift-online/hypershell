@@ -3,13 +3,12 @@ package roleBindings
 import (
 	"context"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -22,13 +21,11 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() RoleBindingService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	defaultRoles := defaultRolesFromEnv()
 	roleBindingDao := NewRoleBindingDao(&env.Database.SessionFactory)
 	RegisterRoleBindingMetrics(roleBindingDao)
 
@@ -38,29 +35,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			roleBindingDao,
 			roles.NewRoleDao(&env.Database.SessionFactory),
 			events.Service(&env.Services),
-			defaultRoles,
 		)
 	}
-}
-
-// defaultRolesFromEnv reads RBAC_DEFAULT_ROLES (comma-separated role names).
-// Defaults to gateway:creator so all authenticated users can create gateways.
-// Set RBAC_DEFAULT_ROLES= (explicit empty) to disable defaults entirely.
-func defaultRolesFromEnv() []string {
-	val, set := os.LookupEnv("RBAC_DEFAULT_ROLES")
-	if !set {
-		return []string{roles.RoleGatewayCreator}
-	}
-	if val == "" {
-		return nil
-	}
-	var result []string
-	for _, r := range strings.Split(val, ",") {
-		if trimmed := strings.TrimSpace(r); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
 
 func Service(s *environments.Services) RoleBindingService {
@@ -99,7 +75,7 @@ func init() {
 
 	pkgserver.RegisterRoutes("roleBindings", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		rbHandler := NewRoleBindingHandler(Service(envServices), generic.Service(envServices))
+		rbHandler := NewRoleBindingHandler(Service(envServices), extsearch.Service(envServices))
 
 		rbRouter := apiV1Router.PathPrefix("/role_bindings").Subrouter()
 		rbRouter.HandleFunc("", rbHandler.List).Methods(http.MethodGet)

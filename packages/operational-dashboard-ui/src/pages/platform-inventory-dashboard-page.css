@@ -1,7 +1,7 @@
 .hypershell-platform-inventory-widget .pf-v6-widget-grid-tile__title::after {
-  background: #f4c145;
+  background: var(--pf-t--global--color--nonstatus--orange--default);
   border-radius: var(--pf-t--global--border--radius--pill);
-  color: var(--pf-t--global--color--text--regular);
+  color: var(--pf-t--global--text--color--nonstatus--on-orange--default);
   content: "System";
   font-size: var(--pf-t--global--font--size--body--sm);
   font-weight: var(--pf-t--global--font--weight--body--regular);

@@ -24,6 +24,8 @@ make kind-teardown                    # Destroy cluster
 make kind-api-server-up               # Build + swap API server from working tree
 make kind-control-plane-up            # Build + swap control plane from working tree
 make kind-status                      # Show cluster status
+KIND_COVERAGE=true make kind-up       # Cluster with coverage-instrumented images
+make coverage                         # Unit + e2e tests -> coverage/report/summary.md
 ```
 
 ## Workflow: Testing Changes in Kind
@@ -96,4 +98,5 @@ make kind-control-plane-up
 | Check status | `make kind-status` |
 | View API logs | `kubectl logs -f -l app=hypershell-api-server -n hypershell` |
 | View CP logs | `kubectl logs -f -l app=hypershell-controller -n hypershell` |
+| Measure unit + e2e coverage | `KIND_COVERAGE=true make kind-up`, then `make coverage` |
 | Tear down | `make kind-teardown` |

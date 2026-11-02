@@ -103,6 +103,7 @@ import {
   bundleRowSeed,
   cardsInPhase,
   computeCardFlights,
+  computeReplayCardFlights,
   ESCALATION_BLOCKED,
   ESCALATION_DUPLICATE,
   ESCALATION_NEEDS_INPUT,
@@ -123,15 +124,25 @@ import {
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { NavLinkButton } from "../nav-link-button";
-import { TONE_COLOR } from "../map/colors";
+import {
+  agentActivity,
+  type SdlcAgentMetrics,
+} from "../../../domain/sdlc-agents";
+import {
+  AgentActivityBadge,
+  formatDurationShort,
+  LastSeen,
+  useLiveNow,
+} from "../shared/agent-activity";
+import { TEXT_COLOR, TONE_COLOR, USER_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
+import { MetricTile } from "../map/metric-tiles";
+import tileStyles from "../map/map-details.module.css";
 import { ReleaseTime } from "../map/release-time";
 import { identiName } from "../../../domain/map/identiname";
 import {
   arcControl,
   arcTravelVars,
-  DUST,
-  DUST_MS,
   FLIGHT_MS,
   prefersReducedMotion,
 } from "../shared/flight-motion";
@@ -142,8 +153,14 @@ export interface AgentSdlcViewProps {
   readonly data: AgentSdlcData;
   /** The shared freight-bar bundle seed, used for the matrix current-row highlight. */
   readonly selectedBundleSeed: string | null;
+  /** Runtime telemetry per agent, keyed by name. Optional: columns degrade to the
+   *  phase name alone when absent (SDLC-AGT-08). */
+  readonly agents?: ReadonlyMap<string, SdlcAgentMetrics>;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
+  /** The SDLC-agents plane's `stale` flag. When true every agent reads as "Monitoring
+   *  blind" (SDLC-AGT-16): the snapshot is untrustworthy, so no liveness is asserted. */
+  readonly planeStale?: boolean;
 }
 
 const PHASE_MESSAGE: Record<string, MessageDescriptor> = {
@@ -277,21 +294,9 @@ function BundleIdenticon({
   );
 }
 
-function formatAge(intl: IntlShape, seconds: number): string {
-  const total = Math.max(seconds, 0);
-  const days = Math.floor(total / 86_400);
-  const hours = Math.floor((total % 86_400) / 3_600);
-  const minutes = Math.floor((total % 3_600) / 60);
-  // Show at most two adjacent units, down to minutes, so a young card reads "11m"
-  // or "3h 20m" rather than a misleading "0d 0h".
-  if (days > 0) {
-    return intl.formatMessage(messages.sdlcAge, { days, hours });
-  }
-  if (hours > 0) {
-    return intl.formatMessage(messages.sdlcAgeHm, { hours, minutes });
-  }
-  return intl.formatMessage(messages.sdlcAgeM, { minutes });
-}
+// Card age ("11m", "3h 20m") shares the compact two-unit formatter with the shared
+// "last seen" text (single source of truth, so the two can never drift).
+const formatAge = formatDurationShort;
 
 function formatMergedAgo(
   intl: IntlShape,
@@ -781,16 +786,79 @@ function useHorizontalWheel(ref: React.RefObject<HTMLDivElement | null>): void {
   }, [ref]);
 }
 
+const QUEUE_WARN = 8;
+const METRIC_SUBTLE = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+
+function ColumnAgentMetrics({
+  agent,
+}: {
+  readonly agent: SdlcAgentMetrics;
+}): React.ReactElement {
+  const failing = agent.itemsFailed;
+  const queueTone =
+    agent.queueDepth >= QUEUE_WARN ? TONE_COLOR.warning : USER_COLOR;
+  return (
+    <div className={styles.columnMetrics}>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricOnLabel} />
+        </span>
+        <FormattedMessage
+          {...messages.columnMetricRatio}
+          values={{ on: agent.replicasOn, total: agent.replicasTotal }}
+        />
+      </span>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: agent.queueDepth > 0 ? queueTone : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricQueueLabel} />
+        </span>
+        {agent.queueDepth}
+      </span>
+      <span
+        className={styles.columnMetric}
+        style={{
+          color: failing > 0 ? TONE_COLOR.danger : METRIC_SUBTLE,
+        }}
+      >
+        <span className={styles.columnMetricLabel}>
+          <FormattedMessage {...messages.columnMetricFailLabel} />
+        </span>
+        {failing}
+      </span>
+    </div>
+  );
+}
+
 function AgingColumn({
   phase,
   cards,
   scale,
   onSelect,
+  agentSummary,
+  onSelectAgent,
+  nowMs,
+  planeStale,
 }: {
   phase: AgentSdlcPhase;
   cards: readonly AgentSdlcCard[];
   scale: number;
   onSelect: (card: AgentSdlcCard) => void;
+  agentSummary?: SdlcAgentMetrics;
+  onSelectAgent?: (name: string) => void;
+  /** Current time for the activity derivation and "last seen" text (SDLC-AGT-16/17). */
+  nowMs: number;
+  /** The agents plane's staleness; drives the "Monitoring blind" state. */
+  planeStale: boolean;
 }): React.ReactElement {
   const intl = useIntl();
   const sleRatio =
@@ -815,29 +883,64 @@ function AgingColumn({
     >
       <div className={styles.columnHeader}>
         <div className={styles.columnHeaderMain}>
-          <Inline>
-            {PhaseIcon ? (
-              <span
-                style={{
-                  color: phaseIconTone(phase.key),
-                  display: "inline-flex",
-                }}
-              >
-                <PhaseIcon aria-hidden />
-              </span>
-            ) : null}
-            <span>{phaseLabel}</span>
-          </Inline>
+          {agent !== undefined && agentSummary !== undefined ? (
+            <button
+              type="button"
+              className={styles.agentButton}
+              onClick={() => {
+                onSelectAgent?.(agent);
+              }}
+              aria-label={intl.formatMessage(messages.sdlcAgentDetailAria, {
+                agent,
+              })}
+            >
+              <RobotIcon aria-hidden />
+              <span className={styles.agentName}>{agent}</span>
+            </button>
+          ) : agent ? (
+            <span className={styles.agentNamePlain}>
+              <RobotIcon aria-hidden />
+              <span className={styles.agentName}>{agent}</span>
+            </span>
+          ) : (
+            <Inline>
+              {PhaseIcon ? (
+                <span
+                  style={{
+                    color: phaseIconTone(phase.key),
+                    display: "inline-flex",
+                  }}
+                >
+                  <PhaseIcon aria-hidden />
+                </span>
+              ) : null}
+              <span>{phaseLabel}</span>
+            </Inline>
+          )}
           <Label isCompact>{cards.length}</Label>
         </div>
-        {agent ? (
-          <div className={styles.columnAgent}>
-            <Inline>
-              <RobotIcon aria-hidden />
-              <span>{agent}</span>
-            </Inline>
+        <div className={styles.columnPhase}>
+          <Inline>
+            {PhaseIcon ? <PhaseIcon aria-hidden /> : null}
+            <span>{phaseLabel}</span>
+          </Inline>
+        </div>
+        {/* Present-tense liveness (SDLC-AGT-17): an explicit state next to the agent
+            name rather than a blank. Only rendered for columns that have an acting
+            agent summary; the plain phase columns (e.g. shipped) carry no agent. */}
+        {agent !== undefined && agentSummary !== undefined ? (
+          <div className={styles.columnActivity}>
+            <AgentActivityBadge
+              activity={agentActivity(agentSummary, nowMs, planeStale)}
+            />
+            <LastSeen
+              lastReportedAt={agentSummary.lastReportedAt}
+              nowMs={nowMs}
+              className={styles.columnLastSeen}
+            />
           </div>
         ) : null}
+        {agentSummary ? <ColumnAgentMetrics agent={agentSummary} /> : null}
       </div>
       <div className={styles.track} ref={trackRef} data-phase-col={phase.key}>
         {sleRatio !== null ? (
@@ -970,7 +1073,7 @@ function NotificationsPanel({
     items: lane.filter((c) => c.escalation === key),
   })).filter((g) => g.items.length > 0);
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <NotificationDrawer>
         <NotificationDrawerHeader
           count={lane.length}
@@ -1097,8 +1200,12 @@ function MatrixIssueList({
   );
 }
 
-/** The one-off pull-request list of a bundle: PRs with no tracked execution record,
- *  each a direct link to GitHub (SDLC-VIS-11). */
+/** A pull-request list inside a bundle: one-off application PRs with no tracked
+ *  execution record, or the GitOps deployment group, each a direct link to GitHub
+ *  (SDLC-VIS-11, SDLC-VIS-25). Rows key by repository plus number so a GitOps PR that
+ *  shares a number with an application PR stays distinct (SDLC-VIS-25.03); the link
+ *  already targets the PR in its own repository. GitOps PRs show their deployment
+ *  environment attribution when the server supplies it (FLT-BPR-06). */
 function MatrixPRList({
   prs,
   nowMs,
@@ -1119,8 +1226,9 @@ function MatrixPRList({
                 user: pr.author,
               })
             : ago;
+        const environments = pr.environments ?? [];
         return (
-          <StackItem key={pr.number}>
+          <StackItem key={`${pr.repository ?? ""}#${String(pr.number)}`}>
             <Button
               component="a"
               variant="link"
@@ -1134,6 +1242,14 @@ function MatrixPRList({
               {prLabel}
             </Button>
             {line ? <Content component="small"> {line}</Content> : null}
+            {environments.length > 0 ? (
+              <Content component="small">
+                <FormattedMessage
+                  {...messages.prEnvironments}
+                  values={{ environments: environments.join(", ") }}
+                />
+              </Content>
+            ) : null}
           </StackItem>
         );
       })}
@@ -1141,9 +1257,49 @@ function MatrixPRList({
   );
 }
 
-/** A bundle row's expanded contents (SDLC-VIS-11): the Unreleased row lists only its
- *  in-flight tracked issues; a released bundle splits its PR-driven contents into a
- *  "Tracked issues" group and an "Other pull requests" group. */
+/** The GitOps deployment-change group inside a released bundle row (SDLC-VIS-25): its
+ *  own repository-identified section with a distinct empty state ("no deployment
+ *  changes") and a distinct unavailable state, mirroring the Fleet Map bundle details.
+ *  Renders nothing when the payload reported no GitOps fields (gitopsStatus null), so an
+ *  older payload shows no deployment section and never claims the lookup succeeded. */
+function MatrixGitopsSection({
+  row,
+  nowMs,
+}: {
+  row: AgentSdlcBundleRow;
+  nowMs?: number;
+}): React.ReactElement | null {
+  const status = row.gitopsStatus;
+  if (!status) {
+    return null;
+  }
+  const gitopsPrs = row.gitopsPrs ?? [];
+  return (
+    <StackItem>
+      <Title headingLevel="h4" size="md">
+        <FormattedMessage {...messages.sectionGitopsChanges} />
+      </Title>
+      {status === "unavailable" ? (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleGitopsUnavailable} />
+        </Content>
+      ) : gitopsPrs.length > 0 ? (
+        <MatrixPRList prs={gitopsPrs} nowMs={nowMs} />
+      ) : (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleGitopsNoPrs} />
+        </Content>
+      )}
+    </StackItem>
+  );
+}
+
+/** A bundle row's expanded contents (SDLC-VIS-11, SDLC-VIS-25): the Unreleased row lists
+ *  only its in-flight tracked issues; a released bundle groups its PR-driven contents
+ *  under an application repository section (its "Tracked issues" and "Other pull
+ *  requests" subsections) and a separate deployment repository section (the GitOps
+ *  group). This matches the two-repository contents Fleet Map shows for the same
+ *  bundle. */
 function MatrixBundleContents({
   row,
   mergedLine,
@@ -1153,19 +1309,15 @@ function MatrixBundleContents({
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
   nowMs?: number;
 }): React.ReactElement {
-  if (row.issues.length === 0 && row.otherPRs.length === 0) {
-    return (
-      <Content component="small">
-        <FormattedMessage
-          {...(row.unreleased
-            ? messages.sdlcBundleNoIssues
-            : messages.sdlcBundleNoContents)}
-        />
-      </Content>
-    );
-  }
-  // The Unreleased row holds only in-flight tracked work, so it needs no group headers.
+  // The Unreleased row holds only in-flight tracked work: no group headers, no GitOps.
   if (row.unreleased) {
+    if (row.issues.length === 0) {
+      return (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleNoIssues} />
+        </Content>
+      );
+    }
     return (
       <MatrixIssueList
         issues={row.issues}
@@ -1174,29 +1326,56 @@ function MatrixBundleContents({
       />
     );
   }
+
+  const hasApplication = row.issues.length > 0 || row.otherPRs.length > 0;
+  const hasGitops = Boolean(row.gitopsStatus);
+  // A released bundle with no application PRs and no GitOps grouping at all (e.g. the
+  // oldest bundle with no prior build to diff against) keeps its existing empty state.
+  if (!hasApplication && !hasGitops) {
+    return (
+      <Content component="small">
+        <FormattedMessage {...messages.sdlcBundleNoContents} />
+      </Content>
+    );
+  }
+
   return (
     <Stack hasGutter>
-      {row.issues.length > 0 ? (
-        <StackItem>
-          <Title headingLevel="h4" size="md">
-            <FormattedMessage {...messages.sdlcTrackedIssues} />
-          </Title>
-          <MatrixIssueList
-            issues={row.issues}
-            version={row.version}
-            mergedLine={mergedLine}
-            nowMs={nowMs}
-          />
-        </StackItem>
-      ) : null}
-      {row.otherPRs.length > 0 ? (
-        <StackItem>
-          <Title headingLevel="h4" size="md">
-            <FormattedMessage {...messages.sdlcOtherPRs} />
-          </Title>
-          <MatrixPRList prs={row.otherPRs} nowMs={nowMs} />
-        </StackItem>
-      ) : null}
+      <StackItem>
+        <Title headingLevel="h4" size="md">
+          <FormattedMessage {...messages.sdlcBundleApplicationChanges} />
+        </Title>
+        {hasApplication ? (
+          <Stack hasGutter>
+            {row.issues.length > 0 ? (
+              <StackItem>
+                <Title headingLevel="h5" size="md">
+                  <FormattedMessage {...messages.sdlcTrackedIssues} />
+                </Title>
+                <MatrixIssueList
+                  issues={row.issues}
+                  version={row.version}
+                  mergedLine={mergedLine}
+                  nowMs={nowMs}
+                />
+              </StackItem>
+            ) : null}
+            {row.otherPRs.length > 0 ? (
+              <StackItem>
+                <Title headingLevel="h5" size="md">
+                  <FormattedMessage {...messages.sdlcOtherPRs} />
+                </Title>
+                <MatrixPRList prs={row.otherPRs} nowMs={nowMs} />
+              </StackItem>
+            ) : null}
+          </Stack>
+        ) : (
+          <Content component="small">
+            <FormattedMessage {...messages.sdlcBundleNoApplicationChanges} />
+          </Content>
+        )}
+      </StackItem>
+      <MatrixGitopsSection row={row} nowMs={nowMs} />
     </Stack>
   );
 }
@@ -1390,7 +1569,7 @@ function CardDetailPanel({
   const showRework = card.rework !== null && esc !== ESCALATION_BLOCKED;
   const spacerMd = "var(--pf-t--global--spacer--md, 16px)";
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <DrawerHead>
         {/* The whole issue identifier is the prominent GitHub link (SDLC-VIS-10). */}
         <Title headingLevel="h3" size="md">
@@ -1548,7 +1727,7 @@ function ShippedDetailPanel({
   const panelTitle = `#${String(issue.number)} ${issue.title}`;
   const mergedAgo = formatMergedLine(intl, issue, nowMs);
   return (
-    <DrawerPanelContent widths={{ default: "width_33" }}>
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
       <DrawerHead>
         <Title headingLevel="h3" size="md">
           <Button
@@ -1620,11 +1799,12 @@ interface ActiveCardFlight {
   readonly height: number;
   /** Arc translate keyframe samples (deltas from source to destination). */
   readonly travelVars: Record<string, string>;
-  /** Landing burst centre (viewport px). */
-  readonly burstX: number;
-  readonly burstY: number;
   /** A 1:1 detached clone of the real card element, positioned to fill the flight box. */
   readonly clone: HTMLElement;
+  /** True once the clone has reached its destination: the board releases the hold (the real
+   *  card renders underneath) and the clone cross-fades out, so the handoff is seamless
+   *  instead of the clone vanishing and the card popping in. */
+  readonly landed: boolean;
 }
 
 /** One captured board card: its live rect and a detached clone for a flying copy. */
@@ -1676,6 +1856,13 @@ let cardFlightSeq = 0;
 
 /** Fallback flight-box size when no real card rect is measurable yet (jsdom, or a card
  *  that was already held when its next transition arrived). */
+/** Replay-on-load: a card that entered its current phase within this many seconds is
+ *  treated as a recent transition and replayed when the board first opens. */
+const REPLAY_WINDOW_SECONDS = 600;
+/** Cross-fade duration after a clone lands, during which the real card is revealed beneath
+ *  it, so the handoff from flying clone to settled card is smooth rather than a pop. */
+const SETTLE_MS = 220;
+
 const FALLBACK_CARD_W = 200;
 const FALLBACK_CARD_H = 84;
 
@@ -1722,10 +1909,16 @@ function buildCardFlights(
 
     // Source top-left: the slot the card just left, else its last-known slot, else the
     // from-phase column anchor, else it flies down from the top of the board (intake).
-    const srcRect =
-      prevCards.get(cf.number)?.rect ??
-      lastKnown.get(cf.number)?.rect ??
-      (cf.fromPhase ? (columnRects.get(cf.fromPhase) ?? null) : null);
+    // A REPLAY flight (first load) has no prior on-screen slot - lastKnown already holds the
+    // card's DESTINATION rect from this same commit - so it launches from the from-phase
+    // column anchor directly (or the board top for an intake replay).
+    const srcRect = cf.replay
+      ? cf.fromPhase
+        ? (columnRects.get(cf.fromPhase) ?? null)
+        : null
+      : (prevCards.get(cf.number)?.rect ??
+        lastKnown.get(cf.number)?.rect ??
+        (cf.fromPhase ? (columnRects.get(cf.fromPhase) ?? null) : null));
     let srcLeft: number;
     let srcTop: number;
     if (srcRect) {
@@ -1770,9 +1963,8 @@ function buildCardFlights(
       width,
       height,
       travelVars: arcTravelVars(0, 0, deltaX, deltaY, cx, cy),
-      burstX: dLeft + width / 2,
-      burstY: dTop + height / 2,
       clone,
+      landed: false,
     });
   }
   return active;
@@ -1820,19 +2012,17 @@ function useCardFlights(
   // a clone to fly (SDLC-VIS-21).
   const lastKnownRef = useRef<Map<number, CapturedCard>>(new Map());
   const [flights, setFlights] = useState<readonly ActiveCardFlight[]>([]);
-  // Cull timers, held in a ref so they survive re-renders (browser timers are numbers).
+  // Land/cull timers, held in a ref so they survive re-renders (browser timers are numbers).
   const timers = useRef<Set<number>>(new Set());
-
-  // Clear timers ONLY on unmount - never per render - so an aging re-render or unrelated
-  // poll cannot clearTimeout a pending cull and strand a frozen flying clone (the same
-  // trap the map's useFlights documents).
+  // Guards the timer callbacks instead of clearing the timers on unmount. Clearing stranded
+  // the first batch under StrictMode's mount -> cleanup -> mount cycle (the cull was wiped
+  // before it fired and the second mount did not relaunch), leaving frozen clones stuck on
+  // the board. Letting the timers fire but no-op after a real unmount avoids that.
+  const mounted = useRef(true);
   useEffect(() => {
-    const pending = timers.current;
+    mounted.current = true;
     return () => {
-      pending.forEach((t) => {
-        window.clearTimeout(t);
-      });
-      pending.clear();
+      mounted.current = false;
     };
   }, []);
 
@@ -1858,14 +2048,16 @@ function useCardFlights(
       lastKnown.set(n, cap);
     }
 
-    if (
-      !prevData ||
-      prefersReducedMotion() ||
-      typeof document === "undefined"
-    ) {
+    if (prefersReducedMotion() || typeof document === "undefined") {
       return;
     }
-    const found = computeCardFlights(prevData, data);
+    // First load has no prior snapshot to diff: REPLAY recent transitions from the card
+    // history window so the board catches up on motion the moment it opens, instead of only
+    // animating a transition a viewer happens to be watching live. Subsequent snapshots
+    // diff normally (prev -> next).
+    const found = prevData
+      ? computeCardFlights(prevData, data)
+      : computeReplayCardFlights(data, REPLAY_WINDOW_SECONDS);
     if (found.length === 0) {
       return;
     }
@@ -1882,16 +2074,30 @@ function useCardFlights(
       return;
     }
 
-    const keys = new Set(active.map((a) => a.key));
-    setFlights((cur) => [...cur, ...active]);
-    // Each flight self-expires via a tracked timer; this effect returns NO cleanup so a
-    // later commit cannot cancel an in-flight cull (mirrors the map's useFlights).
     const track = timers.current;
-    const id = window.setTimeout(() => {
-      track.delete(id);
-      setFlights((cur) => cur.filter((a) => !keys.has(a.key)));
-    }, FLIGHT_MS + DUST_MS);
-    track.add(id);
+    // Launch a batch, then run its two-phase landing: at FLIGHT_MS the clone has arrived, so
+    // mark it landed (the board releases the hold and the real card renders underneath while
+    // the clone cross-fades out); at FLIGHT_MS + SETTLE_MS remove the spent clone. Callbacks
+    // are guarded by `mounted`, not cancelled, so a StrictMode remount never strands them.
+    const launch = (batch: readonly ActiveCardFlight[]): void => {
+      const keys = new Set(batch.map((a) => a.key));
+      setFlights((cur) => [...cur, ...batch]);
+      const landId = window.setTimeout(() => {
+        track.delete(landId);
+        if (!mounted.current) return;
+        setFlights((cur) =>
+          cur.map((a) => (keys.has(a.key) ? { ...a, landed: true } : a)),
+        );
+      }, FLIGHT_MS);
+      track.add(landId);
+      const cullId = window.setTimeout(() => {
+        track.delete(cullId);
+        if (!mounted.current) return;
+        setFlights((cur) => cur.filter((a) => !keys.has(a.key)));
+      }, FLIGHT_MS + SETTLE_MS);
+      track.add(cullId);
+    };
+    launch(active);
   }, [data, boardRef, matrixRef]);
 
   // A column-bound flight holds its destination card until the copy lands (no double
@@ -1899,7 +2105,9 @@ function useCardFlights(
   const heldNumbers = useMemo(() => {
     const held = new Set<number>();
     for (const fl of flights) {
-      if (!fl.toShipped) {
+      // Release the hold the moment the clone LANDS (not when it is culled), so the real card
+      // is already painted underneath the fading clone - a seamless handoff, not a pop.
+      if (!fl.toShipped && !fl.landed) {
         held.add(fl.number);
       }
     }
@@ -1919,10 +2127,12 @@ function attachClone(clone: HTMLElement): (el: HTMLDivElement | null) => void {
   };
 }
 
-/** The board flight overlay (SDLC-VIS-20): for each active flight, a 1:1 clone of the
- *  card flies along the shared arc from its old slot to its new one, landing with the
- *  shared impact + dust burst. Rendered into document.body (like the old ship ghost) so a
- *  transformed Drawer ancestor cannot clip or offset the fixed-position copies. */
+/** The board flight overlay (SDLC-VIS-20): for each active flight, a 1:1 clone of the card
+ *  flies along the shared arc from its old slot to its new one. On landing the clone
+ *  cross-fades out while the real card is revealed beneath it (no dust burst on the board -
+ *  the impact effect reads as noise on the dense SDLC grid). Rendered into document.body
+ *  (like the old ship ghost) so a transformed Drawer ancestor cannot clip or offset the
+ *  fixed-position copies. */
 function BoardFlights({
   flights,
 }: {
@@ -1943,9 +2153,20 @@ function BoardFlights({
               top: `${String(fl.top)}px`,
               width: `${String(fl.width)}px`,
               height: `${String(fl.height)}px`,
+              // Cross-fade the spent clone out once it lands; the real card is already painted
+              // underneath (the hold releases on landing), so the handoff is seamless.
+              opacity: fl.landed ? 0 : 1,
+              transition: `opacity ${String(SETTLE_MS)}ms ease-out`,
             }}
           >
-            <div className={motion.flightTravel} style={fl.travelVars}>
+            <div
+              className={motion.flightTravel}
+              // Fill the flight box so the height:100% chain below (scale card -> clone) has a
+              // concrete height to resolve against; without this the flying card collapses to
+              // zero height and the arc is invisible (the card appears to flash in and out of
+              // its columns instead of gliding).
+              style={{ ...fl.travelVars, width: "100%", height: "100%" }}
+            >
               <div
                 className={motion.flightScaleCard}
                 style={{ height: "100%" }}
@@ -1960,29 +2181,6 @@ function BoardFlights({
                 />
               </div>
             </div>
-          </div>
-          <div
-            className={styles.flightBurst}
-            style={{
-              left: `${String(fl.burstX)}px`,
-              top: `${String(fl.burstY)}px`,
-            }}
-          >
-            <span
-              className={[styles.flightRing, motion.impactRing].join(" ")}
-            />
-            {DUST.map((p, i) => (
-              <span
-                key={i}
-                className={[styles.flightDust, motion.dust].join(" ")}
-                style={
-                  {
-                    "--dust-dx": p.dx,
-                    "--dust-dy": p.dy,
-                  } as React.CSSProperties
-                }
-              />
-            ))}
           </div>
         </div>
       ))}
@@ -2120,24 +2318,103 @@ function ScopeFilter({
   );
 }
 
-// useLiveNow returns a wall-clock timestamp that ticks every second so cards age
-// continuously between the plane's refetches, not just in a jump when new data lands.
-// An explicit override (tests, the dev harness) freezes it for deterministic output
-// and never starts a timer.
-function useLiveNow(override?: number): number {
-  const [now, setNow] = useState<number>(() => override ?? Date.now());
-  useEffect(() => {
-    if (override !== undefined) {
-      return;
-    }
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 1_000);
-    return () => {
-      clearInterval(id);
-    };
-  }, [override]);
-  return override ?? now;
+/**
+ * The agent detail panel's 24h history tiles - queue depth, items processed, and
+ * items failed - reusing the map node panel's shared MetricTile (SDLC-AGT-09): the
+ * same square-aspect, 180px-capped tile with an area sparkline. No shared cursor
+ * here (the panel has no companion widget to synchronise with), so each tile shows
+ * its live scalar with the full 24h band underneath.
+ */
+function AgentMetricTiles({
+  agent,
+}: {
+  readonly agent: SdlcAgentMetrics;
+}): React.ReactElement {
+  return (
+    <div className={tileStyles.metricTiles}>
+      <MetricTile
+        label={messages.agentsColQueue}
+        value={agent.queueDepth}
+        history={agent.series.queueDepth}
+        color={USER_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColDone}
+        value={agent.itemsProcessed}
+        history={agent.series.itemsProcessed}
+        color={TEXT_COLOR}
+        active={null}
+      />
+      <MetricTile
+        label={messages.agentsColFailed}
+        value={agent.itemsFailed}
+        history={agent.series.itemsFailed}
+        color={TONE_COLOR.danger}
+        active={null}
+      />
+    </div>
+  );
+}
+
+function AgentDetailPanel({
+  agent,
+  onClose,
+}: {
+  agent: SdlcAgentMetrics;
+  onClose: () => void;
+}): React.ReactElement {
+  return (
+    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
+      <DrawerHead>
+        <span style={{ fontWeight: 700, fontSize: 18 }}>
+          <Inline>
+            <RobotIcon aria-hidden />
+            <span>{agent.name}</span>
+          </Inline>
+        </span>
+        <DrawerActions>
+          <DrawerCloseButton onClick={onClose} />
+        </DrawerActions>
+      </DrawerHead>
+      <DrawerPanelBody>
+        <DescriptionList isHorizontal isCompact>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.columnEnvironment} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>{agent.env}</DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.agentsColReplicas} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <span
+                style={{
+                  color:
+                    agent.replicasOn > 0 ? TONE_COLOR.success : METRIC_SUBTLE,
+                  fontWeight: 700,
+                }}
+              >
+                {agent.replicasOn}
+              </span>
+              <span style={{ color: METRIC_SUBTLE }}>
+                <FormattedMessage {...messages.replicasRatioSeparator} />
+                {agent.replicasTotal}
+              </span>
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+        </DescriptionList>
+        {/* Queue, done, and failed have 24h history, so they render as sparkline
+            tiles (SDLC-AGT-09) rather than duplicating their current value in a
+            second, history-less DescriptionList row. */}
+        <div className="pf-v6-u-mt-md">
+          <AgentMetricTiles agent={agent} />
+        </div>
+      </DrawerPanelBody>
+    </DrawerPanelContent>
+  );
 }
 
 export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
@@ -2169,10 +2446,46 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
     matrixRef,
   );
 
+  // Agent runtime telemetry keyed by agent name for O(1) column lookups.
+  const agentByName = useMemo(() => {
+    if (!props.agents) {
+      return new Map<string, SdlcAgentMetrics>();
+    }
+    return props.agents;
+  }, [props.agents]);
+
+  // Local ephemeral state for the agent detail panel (SDLC-AGT-08). A route-driven
+  // panel (card detail, shipped detail, notifications) supersedes it. Reset during
+  // render (the React-recommended "adjust state when a prop changes" pattern,
+  // precedented in NodeDetails's cursor reset) rather than in an effect, so there
+  // is no extra render pass and no synchronous setState-in-effect.
+  const [selectedAgentName, setSelectedAgentName] = useState<string | null>(
+    null,
+  );
+  const routePanelActive =
+    route.sdlc.card !== null ||
+    route.sdlc.shipped !== null ||
+    showNotifications;
+  const [wasRoutePanelActive, setWasRoutePanelActive] =
+    useState(routePanelActive);
+  if (routePanelActive !== wasRoutePanelActive) {
+    setWasRoutePanelActive(routePanelActive);
+    if (routePanelActive) {
+      setSelectedAgentName(null);
+    }
+  }
+  const selectedAgent =
+    selectedAgentName !== null
+      ? (agentByName.get(selectedAgentName) ?? null)
+      : null;
+
   // Escape closes the side panel (card detail or escalations). An open select menu
   // handles its own Escape first (guarded on an open listbox), so it isn't swallowed.
   const panelOpen =
-    selected !== null || selectedShipped !== null || showNotifications;
+    selected !== null ||
+    selectedShipped !== null ||
+    showNotifications ||
+    selectedAgent !== null;
   useEffect(() => {
     if (!panelOpen) {
       return;
@@ -2187,13 +2500,17 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
       ) {
         return;
       }
+      if (selectedAgent !== null) {
+        setSelectedAgentName(null);
+        return;
+      }
       navigate({ type: "sdlcClosePanel" });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [panelOpen, navigate]);
+  }, [panelOpen, navigate, selectedAgent]);
 
   const phases = boardPhases(data.phases);
   // The vertical time axis is derived from the snapshot ages so it stays stable
@@ -2270,7 +2587,14 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   );
 
   const livePanel: React.ReactNode =
-    selected !== null ? (
+    selectedAgent !== null ? (
+      <AgentDetailPanel
+        agent={selectedAgent}
+        onClose={() => {
+          setSelectedAgentName(null);
+        }}
+      />
+    ) : selected !== null ? (
       <CardDetailPanel
         card={selected}
         onClose={() => {
@@ -2401,6 +2725,13 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                     onSelect={(card) => {
                       navigate({ type: "sdlcCard", card: card.number });
                     }}
+                    agentSummary={agentByName.get(PHASE_AGENT[phase.key] ?? "")}
+                    onSelectAgent={(name) => {
+                      navigate({ type: "sdlcClosePanel" });
+                      setSelectedAgentName(name);
+                    }}
+                    nowMs={liveNowMs}
+                    planeStale={props.planeStale ?? false}
                   />
                 ))}
               </div>

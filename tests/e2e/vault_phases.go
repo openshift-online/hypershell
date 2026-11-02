@@ -35,7 +35,7 @@ const (
 //     Vault unreachable to the control plane and provisioning a gateway through the product API.
 //
 // The templated per-tenant policy itself (round-trip under the token's own
-// openshell-gw/<namespace>/.../provider-credentials/*, no list, no metadata delete, no reach
+// openshell-gw/<namespace>/.../provider-credentials/*, no list, metadata delete allowed, no reach
 // into another tenant's mount) is the GitOps Contract, authored in hypershell-gitops. It is
 // verified once, in the Vault fixture, by scripts/cluster/vault.sh's own self-test -- not by
 // the suite reaching into Vault with a synthetic identity. See
@@ -54,9 +54,6 @@ const (
 // the final behavior check (after the parallel P2 wave and read-only P3), never concurrently
 // with other gateway provisioning. It needs kube access to mutate the CA source Secret.
 func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; fail-closed needs kube access to make Vault unreachable")
-	}
 	s.vaultFailClosedScenario(t.Context(), t)
 }
 
@@ -68,11 +65,12 @@ func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 	defer restore()
 
 	name := "e2e-vault-failclosed-" + s.runID
-	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
-	// Vault-backed with no overrides (black box): the control plane resolves the convention
-	// address and reads the (now corrupted) serving CA, so the pre-deploy reachability probe
-	// fails closed.
-	body.CredentialDriver = `{"type":"vault"}`
+	// Vault-backed with no overrides (black box): credential_driver is
+	// control-plane-managed and not user-settable (PLAT-DATA-23), and the flat
+	// vault default already applies, so the create carries only name + placement.
+	// The control plane resolves the convention address and reads the (now
+	// corrupted) serving CA, so the pre-deploy reachability probe fails closed.
+	body := gatewayCreateRequestForDriver(name, s.driver.Name())
 	status, resp, err := s.admin.RawJSON(ctx, http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create fail-closed gateway")
 	s.Require().Equalf(http.StatusCreated, status, "create fail-closed gateway status (body: %s)", string(resp))

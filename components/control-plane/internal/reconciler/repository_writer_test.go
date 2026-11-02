@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -114,7 +115,11 @@ func TestUpsertGateway_SkipsWhenUnchanged(t *testing.T) {
 	}
 }
 
-func TestUpsertGateway_UpdatesWhenChanged(t *testing.T) {
+// An import is a non-privileged writer whose only writable surface is name + placement,
+// both create-only (PLAT-DATA-23 / CTRL-CORE-15). Re-importing an existing gateway with a
+// changed cluster_id does not reassign it: name is the match key and cluster_id is not
+// updatable by an import, so the pass is a no-op.
+func TestUpsertGateway_ReimportWithChangedClusterIsNoOp(t *testing.T) {
 	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("g1", "gw-1", "repo-1", "c1")}}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
 	res := RenderedResource{Kind: "Gateway", Name: "gw-1", Spec: map[string]interface{}{"cluster_id": "c2"}}
@@ -122,8 +127,33 @@ func TestUpsertGateway_UpdatesWhenChanged(t *testing.T) {
 	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
 		t.Fatalf("Upsert error = %v", err)
 	}
-	if len(gwc.updated) != 1 || gwc.updated[0].GetId() != "g1" || gwc.updated[0].GetClusterId() != "c2" {
-		t.Fatalf("updated = %+v, want one update of g1 -> c2", gwc.updated)
+	if len(gwc.created) != 0 || len(gwc.updated) != 0 {
+		t.Fatalf("re-import of an existing gateway wrote: created=%+v updated=%+v", gwc.created, gwc.updated)
+	}
+}
+
+// A .hypershell Gateway manifest may declare only name + placement; a platform-managed
+// field fails that gateway's import with a clear error naming the field, and no create or
+// update is sent (CTRL-CORE-15.01; PLAT-DATA-23).
+func TestUpsertGateway_RejectsPlatformManagedField(t *testing.T) {
+	for _, field := range []string{"image", "oidc", "route", "tls_mode", "service_type", "external_dns", "supervisor_image", "server_dns_names", "credential_driver"} {
+		gwc := &importFakeGatewayClient{}
+		w := &grpcImportWriter{gateways: gwc, pageSize: 100}
+		res := RenderedResource{Kind: "Gateway", Name: "gw-platform", Spec: map[string]interface{}{
+			"cluster_id": "c1",
+			field:        "some-value",
+		}}
+
+		err := w.Upsert(context.Background(), "repo-1", res)
+		if err == nil {
+			t.Fatalf("field %q: Upsert returned nil error; want a platform-managed rejection", field)
+		}
+		if !strings.Contains(err.Error(), field) || !strings.Contains(err.Error(), "platform-managed") {
+			t.Errorf("field %q: error = %q, want it to name the field and 'platform-managed'", field, err)
+		}
+		if len(gwc.created) != 0 || len(gwc.updated) != 0 {
+			t.Errorf("field %q: a rejected manifest still wrote: created=%+v updated=%+v", field, gwc.created, gwc.updated)
+		}
 	}
 }
 

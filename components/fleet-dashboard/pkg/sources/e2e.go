@@ -156,10 +156,18 @@ type E2ERunDetail struct {
 // (oldest first) for display; NextCursor is the oldest timestamp in the page (a
 // decimal nanosecond string) to request the immediately older page, and HasMore
 // reports that the page was full so an older page may exist.
+//
+// BoundaryTruncated reports the pathological case where a full page's oldest
+// entries all share the cursor's nanosecond, so the cursor cannot advance without
+// looping and the remaining entries at that nanosecond are locally unreachable.
+// It is NOT end-of-history: the client surfaces a locally-limited state distinct
+// from "all history was read" (E2E-LOG-19, E2E-LOG-26), rather than reporting the
+// history exhausted.
 type E2ELogPage struct {
-	Entries    []E2ELogLine `json:"entries"`
-	NextCursor string       `json:"nextCursor,omitempty"`
-	HasMore    bool         `json:"hasMore"`
+	Entries           []E2ELogLine `json:"entries"`
+	NextCursor        string       `json:"nextCursor,omitempty"`
+	HasMore           bool         `json:"hasMore"`
+	BoundaryTruncated bool         `json:"boundaryTruncated,omitempty"`
 }
 
 // E2EStep is one reduced step with its derived state and timing.
@@ -190,14 +198,15 @@ type HydratedVersionResolver interface {
 }
 
 type E2E struct {
-	versioner   HydratedVersionResolver
-	loki        LokiClient
-	tenants     []string
-	selector    string
-	window      time.Duration
-	limit       int
-	logPageSize int
-	logger      *slog.Logger
+	versioner     HydratedVersionResolver
+	loki          LokiClient
+	tenants       []string
+	selector      string
+	window        time.Duration
+	limit         int
+	logPageSize   int
+	logTimeMargin time.Duration
+	logger        *slog.Logger
 
 	// broker shares bounded upstream tails across subscribed browsers within this
 	// replica (E2E-LOG-05); created lazily by the stream handler.
@@ -220,13 +229,14 @@ func NewE2E(c *config.Config, versioner HydratedVersionResolver) *E2E {
 // LokiClient so behavior is validated without a live Loki.
 func newE2EWithClient(c *config.Config, loki LokiClient) *E2E {
 	e := &E2E{
-		loki:        loki,
-		tenants:     append([]string(nil), c.E2ELokiTenants...),
-		selector:    c.E2ELokiSelector,
-		window:      c.E2EHistoryWindow,
-		limit:       c.E2ERecentRunLimit,
-		logPageSize: c.E2ELogPageSize,
-		logger:      slog.Default(),
+		loki:          loki,
+		tenants:       append([]string(nil), c.E2ELokiTenants...),
+		selector:      c.E2ELokiSelector,
+		window:        c.E2EHistoryWindow,
+		limit:         c.E2ERecentRunLimit,
+		logPageSize:   c.E2ELogPageSize,
+		logTimeMargin: c.E2ELogTimeMargin,
+		logger:        slog.Default(),
 	}
 	e.broker = newTailBroker(loki, e.selector, e.logger)
 	return e
@@ -387,6 +397,13 @@ func clampLogPageSize(requested, def int) int {
 // exact run address, tenant allowlist, and authorization as RunDetail (the same
 // ErrRunNotFound on an unknown tenant).
 //
+// stepID is an optional selected-step scope (E2E-LOG-23): when non-empty the page
+// is filtered to that one step - the step id is pushed into the Loki query as a
+// line filter so the limit applies to that step's lines rather than a run-wide
+// page (E2E-LOG-24), and the time range is bounded by the step's lifecycle window
+// (E2E-LOG-25). When stepID is empty the endpoint preserves the run-wide behavior
+// unchanged.
+//
 // before is an optional nanosecond-timestamp cursor (exclusive upper bound;
 // empty means the newest page). limit is clamped to the server-side maximum. The
 // page is read direction=backward (newest first) and reversed to
@@ -395,7 +412,7 @@ func clampLogPageSize(requested, def int) int {
 // one-nanosecond inclusive overlap at the boundary; the returned entries carry a
 // stable per-entry sequence the caller de-dupes on, so a page boundary neither
 // drops nor duplicates an entry.
-func (e *E2E) RunLogs(ctx context.Context, id, before string, limit int) (*E2ELogPage, error) {
+func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int) (*E2ELogPage, error) {
 	tenant, namespace, runID, err := parseRunID(id)
 	if err != nil {
 		return nil, err
@@ -405,7 +422,6 @@ func (e *E2E) RunLogs(ctx context.Context, id, before string, limit int) (*E2ELo
 	}
 	size := clampLogPageSize(limit, e.logPageSize)
 
-	end := time.Now()
 	var beforeNs int64
 	hasBefore := false
 	if before != "" {
@@ -415,15 +431,66 @@ func (e *E2E) RunLogs(ctx context.Context, id, before string, limit int) (*E2ELo
 		}
 		beforeNs = ns
 		hasBefore = true
+	}
+
+	// Resolve the query time range. Run-wide history uses a window relative to the
+	// cursor (E2E-LOG-19); a selected step bounds the range to that step's lifecycle
+	// window with a configurable ingestion/skew margin and a STABLE lower bound that
+	// does not move backward as the cursor pages older (E2E-LOG-25).
+	var start, end time.Time
+	if stepID != "" {
+		lower, upper, ok, werr := e.stepLogWindow(ctx, tenant, namespace, runID, stepID)
+		if werr != nil {
+			e.logger.WarnContext(ctx, "e2e step log window query failed", "tenant", tenant, "err", werr)
+			return nil, ErrLogBackendUnavailable
+		}
+		if ok {
+			start, end = lower, upper
+		} else {
+			// Documented fallback: lifecycle timing is missing or incomplete, so fall
+			// back to the configured history window rather than silently omitting valid
+			// logs (E2E-LOG-25). The step filter still scopes the page to the step.
+			end = time.Now()
+			start = end.Add(-e.window)
+		}
+	} else {
+		end = time.Now()
+		start = end.Add(-e.window)
+	}
+
+	if hasBefore {
 		// One-nanosecond inclusive overlap: end is exclusive in query_range, so
 		// end = before + 1ns keeps the boundary timestamp in range and no entry that
 		// shares the cursor's exact nanosecond is dropped. The caller de-dupes the
-		// re-delivered boundary entries by sequence (E2E-LOG-19).
-		end = time.Unix(0, ns+1)
+		// re-delivered boundary entries by sequence (E2E-LOG-19). The cursor only ever
+		// narrows the upper bound; the lower bound stays fixed (E2E-LOG-25).
+		cursorEnd := time.Unix(0, beforeNs+1)
+		if cursorEnd.Before(end) {
+			end = cursorEnd
+		}
+		if stepID == "" {
+			// Run-wide history keeps its relative lookback window around the cursor.
+			start = end.Add(-e.window)
+		}
 	}
-	start := end.Add(-e.window)
 
 	runSelector := e.selector + " |= " + strconv.Quote(runID)
+	if stepID != "" {
+		// Push the step scope into the query so Loki applies the page limit to this
+		// step's lines, not a run-wide page filtered afterwards (E2E-LOG-24). The step
+		// id rides a line filter on the pipeline/body, not a stream label, so run and
+		// step ids never become high-cardinality labels (E2E-LOG-24.03).
+		//
+		// The filter matches the serialized JSON field value token - the step id
+		// wrapped in the (ViaQ-escaped) quote pair as it appears in the structured
+		// event's "stepId":"<id>" field, i.e. the literal bytes \"<id>\" in the Loki
+		// line. Matching the quoted value rather than a bare substring disambiguates
+		// step ids that are prefixes of one another (e.g. "build" vs "build-image")
+		// and low-entropy names that could otherwise appear in another step's message,
+		// so the bounded page is not diluted before the limit. Go-side validation below
+		// still confirms the parsed event's step id matches exactly (defense in depth).
+		runSelector += " |= " + strconv.Quote(`\"`+stepID+`\"`)
+	}
 	entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, runSelector, start, end, size)
 	if err != nil {
 		e.logger.WarnContext(ctx, "e2e run logs query failed", "tenant", tenant, "err", err)
@@ -449,6 +516,15 @@ func (e *E2E) RunLogs(ctx context.Context, id, before string, limit int) (*E2ELo
 		if ev.Namespace != "" && namespace != "" && ev.Namespace != namespace {
 			continue
 		}
+		// Selected-step scope (E2E-LOG-23/24): a log event is attributed to the step
+		// only when its step id matches exactly. An older event missing the optional
+		// stepId field therefore cannot belong to a named step and is intentionally
+		// excluded from a step-scoped page (E2E-LOG-24), while the run-wide page keeps
+		// it. The pre-limit line filter above is a substring match, so this is the
+		// authoritative, defensive filter.
+		if stepID != "" && ev.StepID != stepID {
+			continue
+		}
 		logs = append(logs, E2ELogLine{
 			Sequence:  ev.Sequence,
 			Timestamp: ev.Timestamp,
@@ -467,14 +543,72 @@ func (e *E2E) RunLogs(ctx context.Context, id, before string, limit int) (*E2ELo
 		// Guard the pathological case where more than one page of entries share a
 		// single nanosecond: the next cursor would equal the current one and paging
 		// would never advance (E2E-LOG-19 "SHALL NOT assume unique timestamps"). Stop
-		// paging rather than hand the client a cursor that loops.
+		// paging rather than hand the client a cursor that loops, but report the stop
+		// as a locally-limited boundary, NOT end-of-history: more entries exist at this
+		// nanosecond than the page can carry, so the client must distinguish the local
+		// limit from "all history was read" (E2E-LOG-26).
 		if hasBefore && oldestNs == beforeNs {
 			page.HasMore = false
+			page.BoundaryTruncated = true
 		} else {
 			page.NextCursor = strconv.FormatInt(oldestNs, 10)
 		}
 	}
 	return page, nil
+}
+
+// stepLogWindow resolves the lifecycle-bounded Loki time range for a selected
+// step's raw-log history (E2E-LOG-25). It reads the same small, always-fast
+// lifecycle query the run detail uses (E2E-LOG-20) to recover the step's start and
+// end times, then returns:
+//
+//   - lower: the step's start minus the configured ingestion/skew margin. This is a
+//     STABLE lower bound: it depends only on the step's lifecycle, not on the paging
+//     cursor, so paging older never widens the window backwards (E2E-LOG-25).
+//   - upper: for a completed step, the step's end plus the margin, so the query does
+//     not scan unrelated later history; for a still-running step (no end time), the
+//     current time, so freshly emitted lines remain visible (E2E-LOG-25).
+//
+// ok is false when the step is absent or its start time is missing/unparseable, so
+// the caller applies the documented fallback window rather than omitting logs. The
+// suite event timestamps and the Loki ingestion timestamps are not identical; the
+// margin absorbs that skew and ingestion delay (E2E-LOG-25).
+func (e *E2E) stepLogWindow(ctx context.Context, tenant, namespace, runID, stepID string) (lower, upper time.Time, ok bool, err error) {
+	end := time.Now()
+	start := end.Add(-e.window)
+	runSelector := e.selector + " |= " + strconv.Quote(runID)
+	lifecycle, _, qerr := e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), start, end, lokiQueryLimit)
+	if qerr != nil {
+		return time.Time{}, time.Time{}, false, qerr
+	}
+	for _, run := range reduceRunsForTenant(tenant, lifecycle) {
+		if run.RunID != runID || run.Namespace != namespace {
+			continue
+		}
+		for _, step := range run.Steps {
+			if step.StepID != stepID {
+				continue
+			}
+			st, serr := time.Parse(time.RFC3339Nano, step.StartedAt)
+			if step.StartedAt == "" || serr != nil {
+				// A planned-but-not-started step has no start time to bound by; fall back.
+				return time.Time{}, time.Time{}, false, nil
+			}
+			lower = st.Add(-e.logTimeMargin)
+			if step.State == stepStateRunning || step.EndedAt == "" {
+				upper = time.Now()
+				return lower, upper, true, nil
+			}
+			et, eerr := time.Parse(time.RFC3339Nano, step.EndedAt)
+			if eerr != nil {
+				upper = time.Now()
+				return lower, upper, true, nil
+			}
+			upper = et.Add(e.logTimeMargin)
+			return lower, upper, true, nil
+		}
+	}
+	return time.Time{}, time.Time{}, false, nil
 }
 
 // tenantAllowed reports whether tenant is in the configured allowlist.

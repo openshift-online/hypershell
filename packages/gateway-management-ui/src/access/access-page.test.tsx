@@ -95,6 +95,7 @@ const operations: GatewayOperations = {
   renameGateway: vi.fn(),
   revokeGatewayAccess: mocks.revoke,
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
   searchGatewayDirectory: mocks.search,
 };
 

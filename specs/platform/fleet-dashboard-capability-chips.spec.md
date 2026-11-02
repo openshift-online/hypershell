@@ -4,7 +4,8 @@
 **Status:** Active
 **Applies to:** `packages/fleet-dashboard-ui` promotion domain, map model, wire
 adapter, and map presentation (card + node drawer); `components/fleet-dashboard`
-BFF promotion source (delivery capabilities-annotation sourcing).
+BFF promotion and Prometheus sources (control-plane info metrics, with the
+delivery capabilities annotation as fallback).
 **Tracks:** [HYPERSHELL-437](https://redhat.atlassian.net/browse/HYPERSHELL-437)
 
 ## Purpose
@@ -21,17 +22,20 @@ surface.
 
 This specification makes the following behavior contracts:
 
-1. The map card SHALL carry the cluster's **runtime** and **gateway-version**
-   capabilities as a second chip row below the existing provider/role row.
+1. The map card SHALL carry the cluster's **runtime** capability as a second
+   chip row below the existing provider/role row.
 2. All card chips SHALL share one consistent, measured size system so chip text
    never spills past its pill, and the card's text labels SHALL truncate at the
    card edge rather than overflow it.
 3. The node drawer SHALL gain a **Capabilities** section listing the cluster's
    full self-declared capability set.
 4. The `capabilities` set SHALL be carried end to end as an optional field on the
-   promotion environment, sourced by the BFF from the delivery
-   `delivery.hypershell.app/capabilities` annotation already present on the
-   resolved Argo `Application`, so the BFF stays low-privilege.
+   promotion environment. The BFF SHALL source it from the cluster control
+   plane's own capability info metric (`OBS-CPL-09`) and fall back to the
+   delivery `delivery.hypershell.app/capabilities` annotation already present on
+   the resolved Argo `Application`. Both sources keep the BFF low-privilege.
+5. The node drawer SHALL show the default OpenShell gateway image the cluster's
+   control plane provisions, read from its control-plane info metric.
 
 Capabilities are **opaque data**: the UI SHALL NOT bake in a closed vocabulary.
 An unknown namespace or value SHALL still render. The capability chips and the
@@ -43,13 +47,16 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
 
 - `PLAT-CLUS-06` is the authoritative model for the `namespace/value` capability
   string, its recognized namespaces (`provider`, `network`, `region`, `runtime`,
-  `environment`, `gateway-version`), and which namespaces are single-valued. This
+  `environment`), and which namespaces are single-valued. This
   spec consumes that model for display; it does not redefine it.
 - `FLT-MAP-06` requires the pure map **layout** (`computeLayout`) to stay free of
   DOM access and measurement. Chip text measurement in this spec happens in the
   **presentation** layer (the SVG card), not in the layout geometry; the layout
   contributes only the card width and height constants. This spec does not relax
   `FLT-MAP-06`.
+- `OBS-CPL-09` defines the control-plane info metrics this spec reads:
+  `hypershell_managed_cluster_capability_info` (one series per capability) and
+  `hypershell_control_plane_info` (the default gateway image).
 - `FLT-SYNC-01`/`FLT-SYNC-03` establish the low-privilege BFF sourcing pattern
   (read from the Argo CD `Application` objects already resolved per instance; no
   new Kubernetes query or cluster credential) and the end-to-end threading
@@ -57,18 +64,31 @@ list, consistent with the identity firewall of `FLT-MAP-06`.
 
 ## Requirements
 
-### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the delivery annotation
+### Requirement: FLT-CAP-01 -- Capabilities carried end to end from the control plane
 
 The promotion environment SHALL carry an optional `capabilities` set of
 `namespace/value` strings, threaded unchanged through the wire adapter, the
 promotion domain, and the map node, mirroring how `provider` is carried today.
-The set SHALL be sourced from the single, comma-joined
-`delivery.hypershell.app/capabilities` annotation on the Argo CD `Application` by
-the fleet-dashboard BFF promotion source, using data the BFF already resolves per
-instance; the BFF SHALL NOT authenticate to the api-server and SHALL NOT
-introduce any new Kubernetes query, list, watch, or cluster credential to obtain
-it. Entries SHALL be validated against the recognized capability namespaces
-(`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
+
+The fleet-dashboard BFF SHALL source the set in this order:
+
+1. The cluster control plane's `hypershell_managed_cluster_capability_info`
+   series (`OBS-CPL-09`), read from the Prometheus the BFF already queries. A
+   series belongs to an environment when its `k8s_namespace_name` label equals
+   the namespace the environment's Argo CD `Application` deploys into. When
+   that namespace is reported by more than one physical cluster, the series
+   whose `cluster` label equals the Application's
+   `delivery.hypershell.app/cluster` label SHALL win; with no such match the
+   metric SHALL be ignored for that environment rather than guessed.
+2. The single, comma-joined `delivery.hypershell.app/capabilities` annotation
+   on the Argo CD `Application`, when the control plane reports no
+   capabilities or Prometheus is unavailable.
+
+A Prometheus failure SHALL NOT fail the promotion payload; it SHALL be logged
+and every environment SHALL use the annotation. The BFF SHALL NOT authenticate
+to the api-server and SHALL NOT introduce any new Kubernetes query, list,
+watch, or cluster credential to obtain capabilities. Entries from either source SHALL be validated against the recognized capability
+namespaces (`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
 SHALL be dropped rather than rendered. The field SHALL be optional at every hop:
 a node with no capability annotation SHALL carry an empty set, not an error, so
 existing test factories and payloads that omit it stay valid.
@@ -76,7 +96,7 @@ existing test factories and payloads that omit it stay valid.
 #### Scenario: FLT-CAP-01.01 -- Capabilities thread from wire to map node
 
 - GIVEN a promotion environment whose wire payload carries
-  `capabilities: ["provider/aws", "runtime/kata", "gateway-version/v0.1.2-rhaiv.7"]`
+  `capabilities: ["provider/aws", "runtime/kata", "network/vpn"]`
 - WHEN the wire adapter maps it into the promotion domain and the map node is built
 - THEN the map node SHALL carry the same three capability strings in order
 - AND no capability value SHALL be altered, dropped, or invented in transit
@@ -92,8 +112,30 @@ existing test factories and payloads that omit it stay valid.
 
 - GIVEN the fleet-dashboard BFF promotion source resolving each instance's Argo CD `Application`
 - WHEN it emits the `capabilities` field for a promotion environment
-- THEN the value SHALL be read from the `delivery.hypershell.app/capabilities` annotation on the already-resolved object
+- THEN the value SHALL be read from the Prometheus the BFF already queries, or from the `delivery.hypershell.app/capabilities` annotation on the already-resolved object
 - AND the BFF SHALL NOT open a new Kubernetes query, watch, or cluster credential, and SHALL NOT call the api-server, to obtain capabilities
+
+#### Scenario: FLT-CAP-01.04 -- Control-plane capabilities win over the annotation
+
+- GIVEN an environment whose Application deploys into namespace `inst-spoke` and carries the annotation `provider/aws`
+- AND Prometheus has `hypershell_managed_cluster_capability_info` series for `k8s_namespace_name="inst-spoke"` with capabilities `provider/ibm` and `network/public`
+- WHEN the BFF builds the promotion payload
+- THEN the environment's capabilities SHALL be `["provider/ibm", "network/public"]`
+- AND an entry whose namespace is not recognized SHALL be dropped, as for the annotation
+
+#### Scenario: FLT-CAP-01.05 -- Annotation is the fallback
+
+- GIVEN an environment whose control plane reports no capability series, or a Prometheus query that fails
+- WHEN the BFF builds the promotion payload
+- THEN the environment's capabilities SHALL be parsed from its delivery annotation
+- AND the promotion payload SHALL still be returned
+
+#### Scenario: FLT-CAP-01.06 -- A shared namespace name resolves by cluster
+
+- GIVEN two physical clusters that both report series for `k8s_namespace_name="inst-hub"`
+- WHEN the BFF matches an environment whose Application deploys into `inst-hub` with `delivery.hypershell.app/cluster` equal to one of them
+- THEN the series from that cluster SHALL be used
+- AND when the Application's cluster matches neither, the metric SHALL be ignored and the annotation used
 
 ### Requirement: FLT-CAP-02 -- Capability string helpers
 
@@ -102,7 +144,7 @@ no vocabulary: one that returns the value of the first capability in a given
 namespace (or nothing when absent), one that splits a capability into its
 namespace and value on the first slash only (later slashes stay in the value),
 and one that returns the capabilities in a stable lead-namespace order
-(`provider`, `runtime`, `gateway-version`, `network`, `region`, then any other
+(`provider`, `runtime`, `network`, `region`, then any other
 namespace alphabetically). An unknown namespace SHALL be ordered after the lead
 namespaces and SHALL never be discarded.
 
@@ -115,10 +157,10 @@ namespaces and SHALL never be discarded.
 
 #### Scenario: FLT-CAP-02.02 -- Split on the first slash only
 
-- GIVEN the capability string `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN the capability string `runtime/kata-qemu.v2`
 - WHEN it is split into namespace and value
-- THEN the namespace SHALL be `gateway-version`
-- AND the value SHALL be `v0.1.2-rhaiv.7`, with its internal characters intact
+- THEN the namespace SHALL be `runtime`
+- AND the value SHALL be `kata-qemu.v2`, with its internal characters intact
 
 #### Scenario: FLT-CAP-02.03 -- Lead-namespace ordering keeps unknowns
 
@@ -127,32 +169,23 @@ namespaces and SHALL never be discarded.
 - THEN the order SHALL be `provider/ibm`, `runtime/runc`, `region/eu-de`, `zone/a`
 - AND the unknown `zone` namespace SHALL appear after the lead namespaces, not be dropped
 
-### Requirement: FLT-CAP-03 -- Map card second chip row for runtime and gateway-version
+### Requirement: FLT-CAP-03 -- Map card second chip row for runtime
 
 The map card SHALL render a second chip row directly below the provider/role row,
-containing the cluster's `runtime` capability chip and its `gateway-version`
-capability chip. The two rows SHALL be two intentional lines that do not wrap. A
-capability that the cluster does not declare SHALL drop its chip, and the row
-SHALL collapse around the chips that remain; when the cluster declares neither
-runtime nor gateway-version the second row SHALL be absent.
+containing the cluster's `runtime` capability chip. The two rows SHALL be two
+intentional lines that do not wrap. When the cluster declares no runtime the
+second row SHALL be absent.
 
-#### Scenario: FLT-CAP-03.01 -- Both capabilities present render two chips
+#### Scenario: FLT-CAP-03.01 -- A declared runtime renders its chip
 
-- GIVEN a card whose cluster declares `runtime/runc` and `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN a card whose cluster declares `runtime/runc`
 - WHEN the card is rendered
-- THEN a second chip row below the provider/role row SHALL show a runtime chip and a gateway-version chip
+- THEN a second chip row below the provider/role row SHALL show a runtime chip
 - AND the two chip rows SHALL remain on their own single lines without wrapping
 
-#### Scenario: FLT-CAP-03.02 -- Absent capability drops its chip
+#### Scenario: FLT-CAP-03.03 -- No runtime omits the row
 
-- GIVEN a card whose cluster declares `gateway-version/v0.1.2-rhaiv.7` but no `runtime`
-- WHEN the card is rendered
-- THEN the second row SHALL show only the gateway-version chip
-- AND no empty placeholder SHALL be drawn for the missing runtime chip
-
-#### Scenario: FLT-CAP-03.03 -- Neither capability omits the row
-
-- GIVEN a card whose cluster declares neither runtime nor gateway-version
+- GIVEN a card whose cluster declares no runtime
 - WHEN the card is rendered
 - THEN no second chip row SHALL be drawn
 
@@ -163,7 +196,7 @@ API under jsdom, so pixel-level fit is confirmed by visual review of the card;
 the truncation and width helpers themselves are unit-tested through their
 non-DOM fallback.
 
-Every chip on the card (provider, role, runtime, gateway-version) SHALL share one
+Every chip on the card (provider, role, runtime) SHALL share one
 size system: the same height, font size, font weight, horizontal padding, corner
 radius, and inter-chip gap. Each chip's width SHALL be derived by measuring its
 rendered text, not estimated per character, so no chip text spills past its pill.
@@ -173,11 +206,11 @@ use a cached offscreen text-measurement path and SHALL fall back to a slight
 over-estimate where no measurement API is available (server-side rendering or
 tests), so a chip never clips.
 
-#### Scenario: FLT-CAP-04.01 -- A long gateway-version fits inside its pill
+#### Scenario: FLT-CAP-04.01 -- A long runtime value fits inside its pill
 
-- GIVEN a card whose cluster declares `gateway-version/v0.1.2-rhaiv.7`
+- GIVEN a card whose cluster declares `runtime/kata-qemu-snp`
 - WHEN the card is rendered
-- THEN the gateway-version chip's pill SHALL be wide enough to contain its text
+- THEN the runtime chip's pill SHALL be wide enough to contain its text
 - AND the text SHALL NOT extend past the pill's edges
 
 #### Scenario: FLT-CAP-04.02 -- A long environment name truncates at the card edge
@@ -189,9 +222,9 @@ tests), so a chip never clips.
 
 #### Scenario: FLT-CAP-04.03 -- Chips share one size family
 
-- GIVEN a card rendering a provider, role, runtime, and gateway-version chip
+- GIVEN a card rendering a provider, role, and runtime chip
 - WHEN the chips are drawn
-- THEN all four SHALL use the same height, font, padding, and corner radius
+- THEN all three SHALL use the same height, font, padding, and corner radius
 - AND only each chip's width and colour SHALL differ
 
 ### Requirement: FLT-CAP-05 -- Chip colour and casing semantics
@@ -201,26 +234,23 @@ no baked-in vocabulary. The provider chip SHALL use a brand hue for known public
 clouds and a deterministic hash hue otherwise, with a dark fill and bright
 same-hue text. The role chip SHALL be the one inverted pill: a light same-hue
 fill with dark text, so hub/spoke reads as structural rather than as another
-coloured capability. The runtime and gateway-version chips SHALL use a value-
-derived hue one notch dimmer than the provider chip, so the second row reads as
-secondary. The runtime chip label SHALL be upper-cased; the gateway-version chip
-label SHALL keep its natural case, because upper-casing a version string reads
-wrong. An unrecognized runtime or version value SHALL still render with a hash
-hue; the dashboard SHALL NOT require the value to be in a known set.
+coloured capability. The runtime chip SHALL use a value-derived hue one
+notch dimmer than the provider chip, so the second row reads as secondary. The
+runtime chip label SHALL be upper-cased. An unrecognized runtime value SHALL
+still render with a hash hue; the dashboard SHALL NOT require the value to be in a known set.
 
 #### Scenario: FLT-CAP-05.01 -- Second-row chips are dimmer than the provider chip
 
 - GIVEN a card with a provider chip and a runtime chip
 - WHEN the chips are drawn
 - THEN the runtime chip SHALL use a dimmer value of the hue than the provider chip
-- AND the provider/role row SHALL read as primary over the runtime/version row
+- AND the provider/role row SHALL read as primary over the runtime row
 
-#### Scenario: FLT-CAP-05.02 -- Version keeps natural case, runtime is upper-cased
+#### Scenario: FLT-CAP-05.02 -- Runtime is upper-cased
 
-- GIVEN a runtime value `runc` and a gateway-version value `v0.1.2-rhaiv.7`
-- WHEN the chips are rendered
+- GIVEN a runtime value `runc`
+- WHEN the chip is rendered
 - THEN the runtime chip SHALL read `RUNC`
-- AND the gateway-version chip SHALL read `v0.1.2-rhaiv.7` unchanged
 
 #### Scenario: FLT-CAP-05.03 -- Unknown value still renders
 
@@ -258,3 +288,27 @@ capabilities. The section title SHALL be a localized message.
 - GIVEN a selected node whose cluster declares no capabilities
 - WHEN the drawer's Details tab is shown
 - THEN the Capabilities section SHALL NOT be rendered
+
+### Requirement: FLT-CAP-07 -- Default gateway image in the node drawer
+
+The promotion environment SHALL carry an optional `gatewayImage` string: the
+`gateway_image` label of the cluster control plane's
+`hypershell_control_plane_info` series (`OBS-CPL-09`), matched to the
+environment by the same namespace and cluster rule as `FLT-CAP-01`. When one
+control plane briefly reports two images (an old pod's series during a rollout),
+the BFF SHALL pick one deterministically. The node drawer's Details tab SHALL
+show it as a "Default gateway" row, truncated in the middle so the tag stays
+visible. The row SHALL be omitted when no image is reported. The row label SHALL
+be a localized message.
+
+#### Scenario: FLT-CAP-07.01 -- Reported image is shown
+
+- GIVEN a selected node whose control plane reports `gateway_image="quay.io/example/gateway:v0.1.5"`
+- WHEN the drawer's Details tab is shown
+- THEN a "Default gateway" row SHALL show `quay.io/example/gateway:v0.1.5`
+
+#### Scenario: FLT-CAP-07.02 -- No image omits the row
+
+- GIVEN a selected node whose control plane reports no `hypershell_control_plane_info` series
+- WHEN the drawer's Details tab is shown
+- THEN the "Default gateway" row SHALL NOT be rendered

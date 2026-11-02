@@ -161,7 +161,7 @@ func globalBindingID(userID string) string {
 // live, only bindings whose gateway is assigned to X. Bindings for gateways on
 // another cluster and global bindings are never delivered, and a binding delete
 // that follows its gateway's soft delete still reaches X.
-// Verifies: PLAT-CLUS-10.03
+// Verifies: PLAT-CLUS-10.03, GTW-DEL-09.01
 func TestGRPCWatchRoleBindingsScopedToCluster(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -230,10 +230,10 @@ func TestGRPCWatchRoleBindingsScopedToCluster(t *testing.T) {
 	evt = recvUntil(bindingX2, pb.EventType_EVENT_TYPE_CREATED)
 	Expect(evt.GetRoleBinding().GetGatewayId()).To(Equal(gwX2))
 
-	// Delete after the gateway is soft-deleted: resolved through the unscoped
-	// gateway lookup, so the delete still reaches cluster X.
+	// Deleting the gateway deletes its binding (GTW-DEL-09). The binding delete
+	// follows the gateway's soft delete, so it is resolved through the unscoped
+	// gateway lookup and still reaches cluster X.
 	Expect(gateways.Service(&environments.Environment().Services).Delete(context.Background(), gwX1)).To(BeNil())
-	Expect(roleBindings.Service(&environments.Environment().Services).Delete(context.Background(), bindingX1)).To(BeNil())
 	evt = recvUntil(bindingX1, pb.EventType_EVENT_TYPE_DELETED)
 	Expect(evt.GetRoleBinding().GetGatewayId()).To(Equal(gwX1))
 }

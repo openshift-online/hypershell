@@ -236,6 +236,42 @@ func (g *GitHubLockResolver) Recent(ctx context.Context, limit int) []*Release {
 	return out
 }
 
+// LockHistory implements LockHistoryProvider. It walks the default branch's lock
+// commit history (newest first) and resolves each commit to the bundle digest it
+// selected, returning the recorded gitops deployment-revision timeline the GitOps
+// PR ranges are built from (FLT-BPR-04/08). Each commit SHA is resolved through the
+// same immutable per-SHA cache Resolve uses, so after the first refresh the walk
+// costs no extra GitHub calls. The returned commits are source (dry) commits on
+// the gitops default branch (FLT-BPR-07): each is the commit that rewrote the lock,
+// not a hydrated artifact. Best-effort: a GitHub failure returns nil and the caller
+// reports the GitOps range as unavailable rather than inventing one.
+func (g *GitHubLockResolver) LockHistory(ctx context.Context, limit int) []LockCommit {
+	if limit <= 0 {
+		return nil
+	}
+	if limit > 100 {
+		// The commits API caps per_page at 100; one page of lock changes spans far
+		// more bundles than any freight bar shows.
+		limit = 100
+	}
+	var commits []commitRef
+	u := fmt.Sprintf("%s/repos/%s/commits?path=%s&per_page=%d", g.base, g.repo, lockPath, limit)
+	if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &commits) {
+		return nil
+	}
+	out := make([]LockCommit, 0, len(commits))
+	for _, c := range commits {
+		r := g.Resolve(ctx, c.SHA)
+		// Only genuine bundle resolutions (digest present) anchor the timeline; a
+		// fallback would carry no digest and cannot bound a range.
+		if r == nil || r.Digest == "" {
+			continue
+		}
+		out = append(out, LockCommit{SHA: c.SHA, Digest: r.Digest})
+	}
+	return out
+}
+
 // versionFromTag derives a human release version ("v20260930") from a bundle tag
 // like "release-bundle-20260930T165529000000Z-2d94439429ed22de", matching the
 // "Update HyperShell release bundle to vYYYYMMDD" convention. Falls back to the

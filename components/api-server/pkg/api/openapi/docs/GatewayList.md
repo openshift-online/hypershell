@@ -13,6 +13,7 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
 **Items** | Pointer to [**[]Gateway**](Gateway.md) |  | [optional]
+**HasOtherOwnedGateways** | Pointer to **bool** | Browser-safe existence flag reporting whether the caller&#39;s full authorized gateway list (before search, optional filters, and the &#x60;mine&#x60; ownership filter) contains at least one gateway the caller does not own. It is computed server-side with a bounded authorization-scoped existence query rather than by enumerating pages, so a console can decide whether to show the \&quot;Show only my gateways\&quot; toggle without downloading every page. It is evaluated only over the caller&#39;s authorized gateways and never discloses the existence of gateways the caller is not authorized to see (SEC-RBAC-10). | [optional]
 
 ## Methods
 
@@ -257,6 +258,31 @@ SetItems sets Items field to given value.
 `func (o *GatewayList) HasItems() bool`
 
 HasItems returns a boolean if a field has been set.
+
+### GetHasOtherOwnedGateways
+
+`func (o *GatewayList) GetHasOtherOwnedGateways() bool`
+
+GetHasOtherOwnedGateways returns the HasOtherOwnedGateways field if non-nil, zero value otherwise.
+
+### GetHasOtherOwnedGatewaysOk
+
+`func (o *GatewayList) GetHasOtherOwnedGatewaysOk() (*bool, bool)`
+
+GetHasOtherOwnedGatewaysOk returns a tuple with the HasOtherOwnedGateways field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetHasOtherOwnedGateways
+
+`func (o *GatewayList) SetHasOtherOwnedGateways(v bool)`
+
+SetHasOtherOwnedGateways sets HasOtherOwnedGateways field to given value.
+
+### HasHasOtherOwnedGateways
+
+`func (o *GatewayList) HasHasOtherOwnedGateways() bool`
+
+HasHasOtherOwnedGateways returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

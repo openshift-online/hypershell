@@ -1,23 +1,23 @@
 # Agent SDLC Visibility Dashboard
 
-**Status:** Draft
-**Applies to:** `components/fleet-dashboard` BFF (new SDLC plane, shared bundle source), `packages/fleet-dashboard-ui` (tab shell, SDLC domain and presentation), `specs/web-console/mockups/dashboards` (approved mockup)
+**Status:** Active
+**Applies to:** `components/fleet-dashboard` BFF (SDLC plane, shared bundle source), `packages/fleet-dashboard-ui` (tab shell, SDLC domain and presentation), `specs/web-console/mockups/dashboards` (approved mockup)
 **Tracks:** [HYPERSHELL-401](https://redhat.atlassian.net/browse/HYPERSHELL-401)
 
 ## Purpose
 
 Make the label-driven agent SDLC funnel observable in the fleet dashboard (the
-"glass" dashboard, `glass.infra.hypershell.app`). The funnel today exists only as
-GitHub issue labels on execution records: each issue moves through a single-valued
+"glass" dashboard, `glass.infra.hypershell.app`). The funnel uses GitHub issue
+labels on execution records: each issue moves through a single-valued
 phase label state machine (`agent/workable` -> `agent/reviewable-spec` ->
 `agent/review-spec-approved` -> `agent/reviewable-code` -> `agent/review-code-approved`
 -> release), with reject/retry loops, paused states, and the `agent/allowed`
 authorization gate (`specs/standards/sdlc/jira-github-sync.spec.md`,
-`.hypershell/README.md`). There is no way to see where each item sits, how long it
-has been there, what is stalled and needs a human, or which issue shipped in which
-release bundle onto which hub cluster.
+`.hypershell/README.md`). The Agent SDLC view shows where each item sits, how long
+it has been there, what is stalled and needs a human, and which issue shipped in
+which release bundle onto which hub cluster.
 
-This specification adds an **Agent SDLC** tab beside the existing Fleet Map. The
+The fleet dashboard provides an **Agent SDLC** tab beside the Fleet Map. The
 tab renders an aging work-in-progress board (time-in-phase is the vertical axis),
 a rework meter toward each in-review item's block threshold, an escalation lane
 for blocked/paused/past-SLE work, and a release-by-hub-cluster matrix that closes
@@ -36,29 +36,29 @@ adapter with no domain or UI change.
 
 ### Relationship to the existing fleet dashboard
 
-| Concern | Fleet Map (existing) | Agent SDLC (this spec) |
-| --- | --- | --- |
-| BFF plane | `/api/promotion`, `/api/fleet`, `/api/topology`, `/api/instances` | new `/api/sdlc` |
-| Source | `pkg/sources/promotion.go`, `prometheus.go`, `topology.go` | new SDLC source + **reused** bundle source (`lock.go`, `bundles.go`, promotion cluster attribution) |
-| UI view | promotion-topology map + freight bar | aging board + escalation lane + release x hub-cluster matrix |
-| Port method | `FleetApi.getPromotion/getFleet/getTopology/getInstances` | `FleetApi.getSdlc` |
-| Freight bar | above the stage | **the same** shared control, same location, drives both tabs |
+| Concern     | Fleet Map (existing)                                              | Agent SDLC (this spec)                                                                          |
+| ----------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| BFF plane   | `/api/promotion`, `/api/fleet`, `/api/topology`, `/api/instances` | `/api/sdlc`                                                                                     |
+| Source      | `pkg/sources/promotion.go`, `prometheus.go`, `topology.go`        | SDLC source + **reused** bundle source (`lock.go`, `bundles.go`, promotion cluster attribution) |
+| UI view     | promotion-topology map + freight bar                              | aging board + escalation lane + release x hub-cluster matrix                                    |
+| Port method | `FleetApi.getPromotion/getFleet/getTopology/getInstances`         | `FleetApi.getSdlc`                                                                              |
+| Freight bar | above the stage                                                   | **the same** shared control, same location, drives both tabs                                    |
 
 ### Source feasibility (scope boundary)
 
-| Fact | Reachable | Notes |
-| --- | --- | --- |
-| Current phase / column, blocked and paused set | Yes (easy) | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23) |
-| Which bundle on which hub cluster | Yes (easy) | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution) |
-| Bundle contents (tracked issues + one-off PRs) | Yes (medium) | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
-| State over time, aging, rework count | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today |
-| Durable SDLC analytics / history store | No | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab |
+| Fact                                           | Reachable            | Notes                                                                                                                                                                                                   |
+| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current phase / column, blocked and paused set | Yes (easy)           | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23)                                                                                                                   |
+| Which bundle on which hub cluster              | Yes (easy)           | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution)                                                                                                 |
+| Bundle contents (tracked issues + one-off PRs + GitOps deployment PRs) | Yes (medium)         | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls. The GitOps deployment group reuses the shared `GitOpsPRs`/`GitOpsStatus` already enriched for Fleet Map (SDLC-VIS-25, FLT-BPR), adding no new GitHub calls |
+| State over time, aging, rework count           | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today                                                                                   |
+| Durable SDLC analytics / history store         | No                   | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab                                                                                             |
 
 ## Requirements
 
 ### Requirement: SDLC-VIS-01 -- BFF SDLC Plane
 
-The fleet-dashboard BFF SHALL expose a new read-only plane `GET /api/sdlc` that
+The fleet-dashboard BFF SHALL expose a read-only plane `GET /api/sdlc` that
 serves the agent SDLC funnel state. The plane SHALL be served through the existing
 `pkg/cache.Source` envelope (`Snapshot` with `Data`, `GeneratedAt`, `Stale`,
 `Error`) and the existing handler wrapper, so a never-refreshed source returns HTTP
@@ -156,6 +156,17 @@ issues to bundles, and bundle contents SHALL NOT depend on a closing keyword par
 out of an individual PR body. The plane SHALL NOT stand up a duplicate
 bundle-resolution pipeline for this grouping.
 
+The tracked-issue and other-pull-request grouping SHALL operate over the bundle's
+**application** repository pull requests (`openshift-online/hypershell`). The GitOps
+deployment pull requests (`openshift-online/hypershell-gitops`) SHALL NOT fold into
+the tracked-issue or other-pull-request groups, so release attribution stays driven by
+application changes. The SDLC release-by-hub-cluster matrix SHALL instead surface the
+bundle's GitOps deployment pull requests as a separate deployment group (SDLC-VIS-25),
+reusing the same shared bundle enrichment that already feeds the Fleet Map repository
+split
+([`fleet-dashboard-bundle-pr-repository-split.spec.md`](fleet-dashboard-bundle-pr-repository-split.spec.md),
+FLT-BPR); it SHALL NOT define a second notion of which changes belong to a bundle.
+
 This hop SHALL live behind the `WorkItemPRResolver` port so the unit of work can change
 without a domain or matrix change: the GitHub adapter resolves an issue's linked pull
 requests (authoritatively via GraphQL `closedByPullRequestsReferences` when an upstream
@@ -200,6 +211,19 @@ re-resolution.
 - WHEN the SDLC plane groups the bundle's pull requests
 - THEN the linked pull request SHALL appear under its tracked issue
 - AND the unlinked pull request SHALL appear under the bundle's other pull requests
+
+#### Scenario: SDLC-VIS-03.06 -- GitOps pull requests stay out of the tracked-issue grouping
+
+- GIVEN a bundle with GitOps deployment pull requests (FLT-BPR) and application
+  pull requests
+- WHEN the SDLC plane groups the bundle's pull requests into tracked issues and
+  other pull requests
+- THEN only the application repository pull requests SHALL be grouped into tracked
+  issues and other pull requests
+- AND the GitOps deployment pull requests SHALL NOT appear in the tracked-issue or
+  other-pull-request groups
+- AND the GitOps deployment pull requests SHALL be carried on the bundle as a separate
+  deployment group (SDLC-VIS-25)
 
 #### Scenario: SDLC-VIS-03.04 -- Tracked issue delivered by multiple PRs in one bundle
 
@@ -258,11 +282,11 @@ firewall rules.
 ### Requirement: SDLC-VIS-06 -- Hexagonal UI Boundary
 
 The Agent SDLC tab SHALL follow the narrow hexagonal UI boundary
-(`specs/standards/ui/hexagonal-architecture.spec.md`). The addition SHALL comprise:
-a new framework-free SDLC domain type, a new `FleetApi.getSdlc(signal?)` port method
-returning the `Plane<SdlcData>` freshness envelope, a new wire mapper in the
+(`specs/standards/ui/hexagonal-architecture.spec.md`). The tab SHALL comprise:
+a framework-free SDLC domain type, an `FleetApi.getSdlc(signal?)` port method
+returning the `Plane<SdlcData>` freshness envelope, a wire mapper in the
 anti-corruption layer (`adapters/api/wire.ts`) that is the only place that knows the
-`/api/sdlc` wire shape, and a new TanStack Query hook with its own
+`/api/sdlc` wire shape, and a TanStack Query hook with its own
 `refetchInterval`. React, TanStack Query, the HTTP adapter, and the generated wire
 shapes SHALL stay outside the port; the domain and presentation SHALL depend only on
 the port and domain types.
@@ -284,7 +308,7 @@ the port and domain types.
 
 ### Requirement: SDLC-VIS-07 -- Tab Shell and Shared Freight Bar
 
-The dashboard SHALL present the existing Fleet Map and the new Agent SDLC view as
+The dashboard SHALL present the Fleet Map and Agent SDLC view as
 two peer tabs sharing the dashboard chrome. The release **freight bar** SHALL be a
 single shared control in the same location (above the stage) on both tabs:
 selecting a bundle SHALL filter the SDLC board and SHALL drive the Fleet Map's open
@@ -411,12 +435,16 @@ production, hyp1 stage, hyp2 int), and a marker SHALL sit in each hub cluster's
 **current** bundle row so deployment and drift (how far behind a cluster runs) read
 at a glance. Deployment and drift SHALL NOT be conveyed by color alone.
 
-A bundle row SHALL expand to its contents (PR-driven, per SDLC-VIS-03) shown as two
-groups: **Tracked issues** (pull requests grouped under the execution-record issue
+A bundle row SHALL expand to its contents (PR-driven, per SDLC-VIS-03) shown under two
+repository headings. The **application** repository (`openshift-online/hypershell`) is
+split into **Tracked issues** (pull requests grouped under the execution-record issue
 they resolve to) and **Other pull requests** (one-off pull requests with no tracked
-issue). Each entry SHALL show a "merged Nd ago" relative timestamp. The row summary
-SHALL show both counts, the number of tracked issues and the number of pull requests
-in the bundle (for example "2 issues, 4 PRs").
+issue). The **deployment** repository (`openshift-online/hypershell-gitops`) renders its
+GitOps pull requests as a separate group (SDLC-VIS-25). Each entry SHALL show a "merged Nd
+ago" relative timestamp. The row summary SHALL show the number of tracked application
+issues and the total number of pull requests in the bundle counted across both repository
+groups (for example "2 issues, 4 PRs"); the tracked-issue count SHALL remain an
+application-repository count and SHALL NOT include GitOps pull requests.
 
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
 execution-record issues merged after the newest resolved bundle's build boundary, whose
@@ -450,10 +478,12 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 
 #### Scenario: SDLC-VIS-11.03 -- Row summary shows issue and PR counts
 
-- GIVEN a bundle with two tracked issues and four pull requests in its PR set
+- GIVEN a bundle with two tracked application issues, three application pull requests, and
+  one GitOps deployment pull request
 - WHEN the bundle row renders
-- THEN its summary SHALL show both counts, the tracked-issue count and the pull-request
-  count
+- THEN its summary SHALL show the tracked-issue count as two
+- AND its summary SHALL show a pull-request count of four, spanning the application and
+  deployment repository groups
 
 #### Scenario: SDLC-VIS-11.04 -- One-off PR appears under its bundle, not Unreleased
 
@@ -476,6 +506,112 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 - GIVEN an issue in the Unreleased row
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
+
+### Requirement: SDLC-VIS-25 -- SDLC Matrix Surfaces the Bundle's GitOps Deployment Group
+
+The SDLC release-by-hub-cluster matrix SHALL show the same bundle contents an operator
+sees for that bundle in Fleet Map, so a bundle opened from either surface shows the same
+application and GitOps pull-request sets.
+
+The SDLC plane bundle payload SHALL carry, in addition to the application tracked-issue
+and other-pull-request groups, a separate **GitOps deployment** pull-request group and its
+availability status. Both SHALL be read from the shared bundle enrichment that already
+provides the Fleet Map group split (`GitOpsPRs` and `GitOpsStatus`, FLT-BPR-01 and
+FLT-BPR-10). The plane SHALL use the same bundle identity and the same comparison ranges
+as Fleet Map; it SHALL NOT create a second definition of which changes belong to a bundle
+and SHALL NOT issue additional GitHub requests to populate the GitOps group.
+
+Every GitOps pull-request record carried on the SDLC bundle SHALL retain repository
+identity and SHALL be identified by repository plus pull-request number, never by
+pull-request number alone (FLT-BPR-02). A GitOps pull request whose number collides with
+an application pull request SHALL remain a distinct item. Each GitOps pull-request record
+SHALL expose its number, title, link, author, and merge time, and SHALL preserve any
+deployment-environment attribution supplied by the shared bundle data (FLT-BPR-06). GitOps
+pull requests SHALL NOT enter the application tracked-issue or other-pull-request grouping
+(SDLC-VIS-03).
+
+The matrix UI SHALL render the GitOps deployment group as its own repository-identified
+section beneath the bundle, distinct from the application section, with its own count and
+its own empty and error states. The section SHALL distinguish a successful-but-empty GitOps
+comparison (a clear "no deployment changes" message) from an unavailable lookup (a distinct
+unavailable or error message), mirroring FLT-BPR-10 and FLT-BPR-11. A bundle payload that
+carries no GitOps fields at all (an older response produced before this group existed)
+SHALL be treated as "GitOps availability unknown": the matrix SHALL NOT crash, SHALL NOT
+render a GitOps section, and SHALL NOT claim the GitOps lookup succeeded or that the bundle
+has no deployment changes.
+
+The Unreleased row's current meaning (SDLC-VIS-11) SHALL be unchanged; it SHALL continue to
+hold only genuinely in-flight tracked application work, and this requirement SHALL NOT place
+GitOps pull requests in the Unreleased row.
+
+Fleet Map's existing two-repository bundle-details display (FLT-BPR) SHALL continue to work
+unchanged.
+
+#### Scenario: SDLC-VIS-25.01 -- SDLC bundle reuses the shared GitOps group
+
+- GIVEN the shared bundle enrichment has resolved a bundle's GitOps deployment pull
+  requests and its GitOps availability status
+- WHEN the SDLC plane builds that bundle's payload
+- THEN the payload SHALL carry the GitOps pull-request group and its availability status
+  from the shared bundle enrichment
+- AND the plane SHALL NOT re-resolve the GitOps range or issue an additional GitHub request
+  for the group
+
+#### Scenario: SDLC-VIS-25.02 -- Same bundle shows the same contents from both surfaces
+
+- GIVEN a released bundle with application and GitOps pull requests
+- WHEN an operator opens that bundle from Fleet Map and from the matrix below the SDLC
+  Kanban board
+- THEN both surfaces SHALL show the same application pull-request set
+- AND both surfaces SHALL show the same GitOps deployment pull-request set
+- AND both surfaces SHALL clearly identify each repository
+
+#### Scenario: SDLC-VIS-25.03 -- Same number in two repositories stays distinct
+
+- GIVEN application pull request `#42` and GitOps pull request `#42` both belong to one
+  bundle
+- WHEN the matrix renders that bundle's contents
+- THEN both pull requests SHALL appear, each under its own repository section with the
+  correct link
+- AND neither SHALL be dropped or merged as a duplicate of the other
+
+#### Scenario: SDLC-VIS-25.04 -- GitOps pull requests do not enter application grouping
+
+- GIVEN a bundle whose GitOps pull request resolves to no execution-record issue and whose
+  number matches an application pull request grouped under a tracked issue
+- WHEN the matrix groups the bundle's application pull requests
+- THEN the GitOps pull request SHALL NOT appear under any tracked issue or under the
+  application other-pull-request group
+- AND the GitOps pull request SHALL appear only in the deployment group
+
+#### Scenario: SDLC-VIS-25.05 -- Empty, unavailable, and legacy GitOps data are distinct
+
+- GIVEN three bundles: one whose GitOps comparison succeeded with no pull requests, one
+  whose GitOps lookup failed, and one whose payload carries no GitOps fields
+- WHEN each bundle's contents render in the matrix
+- THEN the successful-empty bundle SHALL show a deployment section with a clear "no
+  deployment changes" empty state
+- AND the failed bundle SHALL show a deployment section in an unavailable or error state,
+  distinct from empty
+- AND the legacy bundle SHALL render without a deployment section and without crashing, and
+  SHALL NOT claim the GitOps lookup succeeded
+
+#### Scenario: SDLC-VIS-25.06 -- Bundle PR count spans both repository groups
+
+- GIVEN a bundle with three application pull requests and two GitOps deployment pull
+  requests
+- WHEN the bundle row summary renders
+- THEN the pull-request count SHALL be five, counted across the application and deployment
+  groups
+- AND the tracked-issue count SHALL remain an application-repository count
+
+#### Scenario: SDLC-VIS-25.07 -- Fleet Map behavior is preserved
+
+- GIVEN a bundle with application and GitOps pull requests
+- WHEN the operator opens that bundle in Fleet Map
+- THEN the Fleet Map bundle details SHALL still render the application and GitOps groups as
+  specified by FLT-BPR
+- AND the SDLC matrix change SHALL NOT alter the Fleet Map bundle-details behavior
 
 ### Requirement: SDLC-VIS-22 -- Released Decision Independent of the Compare-Window Horizon
 
@@ -568,18 +704,24 @@ When an execution-record card changes phase between two SDLC snapshots, the whol
 card SHALL fly from its old slot to its new slot rather than disappear from one
 column and reappear in the next on the following refetch. The flying object SHALL be
 a full-size clone of the card itself (its real size and content), not a shrunken
-identicon or a glyph. The flight SHALL travel along an arc and land with an impact
-("dust") burst, mirroring the Fleet Map promotion flights so the two surfaces read as
-one motion language. A mid-flight scale swell MAY be used but SHALL stay subtle for a
-full-size card. The flight SHALL respect the user's reduced-motion preference
-(`specs/standards/ui/accessibility.spec.md`): when reduced motion is preferred, no
-flight SHALL play and cards SHALL snap to their new slots.
+identicon or a glyph. The flight SHALL travel along an arc, mirroring the Fleet Map
+promotion flights so the two surfaces read as one motion language. A mid-flight scale
+swell MAY be used but SHALL stay subtle for a full-size card. The flight SHALL respect
+the user's reduced-motion preference (`specs/standards/ui/accessibility.spec.md`): when
+reduced motion is preferred, no flight SHALL play and cards SHALL snap to their new
+slots.
+
+The impact ("dust") burst is a Fleet-Map-only flourish: on the dense SDLC grid it
+reads as noise, so the board SHALL NOT render it. Instead, when a flight lands the
+flying clone SHALL cross-fade out while the settled card is revealed beneath it, so the
+handoff from flying clone to resting card is seamless rather than a pop.
 
 This behavior SHALL reuse the Fleet Map's flight motion rather than fork it: the arc
 path, the impact burst, and the shared flight duration (`FLIGHT_MS`) SHALL be a
 single shared presentation primitive used by both the Fleet Map (SVG, flying an
-identicon) and the Agent SDLC board (DOM, flying a full card). The board SHALL NOT
-duplicate the arc, dust, or timing.
+identicon) and the Agent SDLC board (DOM, flying a full card). The board SHALL NOT fork
+the arc, dust, or timing; it consumes the shared primitive and simply omits the dust
+burst when it renders a board flight.
 
 Flights SHALL cover every phase change, not forward moves alone:
 
@@ -600,7 +742,8 @@ Each simultaneous phase change in one refetch SHALL get its own flight.
 - WHEN the board renders the new snapshot
 - THEN a full-size clone of the card SHALL fly along an arc from its old column slot
   to its new column slot
-- AND it SHALL land with the same impact burst as a Fleet Map promotion flight
+- AND on landing the flying clone SHALL cross-fade into the settled card, with no
+  separate impact burst on the board
 
 #### Scenario: SDLC-VIS-20.02 -- Reject loop flies backward
 
@@ -621,6 +764,20 @@ Each simultaneous phase change in one refetch SHALL get its own flight.
 - WHEN any card changes phase
 - THEN no flight SHALL play
 - AND the card SHALL snap to its new slot
+
+#### Scenario: SDLC-VIS-20.05 -- No dust burst on the board
+
+- GIVEN a card is flying between columns
+- WHEN the board renders the flight
+- THEN no impact ("dust") burst SHALL be rendered beside the flying card
+- AND only the flying card clone SHALL be present in the flight overlay
+
+#### Scenario: SDLC-VIS-20.06 -- Landing cross-fades into the settled card
+
+- GIVEN a card clone has reached its destination slot
+- WHEN the flight lands
+- THEN the destination hold SHALL release so the settled card renders beneath the clone
+- AND the spent clone SHALL cross-fade out, then be removed, rather than vanish abruptly
 
 ### Requirement: SDLC-VIS-21 -- Flight Detection and Stability
 
@@ -671,6 +828,53 @@ off-screen; the board SHALL NOT auto-scroll to it.
 - GIVEN two cards change phase in the same refetch
 - WHEN the board renders the new snapshot
 - THEN each card SHALL fly on its own flight
+
+### Requirement: SDLC-VIS-24 -- Replay Recent Transitions on Load
+
+A phase-transition flight (SDLC-VIS-20) is a point-in-time event: it plays only when a
+card's phase changes between two live snapshots, so a viewer who was not watching the
+board at that instant never sees it. Because real funnel transitions are infrequent and
+the animation is brief, the board SHALL replay recent transitions when it first loads,
+so it catches up on motion rather than appearing static.
+
+On the first render, when there is no prior snapshot to diff, the board SHALL emit a
+replay flight for every card whose time-in-phase is within a bounded recency window.
+Each replay flight SHALL fly the card from its previous phase (the funnel-predecessor
+column) into its current column; a card at the first column (intake) SHALL fly in with
+no source column. Cards resting longer than the window SHALL NOT replay. Replay flights
+SHALL be derived purely from the already-fetched snapshot (no new network call), SHALL
+reuse the same shared flight primitive and landing cross-fade as live flights
+(SDLC-VIS-20), and SHALL be capped so a busy board does not launch an unbounded swarm.
+Replay SHALL respect the reduced-motion preference: when reduced motion is preferred, no
+replay flight SHALL play and cards SHALL render in place.
+
+#### Scenario: SDLC-VIS-24.01 -- Recent arrival replays on first load
+
+- GIVEN the board loads with a card whose time-in-phase is within the recency window
+- WHEN the board first renders
+- THEN that card SHALL fly from its funnel-predecessor column into its current column
+- AND its destination SHALL be held until the replayed flight lands
+
+#### Scenario: SDLC-VIS-24.02 -- A settled card does not replay
+
+- GIVEN the board loads with a card whose time-in-phase exceeds the recency window
+- WHEN the board first renders
+- THEN no replay flight SHALL play for that card
+- AND the card SHALL render at rest in its column
+
+#### Scenario: SDLC-VIS-24.03 -- Replay is derived from the snapshot alone
+
+- GIVEN the board replays recent transitions on load
+- WHEN it computes the replay flights
+- THEN they SHALL be derived purely from the loaded snapshot
+- AND no new network call SHALL be made
+
+#### Scenario: SDLC-VIS-24.04 -- Reduced motion suppresses replay
+
+- GIVEN the user prefers reduced motion
+- WHEN the board first loads with recently-arrived cards
+- THEN no replay flight SHALL play
+- AND the cards SHALL render in place
 
 ### Requirement: SDLC-VIS-13 -- SLE Values Are Configuration
 
@@ -768,7 +972,7 @@ plane and view SHALL remain open, matching the other planes.
 
 ### Requirement: SDLC-VIS-18 -- Approved Mockup and Design-Review Stories
 
-Because the Agent SDLC tab is a new production page, its approved visual design
+Because the Agent SDLC tab is a production page, its approved visual design
 SHALL be represented by a mockup trio under
 `specs/web-console/mockups/dashboards/` following the existing dashboard-mockup
 convention: a dashboard surface (`agent-sdlc-dashboard.tsx`), a shell-wrapped
@@ -793,8 +997,10 @@ HYPERSHELL-401 is illustrative only and SHALL NOT be copied literally.
 
 The repository SHALL include: BFF tests for the SDLC source (snapshot envelope,
 never-refreshed 503, stale-serving 200, PR-driven bundle contents grouped into tracked
-issues and other pull requests, a tracked issue delivered by multiple PRs in one
-bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
+issues and other pull requests, the bundle carrying a separate GitOps deployment group
+and its availability status from the shared bundle enrichment with GitOps pull requests
+kept out of the application tracked-issue and other-pull-request groups (SDLC-VIS-25), a
+tracked issue delivered by multiple PRs in one bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
 resolved bundle, a shipped record whose merge time precedes the oldest resolved bundle's
 build date landing in a released row rather than Unreleased with no additional GitHub call
 (the compare-window horizon regression, SDLC-VIS-22), rework-from-timeline counting,
@@ -808,8 +1014,12 @@ freight-bar coupling, the aging-board position and SLE line, the rework meter en
 the escalation lane ordering, the phase-transition flight detection (a flight is emitted
 on a server-phase change, forward and backward, and not on the one-second aging
 re-render), the flight registry stability (an aging re-render or unrelated poll does not
-restart or strand an in-flight flight) and reduced-motion suppression, and the matrix
-including both bundle groups and the Unreleased row; and Storybook stories for default,
+restart or strand an in-flight flight) and reduced-motion suppression, the matrix
+including both bundle groups and the Unreleased row, the matrix rendering the GitOps
+deployment section with distinct empty, unavailable, and legacy-missing-fields states and a
+same-number-in-two-repositories case kept distinct, a bundle PR count spanning both
+repository groups, and the application and GitOps contents matching between the Fleet Map
+and matrix surfaces for the same bundle (SDLC-VIS-25); and Storybook stories for default,
 loading, stale, empty-lane, and mid-flight states using a mock SDLC port.
 
 #### Scenario: SDLC-VIS-19.01 -- Storybook shows the board and matrix from a mock port
@@ -839,11 +1049,11 @@ moment it enters the funnel, not the later bookkeeping step that applies
 The two labels have overlapping but distinct scopes. Switching the filter is NOT a
 strict superset:
 
-| State | Old filter (`agent/execution-record`) | New filter (`agent/allowed`) |
-| --- | --- | --- |
-| Pre-ingest GitHub-origin item (authorized, not yet ingested) | Not shown | Shown (the intended fix) |
-| Inert Jira-origin execution record (ingested, not yet authorized) | Shown | Not shown (deliberately excluded) |
-| Authorized execution record (both labels present) | Shown | Shown |
+| State                                                             | Old filter (`agent/execution-record`) | New filter (`agent/allowed`)      |
+| ----------------------------------------------------------------- | ------------------------------------- | --------------------------------- |
+| Pre-ingest GitHub-origin item (authorized, not yet ingested)      | Not shown                             | Shown (the intended fix)          |
+| Inert Jira-origin execution record (ingested, not yet authorized) | Shown                                 | Not shown (deliberately excluded) |
+| Authorized execution record (both labels present)                 | Shown                                 | Shown                             |
 
 The exclusion of inert Jira-origin records is deliberate: an inert record is
 un-authorized and cannot be acted upon by the funnel (SDLC-JIRA-01). Showing it on

@@ -40,7 +40,7 @@ This persona represents a user working mostly on their own who wants the outcome
 ## What they may not know
 
 - What a gateway does behind the scenes
-- Kubernetes namespaces, clusters, releases, or placement
+- Kubernetes namespaces, clusters, OpenShell versions, or placement
 - OIDC, service accounts, client credentials, or gateway endpoints
 - How cloud providers and network visibility affect provisioning
 - Whether an error comes from HyperShell, OpenShell, the model provider, or the sandbox
@@ -65,7 +65,7 @@ This persona represents a user working mostly on their own who wants the outcome
 
 - Make **Open console** the primary action
 - Use plain-language gateway states with a clear next step
-- Hide raw endpoints, namespaces, releases, and IDs by default
+- Hide raw endpoints, namespaces, OpenShell versions, and IDs by default
 - Provide safe provisioning defaults or an assisted request flow
 - Show recent gateways and work that needs attention
 - Keep technical details available through a secondary disclosure

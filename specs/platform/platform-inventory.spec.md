@@ -34,9 +34,11 @@ Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover 
 
 Platform inventory version 1 SHALL cover:
 
-| Resource       | List endpoint                             | Aggregated fields                                     |
-| -------------- | ----------------------------------------- | ----------------------------------------------------- |
-| ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `provider`, `region`, `created_at` |
+| Resource       | List endpoint                             | Aggregated fields                                                                    |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `created_at`, and the `provider/` and `region/` capability labels |
+
+The provider and region of a managed cluster are the values of its `provider/` and `region/` capability labels (`managed-cluster-registration.spec.md`). A cluster without one of those labels counts as `unknown` for that dimension.
 
 The adapter SHALL NOT invent counts from gateway `cluster_id` references. Only registered ManagedCluster records returned by the List API SHALL contribute to inventory metrics.
 
@@ -145,10 +147,10 @@ The RBAC middleware SHALL treat `managed_clusters` collection List (`GET` with e
 
 Inventory breakdowns SHALL use **exact** API field values as bucket keys after trimming leading and trailing ASCII whitespace. Mapping SHALL NOT reinterpret lifecycle phases from other resources.
 
-| Field                 | Bucket key when absent | Display label rule                                                                                                                                  |
-| --------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`              | `unknown`              | Localize `unknown` as **Unknown**; otherwise show the API value verbatim                                                                            |
-| `provider` (clusters) | `unknown`              | Show the API value verbatim (providers are operator-defined strings such as `aws`, `gcp`, `ibm`, `openshift`)                                       |
+| Field                 | Bucket key when absent | Display label rule                                                                                                                                        |
+| --------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`              | `unknown`              | Localize `unknown` as **Unknown**; otherwise show the API value verbatim                                                                                  |
+| `provider` (clusters) | `unknown`              | Show the API value verbatim (providers are operator-defined strings such as `aws`, `gcp`, `ibm`, `openshift`)                                             |
 | `region` (clusters)   | `unknown`              | Placement donut keys SHALL be `{region} ({provider})` using PLAT-INV-04 bucket keys for each field (for example `us-east-1 (aws)`, `unknown (openshift)`) |
 
 Status donut widgets SHALL render only buckets with count greater than zero. When more than five distinct non-zero status buckets exist for a resource kind, the status donut widget for that kind SHALL NOT render segments (the widget shell remains; the inventory summary still shows the total).
@@ -232,14 +234,18 @@ The web console SHALL expose the dedicated route `/dashboard/inventory`. It SHAL
 
 ### Requirement: PLAT-INV-07 -- Optional Inventory Detail Widgets
 
-The widget catalog SHALL add these types:
+The Platform inventory dashboard widget catalog SHALL provide these types:
 
-| Widget type                 | Metric ID          | Default layout | Presentation                                                                                                       |
-| --------------------------- | ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Widget type                 | Metric ID          | Default layout | Presentation                                                                                                             |
+| --------------------------- | ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `managed-cluster-providers` | `managed-clusters` | Yes            | Provider donut from `inventoryProviders`; legend ordered by descending count (PLAT-INV-05)                               |
 | `managed-cluster-regions`   | `managed-clusters` | Yes            | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PLAT-INV-05) |
 
-The widget catalog SHALL NOT register standalone `managed-clusters` or `managed-cluster-status` widget types: a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (PLAT-INV-06); dimension breakdowns SHALL use the default-layout provider and region donut widgets above (`web-console/operational-dashboard.spec.md` WEB-OPS-22, WEB-OPS-21). No inventory status donut widget SHALL exist.
+The widget catalog SHALL NOT register standalone `managed-clusters` or
+`managed-cluster-status` widget types. Cluster totals SHALL be presented through
+`inventory-summary` (PLAT-INV-06); dimension breakdowns SHALL use the default
+provider and region donut widgets above. No inventory status donut widget SHALL
+exist.
 
 Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
 

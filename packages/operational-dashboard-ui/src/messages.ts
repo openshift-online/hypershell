@@ -978,7 +978,7 @@ export const messages = defineMessages({
   reliabilityDescription: {
     id: "app.dashboard.reliability.description",
     defaultMessage:
-      "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+      "API request rate, 5xx error rate, median latency, API p95 latency, OIDC client sync, and state accuracy with 24-hour hourly trends. Metrics refresh every 15 minutes.",
     description: "Supporting text on the reliability dashboard page.",
   },
   reliabilityLoadErrorBody: {
@@ -1575,6 +1575,204 @@ export const messages = defineMessages({
     defaultMessage: "Stale resource status",
     description: "Title for the stale resource status dashboard widget.",
   },
+  /* eslint-disable sort-keys -- keep the SLI dashboard message set grouped together */
+  apiP95LatencyWidget: {
+    id: "app.dashboard.widget.apiP95Latency",
+    defaultMessage: "API p95 latency",
+    description: "Title for the API p95 latency dashboard widget.",
+  },
+  dashboardHelpApiP95Latency: {
+    id: "app.dashboard.help.apiP95Latency",
+    defaultMessage:
+      "The 95th-percentile API response time over the last 5 minutes. Target: 0.500 sec.",
+    description: "Help text for the API p95 latency widget.",
+  },
+  daysValue: {
+    id: "app.dashboard.summary.daysValue",
+    defaultMessage: "{value} days",
+    description: "A dashboard duration expressed in days.",
+  },
+  certificateHealthWidget: {
+    id: "app.dashboard.widget.certificateHealth",
+    defaultMessage: "Certificate health",
+    description: "Title for the certificate health dashboard widget.",
+  },
+  certificateHealthHelp: {
+    id: "app.dashboard.certificateHealth.help",
+    defaultMessage:
+      "Certificate status is read from gateway and console TLS secrets; unreadable status shows unavailable.",
+    description: "Explanatory text for certificate health metrics.",
+  },
+  certificateHealthAriaLabel: {
+    id: "app.dashboard.certificateHealth.ariaLabel",
+    defaultMessage: "Certificate health summary",
+    description: "Accessible label for the certificate health summary.",
+  },
+  validCertificates: {
+    id: "app.dashboard.certificateHealth.valid",
+    defaultMessage: "Valid certificates",
+    description: "Label for valid certificates.",
+  },
+  soonestCertificateExpiry: {
+    id: "app.dashboard.certificateHealth.soonestExpiry",
+    defaultMessage: "Days to expiry (soonest)",
+    description: "Label for the soonest certificate expiry.",
+  },
+  expiredCertificates: {
+    id: "app.dashboard.certificateHealth.expired",
+    defaultMessage: "Expired certificates",
+    description: "Label for expired certificates.",
+  },
+  certificateStatusUnavailable: {
+    id: "app.dashboard.certificateHealth.unavailable",
+    defaultMessage: "Status unavailable",
+    description: "Label for certificates with unavailable status.",
+  },
+  podAndSandboxReadinessWidget: {
+    id: "app.dashboard.widget.podAndSandboxReadiness",
+    defaultMessage: "Pod and sandbox readiness",
+    description: "Title for the pod and sandbox readiness widget.",
+  },
+  resourceReadinessAriaLabel: {
+    id: "app.dashboard.resourceReadiness.ariaLabel",
+    defaultMessage: "Pod and sandbox readiness summary",
+    description: "Accessible label for the readiness summary.",
+  },
+  resourceReadinessHelp: {
+    id: "app.dashboard.resourceReadiness.help",
+    defaultMessage:
+      "Readiness is the percentage of resources whose Kubernetes Ready condition is true, not a count of running or pending pods.",
+    description: "Explanatory text for pod and sandbox readiness metrics.",
+  },
+  podReadiness: {
+    id: "app.dashboard.resourceReadiness.pods",
+    defaultMessage: "Pod readiness",
+    description: "Label for pod readiness percentage.",
+  },
+  sandboxReadiness: {
+    id: "app.dashboard.resourceReadiness.sandboxes",
+    defaultMessage: "Sandbox readiness",
+    description: "Label for sandbox readiness percentage.",
+  },
+  unreadyResources: {
+    id: "app.dashboard.resourceReadiness.unready",
+    defaultMessage: "Unready resources",
+    description: "Label for the total unready resource count.",
+  },
+  oidcClientSyncWidget: {
+    id: "app.dashboard.widget.oidcClientSync",
+    defaultMessage: "OIDC client sync",
+    description: "Title for the OIDC client sync widget.",
+  },
+  oidcClientSyncAriaLabel: {
+    id: "app.dashboard.oidcClientSync.ariaLabel",
+    defaultMessage: "OIDC client sync summary",
+    description: "Accessible label for the OIDC client sync summary.",
+  },
+  oidcClientSyncHelp: {
+    id: "app.dashboard.oidcClientSync.help",
+    defaultMessage:
+      "Shows Unknown when expected clients or Keycloak status cannot be determined.",
+    description: "Explanatory text for OIDC client sync metrics.",
+  },
+  accuracy: {
+    id: "app.dashboard.summary.accuracy",
+    defaultMessage: "Accuracy",
+    description: "Label for an accuracy percentage.",
+  },
+  syncedClients: {
+    id: "app.dashboard.oidcClientSync.synced",
+    defaultMessage: "Synced clients",
+    description: "Label for synced OIDC clients.",
+  },
+  expectedClients: {
+    id: "app.dashboard.oidcClientSync.expected",
+    defaultMessage: "Expected clients",
+    description: "Label for expected OIDC clients.",
+  },
+  keycloakStatus: {
+    id: "app.dashboard.oidcClientSync.keycloakStatus",
+    defaultMessage: "Keycloak status",
+    description: "Label for Keycloak connectivity status.",
+  },
+  connected: {
+    id: "app.dashboard.status.connected",
+    defaultMessage: "Connected",
+    description: "Connected status label.",
+  },
+  disconnected: {
+    id: "app.dashboard.status.disconnected",
+    defaultMessage: "Disconnected",
+    description: "Disconnected status label.",
+  },
+  unknown: {
+    id: "app.dashboard.status.unknown",
+    defaultMessage: "Unknown",
+    description: "Unknown value or status label.",
+  },
+  stateAccuracyWidget: {
+    id: "app.dashboard.widget.stateAccuracy",
+    defaultMessage: "State accuracy",
+    description: "Title for the reconciliation state accuracy widget.",
+  },
+  stateAccuracyAriaLabel: {
+    id: "app.dashboard.stateAccuracy.ariaLabel",
+    defaultMessage: "State accuracy summary",
+    description: "Accessible label for the state accuracy summary.",
+  },
+  stateAccuracyHelp: {
+    id: "app.dashboard.stateAccuracy.help",
+    defaultMessage:
+      "The raw stale-resource count remains visible on the Stale resource status widget.",
+    description: "Explanatory text for reconciliation state accuracy.",
+  },
+  observedMatchingDesired: {
+    id: "app.dashboard.stateAccuracy.matching",
+    defaultMessage: "Observed matching desired",
+    description: "Label for resources whose observed state matches desired.",
+  },
+  staleResources: {
+    id: "app.dashboard.stateAccuracy.stale",
+    defaultMessage: "Stale resources",
+    description: "Label for stale reconciliation resources.",
+  },
+  provisionTimeP99Label: {
+    id: "app.dashboard.provisionTime.p99",
+    defaultMessage: "P99",
+    description: "Label for the 99th percentile gateway provision duration.",
+  },
+  provisionTimeP99Note: {
+    id: "app.dashboard.provisionTime.p99Note",
+    defaultMessage:
+      "P99 target is 5 minutes; the warning state appears when P99 exceeds the target.",
+    description: "Context note explaining the P99 gateway provision target.",
+  },
+  provisionTimeP99TrendCaption: {
+    id: "app.dashboard.provisionTime.p99TrendCaption",
+    defaultMessage: "Last {days} days - daily P99 time to ready",
+    description: "Caption for the daily gateway provision P99 trend.",
+  },
+  provisionTimeTargetLabel: {
+    id: "app.dashboard.provisionTime.target",
+    defaultMessage: "Target",
+    description: "Label for the gateway provision duration target.",
+  },
+  provisionTimeP99Warning: {
+    id: "app.dashboard.provisionTime.p99Warning",
+    defaultMessage: "P99 exceeds the 5-minute target",
+    description: "Warning shown when P99 provision duration exceeds target.",
+  },
+  countOfTotal: {
+    id: "app.dashboard.summary.countOfTotal",
+    defaultMessage: "{count} / {total}",
+    description: "A count displayed relative to a total count.",
+  },
+  percentValue: {
+    id: "app.dashboard.summary.percentValue",
+    defaultMessage: "{value}%",
+    description: "A dashboard percentage value.",
+  },
+  /* eslint-enable sort-keys */
 });
 
 export const dashboardHelpMessages: Partial<
@@ -1582,6 +1780,7 @@ export const dashboardHelpMessages: Partial<
 > = {
   "api-error-rate": messages.dashboardHelpApiErrorRate,
   "api-latency": messages.dashboardHelpApiLatency,
+  "api-p95-latency": messages.dashboardHelpApiP95Latency,
   "api-request-rate": messages.dashboardHelpApiRequestRate,
   "reconciliation-failures": messages.dashboardHelpReconciliationFailures,
   "reconciliation-lag": messages.dashboardHelpReconciliationLag,

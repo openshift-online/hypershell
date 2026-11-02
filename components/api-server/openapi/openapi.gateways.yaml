@@ -38,6 +38,7 @@ paths:
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/mine'
     post:
       operationId: createGateway
       summary: Create a new gateway
@@ -280,25 +281,38 @@ components:
               description: API-assigned Kubernetes namespace derived from the Gateway identifier
             external_dns:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             tls_mode:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             service_type:
               type: string
+              readOnly: true
+              description: Platform-managed; set by the control plane (PLAT-DATA-23)
             status:
               type: string
+              readOnly: true
+              description: Control-plane-observed operational status (PLAT-DATA-23)
             phase:
               type: string
+              readOnly: true
+              description: Control-plane-observed lifecycle phase (PLAT-DATA-23)
             image:
               type: string
-              description: Container image for the gateway deployment
+              readOnly: true
+              description: Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23)
             supervisor_image:
               type: string
-              description: Container image for the supervisor sidecar
+              readOnly: true
+              description: Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
             server_dns_names:
               type: array
               items:
                 type: string
-              description: DNS names for TLS certificate SANs
+              readOnly: true
+              description: DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23)
             route_address:
               type: string
               readOnly: true
@@ -311,31 +325,41 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
-            provisioning_version:
-              type: string
-              readOnly: true
-              description: >-
-                Gateway version the gateway's cluster advertises provisioning onto new
-                gateways, derived from that cluster's single-valued gateway-version
-                capability. Empty when the cluster advertises no provisioning version.
-            image_pinned:
-              type: boolean
-              readOnly: true
-              description: >-
-                Whether this gateway pins an explicit image and therefore need not track
-                its cluster's provisioning version. True suppresses the newer-version-available
-                drift indicator, because a pinned gateway may intentionally run a different
-                version from its cluster default.
             oidc:
               type: string
               readOnly: true
               description: JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
             route:
               type: string
-              description: JSON-encoded route configuration
+              readOnly: true
+              description: >-
+                JSON-encoded route configuration; platform-managed,
+                control-plane-only (PLAT-DATA-23). The optional certificate
+                sub-key (an empty object) marks a gateway opted in to dedicated
+                per-gateway certificate provisioning; it is provision-time only
+                and cannot be added, removed, or changed after creation.
+            dedicated_route:
+              type: boolean
+              readOnly: true
+              description: Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation.
             credential_driver:
               type: string
-              description: JSON-encoded credential storage driver configuration
+              readOnly: true
+              description: JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
+            workspace_mode:
+              type: string
+              readOnly: true
+              enum:
+                - shared
+                - managed
+                - operator
+              description: >-
+                How the OpenShell Kubernetes driver maps workspaces to namespaces.
+                "shared" places all sandboxes in the gateway namespace; "managed"
+                auto-creates per-workspace namespaces; "operator" uses
+                pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API
+                server defaults it to "managed" at create, and no caller can set or
+                change it. Always present on a stored gateway.
             active_sandbox_count:
               type: integer
               format: int32
@@ -391,11 +415,16 @@ components:
     GatewayCreateRequest:
       type: object
       description: >-
-        A gateway is created either pinned to a cluster (set cluster_id) or
-        late-bound by placement (set placement). Exactly one of cluster_id or
-        placement must be supplied. The web-console provision form submits only the
-        placement shape; the pinned shape is available to hsctl apply and the
-        declarative .hypershell import.
+        A gateway is created with only its user-writable fields: a name, exactly
+        one of cluster_id (pinned) or placement (late-bound), and the optional
+        create-only dedicated_route request. Every other gateway field is
+        platform-managed and control-plane-only; it is not part of the create
+        contract and is rejected if supplied (data-model.spec.md "Requirement:
+        Gateway Field Ownership and Write Policy", PLAT-DATA-23). The web-console
+        provision form submits the placement shape; the pinned shape is available
+        to hsctl apply and the declarative .hypershell import. dedicated_route is
+        rejected on update: it cannot be added, removed, or changed after
+        creation.
       required:
         - name
       properties:
@@ -405,41 +434,18 @@ components:
           type: string
           description: >-
             Pin the gateway to this managed cluster. Mutually exclusive with placement.
+        dedicated_route:
+          type: boolean
+          description: >-
+            Create-only. Requires the gateway:dedicated-route-creator role and opts
+            the gateway in to a dedicated route and per-gateway wildcard certificate.
+            The platform manages how the dedicated route and certificate are provided.
         placement:
           description: >-
             Late-bind the gateway by capability-label selector. Mutually exclusive
             with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-          description: Container image for the gateway deployment
-        supervisor_image:
-          type: string
-          description: Container image for the supervisor sidecar
-        server_dns_names:
-          type: array
-          items:
-            type: string
-          description: DNS names for TLS certificate SANs
-        oidc:
-          type: string
-          description: JSON-encoded OIDC authentication configuration
-        route:
-          type: string
-          description: JSON-encoded route configuration
-        credential_driver:
-          type: string
-          description: JSON-encoded credential storage driver configuration
+
     GatewayPlacementIntent:
       type: object
       description: Exactly one of selector or mode must be supplied.
@@ -509,40 +515,31 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Gateway'
+            has_other_owned_gateways:
+              type: boolean
+              description: >-
+                Browser-safe existence flag reporting whether the caller's full
+                authorized gateway list (before search, optional filters, and the
+                `mine` ownership filter) contains at least one gateway the caller
+                does not own. It is computed server-side with a bounded
+                authorization-scoped existence query rather than by enumerating
+                pages, so a console can decide whether to show the "Show only my
+                gateways" toggle without downloading every page. It is evaluated
+                only over the caller's authorized gateways and never discloses the
+                existence of gateways the caller is not authorized to see
+                (SEC-RBAC-10).
     # NEW SCHEMA START
     GatewayPatchRequest:
     # NEW SCHEMA END
       type: object
+      description: >-
+        The only user-writable gateway field on update is name (rename). Every other
+        gateway field is platform-managed and control-plane-only; it is not part of the
+        update contract and is rejected if a user or import caller changes it
+        (data-model.spec.md "Requirement: Gateway Field Ownership and Write Policy",
+        PLAT-DATA-23).
       properties:
         name:
-          type: string
-        cluster_id:
-          type: string
-        external_dns:
-          type: string
-        tls_mode:
-          type: string
-        service_type:
-          type: string
-        status:
-          type: string
-        phase:
-          type: string
-        image:
-          type: string
-        supervisor_image:
-          type: string
-        server_dns_names:
-          type: array
-          items:
-            type: string
-        route_address:
-          type: string
-        oidc:
-          type: string
-        route:
-          type: string
-        credential_driver:
           type: string
   parameters:
       id:
@@ -618,7 +615,11 @@ components:
           ```
 
           If the parameter isn't provided, or if the value is empty, then
-          no explicit ordering will be applied.
+          the gateway list defaults to newest-first ordering: creation time
+          descending with a stable secondary order by gateway identifier,
+          applied before pagination so the first page holds the newest
+          accessible gateways overall and equal creation timestamps are
+          deterministic across pages.
         schema:
           type: string
       fields:
@@ -636,3 +637,18 @@ components:
           ```
         schema:
           type: string
+      mine:
+        name: mine
+        in: query
+        required: false
+        description: |-
+          When `true`, restricts the list to gateways the authenticated caller
+          owns (the caller holds `gateway:owner`), matched by the caller's stable
+          identity against the authoritative owner bindings rather than a display
+          name. The filter is applied before pagination, so the returned items,
+          total, and page count reflect the filtered set, and it composes with
+          the search query and ordering. It operates only over the caller's
+          authorized gateways and never discloses gateways the caller is not
+          authorized to see (see `has_other_owned_gateways` and SEC-RBAC-10).
+        schema:
+          type: boolean

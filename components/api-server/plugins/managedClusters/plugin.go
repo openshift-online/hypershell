@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -16,7 +17,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() ManagedClusterService
@@ -52,7 +52,7 @@ func init() {
 
 	pkgserver.RegisterRoutes("managedClusters", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		managedClusterHandler := NewManagedClusterHandler(Service(envServices), generic.Service(envServices))
+		managedClusterHandler := NewManagedClusterHandler(Service(envServices), extsearch.Service(envServices))
 
 		managedClustersRouter := apiV1Router.PathPrefix("/managed_clusters").Subrouter()
 		managedClustersRouter.HandleFunc("", managedClusterHandler.List).Methods(http.MethodGet)
@@ -81,7 +81,7 @@ func init() {
 	pkgserver.RegisterGRPCService("managedClusters", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		managedClusterService := Service(envServices)
-		genericService := generic.Service(envServices)
+		genericService := extsearch.Service(envServices)
 		brokerFunc := func() *pkgserver.EventBroker {
 			if obj := envServices.GetService("EventBroker"); obj != nil {
 				return obj.(*pkgserver.EventBroker)
@@ -103,4 +103,5 @@ func init() {
 	db.RegisterMigration(migrationAddPlacementVisibility())
 	db.RegisterMigration(migrationAddCapabilities())
 	db.RegisterMigration(migrationUniqueName())
+	db.RegisterMigration(migrationDropPlacementColumns())
 }
