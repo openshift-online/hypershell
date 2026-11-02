@@ -86,7 +86,7 @@ The registration endpoint is idempotent; the returned `cluster_id` is stable acr
 restarts. The control plane SHALL use this `cluster_id` as the cluster filter for
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
-reconciler, the instance-label backfill, the orphaned-namespace garbage collector
+reconciler, the orphaned-namespace garbage collector
 (`openshell-gateway-namespace-gc.spec.md`), and the RoleBinding-to-Keycloak role sync.
 None of these SHALL ever run without the filter. The control plane SHALL open the
 `WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;

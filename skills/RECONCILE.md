@@ -1226,7 +1226,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; it never stamps the instance label itself and reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -1556,10 +1556,8 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
 `hypershell.redhat.io/managed=true` required, plus
 `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
-past the grace period. Each sweep first claims unlabeled legacy gateway
-namespaces (management labels, no instance label, `openshell-*` not
-`openshell-db-*`) so missed-delete orphans from before the instance label are
-not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+past the grace period. The sweep never stamps the instance label; only
+namespace creation and Gateway reconcile do. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
