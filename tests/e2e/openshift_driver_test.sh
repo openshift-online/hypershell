@@ -216,10 +216,10 @@ else
   PASS=$((PASS + 1))
 fi
 
-# The Bash functional suite (e2e-openshell.sh) was removed in the Go e2e cutover
-# (specs/platform/e2e-testing.spec.md, Shell Suite Removal); its cleanup-trap
-# assertions now live in the Go suite. This file retains the OpenShift driver
-# unit coverage (discovery, OIDC grant dispatch, GC timing, route mode).
+# Functional checks live in the Go suite (specs/platform/e2e-testing.spec.md,
+# Single Functional E2E Implementation). This file covers the shell OpenShift
+# driver that the smoke and browser launchers source (discovery, OIDC grant
+# dispatch, GC timing, route mode).
 
 # Route ingress mode (GATEWAY_INGRESS_MODE=route, e.g. IBM Cloud ROKS): no
 # GRPCRoute exists; readiness is the OpenShift router admitting the per-tenant

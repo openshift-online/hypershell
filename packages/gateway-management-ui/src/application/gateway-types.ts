@@ -31,8 +31,6 @@ export interface GatewayRecord {
 export interface GatewayPlacement {
   id: string;
   name: string;
-  provider: string;
-  region?: string;
   status?: string;
 }
 

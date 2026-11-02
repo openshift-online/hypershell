@@ -186,13 +186,13 @@ func TestRESTManagedClusterWritesRequirePlatformAdmin(t *testing.T) {
 	// under it gets a permanent 409.
 	squat := "mc-" + strings.ToLower(api.NewID())
 	_, httpResp, err = client.DefaultAPI.CreateManagedCluster(user.rest).
-		ManagedCluster(*openapi.NewManagedCluster(squat, "aws", "")).Execute()
+		ManagedCluster(*openapi.NewManagedCluster(squat, "")).Execute()
 	Expect(err).To(HaveOccurred(), "an ordinary user created placeholder %s", squat)
 	Expect(statusOf(httpResp)).To(Equal(http.StatusForbidden))
 
 	// Operators keep both.
 	_, httpResp, err = client.DefaultAPI.CreateManagedCluster(admin.rest).
-		ManagedCluster(*openapi.NewManagedCluster(squat, "aws", "")).Execute()
+		ManagedCluster(*openapi.NewManagedCluster(squat, "")).Execute()
 	Expect(err).NotTo(HaveOccurred(), "platform:admin create refused: HTTP %d", statusOf(httpResp))
 
 	// Reads stay open to gateway:creator: the console's placement picker and

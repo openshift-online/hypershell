@@ -196,6 +196,8 @@ scopes:
         include:
           - components/fleet-dashboard/**
           - packages/fleet-dashboard-ui/**
+          # The spec viewer ships in the fleet dashboard image at /specs/.
+          - packages/spec-viewer-ui/**
           - .tekton/hypershell-fleet-dashboard-*
           - scripts/check_fleet_dashboard_firewall.sh
           - images/brand/**

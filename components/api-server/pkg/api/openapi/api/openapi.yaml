@@ -4473,19 +4473,6 @@ components:
       - properties:
           name:
             type: string
-          provider:
-            description: Cloud provider capability used for gateway placement.
-            type: string
-          visibility:
-            description: Network visibility supported by this control plane for gateway
-              placement.
-            enum:
-            - public
-            - vpn
-            readOnly: true
-            type: string
-          region:
-            type: string
           kubeconfig_secret:
             type: string
           status:
@@ -4514,23 +4501,19 @@ components:
         required:
         - kubeconfig_secret
         - name
-        - provider
         type: object
       example:
+        oidc_subject: oidc_subject
         capabilities:
         - capabilities
         - capabilities
-        visibility: public
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        oidc_subject: oidc_subject
         updated_at: 2000-01-23T04:56:07.000+00:00
-        provider: provider
+        kind: kind
         name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
-        region: region
         last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
@@ -4553,54 +4536,42 @@ components:
         id: id
         href: href
         items:
-        - capabilities:
+        - oidc_subject: oidc_subject
+          capabilities:
           - capabilities
           - capabilities
-          visibility: public
-          kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
+          kind: kind
           name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          region: region
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - capabilities:
+        - oidc_subject: oidc_subject
+          capabilities:
           - capabilities
           - capabilities
-          visibility: public
-          kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
+          kind: kind
           name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          region: region
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
     ManagedClusterPatchRequest:
       example:
-        provider: provider
         name: name
         kubeconfig_secret: kubeconfig_secret
-        region: region
         status: status
         api_server_url: api_server_url
       properties:
         name:
-          type: string
-        provider:
-          type: string
-        region:
           type: string
         kubeconfig_secret:
           type: string
@@ -4621,15 +4592,15 @@ components:
             \ Must match on every subsequent call."
           type: string
         capabilities:
-          description: "Complete self-declared capability set. Optional for backward\
-            \ compatibility: a control plane that predates the capability model may\
-            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
-            \ any stored capabilities."
+          description: "Complete self-declared capability set, sent on every registration\
+            \ and heartbeat. An omitted, null, or empty set is rejected with 400."
           items:
             type: string
+          minItems: 1
           type: array
           uniqueItems: true
       required:
+      - capabilities
       - name
       type: object
     ManagedClusterRegistrationResponse:
@@ -4737,8 +4708,8 @@ components:
               \ \"shared\" places all sandboxes in the gateway namespace; \"managed\"\
               \ auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned\
               \ namespaces. Platform-managed (PLAT-DATA-23): the API server defaults\
-              \ it to \"managed\" at create, and no caller can set or change it. Null\
-              \ (legacy gateways) keeps the chart's \"shared\" default."
+              \ it to \"managed\" at create, and no caller can set or change it. Always\
+              \ present on a stored gateway."
             enum:
             - shared
             - managed

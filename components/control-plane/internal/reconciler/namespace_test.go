@@ -320,12 +320,11 @@ func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 	}
 }
 
-// Legacy gateway namespaces that predate the instance label are invisible to
-// the sweep until labeled manually: the reconciler must never touch them
-// itself, regardless of how long they have existed or whether they carry a
-// stale gc-eligible-since annotation from before labeling.
-// Verifies: OSG-NSGC-02.03
-func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
+// A namespace without this instance's label is invisible to the sweep: the
+// reconciler never stamps the label itself, even when the namespace carries a
+// stale gc-eligible-since annotation.
+// Verifies: OSG-NSGC-02
+func TestReconcileOnce_NamespaceWithoutInstanceLabelIsIgnored(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	unlabeled := nsWithLabels("openshell-legacy", map[string]string{
@@ -340,14 +339,14 @@ func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
 	r.reconcileOnce(ctx)
 
 	if !nsExists(t, client, "openshell-legacy") {
-		t.Fatalf("unlabeled legacy namespace reaped, want retained until manually labeled")
+		t.Fatalf("namespace without an instance label reaped, want retained")
 	}
 	got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get namespace: %v", err)
 	}
 	if _, ok := got.Labels[gateway.InstanceLabel]; ok {
-		t.Errorf("unlabeled legacy namespace was claimed, want unlabeled")
+		t.Errorf("sweep stamped the instance label, want unlabeled")
 	}
 }
 

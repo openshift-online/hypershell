@@ -230,20 +230,21 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		setNestedValue(values, b.SandboxRuntimeClass, "server", "defaultRuntimeClassName")
 	}
 
-	// Workspace mode: omitted (legacy gateways with a NULL stored mode) keeps
-	// the chart's shared default. Managed mode also pins a per-gateway unique
+	// Workspace mode is always passed: every stored gateway carries one, so the
+	// chart default never decides it. Managed mode also pins a per-gateway unique
 	// gateway_id so per-workspace namespaces (openshell-{gateway_id}-{workspace})
 	// never collide across gateways on one cluster (openshell-gateway.spec.md,
 	// "Gateway Workspace Mode").
-	if b.Gateway.WorkspaceMode != "" {
-		setNestedValue(values, b.Gateway.WorkspaceMode, "server", "drivers", "kubernetes", "workspaceMode")
-		if b.Gateway.WorkspaceMode == "managed" {
-			gatewayID, err := ManagedGatewayID(b.Namespace)
-			if err != nil {
-				return err
-			}
-			setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
+	if b.Gateway.WorkspaceMode == "" {
+		return fmt.Errorf("gateway workspace mode is required")
+	}
+	setNestedValue(values, b.Gateway.WorkspaceMode, "server", "drivers", "kubernetes", "workspaceMode")
+	if b.Gateway.WorkspaceMode == "managed" {
+		gatewayID, err := ManagedGatewayID(b.Namespace)
+		if err != nil {
+			return err
 		}
+		setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
 	}
 
 	// Server DNS names for TLS certificate SANs

@@ -60,8 +60,8 @@ to its owning workspace (the workspace is an input to the path hash) and rejects
 resolve whose requesting workspace does not match the handle's path. See the Provider
 Credential Isolation requirement.
 
-Credential rotation (KEK re-encryption, DB password rotation) is out of scope and is
-addressed in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
+HyperShell does not rotate the KEK or the database password. How each gateway secret
+is renewed today is recorded in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
 Rotating a provider secret's **value** is OpenShell's own `provider` mechanism, not a
 HyperShell concern, for every driver.
 
@@ -671,12 +671,26 @@ standard.
 ### Requirement: OSG-CRED-13 -- Credential Driver Immutability
 
 `credential_driver` is control-plane-managed and is not user- or import-writable
-(`data-model.spec.md` PLAT-DATA-23); a user or import write of the field is
-rejected unconditionally by the field-ownership policy, independent of whether
-credentials have been stored. This requirement governs the remaining writer, the
-control plane: the `credential_driver` configuration on a Gateway SHALL be
-immutable after the gateway has stored provider credentials, because changing the
-driver would orphan credentials in the previous backend.
+(`data-model.spec.md` PLAT-DATA-23). A user or import write of the field is
+rejected by the field-ownership policy.
+
+The gateway's **effective** credential driver SHALL be immutable after the gateway
+is created, for every writer class, the control plane included. Changing the driver
+would orphan the provider credentials stored in the previous backend. The API
+server cannot observe whether credentials have been stored, so the rule applies
+from creation rather than from the first stored credential.
+
+The API server SHALL compare effective drivers, not stored text:
+
+- An omitted value, `null`, `{}`, and `{"type":"vault"}` are the same driver (`vault`).
+- Key order and spacing do not matter.
+- A change of `type` or of any sub-field (for example
+  `kubernetes_secrets.namespace`) is a change.
+- An update that omits the field leaves the stored value unchanged.
+- An equivalent resend SHALL keep the stored value and SHALL NOT advance `generation`.
+
+The gRPC `UpdateGateway` request SHALL carry `credential_driver` into this check. It
+SHALL NOT drop the field silently.
 
 #### Scenario: OSG-CRED-13.01 -- User or import write of credential driver is rejected
 
@@ -687,13 +701,29 @@ driver would orphan credentials in the previous backend.
   (`403` / `PermissionDenied`), independent of whether provider credentials have
   been stored
 
-#### Scenario: OSG-CRED-13.02 -- Control-plane driver change after credentials are stored is rejected
+#### Scenario: OSG-CRED-13.02 -- Control-plane driver change is rejected
 
-- GIVEN a Gateway with `credential_driver.type` = `vault` that has active provider credentials
-- WHEN the control plane attempts to change `credential_driver.type` to `kubernetes-secrets`
-- THEN the API server SHALL reject the update with error: `credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first`
+- GIVEN a Gateway whose effective driver is `vault` (no `credential_driver` stored)
+- WHEN the control plane attempts to set `credential_driver.type` to `kek-db` or
+  `kubernetes-secrets`
+- THEN the API server SHALL reject the update with a conflict whose message starts
+  `credential driver cannot be changed after the gateway is created`
+- AND gRPC callers SHALL receive `FailedPrecondition`
+- AND the stored driver SHALL be unchanged
 
-> **Phase 2 (reserved):** Automated credential migration between drivers.
+#### Scenario: OSG-CRED-13.03 -- Equivalent driver resend is a no-op
+
+- GIVEN a Gateway with no `credential_driver` stored (effective driver `vault`)
+- WHEN the control plane sends `credential_driver` = `{"type":"vault"}`
+- THEN the API server SHALL accept the update
+- AND the stored value SHALL remain unset
+- AND `generation` SHALL NOT advance
+
+#### Scenario: OSG-CRED-13.04 -- User gRPC update carrying credential_driver is rejected
+
+- GIVEN an existing Gateway
+- WHEN a user calls gRPC `UpdateGateway` with `credential_driver` set
+- THEN the API server SHALL reject the call with `PermissionDenied` naming `credential_driver`
 
 ---
 

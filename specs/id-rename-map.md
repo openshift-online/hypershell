@@ -1,18 +1,21 @@
-# Spec ID Rename Map
+# Spec ID History
 
-Old-to-new identifier map produced by the `MODULE-GROUP-NN` migration
-(HYPERSHELL-419 / issue #636). Every pre-migration ad-hoc requirement ID
-that did not already conform to `specs/standards/platform/spec-identifiers.spec.md`
-was renamed exactly once; this table is that mapping. Every reference to an
-old ID in `specs/` was rewritten to the new ID in the same change (see
-`specs/standards/platform/spec-identifiers.spec.md`, Migration Note).
+This file records identifiers that no longer name a live requirement.
+`scripts/check_spec_ids.py` reads it. Spec files do not carry this history,
+so agents that read specs see only current requirements
+(`specs/standards/platform/spec-identifiers.spec.md`, STD-IDS-04).
 
-Code and test files (113, per the originating issue) and
-`skills/RECONCILE.md` still cite the old IDs below; this table is the
-source of truth for rewriting those citations in a follow-up change.
+- **Renamed IDs**: pre-migration ad-hoc IDs and the `MODULE-GROUP-NN` ID each
+  became. An old ID cited anywhere outside this file and the ID standard
+  fails `make check`.
+- **Retired IDs**: IDs of deleted requirements and scenarios. A retired ID is
+  never reused.
 
-411 IDs were renamed. None were retired: the requirement each ID names did
-not go away, only its identifier changed.
+## Renamed IDs
+
+The `MODULE-GROUP-NN` migration (HYPERSHELL-419 / issue #636) renamed 411
+pre-migration ad-hoc IDs, each exactly once. A rename is not a retirement:
+the requirement each ID names did not go away, only its identifier changed.
 
 | Old ID | New ID | File |
 |--------|--------|------|
@@ -442,3 +445,57 @@ renamed when the ID check was introduced (`STD-IDS-06`).
 | `GSE-04` | `OSG-SEVT-04` | `platform/gateway-sandbox-events.spec.md` |
 | `GSE-05` | `OSG-SEVT-05` | `platform/gateway-sandbox-events.spec.md` |
 | `GSE-06` | `OSG-SEVT-06` | `platform/gateway-sandbox-events.spec.md` |
+
+## Retired IDs
+
+Deleting a requirement or scenario retires its ID. Add one row per retired
+ID. Retiring a requirement also retires its scenarios. "Replaced by" names
+the live ID that took over, or `-`; `make check` fails if it names an ID that
+does not exist. "Former file" is the spec the ID lived in, relative to
+`specs/`.
+
+| ID | Former file | Replaced by | Reason |
+|----|-------------|-------------|--------|
+| `PLAT-ARCH-01` | `platform/global-architecture.spec.md` | - | Never named a requirement: the ID migration stamped it on a plain `### Requirements` sub-heading by mistake. |
+| `PLAT-ARCH-02` | `platform/global-architecture.spec.md` | - | Never named a requirement: the ID migration stamped it on a plain `### Requirements` sub-heading by mistake. |
+| `PLAT-ARCH-03` | `platform/global-architecture.spec.md` | - | Never named a requirement: the ID migration stamped it on a plain `### Requirements` sub-heading by mistake. |
+| `PLAT-ARCH-04` | `platform/global-architecture.spec.md` | - | Never named a requirement: the ID migration stamped it on a plain `### Requirements` sub-heading by mistake. |
+| `CICD-MRG-01.01` | `platform/mergify-parallel-merge-queue.spec.md` | - | Independent-lane behavior superseded by serial speculation. |
+| `CICD-MRG-01.03` | `platform/mergify-parallel-merge-queue.spec.md` | - | Independent-lane behavior superseded by serial speculation. |
+| `CICD-MRG-04.01` | `platform/mergify-parallel-merge-queue.spec.md` | - | Independent-lane behavior superseded by serial speculation. |
+| `CICD-MRG-04.02` | `platform/mergify-parallel-merge-queue.spec.md` | - | Independent-lane behavior superseded by serial speculation. |
+| `E2E-CORE-29.01` | `platform/e2e-testing.spec.md` | - | Recorded that `make kind-up` was unchanged by the deploy restructuring; that migration is done. |
+| `E2E-COV-01` | `platform/e2e-feature-coverage.spec.md` | - | Recorded a dropped per-gateway credential-driver phase and had no scenarios. The Vault fault path is covered by the P2.7 `vault-fail-closed` phase. |
+| `CICD-PREN-12.01` | `platform/ephemeral-pr-environments.spec.md` | - | Recorded the removal of `components/pr-test/e2e-openshell.sh` (HYPERSHELL-250). |
+| `CICD-PREN-12.03` | `platform/ephemeral-pr-environments.spec.md` | - | Required documentation to stop citing the removed script; done. |
+| `CICD-PREN-12.04` | `platform/ephemeral-pr-environments.spec.md` | `CICD-PREN-12` | Forbade recreating the removed script; the `pr_test` scope rule replaces it. |
+| `DEV-OCP-09` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
+| `DEV-OCP-09.01` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
+| `DEV-OCP-09.02` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Covered a future ROKS retirement; the `pr_test` scope rule replaces it. |
+| `WEB-PLC-11` | `web-console/gateway-provision-placement.spec.md` | `WEB-PLC-04` | Replaced by the preview-card rule. |
+| `WEB-VER-03` | `web-console/gateway-version-visibility.spec.md` | - | Newer-version indicator removed with the gateway-version capability (#823). |
+| `WEB-OPS-17.02` | `web-console/operational-dashboard.spec.md` | `WEB-OPS-17.03` | The pods widget no longer renders a trend sparkline; it appears only on the Provisioning dashboard, which shows current pod state. |
+| `WEB-OPS-21` | `web-console/operational-dashboard.spec.md` | - | Optional platform inventory widgets folded into the widget catalog (#788). Not recorded as retired at the time. |
+| `WEB-OPS-22` | `web-console/operational-dashboard.spec.md` | - | Platform inventory summary legacy layout removed (#788). Not recorded as retired at the time. |
+| `WEB-OPS-22.01` | `web-console/operational-dashboard.spec.md` | - | Removed with WEB-OPS-22 (#788). |
+| `OSG-CORE-04` | `platform/openshell-gateway.spec.md` | - | Described loading static gateway manifests from `/manifests/gateway/` and substituting placeholders. The control plane installs the gateway through the upstream Helm chart. |
+| `OSG-CORE-04.01` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
+| `OSG-CORE-04.02` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
+| `OSG-CORE-17` | `platform/openshell-gateway.spec.md` | - | Described SSH-over-gRPC payload delivery into sandboxes, which was never built. OSG-CORE-16 places agent configuration out of scope. |
+| `OSG-CORE-18.05` | `platform/openshell-gateway.spec.md` | `OSG-CORE-18.09` | The null `workspace_mode` path was removed: migration `2026110212000001` backfilled pre-field gateways to `shared` and made the column required. |
+| `OSG-ROUT-01` | `platform/openshell-gateway-routing.spec.md` | - | Superseded placeholder: the control plane creates no NetworkPolicies in gateway namespaces (#339). |
+| `OSG-CON-06` | `platform/openshell-gateway-console.spec.md` | - | Required the console NetworkPolicies `openshell-console-allow-router` and `openshell-gateway-allow-console`, removed with all gateway-namespace NetworkPolicies (#339). |
+| `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |
+| `OSG-HELM-04` | `platform/openshell-gateway-helm-adoption.spec.md` | - | Recorded the one-time move from static manifests to the Helm chart; the move is complete and the Helm release is the only deployment path. |
+| `WEB-PKG-03` | `web-console/architecture.spec.md` | `WEB-PKG-02` | Tracked the one-time npm-to-pnpm migration, which is complete. Its lasting rule (the dependency-age check inspects every pnpm package and workspace importer) moved to WEB-PKG-02. |
+| `OSG-NSGC-02.03` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Covered namespaces left unlabeled from before the instance label existed. No longer needed: the fleet has no such namespaces that a live Gateway still uses (checked 2026-11-01). |
+| `OSG-NSGC-02.04` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Covered namespaces left unlabeled from before the instance label existed; reconcile labeling is OSG-NSGC-03.02. |
+| `OSG-NSGC-04` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Startup backfill of the instance label onto namespaces created before the label existed. No longer needed: the fleet has no such namespaces that a live Gateway still uses (checked 2026-11-01). |
+| `OSG-NSGC-04.01` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
+| `OSG-NSGC-04.02` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
+| `OSG-NSGC-04.03` | `platform/openshell-gateway-namespace-gc.spec.md` | - | Retired with OSG-NSGC-04. |
+| `OSG-ROT-01` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Required the `applyConfigHashAnnotation` config-hash to cover the database credentials Secret. That function was removed in the Helm cutover (#194), and nothing restarts the gateway when the Secret changes. Credential rotation will be designed in a later spec. |
+| `OSG-ROT-01.01` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Retired with OSG-ROT-01. |
+| `OSG-ROT-02` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Reserved a future KEK rotation design that was never built. The KEK is not rotated; credential rotation will be designed in a later spec. |
+| `PLAT-CLUS-07.01` | `platform/managed-cluster-registration.spec.md` | `PLAT-CLUS-07.03` | The capability-less heartbeat shim for control planes older than the capability model was removed; an empty capability set is now rejected. |
+| `OSG-OIDC-03.02` | `platform/openshell-gateway-oidc.spec.md` | - | Described a custom raw-TOML `config` field on the Gateway that bypassed OIDC injection. The Gateway resource has no such field. |

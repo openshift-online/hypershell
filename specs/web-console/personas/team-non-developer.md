@@ -41,7 +41,7 @@ This persona represents a team lead or contributor who uses shared agent environ
 
 - How HyperShell maps users and groups to gateway roles
 - The difference between gateway ownership and platform administration
-- Cluster placement, gateway endpoints, namespaces, or releases
+- Cluster placement, gateway endpoints, namespaces, or OpenShell versions
 - Service-account roles, CI credentials, or secret rotation
 - Which failures they can fix and which require platform support
 

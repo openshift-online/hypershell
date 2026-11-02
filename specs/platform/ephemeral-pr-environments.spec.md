@@ -101,15 +101,14 @@ This spec covers:
 - the GitHub-brokered Keycloak authentication model for these environments,
   including the GitHub OAuth App, the stable callback, admin authorization, and
   developer-tier testing by impersonation, and
-- the removal of the legacy `components/pr-test/e2e-openshell.sh` script in
-  favor of the shared e2e harness and this workflow (the ROKS variant is out of
-  scope and was not removed).
+- the scope of the `pr_test` component, which holds only the IBM ROKS e2e
+  script.
 
 This spec does not redefine `make openshift-up`, the `deploy/openshift/` overlay,
 the ephemeral-namespace isolation rules, the cluster-scoped RBAC handling, or
 the Konflux build pipeline. It depends on all of them. It amends the OpenShift
-`acquire_oidc_token` / `acquire_gateway_token_with_role` grant in
-`e2e-testing.spec.md` so those functions are grant-agnostic; it does not change
+`AcquireOIDCToken` / `AcquireGatewayTokenWithRole` grant in
+`e2e-testing.spec.md` so those methods are grant-agnostic; it does not change
 their signatures or the suite's call sites. Kind e2e stays in
 `e2e-testing.spec.md` and is not this workflow; E2E is suppressed on merge-queue
 events and Mergify queue pull requests (`mergify-parallel-merge-queue.spec.md`,
@@ -548,8 +547,8 @@ artifact across the stack.
 After the environment is deployed and the pull request's images are swapped in,
 Tests / E2E / OpenShift SHALL run the OpenShift e2e suite against it, exactly as
 `e2e-testing.spec.md` and `openshift-development.spec.md` define: it SHALL run
-`E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against a KUBECONFIG
-context pointed at the environment, exercising the same test areas the Kind suite
+`make e2e` with `E2E_INFRA_DRIVER=openshift` and `E2E_OIDC_GRANT=client_credentials` against a KUBECONFIG
+context pointed at the environment, exercising the same phases the Kind suite
 exercises. The suite SHALL run on the pull request's first e2e-relevant deployment and on
 every later e2e-relevant deployment for that pull request, using the same
 `plan-images` / `should_run` gate the Kind e2e job uses, so each e2e-relevant
@@ -1193,8 +1192,8 @@ designated admin, can obtain tokens for `developer` and `platform-admin`. They
 SHALL NOT need to impersonate `admin`; their own session already carries that
 HyperShell API capability. Human self-service impersonation covers the HyperShell API
 permission boundary (create vs view/delete). Per-gateway `openshell-user` sandbox
-create is the e2e driver's `assign_gateway_client_role` path in Automated E2E
-Authentication, not a human console path. Impersonation SHALL be available
+create needs a `gateway:viewer` binding, as Automated E2E Authentication
+defines; it is not a human console path. Impersonation SHALL be available
 interactively through the Keycloak admin console (intended for those two
 principals; the `impersonation` role is realm-wide, as Admin Authorization
 states) and programmatically through Keycloak token exchange, so the e2e
@@ -1262,13 +1261,11 @@ and other automation against a live environment SHALL still be able to impersona
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `developer` test-tier principal
 - AND a reachable gateway exists
-- AND the e2e driver has not granted that principal `openshell-user` on that
-  gateway's Keycloak client
+- AND that principal holds no `gateway:viewer` binding on that gateway
 - WHEN that user impersonates `developer`
 - THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 - AND creating a sandbox on that gateway is not a human self-service path; it
-  remains the e2e driver's `assign_gateway_client_role` grant in Automated E2E
-  Authentication
+  needs a `gateway:viewer` binding, as Automated E2E Authentication defines
 
 #### Scenario: CICD-PREN-10.06 -- GitHub users cannot token-exchange as each other
 
@@ -1304,7 +1301,7 @@ and other automation against a live environment SHALL still be able to impersona
 Because the pull-request environment's interactive login is GitHub-brokered and
 brokered users have no resource-owner password grant, the e2e suite SHALL NOT
 authenticate with a username/password grant against a brokered user. The
-OpenShift driver's `acquire_oidc_token` and `acquire_gateway_token_with_role`
+OpenShift driver's `AcquireOIDCToken` and `AcquireGatewayTokenWithRole`
 keep the same signatures and call sites `e2e-testing.spec.md` defines; they
 SHALL become grant-agnostic. Kind and local OpenShift runs default to the
 password grant against the static seeded users (`admin`/`admin`,
@@ -1330,31 +1327,29 @@ client secret from the deployed Keycloak namespace (a Kubernetes Secret in
 `hypershell-ci-pr-<number>-keycloak`) and SHALL NOT take it from AWS Secrets
 Manager or a GitHub Actions secret that cannot match a per-PR realm. Standing
 cluster login and OAuth App material remain `ephemeral-ci-secrets.spec.md`;
-this per-PR client secret is not in that inventory. The e2e suite's admin `acquire_oidc_token`
+this per-PR client secret is not in that inventory. The e2e suite's admin `AcquireOIDCToken`
 path SHALL obtain its HyperShell API token through that client's client-
 credentials grant, so the CI run authenticates without a human GitHub login.
 
-Area 9 needs both a HyperShell API token (to 403 on gateway create) and a
-per-gateway `openshell-user` token (to create a sandbox on a reachable gateway).
-Both SHALL come from Keycloak token exchange impersonating the seeded developer
-principal: `acquire_oidc_token` for the HyperShell API audience, and
-`acquire_gateway_token_with_role` targeting that gateway's Keycloak client for
+The developer-tier checks need two tokens. RBAC enforcement (P2.2) needs a
+HyperShell API token, to get `403` on gateway create. Gateway sharing (P2.8)
+needs a per-gateway `openshell-user` token for a gateway shared with the
+developer. Both SHALL come from Keycloak token exchange impersonating the seeded developer
+principal: `AcquireOIDCToken` for the HyperShell API audience, and
+`AcquireGatewayTokenWithRole` targeting that gateway's Keycloak client for
 the gateway audience. Neither call SHALL use a password grant on these
 environments.
 
-Before `acquire_gateway_token_with_role` for area 9, the OpenShift e2e driver
-SHALL grant the seeded `developer` principal the `openshell-user` client role on
-that gateway's Keycloak client. Kind already does this as a test-setup shortcut
-(`assign_gateway_client_role`); the OpenShift driver SHALL do the same. That
-grant mirrors what the control-plane RoleBinding reconciler does for a
-`gateway:viewer` binding. The suite SHALL NOT create a HyperShell
-`gateway:viewer` RoleBinding for this: there is no user-id discovery path for a
-non-owner through the API, and a Keycloak seed step cannot grant a per-gateway
-DB binding. Token exchange then yields an `openshell-user` token because the
-client role is already present, not because seed assigned `gateway:viewer`.
+The developer receives `openshell-user` through the product path, on every
+driver. The gateway owner resolves the developer's user id through `/users` and
+creates a `gateway:viewer` RoleBinding through the `role_bindings` API. The
+control-plane RoleBinding reconciler then grants the `openshell-user` client
+role on that gateway's Keycloak client. `AcquireGatewayTokenWithRole` token
+exchange then yields an `openshell-user` token because the reconciled client
+role is present. A Keycloak seed step does not assign it.
 
-Area 10 SHALL acquire the platform-admin token through the
-`hypershell-e2e` service account, not through a passworded `admin` user.
+The suite's platform-admin token SHALL come from the `hypershell-e2e` service
+account, not from a passworded `admin` user.
 
 The `hypershell-e2e` client secret and any impersonation credential SHALL NOT
 appear in logs, the pull-request comment, or public artifacts.
@@ -1363,7 +1358,7 @@ appear in logs, the pull-request comment, or public artifacts.
 
 - GIVEN a pull-request environment whose interactive login is GitHub-brokered
 - WHEN the e2e suite acquires its admin token in CI
-- THEN `acquire_oidc_token` SHALL use the `hypershell-e2e` client-credentials
+- THEN `AcquireOIDCToken` SHALL use the `hypershell-e2e` client-credentials
   grant, not a password grant
 - AND the token SHALL carry `platform:admin` and `gateway:creator`
 - AND the token's `preferred_username` SHALL be `service-account-hypershell-e2e`
@@ -1391,26 +1386,27 @@ appear in logs, the pull-request comment, or public artifacts.
 
 - GIVEN the seeded developer-tier principal exists in the realm
 - WHEN the e2e suite needs a developer-scoped HyperShell API token
-- THEN `acquire_oidc_token` SHALL obtain it by impersonating that principal
+- THEN `AcquireOIDCToken` SHALL obtain it by impersonating that principal
   through token exchange
 - AND the token SHALL NOT carry `platform:admin` or `gateway:creator`
 
-#### Scenario: CICD-PREN-11.05 -- Area 9 grants openshell-user before token exchange
+#### Scenario: CICD-PREN-11.05 -- A gateway:viewer binding grants openshell-user before token exchange
 
 - GIVEN a reachable gateway with a per-gateway Keycloak client
 - AND the seeded `developer` principal exists
-- WHEN area 9 prepares to acquire that principal's gateway token
-- THEN the OpenShift driver SHALL grant `openshell-user` on that client to
+- WHEN the gateway owner creates a `gateway:viewer` RoleBinding for `developer`
+  through the `role_bindings` API
+- THEN the control plane SHALL grant `openshell-user` on that client to
   `developer`
-- AND only then SHALL `acquire_gateway_token_with_role` token-exchange onto
+- AND only then SHALL `AcquireGatewayTokenWithRole` token-exchange onto
   that client
 
 #### Scenario: CICD-PREN-11.06 -- CI acquires the developer gateway token by impersonation
 
 - GIVEN the seeded developer-tier principal exists in the realm
 - AND a gateway with a per-gateway Keycloak client is running
-- WHEN area 9 needs an `openshell-user` token for that gateway
-- THEN `acquire_gateway_token_with_role` SHALL obtain it by token exchange
+- WHEN the suite needs an `openshell-user` token for that gateway
+- THEN `AcquireGatewayTokenWithRole` SHALL obtain it by token exchange
   targeting that gateway client for the same principal
 - AND it SHALL NOT use a password grant
 - AND the token SHALL carry `openshell-user` for that gateway
@@ -1419,7 +1415,7 @@ appear in logs, the pull-request comment, or public artifacts.
 
 - GIVEN CI authenticates as the `hypershell-e2e` service account
 - AND that service account created the gateway under test
-- WHEN the suite calls `acquire_gateway_token_with_role` for the admin path
+- WHEN the suite calls `AcquireGatewayTokenWithRole` for the admin path
 - THEN it SHALL obtain the token by token-exchange of the `hypershell-e2e`
   service account targeting that gateway client
 - AND it SHALL NOT impersonate the seeded passworded `admin` user
@@ -1433,67 +1429,23 @@ appear in logs, the pull-request comment, or public artifacts.
 - WHEN a reader inspects the job logs, the pull-request comment, and public artifacts
 - THEN that secret does not appear in any of them
 
-### Requirement: CICD-PREN-12 -- Legacy pr-test Removal
+### Requirement: CICD-PREN-12 -- ROKS pr-test Component
 
-This spec's workflow is the canonical pull-request e2e path, superseding the
-legacy `components/pr-test/e2e-openshell.sh` script that predated the
-infra-agnostic suite. That script has been removed (HYPERSHELL-250) now that
-this workflow and the shared harness (`tests/e2e/e2e-openshell.sh` with
-`E2E_INFRA_DRIVER=openshift`) cover the same ground and manual usage has
-migrated. `openshift-development.spec.md` and `e2e-testing.spec.md` defer to
-this spec as the record of that removal.
+This spec's workflow, running the Go suite in `tests/e2e/`, is the canonical
+pull-request OpenShift e2e path. The `pr_test` component holds only the IBM ROKS
+script `components/pr-test/e2e-openshell-roks.sh`. ROKS is outside this
+workflow. The component's CI wiring (the `.github/component-paths.json`
+`pr_test` entry, the `lint-pr-test` job, and component detection) SHALL stay
+scoped to that script. The `lint-pr-test` job SHALL syntax-check
+`e2e-openshell-roks.sh`.
 
-The ROKS variant `components/pr-test/e2e-openshell-roks.sh` is OUT OF SCOPE for
-this spec and is NOT removed: it targets IBM ROKS, which this pull-request
-ephemeral-environment workflow does not cover. The `pr_test` component and its
-CI wiring (`.github/component-paths.json` `pr_test` entry, the `lint-pr-test`
-job, and component detection) SHALL remain in place solely because the ROKS
-script still lives under that component; the `lint-pr-test` job SHALL syntax-check
-`e2e-openshell-roks.sh` instead of the removed script.
-
-Every authoritative reference to the removed script -- `CLAUDE.md`,
-`DEVELOPMENT.md`, and the skills that mentioned `components/pr-test/e2e-openshell.sh`
-(for example `skills/RECONCILE.md` and `skills/build/full-stack-pipeline/SKILL.md`)
--- SHALL point at the shared harness and this workflow as the canonical
-pull-request e2e path, while leaving ROKS guidance unchanged.
-
-New work SHALL NOT depend on `components/pr-test/e2e-openshell.sh` (it no longer
-exists). The pull-request e2e path, new CI jobs, and new documentation SHALL use
-the shared harness and this workflow.
-
-#### Scenario: CICD-PREN-12.01 -- Legacy OpenShift script has been removed
-
-- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
-- WHEN this spec is in effect
-- THEN the script SHALL NOT be present in the repository
-- AND no CI workflow or component registration SHALL reference it
-
-#### Scenario: CICD-PREN-12.02 -- ROKS script is untouched
+#### Scenario: CICD-PREN-12.02 -- ROKS script keeps its own component
 
 - GIVEN `components/pr-test/e2e-openshell-roks.sh` targets IBM ROKS
 - WHEN this spec is in effect
-- THEN the ROKS script SHALL be neither removed nor modified by this spec
-- AND its documentation and usage guidance SHALL remain unchanged
+- THEN this spec SHALL NOT change the ROKS script or its usage guidance
 - AND the `pr_test` component and `lint-pr-test` CI job SHALL remain, scoped to
   that script
-
-#### Scenario: CICD-PREN-12.03 -- Documentation points only at the canonical path
-
-- GIVEN `CLAUDE.md`, `DEVELOPMENT.md`, and the skills that used to reference
-  `components/pr-test/e2e-openshell.sh`
-- WHEN a reader consults them
-- THEN those references SHALL point at the shared harness and this workflow as
-  the canonical pull-request e2e path
-- AND ROKS references to `e2e-openshell-roks.sh` SHALL remain unchanged
-- AND the `pr_test` component SHALL NOT be described as deprecated while the
-  ROKS script still lives there
-
-#### Scenario: CICD-PREN-12.04 -- New work uses the canonical path
-
-- GIVEN a change adds a pull-request e2e test area or CI job
-- WHEN the change is made
-- THEN it SHALL use `tests/e2e/` and this spec's workflow
-- AND it SHALL NOT depend on or recreate `components/pr-test/e2e-openshell.sh`
 
 ## Design Decisions
 
@@ -1521,8 +1473,8 @@ the shared harness and this workflow.
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view, delete, and access management (not create; create requires `gateway:creator`). A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
-| Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
-| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view, delete, and access management (not create; create requires `gateway:creator`). A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create needs a `gateway:viewer` binding. Impersonation works for the environment lifetime; e2e does not de-seed |
+| The developer gets `openshell-user` through a `gateway:viewer` RoleBinding | The owner discovers the developer's user id through `/users` and binds `gateway:viewer` through the `role_bindings` API, so the reconciler grants the client role. Every driver uses this product path, so a brokered PR env tests the same grant a real user gets. That grant is not a Keycloak realm-role seed |
+| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers the developer-tier checks without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
-| Remove `e2e-openshell.sh` (HYPERSHELL-250); leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded and, with manual usage migrated, removed outright rather than kept deprecated indefinitely. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component and `lint-pr-test` job stay, rescoped to `e2e-openshell-roks.sh`, until that script is also retired or rehomed |
+| `pr_test` holds only the ROKS script | This workflow is the canonical pull-request OpenShift e2e path, and new coverage lands only in `tests/e2e/`. ROKS is outside this workflow, so the `pr_test` component and `lint-pr-test` job stay, scoped to `e2e-openshell-roks.sh`, until that script is retired or rehomed |

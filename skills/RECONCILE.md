@@ -507,7 +507,7 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | WEB-PLC-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
 | WEB-PLC-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
 | WEB-PLC-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
-| WEB-PLC-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored provider/visibility/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
+| WEB-PLC-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored capabilities/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
 | WEB-PLC-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
 | WEB-PLC-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
 | WEB-PLC-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
@@ -636,7 +636,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address) | `gateways.proto` | W5 ✅ |
 | G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
-| G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
+| G4 | Gateway Manifest Templating | Retired | OSG-CORE-04 retired; gateways install through Helm chart values | `internal/helm/values.go` | - |
 | G5 | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | W2 ✅ |
 | G6 | Trusted CA Bundle Injection | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
 | G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | - |
@@ -649,7 +649,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G14 | OpenShift-Specific Provisioning | Present | - | `reconcileOpenShiftSCC()` | W2 ✅ |
 | G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | - |
 | G16 | Separation from Agent Config | Present | - | - | - |
-| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
+| G17 | SSH Payload Delivery | Retired | OSG-CORE-17 retired; agent configuration is out of scope (OSG-CORE-16) | - | - |
 | G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
 
 ### openshell-gateway-database.spec.md
@@ -736,8 +736,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | WEB-ARCH-02 | Gateway management routes | Present | - | `routes.ts`, `gateway-ui/` | - |
 | WEB-ARCH-03 | Source/runtime boundaries | Present | - | `eslint.architecture.mjs` | - |
 | WEB-PKG-01 | pnpm workspace | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | - |
+| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml`, `check_dependency_age.py` | - |
 | WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
 | WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
 | WEB-AUTH-04 | No-auth dev mode | Present | - | `vite.config.ts` | - |
@@ -1182,7 +1181,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; enforced whenever JWT authentication is on (single source of truth, SEC-RBAC-14) | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-2 | Resource List Filtering | Present | Per-query visibility filtering via `GatewayVisibilityFilter` in gateway List handler; `FindGatewayIDsByUserID` DAO method | `plugins/gateways/handler.go`, `pkg/rbac/visibility_filter.go` | KC-W3 ✅ |
 | RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request; `sqlUserDao.Upsert` writes a stored field only when the JWT carries a changed value, taking no UPDATE (no row lock) when the claims already match -- a nil claim never clears a stored value, and a brand-new username still resolves concurrent first-time requests to one row via insert-then-reread | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go`, `plugins/users/dao.go` | WR1 ✅, WR3 ✅, RBAC-3-CW ✅ |
 | RBAC-4 | Bootstrap via Gateway Creation | Present | `gatewayHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/gateways/handler.go`, `pkg/rbac/gateway_bootstrap.go` | WR3 ✅ |
@@ -1193,7 +1192,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 | RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
 | RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
-| RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
+| RBAC-12 | Enforcement Follows Authentication | Present | Enforcement derives from JWT authentication being on; no separate enforcement variable (SEC-RBAC-14) | `plugins/rbac/plugin.go` | WR4 ✅ |
 | RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
 
 ### openshell-gateway-keycloak.spec.md
@@ -1216,18 +1215,18 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 |---|-------------|--------|-----|---------------|------|
 | SR-1 | Database Password Rotation | Removed | HyperShell does not rotate per-gateway database credentials; operators rotate on the server or recreate the gateway | - | - |
 | SR-2 | Database Rotation Failure Handling | Removed | No rotation path exists; provisioning repair re-applies a lost tenant Secret with `ALTER ROLE` | `gateway/external_db.go` | - |
-| SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
-| SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
-| SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
-| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-3 | Config-Hash Coverage for Database Credentials | Removed | Requirement retired (OSG-ROT-01). `applyConfigHashAnnotation` was deleted in the Helm cutover (#194); a changed DB credentials Secret does not restart the gateway | - | - |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-6 | TLS Certificate Renewal (cert-manager) | Present | cert-manager renews; the kubelet updates the mounted `openshell-server-tls` files; the OpenShell gateway file watcher reloads them without a restart | `charts/openshell/templates/_gateway-workload.tpl` (tls-cert mount) | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
+| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Removed | No DB password rotation exists, so there is no interaction to handle | - | - |
 
 ### openshell-gateway-namespace-gc.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; it never stamps the instance label itself and reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -1296,7 +1295,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 1. Remove deprecated `cluster_id` from the public REST `GatewayCreateRequest` source contract and regenerate OpenAPI clients/SDKs.
 2. Make the REST create handler always validate and resolve `placement`; retain resolved `cluster_id` only on persisted/read models and internal update paths.
-3. Extend managed-cluster restore to atomically refresh provider, visibility, and `last_seen_at` from the current registration.
+3. Extend managed-cluster restore to atomically refresh capabilities and `last_seen_at` from the current registration.
 4. Add regression tests for direct-cluster rejection/absence, intent resolution, and restored capability refresh.
 5. Verify generated artifacts, API build/vet, focused placement tests, and unchanged gateway read compatibility.
 
@@ -1506,7 +1505,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 | WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
 | WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
 | WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
-| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement follows authentication) | ✅ Complete |
 | WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
 | WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
 | WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |
@@ -1517,7 +1516,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 
 **Wave R3 summary:** `UserProvisioningMiddleware` upserts User from JWT claims (username, email, name) on every authenticated request. `fleetBootstrapper.CreateOwnerBinding` creates fleet:owner RoleBinding atomically in same DB transaction as fleet creation. Central `plugins/rbac/plugin.go` wires middleware on apiV1Router.
 
-**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. `RBAC_ENFORCE=true` env var controls enforcement.
+**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. Enforcement follows JWT authentication (one source of truth, SEC-RBAC-14).
 
 **Wave R6 summary:** `RBACUnaryInterceptor` and `RBACStreamInterceptor` apply same scope-aware evaluation to gRPC calls. `lazyRBACInterceptor` with `sync.Once` resolves services on first call (registered at init time via `RegisterPostAuthGRPC*Interceptor`). `provisionUserForGRPC` extracts JWT payload and provisions user before authorization.
 
@@ -1557,10 +1556,8 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
 `hypershell.redhat.io/managed=true` required, plus
 `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
-past the grace period. Each sweep first claims unlabeled legacy gateway
-namespaces (management labels, no instance label, `openshell-*` not
-`openshell-db-*`) so missed-delete orphans from before the instance label are
-not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+past the grace period. The sweep never stamps the instance label; only
+namespace creation and Gateway reconcile do. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
@@ -1825,8 +1822,8 @@ label-selected pod informer.
 | D14 | Gateway Deletion Protection | DB | API server validation |
 | D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
-| SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
-| SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
@@ -1848,7 +1845,7 @@ label-selected pod informer.
 2. **Naming: Sector vs Fleet**: Spec now uses "Fleet" (aligned with code). No longer a gap.
 3. **No restart mechanism (cross-spec)**: TLS, OIDC, and Routing specs all require workload restart on config changes. Addressed in Wave 7 via hash annotation.
 4. **Label-based cleanup (cross-spec)**: Database and Routing specs updated to use `hypershell.redhat.io/managed` label-based deletion instead of ownerReferences. ownerReferences were infeasible (DB resources created before Deployment) and unnecessary given explicit cleanup in `DeleteGatewayResources()`.
-5. ~~**Config-hash missing DB credentials**~~: Resolved in SR-W1. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret.
+5. ~~**Config-hash missing DB credentials**~~: Moot. `applyConfigHashAnnotation` was deleted in the Helm cutover (#194) and OSG-ROT-01 was retired; a changed DB credentials Secret does not restart the gateway.
 6. ~~**RoleBinding watcher missing**~~: Resolved in KC-W2. CP now watches 7 resource types (added RoleBindings via `WatchRoleBindings` gRPC stream).
 
 ---

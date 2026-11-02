@@ -39,18 +39,6 @@ Requires:
 
 ## Requirements
 
-### Requirement: OSG-ROUT-01 -- NetworkPolicy for Gateway API Proxy Ingress
-
-**Superseded.** The control plane no longer creates NetworkPolicies for gateway
-namespaces. On OVN-Kubernetes the default network posture is allow-all, so no
-explicit policy is needed for Gateway API proxy ingress.
-
-See [`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)
-(NetworkPolicy Decision: Do Not Install) for rationale and empirical
-verification.
-
----
-
 ### Requirement: OSG-ROUT-02 -- Gateway API Detection
 
 The control plane SHALL detect at startup whether the cluster supports the Gateway API for route provisioning.
@@ -375,10 +363,6 @@ The control-plane ServiceAccount needs permissions in two namespaces:
 - apiGroups: ["gateway.networking.k8s.io"]
   resources: ["grpcroutes", "backendtlspolicies"]
   verbs: ["get", "list", "create", "update", "patch", "delete"]
-
-- apiGroups: ["networking.k8s.io"]
-  resources: ["networkpolicies"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
 ```
 
 **`openshift-ingress` namespace** (Role + RoleBinding):
@@ -402,7 +386,6 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 
 | Symptom | Root Cause | Fix |
 |---|---|---|
-| TLS handshake: 0 bytes read, immediate EOF | Stale NetworkPolicy putting the gateway pod in deny-by-default | Check for and remove any leftover NetworkPolicies in the gateway namespace |
 | Wrong TLS certificate served | DNS pointing to wrong LB (e.g. OpenShift default router instead of shared Gateway) | Verify DNS CNAME points to the shared Gateway's LB address |
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
 | Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | The shared Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n $GATEWAY_API_GATEWAY_NAMESPACE $GATEWAY_API_GATEWAY_NAME -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |

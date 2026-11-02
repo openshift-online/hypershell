@@ -640,7 +640,7 @@ import (
 )
 
 func main() {
-	managedCluster := *openapiclient.NewManagedCluster("Name_example", "Provider_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
+	managedCluster := *openapiclient.NewManagedCluster("Name_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -4883,7 +4883,7 @@ import (
 )
 
 func main() {
-	managedClusterRegistrationRequest := *openapiclient.NewManagedClusterRegistrationRequest("Name_example") // ManagedClusterRegistrationRequest | Registration request
+	managedClusterRegistrationRequest := *openapiclient.NewManagedClusterRegistrationRequest("Name_example", []string{"Capabilities_example"}) // ManagedClusterRegistrationRequest | Registration request
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)

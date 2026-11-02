@@ -67,7 +67,7 @@ This persona represents a developer using agent sandboxes for their own developm
 
 - Make **Create gateway** and **Copy CLI command** prominent
 - Present connection steps in the order they must run
-- Show endpoint, placement, release, namespace, and gateway ID
+- Show endpoint, placement, OpenShell version, namespace, and gateway ID
 - Keep commands safe for shell execution and provide visible copy feedback
 - Explain missing readiness values instead of generating partial commands
 - Make service-account expiration and replacement visible before automation breaks

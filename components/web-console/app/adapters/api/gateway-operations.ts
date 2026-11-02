@@ -329,13 +329,10 @@ function optionalNumber(value: unknown): number | undefined {
 const registeredPlacementFilter = "oidc_subject <> ''";
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
-  const region = optionalString(cluster.region);
   const status = optionalString(cluster.status);
   return {
     id: cluster.id,
     name: cluster.name,
-    provider: cluster.provider,
-    ...(region ? { region } : {}),
     ...(status ? { status } : {}),
   };
 }

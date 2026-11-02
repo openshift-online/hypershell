@@ -25,8 +25,6 @@ const managedCluster = {
   kind: "ManagedCluster",
   kubeconfig_secret: "cluster-east-kubeconfig",
   name: "Cluster East",
-  provider: "AWS",
-  region: "us-east-1",
   status: "Ready",
   updated_at: null,
 };
@@ -566,9 +564,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   await awsProvider.focus();
   await page.keyboard.press("Space");
   await expect(awsProvider).toBeChecked();
-  await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
-    0,
-  );
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Gateway release")).toHaveCount(0);
   await expect(page.getByText(/create|register/iu)).toHaveCount(0);

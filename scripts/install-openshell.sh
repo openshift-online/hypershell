@@ -60,7 +60,10 @@ case "$version" in
         # installing a transparent container-backed command instead of leaving
         # an older native CLI in place. The mounts preserve the state and local
         # files used by gateway login, provider ADC discovery, profile/policy
-        # imports, uploads, and downloads.
+        # imports, uploads, and downloads. Login-related environment variables
+        # are forwarded by name only, so they reach the CLI only when set in
+        # the caller's environment and their values never appear in process
+        # arguments.
         cat > "${work_dir}/openshell" <<EOF
 #!/bin/sh
 set -eu
@@ -102,6 +105,8 @@ if [ -d "\$gcloud_config" ]; then
     -e OPENSHELL_GATEWAY_INSECURE \
     -e OPENSHELL_WORKSPACE \
     -e OPENSHELL_COLOR \
+    -e OPENSHELL_NO_BROWSER \
+    -e OPENSHELL_OIDC_CLIENT_SECRET \
     -v "\${openshell_config}:/home/cli/.config/openshell" \
     -v "\${gcloud_config}:/home/cli/.config/gcloud:ro" \
     -v "\${PWD}:\${PWD}" \
@@ -117,6 +122,8 @@ exec "\$engine" run --rm \
   -e OPENSHELL_GATEWAY_INSECURE \
   -e OPENSHELL_WORKSPACE \
   -e OPENSHELL_COLOR \
+  -e OPENSHELL_NO_BROWSER \
+  -e OPENSHELL_OIDC_CLIENT_SECRET \
   -v "\${openshell_config}:/home/cli/.config/openshell" \
   -v "\${PWD}:\${PWD}" \
   -w "\${PWD}" \
