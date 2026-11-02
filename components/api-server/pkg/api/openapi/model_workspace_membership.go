@@ -22,12 +22,14 @@ var _ MappedNullable = &WorkspaceMembership{}
 
 // WorkspaceMembership struct for WorkspaceMembership
 type WorkspaceMembership struct {
-	Id          *string    `json:"id,omitempty"`
-	Kind        *string    `json:"kind,omitempty"`
-	Href        *string    `json:"href,omitempty"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	WorkspaceId string     `json:"workspace_id"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/subject when not supplied.
+	Name        *string `json:"name,omitempty"`
+	WorkspaceId string  `json:"workspace_id"`
 	// OIDC subject UUID the agent uses to connect to the gateway.
 	Subject string `json:"subject"`
 	// Membership role, one of admin or member.
@@ -216,6 +218,38 @@ func (o *WorkspaceMembership) SetUpdatedAt(v time.Time) {
 	o.UpdatedAt = &v
 }
 
+// GetName returns the Name field value if set, zero value otherwise.
+func (o *WorkspaceMembership) GetName() string {
+	if o == nil || IsNil(o.Name) {
+		var ret string
+		return ret
+	}
+	return *o.Name
+}
+
+// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *WorkspaceMembership) GetNameOk() (*string, bool) {
+	if o == nil || IsNil(o.Name) {
+		return nil, false
+	}
+	return o.Name, true
+}
+
+// HasName returns a boolean if a field has been set.
+func (o *WorkspaceMembership) HasName() bool {
+	if o != nil && !IsNil(o.Name) {
+		return true
+	}
+
+	return false
+}
+
+// SetName gets a reference to the given string and assigns it to the Name field.
+func (o *WorkspaceMembership) SetName(v string) {
+	o.Name = &v
+}
+
 // GetWorkspaceId returns the WorkspaceId field value
 func (o *WorkspaceMembership) GetWorkspaceId() string {
 	if o == nil {
@@ -312,6 +346,9 @@ func (o WorkspaceMembership) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updated_at"] = o.UpdatedAt
+	}
+	if !IsNil(o.Name) {
+		toSerialize["name"] = o.Name
 	}
 	toSerialize["workspace_id"] = o.WorkspaceId
 	toSerialize["subject"] = o.Subject

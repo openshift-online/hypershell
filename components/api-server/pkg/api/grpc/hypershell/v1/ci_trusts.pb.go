@@ -39,8 +39,11 @@ type CITrust struct {
 	StatusExchangeEndpoint *string                `protobuf:"bytes,11,opt,name=status_exchange_endpoint,json=statusExchangeEndpoint,proto3,oneof" json:"status_exchange_endpoint,omitempty"`
 	StatusWorkspace        *string                `protobuf:"bytes,12,opt,name=status_workspace,json=statusWorkspace,proto3,oneof" json:"status_workspace,omitempty"`
 	StatusWorkflowHint     *string                `protobuf:"bytes,13,opt,name=status_workflow_hint,json=statusWorkflowHint,proto3,oneof" json:"status_workflow_hint,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+	// identity derived from ci_provider_id/gateway_id/role when not supplied.
+	Name          string `protobuf:"bytes,14,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CITrust) Reset() {
@@ -160,6 +163,13 @@ func (x *CITrust) GetStatusWorkspace() string {
 func (x *CITrust) GetStatusWorkflowHint() string {
 	if x != nil && x.StatusWorkflowHint != nil {
 		return *x.StatusWorkflowHint
+	}
+	return ""
+}
+
+func (x *CITrust) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -832,7 +842,7 @@ var File_hypershell_v1_ci_trusts_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_ci_trusts_proto_rawDesc = "" +
 	"\n" +
-	"\x1dhypershell/v1/ci_trusts.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xa9\x06\n" +
+	"\x1dhypershell/v1/ci_trusts.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xbd\x06\n" +
 	"\aCITrust\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12$\n" +
 	"\x0eci_provider_id\x18\x02 \x01(\tR\fciProviderId\x12\x1d\n" +
@@ -849,7 +859,8 @@ const file_hypershell_v1_ci_trusts_proto_rawDesc = "" +
 	" \x01(\tH\x05R\x06status\x88\x01\x01\x12=\n" +
 	"\x18status_exchange_endpoint\x18\v \x01(\tH\x06R\x16statusExchangeEndpoint\x88\x01\x01\x12.\n" +
 	"\x10status_workspace\x18\f \x01(\tH\aR\x0fstatusWorkspace\x88\x01\x01\x125\n" +
-	"\x14status_workflow_hint\x18\r \x01(\tH\bR\x12statusWorkflowHint\x88\x01\x01B\x15\n" +
+	"\x14status_workflow_hint\x18\r \x01(\tH\bR\x12statusWorkflowHint\x88\x01\x01\x12\x12\n" +
+	"\x04name\x18\x0e \x01(\tR\x04nameB\x15\n" +
 	"\x13_subject_repositoryB\x17\n" +
 	"\x15_subject_project_pathB\x0e\n" +
 	"\f_subject_refB\x16\n" +
