@@ -163,6 +163,12 @@ components:
             - subject
             - role
           properties:
+            name:
+              type: string
+              description: >-
+                Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+                defaults to a stable identity derived from
+                ci_provider_id/gateway_id/role when not supplied.
             ci_provider_id:
               type: string
               description: Reference to the CIProvider whose issuer is trusted

@@ -17,6 +17,7 @@ func inferenceRouteToProto(ir *InferenceRoute) *pb.InferenceRoute {
 			Kind:      "InferenceRoute",
 			Href:      "/api/hypershell/ext/inference_routes/" + ir.ID,
 		},
+		Name:              ir.Name,
 		WorkspaceId:       ir.WorkspaceId,
 		ProviderBindingId: ir.ProviderBindingId,
 		Model:             ir.Model,

@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/handlers"
@@ -27,6 +28,9 @@ func (h *workspaceMembershipHandler) List(w http.ResponseWriter, r *http.Request
 			ctx := r.Context()
 			listArgs := services.NewListArguments(r.URL.Query())
 			var items []WorkspaceMembership
+			if serr := extsearch.ValidateSearchColumns(listArgs.Search, &WorkspaceMembership{}); serr != nil {
+				return nil, serr
+			}
 			paging, err := h.generic.List(ctx, "id", listArgs, &items)
 			if err != nil {
 				return nil, err

@@ -175,6 +175,12 @@ components:
             - jwks_url
             - audience
           properties:
+            name:
+              type: string
+              description: >-
+                Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+                defaults to the forge when not supplied. Used by hsctl apply to
+                resolve an existing record via search=name = '<name>'.
             forge:
               type: string
               description: 'The forge family: github, gitlab, or forgejo'

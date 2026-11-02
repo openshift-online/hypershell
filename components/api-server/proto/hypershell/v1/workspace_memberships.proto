@@ -14,6 +14,9 @@ message WorkspaceMembership {
   string workspace_id = 2;
   string subject = 3;
   string role = 4;
+  // name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+  // identity derived from workspace_id/subject when not supplied.
+  string name = 5;
 }
 
 message GetWorkspaceMembershipRequest {

@@ -12,6 +12,7 @@ func ConvertWorkspaceMembership(wm openapi.WorkspaceMembership) *WorkspaceMember
 		Meta: api.Meta{
 			ID: util.NilToEmptyString(wm.Id),
 		},
+		Name:        util.NilToEmptyString(wm.Name),
 		WorkspaceId: wm.WorkspaceId,
 		Subject:     wm.Subject,
 		Role:        wm.Role,
@@ -31,6 +32,7 @@ func PresentWorkspaceMembership(wm *WorkspaceMembership) openapi.WorkspaceMember
 		Href:        reference.Href,
 		CreatedAt:   openapi.PtrTime(wm.CreatedAt),
 		UpdatedAt:   openapi.PtrTime(wm.UpdatedAt),
+		Name:        openapi.PtrString(wm.Name),
 		WorkspaceId: wm.WorkspaceId,
 		Subject:     wm.Subject,
 		Role:        wm.Role,
