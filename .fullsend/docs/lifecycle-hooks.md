@@ -31,6 +31,18 @@ Each phase harness (`triage`, `spec-implementation`, `spec-review`,
 
 The phase is selected by the `PHASE` environment variable set in each harness.
 
+The `pre_script`, `validation_loop`, and `post_script` hooks, the `skip=` relay
+from a pre-script, the `FULLSEND_VALIDATED_ITERATION_DIR` output contract, and
+harness-level output-schema enforcement follow the
+[harness field reference](https://fullsend.sh/docs/reference/harness-reference)
+and [ADR 0022](https://fullsend.sh/docs/ADRs/0022-harness-level-output-schema-enforcement).
+No HyperShell harness used `pre_script` or the `skip=` key before this change, so
+verify hook ordering, the skip relay, the validated-iteration output path, and
+failure propagation against the deployed Fullsend version before relying on them in
+production, and record the verified version here. These scripts are written so the
+direct-invocation tests pass independently of the runtime, so a runtime mismatch
+surfaces as a harness-wiring problem rather than a silent label change.
+
 ## The result contract (SDLC-HOOK-04)
 
 Agents write exactly one JSON object to `$FULLSEND_OUTPUT_DIR/agent-result.json`.
@@ -82,7 +94,7 @@ transition cannot silently clear a human block.
 | spec-implementation | blocked | `agent/blocked` | none |
 | spec-review | approved | `agent/review-spec-approved` | `agent/reviewable-spec`, `agent/review-spec-rejected` |
 | spec-review | rejected | `agent/review-spec-rejected` (+ `agent/blocked` at limit 3) | `agent/reviewable-spec`, `agent/review-spec-approved` |
-| code-implementation | completed | `agent/reviewable-code` | stale `agent/review-code-rejected`, `agent/review-code-approved` |
+| code-implementation | completed | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved` |
 | code-implementation | blocked | `agent/blocked` | none |
 | code-review | approved | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` |
 | code-review | rejected | `agent/review-code-rejected` (+ `agent/blocked` at limit 10) | `agent/reviewable-code`, `agent/review-code-approved` |
@@ -117,6 +129,16 @@ execution-record marker and the scope label; `reconcile` writes Jira status from
 the GitHub phase labels. Neither writes a GitHub phase label, so there is no
 competing writer.
 
+Documented exception: the `update-openshell` agent opens its own pull request
+outside the SDLC funnel (it is not driven by a work-item issue through the phase
+harnesses) and applies `agent/reviewable-code` to that pull request directly. This
+is a deliberate bootstrap hand-off, not a competing writer on a funnel issue: the
+`update-openshell` pull request has no lifecycle pre-script or post-script in its
+harness, so no phase script ever writes labels for it. Routing it through the
+shared contract is tracked as a follow-up; until then this is the single
+acknowledged place outside the five phase post-scripts that writes a phase label,
+and it only ever writes to its own fresh pull request.
+
 ## Posting the outcome comment (SDLC-HOOK-10)
 
 The post-script posts the agent's `comment` through the repository's
@@ -137,10 +159,14 @@ logs a warning and the transition still applies.
 The tooling splits by hook:
 
 - The **pre-script and post-script** need `gh` (authenticated by `GH_TOKEN`) and
-  `jq`. The **post-script** additionally needs the `fullsend` CLI, the repository
-  sticky-comment primitive used for `issues post-comment`; it is a required runner
-  tool for every phase that posts a comment, exactly as `post-update-openshell.sh`
-  requires it. These scripts do not use `python3`.
+  `jq`. The **post-script** additionally needs the `fullsend` CLI (the repository
+  sticky-comment primitive used for `issues post-comment`, exactly as
+  `post-update-openshell.sh` uses it) to post the outcome comment. For the **review
+  phases** this comment is the required review record, so `fullsend` is a required
+  runner tool asserted at `preflight_check` and a missing CLI fails fast. For the
+  non-review phases (`triage`, `spec-implementation`, `code-implementation`) the
+  comment is optional, so a missing `fullsend` only logs a warning and the
+  transition still applies. These scripts do not use `python3`.
 - The **validation step** (`validate-output-schema.sh`) needs `python3` with the
   `jsonschema` package, declared as the harness `preflight_check`. Validation runs
   Python in isolated mode (`python3 -I`) so the untrusted output tree cannot
@@ -181,7 +207,17 @@ any label change, so a rerun is safe), and `final-state verification FAILED`
 ## Tests
 
 `scripts/tests/lifecycle_test.sh` covers the pure contract and decision logic.
-`scripts/tests/lifecycle_post_test.sh` drives `post-lifecycle.sh` end to end with
-a mocked `gh` and `fullsend` (no local dispatcher). `scripts/tests/lifecycle_schema_test.sh`
-covers the native read-only schema validation. All three are auto-discovered by
-`make ci-test`.
+`scripts/tests/lifecycle_pre_test.sh` drives `pre-lifecycle.sh` (the bootstrap,
+existing-PR, authorization, scope, block, missing-PR, and prerequisite skip
+paths) with a mocked `gh` (no local dispatcher). `scripts/tests/lifecycle_post_test.sh`
+drives `post-lifecycle.sh` end to end with a mocked `gh` and `fullsend` (no local
+dispatcher). `scripts/tests/lifecycle_schema_test.sh` covers the native read-only
+schema validation. All four are auto-discovered by `make ci-test`.
+
+These tests invoke the scripts directly. They assert the behavior of each hook
+and its decision logic, but they do not exercise the harness YAML wiring, the hook
+ordering, or the `validation_loop` invocation through a live Fullsend runtime,
+because no deployed Fullsend is available in CI or the sandbox to drive the
+harnesses end to end (SDLC-HOOK-13). A harness-runtime integration test should be
+added wherever a deployed Fullsend is available; until then the direct-invocation
+tests plus the hook ordering documented above are the operative coverage.

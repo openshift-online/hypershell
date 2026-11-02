@@ -91,13 +91,17 @@ fi
 # ---------------------------------------------------------------------------
 _field_str() { jq -r --arg k "$1" 'if (.[$k] | type) == "string" then .[$k] else empty end' "${RESULT_FILE}"; }
 _field_num() { jq -r --arg k "$1" 'if (.[$k] | type) == "number" then (.[$k] | floor | tostring) else empty end' "${RESULT_FILE}"; }
+# Flatten CR/LF so an untrusted scalar echoed into the runner log cannot forge a
+# log line (SEC-STD-02), matching the pre-script's skip-reason handling. The
+# comment body is intentionally NOT flattened: it is posted verbatim as markdown.
+_oneline() { printf '%s' "${1//[$'\r\n']/ }"; }
 
-schema_version="$(_field_str schema_version)"
-r_phase="$(_field_str phase)"
-outcome="$(_field_str outcome)"
+schema_version="$(_oneline "$(_field_str schema_version)")"
+r_phase="$(_oneline "$(_field_str phase)")"
+outcome="$(_oneline "$(_field_str outcome)")"
 comment="$(_field_str comment)"
 r_pr_number="$(_field_num pr_number)"
-r_head_sha="$(_field_str head_sha)"
+r_head_sha="$(_oneline "$(_field_str head_sha)")"
 
 if [[ "${schema_version}" != "1" ]]; then
   echo "post-lifecycle: unsupported or missing schema_version (got '${schema_version:0:16}')" >&2
