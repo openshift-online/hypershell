@@ -809,6 +809,12 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Require().NotNil(seeded.LastSeenAt, "registered cluster has last_seen_at")
 	s.Assert().WithinDuration(time.Now(), *seeded.LastSeenAt, durationSecondsEnv("E2E_MANAGED_HEALTHY_WINDOW", 5*time.Minute), "registered cluster is fresh")
 	lastSeenBefore := *seeded.LastSeenAt
+	// Every registration carries the complete capability set (PLAT-CLUS-07);
+	// replaying the seeded cluster's own set keeps the heartbeat a no-op for it.
+	s.Require().NotEmpty(seeded.Capabilities, "registered cluster has capabilities")
+	registration := func(name string) map[string]any {
+		return map[string]any{"name": name, "capabilities": seeded.Capabilities}
+	}
 
 	// Registrar identity (client-credentials for the control-plane client).
 	regTok, err := s.driver.AcquireClientCredentialsToken(ctx,
@@ -820,7 +826,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 
 	// 12b: registration is idempotent and returns the same cluster_id.
 	for i := range 2 {
-		st, body, err := regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": clusterName})
+		st, body, err := regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", registration(clusterName))
 		s.Require().NoErrorf(err, "registration call %d", i+1)
 		s.Require().Equalf(http.StatusOK, st, "registration call %d must be 200 (body: %s)", i+1, string(body))
 		var reg struct {
@@ -835,13 +841,13 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	}), "idempotent registration advances last_seen_at")
 
 	// 12c: a non-registrar (admin) is forbidden from registering.
-	st, body, err := s.admin.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": clusterName})
+	st, body, err := s.admin.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", registration(clusterName))
 	s.Require().NoError(err, "admin registration attempt")
 	s.Assert().Equalf(http.StatusForbidden, st, "non-registrar registration must be 403 (body: %s)", string(body))
 
 	// 12d: the registrar registering a different name collides (409).
 	collisionName := "e2e-wrong-name-" + s.runID
-	st, body, err = regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": collisionName})
+	st, body, err = regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", registration(collisionName))
 	s.Require().NoError(err, "registrar name-collision attempt")
 	s.Assert().Equalf(http.StatusConflict, st, "registrar name collision must be 409 (body: %s)", string(body))
 	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
