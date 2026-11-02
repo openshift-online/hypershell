@@ -20,9 +20,9 @@
 #   PR_ENV_DELETE_TIMEOUT_SECONDS
 #                         deadline for confirmed Namespace deletion (default: 300)
 #   PR_ENV_DELETE_POLL_SECONDS
-#                         Namespace polling interval (default: 2)
+#                         positive Namespace polling interval (default: 2)
 #   PR_ENV_DELETE_STATUS_INTERVAL_SECONDS
-#                         progress logging interval (default: 30)
+#                         positive progress logging interval (default: 30)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,9 +48,17 @@ require_non_negative_integer() {
   fi
 }
 
+require_positive_integer() {
+  local name="$1" value="$2"
+  if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    log "  ERROR ${name} must be a positive integer, got ${value}"
+    exit 1
+  fi
+}
+
 require_non_negative_integer PR_ENV_DELETE_TIMEOUT_SECONDS "${DELETE_TIMEOUT_SECONDS}"
-require_non_negative_integer PR_ENV_DELETE_POLL_SECONDS "${DELETE_POLL_SECONDS}"
-require_non_negative_integer PR_ENV_DELETE_STATUS_INTERVAL_SECONDS "${DELETE_STATUS_INTERVAL_SECONDS}"
+require_positive_integer PR_ENV_DELETE_POLL_SECONDS "${DELETE_POLL_SECONDS}"
+require_positive_integer PR_ENV_DELETE_STATUS_INTERVAL_SECONDS "${DELETE_STATUS_INTERVAL_SECONDS}"
 
 # namespace_lookup returns 0 when the Namespace exists, 1 when it is confirmed
 # absent, and 2 for an API/authentication error. Treating every get failure as

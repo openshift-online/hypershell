@@ -193,7 +193,7 @@ EOF
 : > "${workdir}/cp_managed.tsv"
 printf '%s\n' 'hypershell-ci-pr-1' > "${KEEP_LIVE}"
 write_stub
-if PR_ENV_DELETE_TIMEOUT_SECONDS=0 PR_ENV_DELETE_POLL_SECONDS=0 run_teardown hypershell-ci-pr-1; then
+if PR_ENV_DELETE_TIMEOUT_SECONDS=0 PR_ENV_DELETE_POLL_SECONDS=1 run_teardown hypershell-ci-pr-1; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: teardown succeeded while the namespace remained live'
 else
@@ -205,6 +205,21 @@ if [[ "${delete_requests}" == "1" ]]; then
 else
   FAIL=$((FAIL + 1))
   echo "FAIL: teardown issued ${delete_requests} delete requests after one successful request"
+fi
+
+# Polling and status intervals must remain positive so an override cannot turn
+# a stuck Namespace wait into a tight API/logging loop.
+if PR_ENV_DELETE_POLL_SECONDS=0 run_teardown hypershell-ci-pr-1; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a zero polling interval must be rejected'
+else
+  PASS=$((PASS + 1))
+fi
+if PR_ENV_DELETE_STATUS_INTERVAL_SECONDS=0 run_teardown hypershell-ci-pr-1; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a zero status interval must be rejected'
+else
+  PASS=$((PASS + 1))
 fi
 
 printf 'teardown-pr-env tests: %d passed, %d failed\n' "$PASS" "$FAIL"
