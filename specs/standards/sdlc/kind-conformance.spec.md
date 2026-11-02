@@ -431,18 +431,33 @@ path (SDLC-CONF-02), reached idempotently through the conformance pass
 (SDLC-CONF-07) so no Kind is fixed in isolation. A Kind whose find-by-name search
 cannot return its own created record is non-conformant.
 
-For `ci_providers`, the derived `name` is an identifying, unique key: a provider's
-name defaults to its forge (one provider per forge by default), and `name` SHALL be
-unique, so a find-by-name search resolves exactly one record and a duplicate name is
-a clean conflict rather than a silently ambiguous pair. This is coherent with
-`platform/ci-trust-ext-api.spec.md` PLAT-CITR-07: a second provider on the same
-forge family (a distinct instance, whose issuer differs) is registered under a
-distinct `name`, so uniqueness constrains the name key without forbidding
-multi-instance support. For the composite `ext` Kinds
-(`ci_trusts`, `inference_routes`, `workspace_memberships`), the derived name
-identifies the record by its composite identity columns and SHALL remain queryable
-by find-by-name as above; this amendment keeps those composite Kinds' derived-name
-requirement as-is and does NOT add a global uniqueness constraint to them.
+**The queryable `name` of every affected ext Kind SHALL be unique.** The derived
+`name` is an identifying key, and for each of the four affected Kinds it SHALL be
+unique, so a find-by-name search resolves EXACTLY ONE record and a duplicate name is
+a clean conflict rather than a silently ambiguous match. For `ci_providers` the name
+defaults to its forge (one provider per forge by default); uniqueness is enforced as
+an explicit constraint, coherent with `platform/ci-trust-ext-api.spec.md`
+PLAT-CITR-07, under which a second provider on the same forge family (a distinct
+instance, whose issuer differs) is registered under a distinct `name` -- so
+uniqueness constrains the name key without forbidding multi-instance support. For the
+composite `ext` Kinds (`ci_trusts`, `inference_routes`, `workspace_memberships`) the
+name is derived from the full composite natural key that already identifies the
+record, so it is unique BY CONSTRUCTION: two records with distinct composite
+identities derive distinct names, and two records with the same composite identity
+are the same record. In every case the find-by-name query returns exactly one record,
+never an ambiguous pair.
+
+**The name-column convergence migration SHALL be collision-safe.** Each affected
+Kind gains its `name` column through the raw-SQL migration path (SDLC-CONF-02), which
+backfills pre-existing rows and then builds a unique index on `name`. If pre-existing
+rows would backfill to a DUPLICATE name, the migration SHALL de-duplicate
+idempotently (for example by disambiguating the conflicting names deterministically)
+so that the unique index always builds, rather than fail on a duplicate-key violation
+and block server startup. The migration SHALL converge on every environment
+regardless of its pre-existing data -- a clean database, a partially populated one,
+and one already holding colliding identities SHALL all reach the same conformant end
+state (one unique `name` per row, index built). Because the migration is
+collision-safe, re-running it SHALL be a no-op and SHALL NOT reintroduce a collision.
 
 **Defensive depth: an unknown or invalid search column SHALL be a clean 400, not a
 transaction-poisoning 500 -- for EVERY registered Kind.** Independently of any one
@@ -501,12 +516,13 @@ for every registered `ext` Kind, not only the Kind a change happened to touch.
 - THEN the resolution request SHALL return 200 (the existing record or an empty list)
 - AND `hsctl apply` SHALL NOT fail with 500 on the find-by-name step
 
-#### Scenario: SDLC-CONF-13.05 -- Every affected ext Kind is queryable by name
+#### Scenario: SDLC-CONF-13.05 -- Every affected ext Kind is queryable by name and resolves to exactly one record
 
 - GIVEN `ci_providers`, `ci_trusts`, `inference_routes`, and `workspace_memberships`
   each created over the real HTTP and database stack with name `N`
 - WHEN each is listed with `search=name = 'N'`
-- THEN every one SHALL return 200 with its created record and SHALL NOT abort with `SQLSTATE 25P02`
+- THEN every one SHALL return 200 with EXACTLY its one created record and SHALL NOT abort with `SQLSTATE 25P02`
+- AND no affected Kind SHALL return an ambiguous pair for a single name
 
 #### Scenario: SDLC-CONF-13.06 -- Unknown search column is a clean 400, not a 500, for every registered Kind
 
@@ -518,3 +534,24 @@ for every registered `ext` Kind, not only the Kind a change happened to touch.
 - AND no query SHALL reach the database or abort the request transaction with 500 / `SQLSTATE 25P02`
 - AND the conformance 400 assertion SHALL cover core Kinds as well as `ext` Kinds, so
   the guard is verified for every registered Kind, not only `ext` Kinds
+
+#### Scenario: SDLC-CONF-13.07 -- Duplicate pre-existing identities backfill to distinct unique names and the migration completes
+
+- GIVEN a database holding pre-existing rows of an affected `ext` Kind whose backfill
+  from their stored identity would produce a DUPLICATE `name`
+- WHEN the name-column convergence migration runs on that database
+- THEN the migration SHALL de-duplicate the colliding names deterministically and
+  idempotently, SHALL build the unique index on `name`, and SHALL complete without a
+  duplicate-key failure
+- AND server startup SHALL NOT be blocked by the migration
+- AND re-running the migration SHALL be a no-op that does not reintroduce a collision
+
+#### Scenario: SDLC-CONF-13.08 -- A duplicate name is a clean conflict, not a silent ambiguous pair
+
+- GIVEN an affected `ext` Kind already holding a record with name `N`
+- WHEN a second write would produce the same `name N` (for `ci_providers`, a second
+  default registration on the same forge)
+- THEN the write SHALL be rejected as a clean conflict rather than creating a second
+  row that makes find-by-name ambiguous
+- AND a distinct instance registered under a distinct `name` SHALL still succeed
+  (PLAT-CITR-07 multi-instance support)
