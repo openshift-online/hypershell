@@ -464,7 +464,7 @@ func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
 // --- Phase P2 / P3 ---
 
 // p2_1SandboxLifecycle creates a sandbox via the CLI and execs into it (the CLI
-// `exec whoami` success is the user-facing readiness proof), deletes it, verifies the
+// `exec id -u` success is the user-facing readiness proof), deletes it, verifies the
 // gateway's active_sandbox_count tracks create/delete through the API, and confirms
 // each sandbox is fully deleted from the gateway store within a time bound. It owns
 // its own gateway so the count assertion is isolated, and discovers the gateway
@@ -520,19 +520,22 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 		s.Require().NoError(g.Wait(), "sandbox pods Running")
 	})
 
-	// The CLI `sandbox exec whoami` success is the user-facing readiness proof: it is
+	// The CLI `sandbox exec id -u` success is the user-facing readiness proof: it is
 	// polled to eventual readiness in short mode (no pod-level wait), and returns
-	// quickly in long mode where the pod is already Running.
-	var whoami string
+	// quickly in long mode where the pod is already Running. `id -u` is used rather
+	// than `whoami` because a rootless sandbox UID with no /etc/passwd entry (e.g. on
+	// Kind) makes `whoami` exit non-zero even though the exec reached the container,
+	// while `id -u` reports the numeric UID and exits 0 on every environment.
+	var userID string
 	s.Require().NoError(pollNoCtx(sandboxTimeout, 5*time.Second, func() bool {
-		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "whoami")
+		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "id", "-u")
 		if err != nil {
 			return false
 		}
-		whoami = out
+		userID = out
 		return true
-	}), "sandbox exec whoami readiness")
-	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(whoami)), "whoami output")
+	}), "sandbox exec id -u readiness")
+	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(userID)), "id -u output")
 	s.longOnly("workspace-listing", func(t *testing.T) {
 		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
 		if err != nil && strings.Contains(out, "No such file or directory") {

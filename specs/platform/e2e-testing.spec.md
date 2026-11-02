@@ -784,7 +784,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 - GIVEN the openshell CLI is connected to the gateway
 - WHEN `sandbox create --name <name>` is invoked
 - THEN in long mode a pod matching `default--<name>` SHALL appear in the gateway namespace and SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds (this pod-level kube check is long-only and SHALL be verified before the CLI readiness proof)
-- AND in every mode the CLI `sandbox exec whoami` SHALL succeed -- polled to eventual readiness in short mode (which has no pod-level wait, so it retries the exec until ready) -- which is the user-facing readiness proof
+- AND in every mode the CLI `sandbox exec id -u` SHALL succeed -- polled to eventual readiness in short mode (which has no pod-level wait, so it retries the exec until ready) -- which is the user-facing readiness proof (`id -u` reports the numeric UID and exits 0 on every environment, unlike `whoami`, which exits non-zero for a rootless sandbox UID with no passwd entry)
 
 #### Scenario: E2E-CORE-13.06 -- Sandbox is fully deleted within the delete timeout
 
@@ -2089,7 +2089,7 @@ any cluster. Its path is: authenticate, create a gateway, confirm the gateway is
 `Running` and carries a `route_address` through the API, connect to the gateway
 over its route with the CLI (reaching the gateway proves route discovery, the
 Service, and the Deployment are functional), and exercise a sandbox through the CLI
-(`sandbox create` then `exec whoami`, whose success proves the runtime). Long mode
+(`sandbox create` then `exec id -u`, whose success proves the runtime). Long mode
 SHALL add every direct kube-level internal-posture assertion -- gateway
 Deployment/Service inspection, TLS secrets, the database credential's
 `sslmode=require`, cert-manager Certificates `Ready`, NetworkPolicy posture, vault
@@ -2121,7 +2121,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P1.3 Token + CA trust | fetch the per-gateway token (the driver's, or with `E2E_GATEWAY_AUTH=service_account` a gateway service account's) and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
 | P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
 | P1.5 Connectivity | one route reachability check | n/a |
-| P2.1 Sandbox lifecycle + interaction | one sandbox via the CLI: create -> `exec whoami` (the CLI's `exec` success is the readiness proof) -> delete, `active_sandbox_count` 1 then 0 via the API, and the sandbox fully removed from `openshell sandbox list` within `E2E_SANDBOX_DELETE_TIMEOUT`; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | pod-level readiness wait (the sandbox pod reaches `Running` in the gateway namespace); second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
+| P2.1 Sandbox lifecycle + interaction | one sandbox via the CLI: create -> `exec id -u` (the CLI's `exec` success is the readiness proof) -> delete, `active_sandbox_count` 1 then 0 via the API, and the sandbox fully removed from `openshell sandbox list` within `E2E_SANDBOX_DELETE_TIMEOUT`; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | pod-level readiness wait (the sandbox pod reaches `Running` in the gateway namespace); second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window (the primary gateway's service account is retired in `TearDownSuite`, not here, so P2.3 never races with P2.5) |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration and gRPC identity-rejection assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
