@@ -431,17 +431,33 @@ path (SDLC-CONF-02), reached idempotently through the conformance pass
 (SDLC-CONF-07) so no Kind is fixed in isolation. A Kind whose find-by-name search
 cannot return its own created record is non-conformant.
 
+For `ci_providers`, the derived `name` is an identifying, unique key: a provider's
+name defaults to its forge (one provider per forge by default), and `name` SHALL be
+unique, so a find-by-name search resolves exactly one record and a duplicate name is
+a clean conflict rather than a silently ambiguous pair. This is coherent with
+`platform/ci-trust-ext-api.spec.md` PLAT-CITR-07: a second provider on the same
+forge family (a distinct instance, whose issuer differs) is registered under a
+distinct `name`, so uniqueness constrains the name key without forbidding
+multi-instance support. For the composite `ext` Kinds
+(`ci_trusts`, `inference_routes`, `workspace_memberships`), the derived name
+identifies the record by its composite identity columns and SHALL remain queryable
+by find-by-name as above; this amendment keeps those composite Kinds' derived-name
+requirement as-is and does NOT add a global uniqueness constraint to them.
+
 **Defensive depth: an unknown or invalid search column SHALL be a clean 400, not a
-transaction-poisoning 500.** Independently of any one Kind's columns, the shared
-`ext` list search path SHALL reject a `search` filter that names an unknown or
-invalid column with a clean 400 (a client error naming the bad column), and SHALL
-NOT let that filter reach the database and abort the request transaction with a 500
-/ `SQLSTATE 25P02`. Column validation SHALL happen before the search clause is
+transaction-poisoning 500 -- for EVERY registered Kind.** Independently of any one
+Kind's columns, and across EVERY registered Kind -- core `/v1` Kinds (for example
+`managed_clusters` and `gateways`) AND extension `ext` Kinds -- the shared list
+search path SHALL reject a `search` filter that names an unknown or invalid column
+with a clean 400 (a client error naming the bad column), and SHALL NOT let that
+filter reach the database and abort the request transaction with a 500 /
+`SQLSTATE 25P02`. Column validation SHALL happen before the search clause is
 compiled into SQL, so that a malformed or unsupported `search` can never poison the
-transaction. This defensive layer is required in addition to the per-Kind `name`
-column above, so that this class of failure can never return a 500 again: even a
-Kind that legitimately lacks a searched column SHALL answer with a 400, not a
-`25P02`.
+transaction. This guard SHALL be centralized on the shared list path so that a
+newly registered Kind -- core or extension -- cannot omit it. It is required in
+addition to the per-Kind `name` column above, so that this class of failure can
+never return a 500 again: even a Kind that legitimately lacks a searched column
+SHALL answer with a 400, not a `25P02`.
 
 The create -> get -> list -> delete conformance round-trip of SDLC-CONF-06 and
 the upgrade-path conformance test of SDLC-CONF-12 SHALL include a find-by-name
@@ -492,9 +508,13 @@ for every registered `ext` Kind, not only the Kind a change happened to touch.
 - WHEN each is listed with `search=name = 'N'`
 - THEN every one SHALL return 200 with its created record and SHALL NOT abort with `SQLSTATE 25P02`
 
-#### Scenario: SDLC-CONF-13.06 -- Unknown search column is a clean 400, not a 500
+#### Scenario: SDLC-CONF-13.06 -- Unknown search column is a clean 400, not a 500, for every registered Kind
 
-- GIVEN an `ext` Kind listed with a `search` filter that names an unknown or invalid column
+- GIVEN any registered Kind -- a core `/v1` Kind (for example `managed_clusters` or
+  `gateways`) or an `ext` Kind -- listed with a `search` filter that names an unknown
+  or invalid column
 - WHEN the shared list search path evaluates the filter
 - THEN the response SHALL be a 400 that names the invalid column
 - AND no query SHALL reach the database or abort the request transaction with 500 / `SQLSTATE 25P02`
+- AND the conformance 400 assertion SHALL cover core Kinds as well as `ext` Kinds, so
+  the guard is verified for every registered Kind, not only `ext` Kinds
