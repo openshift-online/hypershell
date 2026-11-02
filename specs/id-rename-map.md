@@ -482,6 +482,7 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CORE-04.01` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
 | `OSG-CORE-04.02` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
 | `OSG-CORE-17` | `platform/openshell-gateway.spec.md` | - | Described SSH-over-gRPC payload delivery into sandboxes, which was never built. OSG-CORE-16 places agent configuration out of scope. |
+| `OSG-CORE-18.05` | `platform/openshell-gateway.spec.md` | `OSG-CORE-18.09` | The null `workspace_mode` path was removed: migration `2026110212000001` backfilled pre-field gateways to `shared` and made the column required. |
 | `OSG-ROUT-01` | `platform/openshell-gateway-routing.spec.md` | - | Superseded placeholder: the control plane creates no NetworkPolicies in gateway namespaces (#339). |
 | `OSG-CON-06` | `platform/openshell-gateway-console.spec.md` | - | Required the console NetworkPolicies `openshell-console-allow-router` and `openshell-gateway-allow-console`, removed with all gateway-namespace NetworkPolicies (#339). |
 | `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |

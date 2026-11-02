@@ -464,4 +464,5 @@ func init() {
 	db.RegisterMigration(migrationAddPlacement())
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
+	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
 }
