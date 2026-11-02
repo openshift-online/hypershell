@@ -3,7 +3,8 @@
 
 Rules come from Requirement STD-IDS-06 in
 specs/standards/platform/spec-identifiers.spec.md. The registry is
-specs/ids.md and the old-to-new map is specs/id-rename-map.md.
+specs/ids.md. The ID history, specs/id-rename-map.md, holds the old-to-new
+rename tables and the one Retired IDs table.
 
 Default mode checks the rules and exits 1 on any error.
 `--report` prints a coverage report (markdown or JSON) built from
@@ -67,6 +68,12 @@ MARKER_START_RE = re.compile(r"^\s*(?://|#)\s*Verifies:")
 MARKER_RE = re.compile(rf"^\s*(?://|#) Verifies: ({_ID}(?:, {_ID})*)\s*$")
 VERIFICATION_RE = re.compile(r"^\*\*Verification:\*\*\s*([A-Za-z]+)")
 RENAME_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|")
+RETIRED_HEADING_RE = re.compile(r"^##\s+Retired IDs\s*$")
+# | `ID` | `former/file.spec.md` | `REPLACEMENT`, ... or - | Reason |
+RETIRED_ROW_RE = re.compile(
+    rf"^\|\s*`({_ID})`\s*\|\s*`([^`]+)`\s*\|([^|]*)\|\s*(\S[^|]*?)\s*\|\s*$"
+)
+TABLE_SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|\s*$")
 
 Error = Tuple[str, int, str]
 
@@ -134,7 +141,6 @@ class SpecFile:
     def __init__(self, path: str) -> None:
         self.path = path
         self.requirements: List[Requirement] = []
-        self.retired: Set[str] = set()
 
 
 def is_spec_file(path: str) -> bool:
@@ -142,12 +148,11 @@ def is_spec_file(path: str) -> bool:
 
 
 def parse_spec(path: str, text: str) -> Tuple[SpecFile, List[Error]]:
-    """Parse headings, verification methods and retired IDs of one spec."""
+    """Parse headings and verification methods of one spec."""
     spec = SpecFile(path)
     errors: List[Error] = []
     current: Optional[Requirement] = None
     in_fence = False
-    in_retired = False
     for number, line in enumerate(text.split("\n"), start=1):
         stripped = line.lstrip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
@@ -155,17 +160,12 @@ def parse_spec(path: str, text: str) -> Tuple[SpecFile, List[Error]]:
             continue
         if in_fence:
             continue
+        if RETIRED_HEADING_RE.match(line):
+            errors.append((path, number, f"spec files do not list retired IDs; move them to the Retired IDs table in {RENAME_MAP_PATH}"))
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
-            if level <= 2:
-                in_retired = bool(re.match(r"^##\s+Retired IDs\s*$", line))
             if level <= 3 and not HEADING_START_RE.match(line):
                 current = None
-        # A retired entry is a list item; the IDs before its first ": " are
-        # retired, and anything after is a note such as "replaced by X".
-        if in_retired and re.match(r"^\s*[-*]\s", line):
-            for match in CITATION_RE.finditer(line.split(": ", 1)[0]):
-                spec.retired.add(match.group(1))
         if not HEADING_START_RE.match(line):
             if current is not None:
                 found = VERIFICATION_RE.match(line)
@@ -228,13 +228,62 @@ def parse_registry(text: str) -> Tuple[Dict[str, Set[str]], List[Error]]:
     return owners, errors
 
 
+class RetiredEntry:
+    def __init__(self, id_: str, former_file: str, replaced_by: List[str], line: int) -> None:
+        self.id, self.former_file, self.replaced_by, self.line = id_, former_file, replaced_by, line
+
+
+def _history_lines(text: str) -> Iterable[Tuple[int, str, bool]]:
+    """Yield (line number, line, inside the Retired IDs section)."""
+    in_retired = False
+    for number, line in enumerate(text.split("\n"), start=1):
+        if line.startswith("#") and len(line) - len(line.lstrip("#")) <= 2:
+            in_retired = bool(RETIRED_HEADING_RE.match(line))
+        yield number, line, in_retired
+
+
 def parse_rename_map(text: str) -> Dict[str, str]:
+    """Old ID -> new ID, from every table outside the Retired IDs section."""
     mapping: Dict[str, str] = {}
-    for line in text.split("\n"):
+    for _, line, in_retired in _history_lines(text):
+        if in_retired:
+            continue
         match = RENAME_ROW_RE.match(line)
         if match and match.group(1) != "Old ID":
             mapping[match.group(1)] = match.group(2)
     return mapping
+
+
+def parse_retired(text: str) -> Tuple[List[RetiredEntry], List[Error]]:
+    """Rows of the one Retired IDs table in the ID history file."""
+    entries: List[RetiredEntry] = []
+    errors: List[Error] = []
+    seen: Dict[str, int] = {}
+    sections = 0
+    for number, line, in_retired in _history_lines(text):
+        if RETIRED_HEADING_RE.match(line):
+            sections += 1
+            if sections > 1:
+                errors.append((RENAME_MAP_PATH, number, "more than one Retired IDs section"))
+        if not in_retired or not line.startswith("|") or TABLE_SEPARATOR_RE.match(line):
+            continue
+        if re.match(r"^\|\s*ID\s*\|", line):
+            continue
+        match = RETIRED_ROW_RE.match(line)
+        if not match:
+            errors.append((RENAME_MAP_PATH, number, "malformed retired row (expected | `ID` | `former file` | `replacement`, or - | reason |)"))
+            continue
+        id_, former_file, replaced_cell, _reason = match.groups()
+        if id_ in seen:
+            errors.append((RENAME_MAP_PATH, number, f"retired ID {id_} listed twice (also line {seen[id_]})"))
+            continue
+        seen[id_] = number
+        replaced_cell = replaced_cell.strip()
+        replaced_by = [] if replaced_cell in ("", "-") else [m.group(1) for m in CITATION_RE.finditer(replaced_cell)]
+        if replaced_cell not in ("", "-") and not replaced_by:
+            errors.append((RENAME_MAP_PATH, number, f"replaced-by cell for {id_} names no ID (use - when nothing replaces it)"))
+        entries.append(RetiredEntry(id_, former_file, replaced_by, number))
+    return entries, errors
 
 
 # --------------------------------------------------------------------------
@@ -324,25 +373,35 @@ def analyze(files: Dict[str, str]) -> Analysis:
     if REGISTRY_PATH in files:
         result.registry, registry_errors = parse_registry(files[REGISTRY_PATH])
         errors.extend(registry_errors)
+    retired_entries: List[RetiredEntry] = []
     if RENAME_MAP_PATH in files:
         result.rename = parse_rename_map(files[RENAME_MAP_PATH])
+        retired_entries, retired_errors = parse_retired(files[RENAME_MAP_PATH])
+        errors.extend(retired_errors)
+    retired: Set[str] = {entry.id for entry in retired_entries}
 
     # Rules 1-4: headings, duplicates, registry, retired IDs.
     locations: Dict[str, List[Tuple[str, int]]] = {}
-    retired: Set[str] = set()
     for path in sorted(files):
         if not is_spec_file(path):
             continue
         spec, spec_errors = parse_spec(path, files[path])
         errors.extend(spec_errors)
         result.specs.append(spec)
-        retired |= spec.retired
         for req in spec.requirements:
             locations.setdefault(req.id, []).append((path, req.line))
             for scenario in req.scenarios:
                 locations.setdefault(scenario.id, []).append((path, scenario.line))
     if REGISTRY_PATH in files:
-        retired |= parse_spec(REGISTRY_PATH, files[REGISTRY_PATH])[0].retired
+        for number, line in enumerate(files[REGISTRY_PATH].split("\n"), start=1):
+            if RETIRED_HEADING_RE.match(line):
+                errors.append((REGISTRY_PATH, number, f"the registry does not list retired IDs; move them to the Retired IDs table in {RENAME_MAP_PATH}"))
+
+    # Rule 8: a replacement named in the Retired IDs table must be a live ID.
+    for entry in retired_entries:
+        for id_ in entry.replaced_by:
+            if id_ not in locations:
+                errors.append((RENAME_MAP_PATH, entry.line, f"retired ID {entry.id} is replaced by {id_}, which is not a live ID"))
 
     for id_, places in sorted(locations.items()):
         if len(places) > 1:

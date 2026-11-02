@@ -60,8 +60,8 @@ to its owning workspace (the workspace is an input to the path hash) and rejects
 resolve whose requesting workspace does not match the handle's path. See the Provider
 Credential Isolation requirement.
 
-Credential rotation (KEK re-encryption, DB password rotation) is out of scope and is
-addressed in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
+HyperShell does not rotate the KEK or the database password. How each gateway secret
+is renewed today is recorded in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
 Rotating a provider secret's **value** is OpenShell's own `provider` mechanism, not a
 HyperShell concern, for every driver.
 

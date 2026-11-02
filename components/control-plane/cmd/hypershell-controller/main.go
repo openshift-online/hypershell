@@ -85,11 +85,6 @@ type registrar interface {
 	Register(ctx context.Context) (string, error)
 }
 
-// instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
-// this instance's identity label onto its legacy gateway namespaces, so a stalled
-// API server cannot delay the GC reconciler's launch indefinitely.
-const instanceLabelBackfillTimeout = 2 * time.Minute
-
 func helmBinaryPath() string {
 	if v := os.Getenv("HELM_BINARY"); v != "" {
 		return v
@@ -376,7 +371,7 @@ func main() {
 		}
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, and namespace GC to it", clusterID, cfg.ManagedClusterName)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -623,17 +618,6 @@ func main() {
 	// while the control plane was down, or a gateway that failed to bootstrap).
 	// It requires an in-cluster Kubernetes client.
 	if clientset != nil && cfg.NamespaceGCEnabled {
-		// Before the first sweep, backfill this instance's identity label onto the
-		// legacy gateway namespaces it still owns per its API server. A Gateway in
-		// a steady-state phase is skipped by the reconciler's phase gate on start,
-		// so its pre-label namespace is otherwise never migrated and a later
-		// missed-delete would leak it past the instance-scoped sweep. This runs
-		// synchronously so the first sweep sees the freshly-labeled namespaces; it
-		// is best-effort and never blocks startup on failure.
-		backfillCtx, cancelBackfill := context.WithTimeout(ctx, instanceLabelBackfillTimeout)
-		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace, clusterID)
-		cancelBackfill()
-
 		gcReconciler := reconciler.NewNamespaceGCReconciler(
 			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace, clusterID,
 		)

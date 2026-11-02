@@ -114,7 +114,3 @@ message catalog and `locales/en.json` regenerated.
 - A version chip on gateway list rows (the list shows the version only as a sortable column).
 - Any Details-page placement of the running version beyond the header chip and the Details-tab field.
 - Operational-dashboard version distribution widgets.
-
-## Retired IDs
-
-- `WEB-VER-03`
