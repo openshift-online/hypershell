@@ -1177,6 +1177,67 @@ describe("gateway shell pages", () => {
     );
   });
 
+  // Verifies: WEB-UIEX-07.01, WEB-UIEX-07.03
+  it("renders the ownership filter as an on/off switch that requests the server-side filter", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockResolvedValue({
+      // The authorized set contains a gateway owned by someone else, so the
+      // server reports the existence flag and the switch is shown (WEB-API-01).
+      hasOtherOwnedGateways: true,
+      items: [gatewayResponse("gateway-1", "Team gateway")],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "Team gateway" });
+
+    // The control is a Switch (role "switch"), not a pressed-state button; its
+    // visible label is its accessible name and its on/off state starts off and
+    // is exposed to assistive technology (WEB-UIEX-07).
+    const ownershipSwitch = screen.getByRole("switch", {
+      checked: false,
+      name: "Show only my gateways",
+    });
+    expect(ownershipSwitch.getAttribute("aria-pressed")).toBeNull();
+    listGatewaysMock.mockClear();
+
+    // Turning the switch on requests the ownership filter from the server with
+    // pagination reset to the first page (WEB-UIEX-07.03).
+    await user.click(ownershipSwitch);
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ onlyMine: true, page: 1 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      screen.getByRole("switch", {
+        checked: true,
+        name: "Show only my gateways",
+      }),
+    ).toBeTruthy();
+
+    // The switch is operable from the keyboard and turns the filter back off.
+    listGatewaysMock.mockClear();
+    screen
+      .getByRole("switch", { checked: true, name: "Show only my gateways" })
+      .focus();
+    await user.keyboard(" ");
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ onlyMine: false, page: 1 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      screen.getByRole("switch", {
+        checked: false,
+        name: "Show only my gateways",
+      }),
+    ).toBeTruthy();
+  });
+
   it("links the gateway list to provisioning", () => {
     renderPage(() => <GatewaysPage gateways={previewGateways} />);
 

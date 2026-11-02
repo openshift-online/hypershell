@@ -145,6 +145,26 @@ grep -Fq "$TEST_DIR/work:$TEST_DIR/work" "$TEST_DIR/podman.log"
 grep -Fq 'quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6' "$TEST_DIR/podman.log"
 grep -Fq -- '--userns=keep-id' "$TEST_DIR/podman.log"
 
+# The wrapper forwards login-related environment variables by name only, so
+# the CLI sees the device-code flow switch (OPENSHELL_NO_BROWSER) and the CI
+# client secret (OPENSHELL_OIDC_CLIENT_SECRET) when they are set, while their
+# values never appear in the container process arguments.
+(
+  cd "$TEST_DIR/work"
+  HOME="$TEST_DIR/home" \
+    XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
+    CLOUDSDK_CONFIG="$TEST_DIR/home/.config/gcloud" \
+    OPENSHELL_NO_BROWSER=1 \
+    OPENSHELL_OIDC_CLIENT_SECRET=dummy-secret-value \
+    "$OPENSHELL_INSTALL_DIR/openshell" gateway list
+)
+grep -Fq -- '-e OPENSHELL_NO_BROWSER' "$TEST_DIR/podman.log"
+grep -Fq -- '-e OPENSHELL_OIDC_CLIENT_SECRET' "$TEST_DIR/podman.log"
+if grep -Fq 'dummy-secret-value' "$TEST_DIR/podman.log"; then
+  echo 'The wrapper leaked an environment variable value into the container command line'
+  exit 1
+fi
+
 # Restore the native baseline so the failure-atomicity helper below can prove
 # that a missing container engine does not replace an existing installation.
 OPENSHELL_VERSION=v0.0.109 sh "$ROOT/scripts/install-openshell.sh"
