@@ -571,9 +571,7 @@ describe("mapSdlc", () => {
     const [available, unavailable, legacy] = data.matrix.rows;
     expect(available?.gitopsStatus).toBe("available");
     expect(available?.gitopsPrs?.[0]?.number).toBe(42);
-    expect(available?.gitopsPrs?.[0]?.repository).toBe(
-      "acme/gitops-delivery",
-    );
+    expect(available?.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
     // The application #42 stays in otherPRs and is a different record from GitOps #42.
     expect(available?.otherPRs[0]?.repository).toBeNull();
     // Non-string environment entries are dropped.

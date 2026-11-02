@@ -466,9 +466,9 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		// The SDLC matrix groups the bundle's APPLICATION pull requests only
 		// (rr.rel.PRs); GitOps deployment PRs never fold into the tracked-issue/other-PR
 		// groups (SDLC-VIS-03.06). They are instead carried as the row's separate GitOps
-		// deployment group below (SDLC-VIS-25). Copy the shared fields explicitly: PR
-		// carries extra repository and environment identity that application PRs leave
-		// empty, so a struct conversion no longer applies.
+		// deployment group below (SDLC-VIS-25). Copy only the shared display fields here
+		// (not a full struct conversion): application PRs deliberately leave the
+		// repository and environment identity empty, which belongs to the GitOps group.
 		for _, pr := range rr.rel.PRs {
 			sp := SDLCPullRequest{
 				Number:   pr.Number,
@@ -522,15 +522,11 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 			row.GitOpsStatus = rr.rel.GitOpsStatus
 			gitops := make([]SDLCPullRequest, 0, len(rr.rel.GitOpsPRs))
 			for _, pr := range rr.rel.GitOpsPRs {
-				gitops = append(gitops, SDLCPullRequest{
-					Number:       pr.Number,
-					Title:        pr.Title,
-					URL:          pr.URL,
-					Author:       pr.Author,
-					MergedAt:     pr.MergedAt,
-					Repository:   pr.Repository,
-					Environments: pr.Environments,
-				})
+				// SDLCPullRequest mirrors PR field-for-field, so a struct conversion
+				// carries every GitOps field, including the repository and environment
+				// identity the deployment group needs; only the JSON tags differ, which
+				// a conversion ignores.
+				gitops = append(gitops, SDLCPullRequest(pr))
 			}
 			row.GitOpsPRs = gitops
 		}
