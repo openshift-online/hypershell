@@ -38,7 +38,7 @@ merge only on green - preventing both silent drift and unvalidated upgrades.
 All OpenShell image references are pinned using the `tag@digest` format:
 
 ```
-quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3@sha256:<digest>
+quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.2@sha256:<digest>
 ```
 
 - **Tag** provides human readability and version ordering.
