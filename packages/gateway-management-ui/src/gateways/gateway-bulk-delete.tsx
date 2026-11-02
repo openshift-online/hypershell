@@ -92,7 +92,10 @@ export async function deleteGatewaysBounded(
       }
       const target = targets[index];
       if (!target) {
-        return;
+        // A hole in the array (only possible under noUncheckedIndexedAccess)
+        // must not abort the worker; skip this slot and keep deleting the rest
+        // so one missing target cannot strand the other gateways (WEB-UIEX-08).
+        continue;
       }
       try {
         await removeGateway(target.id);
@@ -320,6 +323,11 @@ export function GatewayBulkSelectControl({
       }}
       toggle={(toggleRef) => (
         <MenuToggle
+          // Name the caret button that opens the selection-scope menu. Without
+          // this the split-button toggle has no accessible name (the inner
+          // checkbox's aria-label does not name the toggle), which fails the
+          // axe `button-name` rule and screen-reader operation (WEB-UIEX-08).
+          aria-label={intl.formatMessage(messages.bulkSelectOptions)}
           isExpanded={isOpen}
           onClick={() => {
             setIsOpen((open) => !open);

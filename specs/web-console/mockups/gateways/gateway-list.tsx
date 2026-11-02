@@ -181,6 +181,7 @@ function BulkSelectControl({
       onSelect={() => setIsOpen(false)}
       toggle={(toggleRef) => (
         <MenuToggle
+          aria-label="Bulk selection options"
           isExpanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
           ref={toggleRef}
@@ -317,7 +318,7 @@ function BulkDeleteConfirmModal({ names }: { names: string[] }) {
       <ModalBody>
         <Content>
           Deleting a gateway removes it from the platform and starts
-          asynchronous teardown of its clusters, databases, and routing. This
+          asynchronous teardown of its workload, database, and routing. This
           cannot be undone. The following gateways will be deleted:
         </Content>
         <List>

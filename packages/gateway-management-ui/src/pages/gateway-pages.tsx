@@ -20,7 +20,7 @@ import {
   ToolbarItem,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -361,6 +361,47 @@ export function GatewaysPage({
       setLocalCollectionState(nextCollectionState);
     }
   };
+  // Clamp the page down once a refetch settles on a page past the last page of
+  // results. A bulk delete that removes every row on a later page (WEB-UIEX-08)
+  // leaves pagination pointing beyond the data; without this the table would
+  // show an empty later page while earlier pages still have rows. Gating on
+  // settled, non-empty results avoids clamping against the stale previous page
+  // kept by keepPreviousData during the in-flight refetch or an empty filter.
+  const totalGatewayCount = visiblePage?.total ?? 0;
+  const lastGatewayPage = Math.max(
+    1,
+    Math.ceil(totalGatewayCount / currentCollectionState.size),
+  );
+  const pageExceedsResults =
+    gateways === undefined &&
+    !gatewayQuery.isFetching &&
+    totalGatewayCount > 0 &&
+    currentCollectionState.page > lastGatewayPage;
+  // Uncontrolled: adjust own state during render, the React-recommended
+  // alternative to a setState-in-effect. The clamp makes the condition false on
+  // the next render, so it runs once and does not loop.
+  if (pageExceedsResults && !onCollectionStateChange) {
+    setLocalCollectionState((previous) => ({
+      ...previous,
+      page: lastGatewayPage,
+    }));
+  }
+  // Controlled: notify the host after render. This syncs an external store (the
+  // host owns the collection state), not local React state, so it does not
+  // cascade local renders.
+  useEffect(() => {
+    if (pageExceedsResults && onCollectionStateChange) {
+      onCollectionStateChange(
+        { ...currentCollectionState, page: lastGatewayPage },
+        "page",
+      );
+    }
+  }, [
+    currentCollectionState,
+    lastGatewayPage,
+    onCollectionStateChange,
+    pageExceedsResults,
+  ]);
   const changeTableState = (
     nextState: ResourceTableState,
     reason: ResourceTableStateChangeReason,

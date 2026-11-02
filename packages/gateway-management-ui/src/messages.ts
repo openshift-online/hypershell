@@ -39,7 +39,7 @@ export const messages = defineMessages({
   bulkDeleteConfirmBody: {
     id: "app.gateway.bulkDelete.confirmBody",
     defaultMessage:
-      "Deleting a gateway removes it from the platform and starts asynchronous teardown of its clusters, databases, and routing. This cannot be undone. The following gateways will be deleted:",
+      "Deleting a gateway removes it from the platform and starts asynchronous teardown of its workload, database, and routing. This cannot be undone. The following gateways will be deleted:",
     description:
       "Explanation shown in the bulk-delete confirmation dialog before deletion.",
   },
@@ -112,6 +112,12 @@ export const messages = defineMessages({
     defaultMessage: "Select none ({count, number} items)",
     description:
       "Menu option that clears the selection in the bulk-selection control.",
+  },
+  bulkSelectOptions: {
+    id: "app.gateway.bulkSelect.options",
+    defaultMessage: "Bulk selection options",
+    description:
+      "Accessible label for the caret button that opens the bulk-selection scope menu (select none or select page).",
   },
   bulkSelectPage: {
     id: "app.gateway.bulkSelect.page",

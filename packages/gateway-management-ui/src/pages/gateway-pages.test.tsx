@@ -2071,6 +2071,60 @@ describe("gateway shell pages", () => {
     });
   });
 
+  // Verifies: WEB-UIEX-08.06
+  it("clamps to the last page after a bulk delete empties a later page", async () => {
+    const user = userEvent.setup();
+    // 21 gateways over a page size of 20: page 2 holds exactly one row. The
+    // mocked server shrinks the total as deletions are accepted so, once that
+    // single row is deleted, page 2 no longer exists.
+    let total = 21;
+    listGatewaysMock.mockImplementation(
+      (request: { page: number; size: number }) => {
+        const start = (request.page - 1) * request.size;
+        const count = Math.max(0, Math.min(request.size, total - start));
+        return Promise.resolve({
+          items: Array.from({ length: count }, (_unused, index) => ({
+            ...gatewayResponse(
+              `gw-${String(request.page)}-${String(index)}`,
+              `gw-${String(request.page)}-${String(index)}`,
+            ),
+            canDelete: true,
+          })),
+          page: request.page,
+          size: request.size,
+          total,
+        });
+      },
+    );
+    deleteGatewayMock.mockImplementation(() => {
+      total -= 1;
+      return Promise.resolve();
+    });
+    renderPage(GatewaysPage);
+
+    await screen.findByRole("link", { name: "gw-1-0" });
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    await screen.findByRole("link", { name: "gw-2-0" });
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-2-0" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete 1 selected gateway" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete 1 gateway" }));
+
+    // The now-empty page 2 is clamped back to the last non-empty page rather
+    // than left showing an empty later page (WEB-UIEX-08.06).
+    expect(await screen.findByRole("link", { name: "gw-1-0" })).toBeTruthy();
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1 }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
   // Verifies: WEB-UIEX-08.07, WEB-UIEX-08.08
   it("retains failed deletions for retry without resubmitting the accepted ones", async () => {
     const user = userEvent.setup();
