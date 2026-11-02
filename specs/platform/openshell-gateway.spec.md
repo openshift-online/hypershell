@@ -226,16 +226,16 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 ### Requirement: OSG-CORE-02 -- Shared Kustomize Library
 
-The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This package does not exist yet; it is desired state to be built. Once built it SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
+The kustomize rendering engine SHALL live in a single shared library package, `pkg/kustomize` in `components/cli`, exposing exported `Build` and `BuildYAML` functions. It SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
 
-#### Scenario: OSG-CORE-02.01 -- Library extraction
+#### Scenario: OSG-CORE-02.01 -- Shared library callers
 
-- GIVEN the kustomize engine currently lives in `components/cli/cmd/hsctl/apply/cmd.go`
-- WHEN the shared library is created
-- THEN it SHALL be placed in `components/cli` as the `pkg/kustomize` package, accessible to both the CLI and the control plane (the control-plane module imports the cli module)
-- AND it SHALL expose an exported `Build` with functions for: loading a kustomization root (including from an in-memory filesystem), resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
-- AND the existing `hsctl apply -k` command SHALL be refactored to use the shared library, removing its current external-`kustomize`-binary shell-out
-- AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL use the same shared library for rendering, so no second kustomize implementation exists
+- GIVEN the shared library is the `pkg/kustomize` package in `components/cli`, which the control-plane module imports
+- WHEN a caller renders a kustomization root
+- THEN `Build` SHALL take the caller's filesystem (on disk or in memory) and the root path, and SHALL return the rendered resources with bases resolved and strategic-merge patches applied
+- AND `BuildYAML` SHALL return the same resources as a single multi-document YAML stream
+- AND `hsctl apply -k` SHALL render through the shared library from the on-disk filesystem
+- AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL render through the same shared library from the fetched repository filesystem, so no second kustomize implementation exists
 
 #### Scenario: OSG-CORE-02.02 -- Supported kinds
 
