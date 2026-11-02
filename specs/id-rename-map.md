@@ -482,6 +482,7 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CORE-04.01` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
 | `OSG-CORE-04.02` | `platform/openshell-gateway.spec.md` | - | Retired with OSG-CORE-04. |
 | `OSG-CORE-17` | `platform/openshell-gateway.spec.md` | - | Described SSH-over-gRPC payload delivery into sandboxes, which was never built. OSG-CORE-16 places agent configuration out of scope. |
+| `OSG-CORE-18.05` | `platform/openshell-gateway.spec.md` | `OSG-CORE-18.09` | The null `workspace_mode` path was removed: migration `2026110212000001` backfilled pre-field gateways to `shared` and made the column required. |
 | `OSG-ROUT-01` | `platform/openshell-gateway-routing.spec.md` | - | Superseded placeholder: the control plane creates no NetworkPolicies in gateway namespaces (#339). |
 | `OSG-CON-06` | `platform/openshell-gateway-console.spec.md` | - | Required the console NetworkPolicies `openshell-console-allow-router` and `openshell-gateway-allow-console`, removed with all gateway-namespace NetworkPolicies (#339). |
 | `OSG-CON-06.01` | `platform/openshell-gateway-console.spec.md` | - | Retired with OSG-CON-06. |
@@ -497,3 +498,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-ROT-01.01` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Retired with OSG-ROT-01. |
 | `OSG-ROT-02` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Reserved a future KEK rotation design that was never built. The KEK is not rotated; credential rotation will be designed in a later spec. |
 | `PLAT-CLUS-07.01` | `platform/managed-cluster-registration.spec.md` | `PLAT-CLUS-07.03` | The capability-less heartbeat shim for control planes older than the capability model was removed; an empty capability set is now rejected. |
+| `OSG-OIDC-03.02` | `platform/openshell-gateway-oidc.spec.md` | - | Described a custom raw-TOML `config` field on the Gateway that bypassed OIDC injection. The Gateway resource has no such field. |

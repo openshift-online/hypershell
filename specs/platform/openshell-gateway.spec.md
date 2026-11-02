@@ -226,16 +226,16 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 ### Requirement: OSG-CORE-02 -- Shared Kustomize Library
 
-The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This package does not exist yet; it is desired state to be built. Once built it SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
+The kustomize rendering engine SHALL live in a single shared library package, `pkg/kustomize` in `components/cli`, exposing exported `Build` and `BuildYAML` functions. It SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
 
-#### Scenario: OSG-CORE-02.01 -- Library extraction
+#### Scenario: OSG-CORE-02.01 -- Shared library callers
 
-- GIVEN the kustomize engine currently lives in `components/cli/cmd/hsctl/apply/cmd.go`
-- WHEN the shared library is created
-- THEN it SHALL be placed in `components/cli` as the `pkg/kustomize` package, accessible to both the CLI and the control plane (the control-plane module imports the cli module)
-- AND it SHALL expose an exported `Build` with functions for: loading a kustomization root (including from an in-memory filesystem), resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
-- AND the existing `hsctl apply -k` command SHALL be refactored to use the shared library, removing its current external-`kustomize`-binary shell-out
-- AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL use the same shared library for rendering, so no second kustomize implementation exists
+- GIVEN the shared library is the `pkg/kustomize` package in `components/cli`, which the control-plane module imports
+- WHEN a caller renders a kustomization root
+- THEN `Build` SHALL take the caller's filesystem (on disk or in memory) and the root path, and SHALL return the rendered resources with bases resolved and strategic-merge patches applied
+- AND `BuildYAML` SHALL return the same resources as a single multi-document YAML stream
+- AND `hsctl apply -k` SHALL render through the shared library from the on-disk filesystem
+- AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL render through the same shared library from the fetched repository filesystem, so no second kustomize implementation exists
 
 #### Scenario: OSG-CORE-02.02 -- Supported kinds
 
@@ -707,19 +707,18 @@ caller-supplied value survives. A user or import caller that declares
 `workspace_mode` on create or update SHALL be rejected naming the field. The
 service funnel SHALL also enforce the field's value semantics for every
 writer class, the control plane included: the vocabulary above, and
-immutability of a stored non-null value (re-sending the stored value is a
-no-op; a null value on a Gateway created before this field existed may be
-set exactly once, which only a control-plane internal write can exercise).
+immutability of the stored value (re-sending the stored value is a no-op, and
+an update that omits the field keeps the stored value).
 
-A null `workspace_mode` (Gateways created before this field existed) SHALL be
-omitted from the Helm values by the GatewayReconciler so the vendored chart
-default (`shared`) keeps applying: legacy Gateways are provisioned exactly as
-before, and only newly created Gateways pick up the `managed` default.
+Every stored Gateway SHALL carry a `workspace_mode`: the column is required
+(`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
 
-The GatewayReconciler SHALL pass a non-null `workspace_mode` into the OpenShell
+The GatewayReconciler SHALL pass the stored `workspace_mode` into the OpenShell
 Helm chart as `server.drivers.kubernetes.workspaceMode`, which the chart
 renders as `workspace_mode` under `[openshell.drivers.kubernetes]` in
-`gateway.toml`.
+`gateway.toml`. A Gateway that reaches the reconciler with an empty or unknown
+mode SHALL fail provisioning as an invalid gateway configuration. It SHALL NOT
+fall back to the chart default.
 
 In `managed` mode the gateway auto-creates one namespace per workspace named
 `openshell-{gateway_id}-{workspace}`. Because HyperShell places many gateways
@@ -766,18 +765,26 @@ it.
 
 #### Scenario: OSG-CORE-18.04 -- Stored mode is immutable
 
-- GIVEN a Gateway with a stored non-null `workspace_mode`
+- GIVEN a Gateway with a stored `workspace_mode`
 - WHEN a control-plane internal update changes it to a different value
 - THEN the update SHALL be rejected with a conflict; re-sending the stored
   value is a no-op
 
-#### Scenario: OSG-CORE-18.05 -- Legacy gateway keeps shared behavior
+#### Scenario: OSG-CORE-18.08 -- An update that omits the mode keeps it
 
-- GIVEN a Gateway persisted before this field existed, with null
+- GIVEN a Gateway with a stored `workspace_mode`
+- WHEN a control-plane internal update omits `workspace_mode`
+- THEN the update SHALL succeed
+- AND the stored `workspace_mode` SHALL be unchanged
+
+#### Scenario: OSG-CORE-18.09 -- A missing mode fails provisioning
+
+- GIVEN a Gateway that reaches the GatewayReconciler with an empty
   `workspace_mode`
 - WHEN the GatewayReconciler provisions it
-- THEN the Helm values SHALL omit `workspaceMode` entirely
-- AND the vendored chart default (`shared`) SHALL continue to apply unchanged
+- THEN provisioning SHALL fail as an invalid gateway configuration
+- AND no Helm release SHALL be installed or upgraded with the chart's default
+  mode
 
 #### Scenario: OSG-CORE-18.06 -- Active sandbox accounting spans managed namespaces
 

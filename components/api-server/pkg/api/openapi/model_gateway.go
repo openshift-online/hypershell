@@ -62,7 +62,7 @@ type Gateway struct {
 	DedicatedRoute *bool `json:"dedicated_route,omitempty"`
 	// JSON-encoded credential storage driver configuration; platform-managed, control-plane-only (PLAT-DATA-23)
 	CredentialDriver *string `json:"credential_driver,omitempty"`
-	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Null (legacy gateways) keeps the chart's \"shared\" default.
+	// How the OpenShell Kubernetes driver maps workspaces to namespaces. \"shared\" places all sandboxes in the gateway namespace; \"managed\" auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned namespaces. Platform-managed (PLAT-DATA-23): the API server defaults it to \"managed\" at create, and no caller can set or change it. Always present on a stored gateway.
 	WorkspaceMode *string `json:"workspace_mode,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`

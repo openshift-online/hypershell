@@ -1,6 +1,7 @@
 package gateways_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	rhtrexdb "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
@@ -135,7 +137,7 @@ func TestGRPCGatewayWorkspaceMode(t *testing.T) {
 // since only a control-plane internal write can carry the field at all): the
 // managed default is applied on create, the vocabulary is enforced, a stored
 // value is immutable, and re-sending the stored value is a no-op.
-// Verifies: OSG-CORE-18
+// Verifies: OSG-CORE-18, OSG-CORE-18.04, OSG-CORE-18.08
 func TestGatewayWorkspaceModeServiceSemantics(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -176,4 +178,65 @@ func TestGatewayWorkspaceModeServiceSemantics(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), "re-sending the stored workspace_mode must be accepted")
 	Expect(updated.WorkspaceMode).NotTo(BeNil())
 	Expect(*updated.WorkspaceMode).To(Equal("managed"))
+
+	// Omitting the mode keeps the stored value: a whole-row save never clears
+	// the required column.
+	omitted := &gateways.Gateway{Name: created.Name, ClusterId: created.ClusterId}
+	omitted.ID = created.ID
+	omitted.Namespace = created.Namespace
+	kept, err := gatewayService.Replace(controlPlaneWriteContext(), omitted)
+	Expect(err).NotTo(HaveOccurred(), "an update without workspace_mode must be accepted")
+	Expect(kept.WorkspaceMode).NotTo(BeNil())
+	Expect(*kept.WorkspaceMode).To(Equal("managed"))
+	stored, err := gatewayService.Get(controlPlaneWriteContext(), created.ID)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(stored.WorkspaceMode).NotTo(BeNil())
+	Expect(*stored.WorkspaceMode).To(Equal("managed"))
+}
+
+// TestGatewayWorkspaceModeBackfillMigration reproduces a database that still
+// holds gateways created before the workspace_mode column existed (NULL or
+// empty), then re-runs the migration suite with only the backfill migration
+// unrecorded, as a redeploy of the new image would. The legacy rows must get
+// "shared" -- the chart default they were provisioned with -- a stored
+// "managed" row must be untouched, and the column must reject NULL afterwards.
+// Verifies: OSG-CORE-18
+func TestGatewayWorkspaceModeBackfillMigration(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	ctx := context.Background()
+	g2 := h.Env().Database.SessionFactory.New(ctx)
+	gatewayService := gateways.Service(&environments.Environment().Services)
+
+	create := func(name string) *gateways.Gateway {
+		gw, err := gatewayService.Create(controlPlaneWriteContext(), &gateways.Gateway{Name: name, ClusterId: "test-cluster_id"})
+		Expect(err).NotTo(HaveOccurred())
+		return gw
+	}
+	legacyNull := create("ws-backfill-null")
+	legacyEmpty := create("ws-backfill-empty")
+	current := create("ws-backfill-managed")
+
+	// Seed the pre-backfill state: nullable column, legacy rows without a mode,
+	// and the backfill migration not yet recorded.
+	Expect(g2.Exec("ALTER TABLE gateways ALTER COLUMN workspace_mode DROP NOT NULL").Error).To(Succeed())
+	Expect(g2.Exec("UPDATE gateways SET workspace_mode = NULL WHERE id = ?", legacyNull.ID).Error).To(Succeed())
+	Expect(g2.Exec("UPDATE gateways SET workspace_mode = '' WHERE id = ?", legacyEmpty.ID).Error).To(Succeed())
+	Expect(g2.Exec("DELETE FROM migrations WHERE id = '2026110212000001'").Error).To(Succeed())
+
+	Expect(rhtrexdb.Migrate(g2)).To(Succeed(), "migration suite failed on the seeded legacy state")
+
+	mode := func(id string) *string {
+		var m *string
+		Expect(g2.Raw("SELECT workspace_mode FROM gateways WHERE id = ?", id).Row().Scan(&m)).To(Succeed())
+		return m
+	}
+	for _, id := range []string{legacyNull.ID, legacyEmpty.ID} {
+		got := mode(id)
+		Expect(got).NotTo(BeNil(), "legacy gateway %s was not backfilled", id)
+		Expect(*got).To(Equal("shared"), "legacy gateway %s must keep the shared mode it runs in", id)
+	}
+	Expect(*mode(current.ID)).To(Equal("managed"), "a stored mode must not be rewritten")
+
+	err := g2.Exec("UPDATE gateways SET workspace_mode = NULL WHERE id = ?", current.ID).Error
+	Expect(err).To(HaveOccurred(), "workspace_mode must be NOT NULL after the backfill")
 }

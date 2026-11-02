@@ -106,7 +106,7 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
 
 #### Scenario: OSG-OIDC-03.01 -- OIDC Helm values set for an OIDC-enabled gateway
 
-- GIVEN a Gateway with OIDC enabled and no custom `config` field
+- GIVEN a Gateway with OIDC enabled
 - WHEN the GatewayReconciler builds the Helm chart values
 - THEN the values SHALL contain:
   ```yaml
@@ -119,12 +119,6 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
       userRole: "openshell-user"
   ```
 - AND the GatewayReconciler SHALL NOT set `server.auth.allowUnauthenticatedUsers`, so unauthenticated users stay disallowed
-
-#### Scenario: OSG-OIDC-03.02 -- Custom config overrides bypass OIDC injection
-
-- GIVEN a Gateway with OIDC enabled AND a custom `config` field (raw TOML)
-- THEN the custom `config` SHALL be used verbatim
-- AND the GatewayReconciler SHALL NOT inject the OIDC section
 
 #### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields set as Helm values
 

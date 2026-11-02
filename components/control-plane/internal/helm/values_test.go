@@ -65,8 +65,9 @@ func TestBuild_IngressExposure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
-					Image: "quay.io/test/gateway:latest",
-					Route: RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
+					WorkspaceMode: "shared",
+					Image:         "quay.io/test/gateway:latest",
+					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
 				},
 				Namespace:            "test-ns",
 				IsOpenShift:          true,
@@ -139,8 +140,9 @@ func TestBuild_TrustedCAConfigMapName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
-					Image: "quay.io/test/gateway:latest",
-					OIDC:  OIDCConfig{Issuer: tc.oidcIssuer},
+					WorkspaceMode: "shared",
+					Image:         "quay.io/test/gateway:latest",
+					OIDC:          OIDCConfig{Issuer: tc.oidcIssuer},
 				},
 				Namespace:    "test-ns",
 				HasTrustedCA: tc.hasTrustedCA,
@@ -206,7 +208,7 @@ func TestBuild_GatewayResources(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
-				Gateway:   GatewayConfig{Image: "quay.io/test/gateway:latest"},
+				Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/test/gateway:latest"},
 				Namespace: "test-ns",
 				Resources: tc.resources,
 			}
@@ -265,6 +267,7 @@ func TestParseGatewayResources(t *testing.T) {
 func TestBuild_SandboxRuntimeImage(t *testing.T) {
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
 			Image:               "quay.io/test/gateway:v1",
 			SupervisorImage:     "quay.io/test/supervisor:v1",
 			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
@@ -308,7 +311,7 @@ func TestBuild_SandboxRuntimeClass(t *testing.T) {
 	}
 
 	builder := ValuesBuilder{
-		Gateway:             GatewayConfig{Image: "quay.io/test/gateway:v1"},
+		Gateway:             GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/test/gateway:v1"},
 		Namespace:           "test-ns",
 		SandboxRuntimeClass: "kata",
 	}
@@ -345,6 +348,7 @@ func TestBuild_SandboxRuntimeClassRendersInChart(t *testing.T) {
 
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:   "shared",
 			Image:           "quay.io/test/gateway:v1",
 			SupervisorImage: "quay.io/test/supervisor:v1",
 		},
@@ -391,6 +395,7 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
 			Image:               "quay.io/test/gateway:v1",
 			SupervisorImage:     "quay.io/test/supervisor:v1",
 			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
@@ -448,6 +453,7 @@ func TestBuild_VaultCredentialDriver(t *testing.T) {
 	for _, hasCA := range []bool{true, false} {
 		builder := ValuesBuilder{
 			Gateway: GatewayConfig{
+				WorkspaceMode:    "shared",
 				Image:            "quay.io/test/gateway:latest",
 				CredentialDriver: &CredentialDriverConfig{Type: "vault", Vault: newVault()},
 			},
@@ -531,6 +537,7 @@ func TestBuild_VaultCredentialDriver(t *testing.T) {
 func TestBuild_KekDbCredentialDriver(t *testing.T) {
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:    "shared",
 			Image:            "quay.io/test/gateway:latest",
 			CredentialDriver: &CredentialDriverConfig{Type: "kek-db"},
 		},
@@ -556,9 +563,9 @@ func TestBuild_KekDbCredentialDriver(t *testing.T) {
 }
 
 // TestBuild_WorkspaceMode locks in the workspace-mode wiring required by
-// openshell-gateway.spec.md "Gateway Workspace Mode": an empty mode (legacy
-// gateways) omits the Helm value so the chart default (shared) keeps applying;
-// a set mode lands under server.drivers.kubernetes.workspaceMode; and managed
+// openshell-gateway.spec.md "Gateway Workspace Mode": an empty mode is an error
+// (the chart default never decides the mode); a set mode lands under
+// server.drivers.kubernetes.workspaceMode; and managed
 // mode also derives a per-gateway unique gateway_id from the API-assigned
 // namespace so per-workspace namespaces never collide across gateways.
 func TestBuild_WorkspaceMode(t *testing.T) {
@@ -574,25 +581,18 @@ func TestBuild_WorkspaceMode(t *testing.T) {
 		return cur
 	}
 
-	// Empty mode (legacy gateway): nothing is set, chart default applies.
+	// Empty mode: Build fails rather than letting the chart default apply.
 	builder := ValuesBuilder{
 		Gateway:   GatewayConfig{Image: "quay.io/test/gateway:v1"},
 		Namespace: "openshell-deadbeefdeadbeef",
 	}
-	values, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Build() returned error: %v", err)
-	}
-	if got := nested(values, "server", "drivers", "kubernetes", "workspaceMode"); got != nil {
-		t.Errorf("server.drivers.kubernetes.workspaceMode present for empty mode: %v", got)
-	}
-	if got := nested(values, "server", "sandboxJwt", "gatewayId"); got != nil {
-		t.Errorf("server.sandboxJwt.gatewayId present for empty mode: %v", got)
+	if _, err := builder.Build(); err == nil {
+		t.Errorf("Build() succeeded with an empty workspace mode, want error")
 	}
 
 	// Managed mode: mode and the derived per-gateway gateway_id are both set.
 	builder.Gateway.WorkspaceMode = "managed"
-	values, err = builder.Build()
+	values, err := builder.Build()
 	if err != nil {
 		t.Fatalf("Build() returned error: %v", err)
 	}
@@ -742,6 +742,7 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			routeHost := "gw-test-ns.apps.example.com"
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
+					WorkspaceMode:  "shared",
 					Image:          "quay.io/test/gateway:latest",
 					ServerDnsNames: dnsNames,
 					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
