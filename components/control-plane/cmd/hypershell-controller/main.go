@@ -371,7 +371,7 @@ func main() {
 		}
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, and namespace GC to it", clusterID, cfg.ManagedClusterName)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
