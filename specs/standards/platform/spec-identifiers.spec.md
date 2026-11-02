@@ -357,20 +357,3 @@ deleted ID.
    "which commit delivered this requirement" a `git log --grep` search;
    requiring a second, PR-body-only field would duplicate that without
    surviving the squash-merge.
-
-## Migration Note
-
-This change renumbers 918 requirements and assigns IDs to 1747 scenarios
-across 90 spec files. Every reference to a changed ID elsewhere in `specs/`
-was rewritten in the same change (698 rewritten cross-references). Five
-`#### Scenario:` headings were left unlabeled because they illustrate
-behavior in a narrative section outside any file's `## Requirements`
-section (`platform/oidc-integration.spec.md` and
-`standards/sdlc/jira-github-sync.spec.md`). The follow-up change renamed
-them to `#### Example:` so they no longer look like scenarios.
-
-Code and test files that cited a pre-migration ID were rewritten to the
-new IDs in a follow-up change, which also added the STD-IDS-06 check to
-`make check`. That change also renamed a few IDs added after the migration
-in the old style; they are listed under "Later Renames" in
-`specs/id-rename-map.md`.
