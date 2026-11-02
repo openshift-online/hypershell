@@ -54,9 +54,6 @@ const (
 // the final behavior check (after the parallel P2 wave and read-only P3), never concurrently
 // with other gateway provisioning. It needs kube access to mutate the CA source Secret.
 func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; fail-closed needs kube access to make Vault unreachable")
-	}
 	s.vaultFailClosedScenario(t.Context(), t)
 }
 

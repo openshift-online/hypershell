@@ -77,9 +77,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	s.Require().NoError(err, "gateway user access grant request")
 	s.Assert().Equalf(http.StatusForbidden, status, "gateway user cannot grant access (body: %s)", string(body))
 
-	if !s.skipKubeChecks {
-		s.exerciseDeveloperSandbox(t)
-	}
+	s.exerciseDeveloperSandbox(t)
 
 	updated, err := access.Update(ctx, gatewayID, devGrant.UserID,
 		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleAdmin})
