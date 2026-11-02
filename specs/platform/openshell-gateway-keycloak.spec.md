@@ -218,9 +218,11 @@ When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a ded
 
 #### Client ID Format
 
-The Keycloak `clientId` of a new gateway SHALL be the gateway's API-server resource ID (KSUID). The ID is unique and immutable, so it cannot clash when several gateways share a name or a gateway is deleted and recreated with the same name, and a rename never changes it. Example: a gateway with ID `2FhMpQzXBz` gets `clientId = "2FhMpQzXBz"`. Gateways provisioned before this format keep their earlier `{name}-{id}` client ID (for example `my-gateway-2FhMpQzXBz`). In this and related specs, `{client-id}` means the gateway's stored client ID, whichever format it has.
+The Keycloak `clientId` of a new gateway SHALL be the gateway's API-server resource ID (KSUID). The ID is unique and immutable, so it cannot clash when several gateways share a name or a gateway is deleted and recreated with the same name, and a rename never changes it. Example: a gateway with ID `2FhMpQzXBz` gets `clientId = "2FhMpQzXBz"`. In this and related specs, `{client-id}` means the gateway's stored client ID.
 
-The control plane SHALL persist the provisioned client ID as both OIDC `client_id` and `audience`, and every path that needs the gateway's client (provisioning, existing-client reconciliation, console provisioning and cleanup, role assignment, CI federation, and deletion) SHALL use that stored value rather than derive one from the gateway name. The persisted values SHALL be used only when both are non-empty, they agree, and the identity is gateway-owned: a control-character-free identifier that is either exactly the gateway ID or a non-empty prefix followed by `-{gateway-id}`. Control characters, a record with only one of the two values, and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. When neither persisted identity value exists, as on a new gateway before its client is provisioned, the initial client ID is the gateway ID. Earlier `{name}-{id}` identifiers may contain spaces or non-ASCII characters because gateway names are not restricted; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
+> Gateways provisioned before this format keep an earlier `{name}-{id}` client ID until they are deleted. That compatibility rule is in [`openshell-gateway-keycloak.transitional.spec.md`](./openshell-gateway-keycloak.transitional.spec.md) (OSG-KCLT-01).
+
+The control plane SHALL persist the provisioned client ID as both OIDC `client_id` and `audience`, and every path that needs the gateway's client (provisioning, existing-client reconciliation, console provisioning and cleanup, role assignment, CI federation, and deletion) SHALL use that stored value rather than derive one from the gateway name. The persisted values SHALL be used only when both are non-empty, they agree, and the identity is gateway-owned: exactly the gateway ID. Control characters, a record with only one of the two values, and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. When neither persisted identity value exists, as on a new gateway before its client is provisioned, the initial client ID is the gateway ID. Whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
 
 The client SHALL be created with the following properties:
 
@@ -303,10 +305,10 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 
 #### Scenario: OSG-KCLK-02.07 -- Renamed gateway keeps its stored client on every path
 
-- GIVEN a gateway with ID `2FhMpQzXBz` has the stored client ID `my-gateway-2FhMpQzXBz`
+- GIVEN a gateway has a stored client ID `{client-id}`
 - AND the gateway is renamed to `new-name`
 - WHEN the control plane provisions the gateway or its console, reconciles its existing client, assigns client roles, or configures CI federation
-- THEN each path SHALL use the client `my-gateway-2FhMpQzXBz`
+- THEN each path SHALL use the client `{client-id}`
 - AND no path SHALL create or look up a client derived from `new-name`
 
 ---

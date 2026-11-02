@@ -46,7 +46,7 @@ Roles claim: hypershell.roles (via client-roles mapper from resource_access.{cli
 Roles:       openshell-admin, openshell-user (client-scoped)
 ```
 
-> **Client ID format:** `{client-id}` is the gateway's stored Keycloak `clientId`: the gateway ID (e.g., `2FhMpQzXBz`) for new gateways, or `{name}-{id}` for gateways provisioned earlier. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details.
+> **Client ID format:** `{client-id}` is the gateway's stored Keycloak `clientId`: the gateway ID (e.g., `2FhMpQzXBz`). See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details, and [`openshell-gateway-keycloak.transitional.spec.md`](./openshell-gateway-keycloak.transitional.spec.md) for the earlier `{name}-{id}` format that older gateways keep.
 
 > **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 

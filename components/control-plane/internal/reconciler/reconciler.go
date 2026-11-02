@@ -820,6 +820,8 @@ func isGatewayOwnedKeycloakClientID(clientID, gatewayID string) bool {
 	if clientID == gatewayID {
 		return true
 	}
+	// Transitional (OSG-KCLT-01, openshell-gateway-keycloak.transitional.spec.md):
+	// the earlier {name}-{id} format. Remove this branch with that spec.
 	suffix := "-" + gatewayID
 	return strings.HasSuffix(clientID, suffix) && len(clientID) > len(suffix)
 }

@@ -128,6 +128,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
 | `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 6 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
+| `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
@@ -176,7 +177,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
+| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 9 |
 | `STD-RCON` | `standards/control-plane/reconciliation-contract.spec.md` | 13 |
 
 ### UIS

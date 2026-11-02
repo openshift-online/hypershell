@@ -368,7 +368,7 @@ func TestDeriveWorkspace(t *testing.T) {
 
 // A renamed gateway keeps the client it was provisioned with, so the exchange
 // audience is the stored client ID, not one built from the new name.
-// Verifies: OSG-KCLK-02.07
+// Verifies: OSG-KCLK-02.07, OSG-KCLT-01.01
 func TestCITrustUpsert_RenamedGatewayUsesStoredClientID(t *testing.T) {
 	kc := &fakeCIKeycloak{}
 	trustSvc := &fakeCITrustSvc{}

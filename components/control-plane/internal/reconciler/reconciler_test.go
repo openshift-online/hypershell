@@ -70,6 +70,7 @@ func TestGatewayNamespace(t *testing.T) {
 	})
 }
 
+// Verifies: OSG-KCLK-02.04, OSG-KCLT-01.01, OSG-KCLT-01.02
 func TestGatewayKeycloakClientID(t *testing.T) {
 	gatewayID := "gateway-01ABCDEF"
 	oidcJSON := func(clientID, audience string) *string {
@@ -98,36 +99,6 @@ func TestGatewayKeycloakClientID(t *testing.T) {
 			name:    "persisted gateway ID identity",
 			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON(gatewayID, gatewayID)},
 			want:    gatewayID,
-		},
-		{
-			name:    "persisted name-and-ID identity",
-			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("current-name-"+gatewayID, "current-name-"+gatewayID)},
-			want:    "current-name-" + gatewayID,
-		},
-		{
-			name:    "renamed gateway uses persisted identity",
-			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("original-name-"+gatewayID, "original-name-"+gatewayID)},
-			want:    "original-name-" + gatewayID,
-		},
-		{
-			name:    "raw name characters remain valid",
-			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original gateway_日本語-"+gatewayID, "Original gateway_日本語-"+gatewayID)},
-			want:    "Original gateway_日本語-" + gatewayID,
-		},
-		{
-			name:    "line separator remains valid",
-			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2028gateway-"+gatewayID, "Original\u2028gateway-"+gatewayID)},
-			want:    "Original\u2028gateway-" + gatewayID,
-		},
-		{
-			name:    "paragraph separator remains valid",
-			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2029gateway-"+gatewayID, "Original\u2029gateway-"+gatewayID)},
-			want:    "Original\u2029gateway-" + gatewayID,
-		},
-		{
-			name:    "bidi formatting control remains valid",
-			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u202egateway-"+gatewayID, "Original\u202egateway-"+gatewayID)},
-			want:    "Original\u202egateway-" + gatewayID,
 		},
 		{
 			name:    "malformed persisted OIDC config",
@@ -174,6 +145,38 @@ func TestGatewayKeycloakClientID(t *testing.T) {
 			gateway: &pb.Gateway{Name: "bad\nname"},
 			want:    gatewayID,
 		},
+		// OSG-KCLT-01 (transitional): the earlier {name}-{id} format. Delete these
+		// cases with openshell-gateway-keycloak.transitional.spec.md.
+		{
+			name:    "persisted name-and-ID identity",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("current-name-"+gatewayID, "current-name-"+gatewayID)},
+			want:    "current-name-" + gatewayID,
+		},
+		{
+			name:    "renamed gateway uses persisted identity",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("original-name-"+gatewayID, "original-name-"+gatewayID)},
+			want:    "original-name-" + gatewayID,
+		},
+		{
+			name:    "raw name characters remain valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original gateway_日本語-"+gatewayID, "Original gateway_日本語-"+gatewayID)},
+			want:    "Original gateway_日本語-" + gatewayID,
+		},
+		{
+			name:    "line separator remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2028gateway-"+gatewayID, "Original\u2028gateway-"+gatewayID)},
+			want:    "Original\u2028gateway-" + gatewayID,
+		},
+		{
+			name:    "paragraph separator remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2029gateway-"+gatewayID, "Original\u2029gateway-"+gatewayID)},
+			want:    "Original\u2029gateway-" + gatewayID,
+		},
+		{
+			name:    "bidi formatting control remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u202egateway-"+gatewayID, "Original\u202egateway-"+gatewayID)},
+			want:    "Original\u202egateway-" + gatewayID,
+		},
 		{
 			name:    "persisted identity with empty prefix",
 			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("-"+gatewayID, "-"+gatewayID)},
@@ -207,6 +210,7 @@ func TestGatewayKeycloakClientID(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLT-01.02
 func TestReconcileExistingGatewayKeycloakClient_QuotesAcceptedUnicodeClientIDs(t *testing.T) {
 	gatewayID := "gateway-01ABCDEF"
 	for _, tc := range []struct {
@@ -1285,6 +1289,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsInvalidStatusAfterIdentityRec
 	}
 }
 
+// Verifies: OSG-KCLK-02.07, OSG-KCLT-01.01
 func TestGatewayReconciler_Handle_GatedPhase_UsesPersistedClientIdentityAfterRename(t *testing.T) {
 	ctx := context.Background()
 	gatewayID := "gw-renamed"
