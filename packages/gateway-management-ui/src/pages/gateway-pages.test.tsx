@@ -1919,7 +1919,7 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
-  // Verifies: WEB-UIEX-08.01 (deselect all) and current-page header scope
+  // Verifies: WEB-UIEX-08.01, WEB-UIEX-08.03
   it("selects and clears the current page from the header control", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -2126,6 +2126,62 @@ describe("gateway shell pages", () => {
     expect(
       deleteGatewayMock.mock.calls.filter(([id]) => id === "gw-a"),
     ).toHaveLength(1);
+    expect(await screen.findByText("1 gateway deletion accepted")).toBeTruthy();
+  });
+
+  // Verifies: WEB-UIEX-08.07
+  it("keeps a busy indicator visible while a retry is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveRetry: (() => void) | undefined;
+    let gbCalls = 0;
+    deleteGatewayMock.mockImplementation((id: string) => {
+      if (id === "gw-b") {
+        gbCalls += 1;
+        if (gbCalls === 1) {
+          return Promise.reject(new Error("rejected"));
+        }
+        return new Promise<void>((resolve) => {
+          resolveRetry = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    listGatewaysMock.mockResolvedValue({
+      items: [
+        { ...gatewayResponse("gw-a", "gw-a"), canDelete: true },
+        { ...gatewayResponse("gw-b", "gw-b"), canDelete: true },
+      ],
+      page: 1,
+      size: 20,
+      total: 2,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "gw-a" });
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-b" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 selected gateways" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete 2 gateways" }));
+
+    await user.click(
+      await screen.findByRole("button", { name: "Retry failed deletions" }),
+    );
+
+    // While the retry runs the results banner stays mounted, shows progress, and
+    // the retry action is disabled so it cannot be resubmitted.
+    expect(await screen.findByText("Retrying failed deletions")).toBeTruthy();
+    const retryButton = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Retry failed deletions",
+    });
+    expect(retryButton.disabled).toBe(true);
+
+    resolveRetry?.();
     expect(await screen.findByText("1 gateway deletion accepted")).toBeTruthy();
   });
 });

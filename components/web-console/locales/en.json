@@ -1623,6 +1623,10 @@
     "defaultMessage": "Retry failed deletions",
     "description": "Action that retries only the failed deletions without resubmitting the accepted ones."
   },
+  "app.gateway.bulkDelete.retrying": {
+    "defaultMessage": "Retrying failed deletions",
+    "description": "Results banner title shown while a retry of the failed deletions is in progress."
+  },
   "app.gateway.bulkSelect.ariaLabel": {
     "defaultMessage": "Select gateways on this page",
     "description": "Accessible label for the header bulk-selection control, whose scope is the current page."

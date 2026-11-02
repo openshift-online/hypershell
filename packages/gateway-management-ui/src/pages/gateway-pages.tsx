@@ -583,8 +583,9 @@ export function GatewaysPage({
         <ResourceTable
           ariaLabel={intl.formatMessage(messages.gateways)}
           banner={
-            bulkDelete.phase === "results" ? (
+            bulkDelete.phase === "results" || bulkDelete.isRetrying ? (
               <GatewayBulkDeleteResultBanner
+                isRetrying={bulkDelete.isRetrying}
                 onDismiss={bulkDelete.dismissResults}
                 onRetry={bulkDelete.retryFailed}
                 outcomes={bulkDelete.outcomes}

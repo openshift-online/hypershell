@@ -1,3 +1,5 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import type {
   GatewayListRequest,
   GatewayRecord,
@@ -331,6 +333,26 @@ export function gatewayListQueryKey(request: GatewayListRequest) {
 
 export function gatewayQueryKey(gatewayId: string) {
   return ["gateways", "detail", gatewayId] as const;
+}
+
+/**
+ * Reconciles the query cache after one or more gateways are deleted: it evicts
+ * each deleted gateway's detail cache so a stale detail view cannot linger, then
+ * invalidates the gateway list so pagination and totals refetch from the
+ * authoritative source. The per-row delete (WEB-UIEX-06) and the bulk delete
+ * (WEB-UIEX-08) share this single step so both reconcile the cache identically.
+ */
+export async function reconcileGatewayCachesAfterDelete(
+  queryClient: QueryClient,
+  deletedGatewayIds: readonly string[],
+): Promise<void> {
+  for (const gatewayId of deletedGatewayIds) {
+    queryClient.removeQueries({
+      exact: true,
+      queryKey: gatewayQueryKey(gatewayId),
+    });
+  }
+  await queryClient.invalidateQueries({ queryKey: gatewayListQueryRoot });
 }
 
 export function gatewayPlacementQueryKey(search: string) {

@@ -95,6 +95,12 @@ export const messages = defineMessages({
     description:
       "Action that retries only the failed deletions without resubmitting the accepted ones.",
   },
+  bulkDeleteRetrying: {
+    id: "app.gateway.bulkDelete.retrying",
+    defaultMessage: "Retrying failed deletions",
+    description:
+      "Results banner title shown while a retry of the failed deletions is in progress.",
+  },
   bulkSelectAriaLabel: {
     id: "app.gateway.bulkSelect.ariaLabel",
     defaultMessage: "Select gateways on this page",

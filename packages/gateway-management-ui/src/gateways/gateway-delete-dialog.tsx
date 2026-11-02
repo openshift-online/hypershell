@@ -15,7 +15,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
-import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
+import { reconcileGatewayCachesAfterDelete } from "./gateway-data";
 
 interface GatewayDeleteDialogProps {
   activeSandboxCount?: number;
@@ -42,14 +42,8 @@ export function GatewayDeleteDialog({
   const deletion = useMutation({
     mutationFn: () => gateways.removeGateway(gatewayId),
     onSuccess: async () => {
-      queryClient.removeQueries({
-        exact: true,
-        queryKey: gatewayQueryKey(gatewayId),
-      });
       onDeleted();
-      await queryClient.invalidateQueries({
-        queryKey: gatewayListQueryRoot,
-      });
+      await reconcileGatewayCachesAfterDelete(queryClient, [gatewayId]);
     },
   });
 

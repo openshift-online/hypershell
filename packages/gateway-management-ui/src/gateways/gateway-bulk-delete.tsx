@@ -17,6 +17,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalVariant,
+  Spinner,
   Tooltip,
 } from "@patternfly/react-core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,7 +27,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
 import { type GatewayConnection } from "./gateway-connections";
-import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
+import { reconcileGatewayCachesAfterDelete } from "./gateway-data";
 
 /**
  * Maximum number of concurrent per-gateway delete requests a bulk deletion may
@@ -127,6 +128,10 @@ export interface GatewayBulkDeleteController {
   // confirmation and while the confirmed deletion runs, but not during a retry,
   // which re-runs only the failures without reopening the dialog.
   isConfirmOpen: boolean;
+  // Whether a retry of the failed deletions is in flight. A retry runs without
+  // the confirmation dialog, so the results banner stays mounted and shows a
+  // busy indicator instead of disappearing with no progress shown.
+  isRetrying: boolean;
   outcomes: readonly GatewayBulkDeleteOutcome[];
   phase: GatewayBulkDeletePhase;
   request: (targets: readonly GatewayBulkDeleteTarget[]) => void;
@@ -180,17 +185,11 @@ export function useGatewayBulkDelete({
         // Drop accepted gateways from the selection but keep the failures so the
         // user can retry them (WEB-UIEX-08.07).
         onAccepted(acceptedIds);
-        // Drop the accepted gateways' detail caches, matching the per-row delete
-        // workflow so a stale detail view cannot linger after bulk deletion.
-        for (const acceptedId of acceptedIds) {
-          queryClient.removeQueries({
-            exact: true,
-            queryKey: gatewayQueryKey(acceptedId),
-          });
-        }
-        // Refetch the authoritative list and totals so pagination stays valid and
-        // the selection reconciles against the refreshed rows (WEB-UIEX-08.06).
-        await queryClient.invalidateQueries({ queryKey: gatewayListQueryRoot });
+        // Drop the accepted gateways' detail caches and refetch the authoritative
+        // list and totals, sharing the per-row delete's cache reconciliation so a
+        // stale detail view cannot linger, pagination stays valid, and the
+        // selection reconciles against the refreshed rows (WEB-UIEX-08.06).
+        await reconcileGatewayCachesAfterDelete(queryClient, acceptedIds);
         setOutcomes(results);
         setPhase("results");
       } finally {
@@ -219,6 +218,7 @@ export function useGatewayBulkDelete({
     isBusy: phase === "deleting",
     isConfirmOpen:
       phase === "confirming" || (phase === "deleting" && isDeletingFromConfirm),
+    isRetrying: phase === "deleting" && !isDeletingFromConfirm,
     outcomes,
     phase,
     request: (nextTargets) => {
@@ -461,10 +461,12 @@ export function GatewayBulkDeleteConfirmModal({
  * failed deletions visible for retry, and offers a retry of only the failures.
  */
 export function GatewayBulkDeleteResultBanner({
+  isRetrying = false,
   onDismiss,
   onRetry,
   outcomes,
 }: {
+  isRetrying?: boolean;
   onDismiss: () => void;
   onRetry: () => void;
   outcomes: readonly GatewayBulkDeleteOutcome[];
@@ -481,35 +483,51 @@ export function GatewayBulkDeleteResultBanner({
   const hasFailures = failed.length > 0;
   const allFailed = failed.length === outcomes.length;
 
-  const title = !hasFailures
-    ? intl.formatMessage(messages.bulkDeleteResultTitleAllAccepted, {
-        count: outcomes.length,
-      })
-    : allFailed
-      ? intl.formatMessage(messages.bulkDeleteResultTitleAllFailed, {
-          count: failed.length,
+  const title = isRetrying
+    ? intl.formatMessage(messages.bulkDeleteRetrying)
+    : !hasFailures
+      ? intl.formatMessage(messages.bulkDeleteResultTitleAllAccepted, {
+          count: outcomes.length,
         })
-      : intl.formatMessage(messages.bulkDeleteResultTitlePartial, {
-          failed: failed.length,
-          total: outcomes.length,
-        });
+      : allFailed
+        ? intl.formatMessage(messages.bulkDeleteResultTitleAllFailed, {
+            count: failed.length,
+          })
+        : intl.formatMessage(messages.bulkDeleteResultTitlePartial, {
+            failed: failed.length,
+            total: outcomes.length,
+          });
 
   return (
-    // A live, focusable region so the completion summary is announced to
-    // assistive technology (standards/ui/accessibility.spec.md).
-    <div aria-live="assertive" ref={regionRef} tabIndex={-1}>
+    // A focusable region so the completion summary is announced to assistive
+    // technology when focus moves to it. The live region is polite, not
+    // assertive, so a screen reader does not announce the summary twice (once on
+    // focus and once from an assertive live update) (standards/ui/accessibility.spec.md).
+    <div aria-live="polite" ref={regionRef} tabIndex={-1}>
       <Alert
         actionClose={
           <AlertActionCloseButton
             aria-label={intl.formatMessage(messages.close)}
+            isDisabled={isRetrying}
             onClose={onDismiss}
           />
         }
         actionLinks={
           hasFailures ? (
-            <AlertActionLink onClick={onRetry}>
+            // While a retry is in flight the action is disabled so the user
+            // cannot resubmit it; the alert's spinner icon shows progress and
+            // the controller's in-flight guard also blocks a duplicate run.
+            <AlertActionLink isDisabled={isRetrying} onClick={onRetry}>
               {intl.formatMessage(messages.bulkDeleteRetry)}
             </AlertActionLink>
+          ) : undefined
+        }
+        customIcon={
+          isRetrying ? (
+            <Spinner
+              aria-valuetext={intl.formatMessage(messages.bulkDeleteRetrying)}
+              size="md"
+            />
           ) : undefined
         }
         isInline
